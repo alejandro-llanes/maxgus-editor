@@ -219,6 +219,9 @@ pub enum Task {
     Dired { path: PathBuf },
     /// Act on files, from dired.
     DiredAct { action: FileAction },
+    /// Read the script file.
+    #[cfg(feature = "script")]
+    ReadScript { path: PathBuf },
     /// Write the session for a project.
     SaveSession { path: PathBuf, contents: String },
     /// Read one back.
@@ -617,6 +620,12 @@ pub enum TaskResult {
     DiredDone {
         said: String,
         relist: PathBuf,
+    },
+    /// The script file, as it was read.
+    #[cfg(feature = "script")]
+    ScriptRead {
+        source: String,
+        path: PathBuf,
     },
 }
 

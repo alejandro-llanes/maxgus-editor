@@ -11,6 +11,7 @@ members = [
     "crates/maxgus-core",
     "crates/maxgus-git",
     "crates/maxgus-grep",
+    "crates/maxgus-script",
     "crates/maxgus-term",
     "crates/maxgus-tui",
     "crates/maxgus-gui",

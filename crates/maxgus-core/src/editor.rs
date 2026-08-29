@@ -64,6 +64,11 @@ pub struct Editor {
     pub config_says_theme: Option<String>,
     /// A file being read, and the line point should land on when it arrives.
     pub pending_line: Option<(PathBuf, usize)>,
+    /// The loaded script, and where it came from.
+    #[cfg(feature = "script")]
+    pub script: Option<maxgus_script::Script>,
+    #[cfg(feature = "script")]
+    pub script_path: Option<PathBuf>,
     /// The directory listing, when one is open.
     pub dired: Option<crate::dired::DiredView>,
     /// The snippets that have been loaded, from the configuration directory.
@@ -280,6 +285,10 @@ impl Editor {
             state_dir: None,
             config_says_theme: None,
             pending_line: None,
+            #[cfg(feature = "script")]
+            script: None,
+            #[cfg(feature = "script")]
+            script_path: None,
             dired: None,
             snippets: Vec::new(),
             snippet_fields: Vec::new(),
@@ -783,6 +792,42 @@ impl Editor {
     /// move to the next field rather than indent.
     pub fn in_snippet(&self) -> bool {
         !self.snippet_fields.is_empty()
+    }
+
+    /// True when a script defined a command by this name.
+    #[cfg(feature = "script")]
+    pub fn has_script_command(&self, name: &str) -> bool {
+        self.script
+            .as_ref()
+            .is_some_and(|script| script.commands().iter().any(|c| c.name == name))
+    }
+
+    /// Takes a freshly loaded script, and offers its commands to `M-x`.
+    #[cfg(feature = "script")]
+    pub fn set_script(&mut self, script: maxgus_script::Script) {
+        // Whatever the last script offered is no longer on offer.
+        if let Some(previous) = self.script.take() {
+            let gone: Vec<&str> = previous
+                .commands()
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect();
+            self.command_names
+                .retain(|name| !gone.contains(&name.as_str()));
+            self.command_docs
+                .retain(|(name, _)| !gone.contains(&name.as_str()));
+        }
+        let count = script.commands().len();
+        for command in script.commands() {
+            if !self.command_names.contains(&command.name) {
+                self.command_names.push(command.name.clone());
+            }
+            self.command_docs
+                .push((command.name.clone(), command.doc.clone()));
+        }
+        self.command_names.sort();
+        self.script = Some(script);
+        self.message(format!("{count} command(s) from the script"));
     }
 
     /// Shows `buffer` in the window a file is edited in, never in the panel.
@@ -1575,6 +1620,17 @@ impl Editor {
             TaskResult::DiredDone { said, relist } => {
                 self.message(said);
                 self.spawn(crate::task::Task::Dired { path: relist });
+                Ok(())
+            }
+            #[cfg(feature = "script")]
+            TaskResult::ScriptRead { source, path } => {
+                self.script_path = Some(path);
+                match maxgus_script::Script::load(&source) {
+                    Ok(script) => self.set_script(script),
+                    // A script that will not load is reported and the editor
+                    // carries on: it is an extension, not a prerequisite.
+                    Err(error) => self.error(format!("script: {error}")),
+                }
                 Ok(())
             }
             TaskResult::SessionRead { session } => {

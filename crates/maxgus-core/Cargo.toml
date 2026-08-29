@@ -16,6 +16,7 @@ maxgus-lsp = { version = "0.1.0", path = "../maxgus-lsp", optional = true }
 maxgus-syntax = { version = "0.1.0", path = "../maxgus-syntax", optional = true }
 maxgus-git = { version = "0.1.0", path = "../maxgus-git", optional = true }
 maxgus-grep = { version = "0.1.0", path = "../maxgus-grep", optional = true }
+maxgus-script = { version = "0.1.0", path = "../maxgus-script", optional = true }
 maxgus-term = { version = "0.1.0", path = "../maxgus-term", optional = true }
 maxgus-text = { version = "0.1.0", path = "../maxgus-text" }
 maxgus-tree = { version = "0.1.0", path = "../maxgus-tree" }
@@ -31,7 +32,7 @@ tracing = "0.1.44"
 default = ["full"]
 
 # Everything the editor can do.
-full = ["syntax", "lsp", "git", "terminal", "grep"]
+full = ["syntax", "lsp", "git", "terminal", "grep", "script"]
 
 # Tree-sitter highlighting. The grammars are C, and are most of what a build
 # spends its time on — which is what makes leaving them out worth a feature.
@@ -40,6 +41,8 @@ syntax = ["dep:maxgus-syntax"]
 lsp = ["dep:maxgus-lsp"]
 # Project-wide search, and editing the results back into the files.
 grep = ["dep:maxgus-grep"]
+# Commands defined by scripts.
+script = ["dep:maxgus-script"]
 # The magit clone.
 git = ["dep:maxgus-git"]
 # The terminal panel along the bottom.

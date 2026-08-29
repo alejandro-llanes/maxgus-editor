@@ -16,6 +16,41 @@ every option below.
 
 ---
 
+## `init.rhai` — scripts
+
+A file beside the configuration defining commands, in
+[Rhai](https://rhai.rs). Each is registered with `define(name, doc, fn)` and
+becomes an ordinary command: `M-x` offers it, a `keymap` block can bind it.
+
+A command is a function taking one argument, a map describing where it was
+called:
+
+| Field | What it is |
+|---|---|
+| `text` | The whole buffer |
+| `point` | The character offset point is at |
+| `line`, `column` | Where that is, counted from zero |
+| `buffer` | The buffer's name |
+| `path` | The file it is visiting, or `()` |
+| `mode` | Its major mode, or `()` |
+| `region` | The selected text, or `()` |
+
+and calling any of:
+
+| Call | What it asks for |
+|---|---|
+| `insert(text)` | Put text in at point |
+| `delete(count)` | Take characters out, forwards from point |
+| `goto(offset)` | Move point |
+| `run(command)` | Run one of the editor's own commands |
+| `message(text)` | Say something in the echo area |
+| `fail(text)` | Stop, and keep none of what was asked for |
+
+A script cannot reach into editor state directly, and cannot take a built-in
+command's name.
+
+---
+
 ## `.editorconfig`
 
 A file's own project speaks first. Any `.editorconfig` between the file and

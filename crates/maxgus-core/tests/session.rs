@@ -4482,7 +4482,7 @@ fn the_readme_quotes_the_right_totals() {
 #[cfg(feature = "full")]
 const README_BINDINGS: usize = 344;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 423;
+const README_COMMANDS: usize = 425;
 
 #[cfg(feature = "lsp")]
 #[test]
@@ -6211,4 +6211,152 @@ fn a_refresh_keeps_point_on_the_file_it_was_on() {
         Some("alpha.rs"),
         "point did not stay on the file"
     );
+}
+
+// ---- scripts -------------------------------------------------------------
+
+#[cfg(feature = "script")]
+fn with_script(source: &str) -> Session {
+    let mut s = tall_session("/project/main.rs", "hello world\n");
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::ScriptRead {
+            source: source.into(),
+            path: "/home/someone/.config/maxgus/init.rhai".into(),
+        })
+        .unwrap();
+    s.editor.tasks.drain();
+    s
+}
+
+#[cfg(feature = "script")]
+#[test]
+fn a_script_command_is_offered_by_m_x_and_runs() {
+    let mut s = with_script(
+        r#"
+        fn shout(ctx) { insert("!"); }
+        define("shout", "Add an exclamation mark.", shout);
+        "#,
+    );
+    assert!(
+        s.editor.command_names.iter().any(|n| n == "shout"),
+        "`M-x` does not offer it"
+    );
+    s.dispatcher.execute(&mut s.editor, "shout", None);
+    assert!(
+        s.editor.current_buffer().text().starts_with('!'),
+        "it did not run: {:?}",
+        s.editor.current_buffer().text()
+    );
+}
+
+#[cfg(feature = "script")]
+#[test]
+fn a_script_command_sees_where_it_was_called() {
+    let mut s = with_script(
+        r#"
+        fn where_am_i(ctx) { message(`${ctx.buffer}:${ctx.line}:${ctx.column}`); }
+        define("where-am-i", "…", where_am_i);
+        "#,
+    );
+    s.editor.with_current_buffer(|b| b.set_point(6));
+    s.editor.windows.current_mut().point = 6;
+    s.dispatcher.execute(&mut s.editor, "where-am-i", None);
+    assert_eq!(s.echo(), "main.rs:0:6", "got `{}`", s.echo());
+}
+
+#[cfg(feature = "script")]
+#[test]
+fn a_script_command_can_run_the_editors_own() {
+    let mut s = with_script(
+        r#"
+        fn to_the_end(ctx) { run("end-of-buffer"); }
+        define("to-the-end", "…", to_the_end);
+        "#,
+    );
+    s.dispatcher.execute(&mut s.editor, "to-the-end", None);
+    assert_eq!(
+        s.editor.windows.current().point,
+        s.editor.current_buffer().len_chars(),
+        "the command it asked for did not run"
+    );
+}
+
+#[cfg(feature = "script")]
+#[test]
+fn a_script_that_fails_leaves_nothing_behind() {
+    let mut s = with_script(
+        r#"
+        fn half(ctx) { insert("SHOULD NOT BE THERE"); fail("not today"); }
+        define("half", "…", half);
+        "#,
+    );
+    let before = s.editor.current_buffer().text();
+    s.dispatcher.execute(&mut s.editor, "half", None);
+    assert_eq!(
+        s.editor.current_buffer().text(),
+        before,
+        "the edits before the failure were kept"
+    );
+    assert!(s.echo().contains("not today"), "got `{}`", s.echo());
+}
+
+#[cfg(feature = "script")]
+#[test]
+fn a_script_cannot_take_a_built_in_commands_name() {
+    let mut s = with_script(
+        r#"
+        fn hijack(ctx) { insert("hijacked"); }
+        define("save-buffer", "…", hijack);
+        "#,
+    );
+    s.editor.tasks.drain();
+    s.dispatcher.execute(&mut s.editor, "save-buffer", None);
+    assert!(
+        !s.editor.current_buffer().text().contains("hijacked"),
+        "a script overrode a built-in command"
+    );
+}
+
+#[cfg(feature = "script")]
+#[test]
+fn a_script_that_will_not_load_is_reported_and_the_editor_carries_on() {
+    let mut s = tall_session("/project/main.rs", "hello\n");
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::ScriptRead {
+            source: "fn broken( {".into(),
+            path: "/home/someone/.config/maxgus/init.rhai".into(),
+        })
+        .unwrap();
+    assert!(s.echo().contains("script:"), "got `{}`", s.echo());
+    // And the editor still works.
+    s.type_text("x");
+    assert!(s.editor.current_buffer().text().starts_with('x'));
+}
+
+#[cfg(feature = "script")]
+#[test]
+fn reloading_replaces_what_the_last_script_offered() {
+    let mut s = with_script(
+        r#"
+        fn first(ctx) { }
+        define("first-command", "…", first);
+        "#,
+    );
+    assert!(s.editor.command_names.iter().any(|n| n == "first-command"));
+
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::ScriptRead {
+            source: r#"
+            fn second(ctx) { }
+            define("second-command", "…", second);
+            "#
+            .into(),
+            path: "/home/someone/.config/maxgus/init.rhai".into(),
+        })
+        .unwrap();
+    assert!(
+        !s.editor.command_names.iter().any(|n| n == "first-command"),
+        "the old command is still offered"
+    );
+    assert!(s.editor.command_names.iter().any(|n| n == "second-command"));
 }

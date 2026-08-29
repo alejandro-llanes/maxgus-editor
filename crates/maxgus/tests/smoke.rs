@@ -2252,6 +2252,7 @@ fn every_feature_combination_builds() {
         &["syntax", "lsp"],
         &["git", "terminal"],
         &["grep"],
+        &["script"],
         &["full"],
         &["gui"],
     ];
@@ -2664,5 +2665,76 @@ fn dired_lists_a_real_directory_and_acts_on_what_is_marked() {
         "it deleted the wrong thing"
     );
     assert!(work.join("subdir").exists(), "it deleted the directory");
+    assert_eq!(session.quit(), 0);
+}
+
+#[cfg(feature = "script")]
+#[test]
+fn a_script_beside_the_configuration_defines_a_real_command() {
+    // The file being found, loaded, offered by `M-x` and run.
+    let fixture = Fixture::new("script");
+    let root = fixture.path();
+    std::fs::write(
+        root.join("config.kdl"),
+        "set nerd-font-icons=#false\nset line-numbers=#false\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("init.rhai"),
+        r#"
+        fn surround(ctx) {
+            insert("<<");
+            run("end-of-line");
+        }
+        define("surround-line", "Put marks around this line.", surround);
+
+        fn say_where(ctx) {
+            message(`line ${ctx.line + 1} of ${ctx.buffer}`);
+        }
+        define("say-where", "Say where point is.", say_where);
+        "#,
+    )
+    .unwrap();
+    std::fs::write(root.join("notes.txt"), "first line\nsecond line\n").unwrap();
+
+    let mut session = Session::start(root, &["--config", "config.kdl", "notes.txt"]);
+    assert!(
+        wait_for(&mut session, "maxgus started in", 100),
+        "no startup"
+    );
+
+    // A command the script defined, run by name. Whether the load *said*
+    // anything is a race with the startup greeting; whether the command
+    // exists is not.
+    session.send(b"\x1bxsay-where\r");
+    assert!(
+        wait_for(&mut session, "line 1 of notes.txt", 60),
+        "the script command said nothing:\n{:#?}",
+        session.screen()
+    );
+
+    // And one that edits, and hands on to a built-in command.
+    session.send(b"\x1bxsurround-line\r");
+    assert!(
+        wait_for(&mut session, "<<first line", 60),
+        "the script command did not edit:\n{:#?}",
+        session.screen()
+    );
+
+    // `M-x` offers it, which is what makes it a command rather than a
+    // function nobody can reach.
+    session.send(b"\x1bxsurround");
+    assert!(
+        wait_for(&mut session, "Put marks around this line", 60),
+        "`M-x` does not offer it with its documentation:\n{:#?}",
+        session.screen()
+    );
+    session.send(b"\x07"); // C-g
+    session.settle();
+    session.send(b"\x18\x13"); // C-x C-s
+    assert!(
+        wait_for(&mut session, "Wrote", 60),
+        "the save did not happen"
+    );
     assert_eq!(session.quit(), 0);
 }

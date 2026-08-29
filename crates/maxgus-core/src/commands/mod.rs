@@ -21,6 +21,8 @@ pub mod motion;
 pub mod multi;
 pub mod panel;
 pub mod register;
+#[cfg(feature = "script")]
+pub mod script;
 pub mod search;
 pub mod snippet;
 #[cfg(feature = "terminal")]
@@ -45,6 +47,8 @@ pub fn standard_registry() -> Registry {
     window::register(&mut registry);
     buffer::register(&mut registry);
     file::register(&mut registry);
+    #[cfg(feature = "script")]
+    script::register(&mut registry);
     search::register(&mut registry);
     snippet::register(&mut registry);
     panel::register(&mut registry);

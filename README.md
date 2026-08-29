@@ -91,7 +91,7 @@ $ ./target/release/maxgus
 ### Emacs keys, and they behave like Emacs
 
 **344 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **423 commands**. Prefix
+the panel, tree, magit and terminal maps, driving **425 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -236,6 +236,43 @@ The tree keeps **47 bindings and 41 commands** from treemacs' own keymap:
 `c f`/`c d` to create, `R`, `d`, `m`, `!`, `y a`/`y r`/`y p`/`y f` to copy
 paths, `t h`/`t w`/`t f`/`t g`/`t d` to toggle, `g r` to refresh. Git status
 in the gutter, follow mode, `?` for help.
+
+### Scripts, for the things a config file cannot say
+
+Configuration says what the editor should *be*. A script says what it should
+*do*. `~/.config/maxgus/init.rhai` defines commands, and they are commands in
+every sense — `M-x` offers them with their documentation, and a keymap can
+bind them:
+
+```rhai
+fn wrap_in_backticks(ctx) {
+    if ctx.region == () { fail("Select something first"); }
+    insert(`\`${ctx.region}\``);
+}
+define("wrap-in-backticks", "Put backticks around the region.", wrap_in_backticks);
+
+fn save_and_format(ctx) {
+    run("lsp-format-buffer");
+    run("save-buffer");
+}
+define("save-and-format", "Format, then save.", save_and_format);
+```
+
+A script does **not** get the editor. It is told what is on screen — the text,
+point, the line and column, the buffer, the file, the mode, the region — and
+asks for a list of changes: `insert`, `delete`, `goto`, `message`, `fail`, and
+`run`, which is any command the editor already has. That is a deliberate
+limit and a useful one: a script can be tested without an editor, one that
+fails leaves nothing behind rather than half an edit, and a script can never
+take a built-in command's name out from under it.
+
+`M-x reload-scripts` picks up changes without restarting; `M-x
+list-script-commands` shows what is defined. A script that will not parse is
+reported and the editor carries on — it is an extension, not a prerequisite.
+A runaway loop is stopped rather than taking the editor with it.
+
+The language is [Rhai](https://rhai.rs): pure Rust, so it builds everywhere
+the editor does, with no C toolchain and no `unsafe`.
 
 ### Dired: a directory you can work on
 
@@ -671,7 +708,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1901 tests.** Unit tests beside the code; session tests that press real keys
+**1921 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

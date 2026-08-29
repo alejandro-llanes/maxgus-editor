@@ -157,6 +157,13 @@ impl Registry {
     /// Runs `name`, reporting an unknown command the way Emacs does.
     pub fn execute(&self, editor: &mut Editor, name: &str, args: &Args) -> Result<()> {
         let Some(command) = self.get(name) else {
+            // A name the editor does not know may be one a script defined.
+            // Scripts are looked at last, so nothing a script defines can
+            // take a built-in command's name out from under it.
+            #[cfg(feature = "script")]
+            if editor.has_script_command(name) {
+                return crate::commands::script::run(editor, name);
+            }
             return Err(crate::CoreError::UnknownCommand(name.to_string()));
         };
         (command.handler)(editor, args)

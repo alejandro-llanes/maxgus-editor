@@ -98,6 +98,16 @@ async fn main() -> Result<()> {
     // Snippets live beside the configuration, one directory per mode, the way
     // yasnippet arranges them.
     editor.snippets = load_snippets(editor.config_path.as_deref());
+    // The script beside the configuration, read like any other file.
+    #[cfg(feature = "script")]
+    if let Some(path) = editor
+        .config_path
+        .as_deref()
+        .and_then(std::path::Path::parent)
+        .map(|dir| dir.join("init.rhai"))
+    {
+        editor.spawn(maxgus_core::Task::ReadScript { path });
+    }
     editor.config_says_theme = Some(config.settings.theme.clone());
     apply_keymaps(&mut editor, &config);
 

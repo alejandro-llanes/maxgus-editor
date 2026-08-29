@@ -167,6 +167,8 @@ impl Executor {
             }
             Task::Dired { path } => self.dired(path).await,
             Task::DiredAct { action } => self.dired_act(action).await,
+            #[cfg(feature = "script")]
+            Task::ReadScript { path } => self.read_script(path).await,
             Task::SaveSession { path, contents } => self.save_session(path, contents).await,
             Task::ReadSession { path } => self.read_session(path).await,
             Task::PersistTheme { path, theme } => {
@@ -405,6 +407,17 @@ impl Executor {
                 message: "nowhere to list again".into(),
             }),
             (Err(error), _) => self.fail("dired", error),
+        }
+    }
+
+    /// Reads the script file. A project with none is the usual case and not
+    /// a failure.
+    #[cfg(feature = "script")]
+    async fn read_script(&self, path: PathBuf) {
+        match tokio::fs::read_to_string(&path).await {
+            Ok(source) => self.send(TaskResult::ScriptRead { source, path }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => self.fail("reading the script", error),
         }
     }
 

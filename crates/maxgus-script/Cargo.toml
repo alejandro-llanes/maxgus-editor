@@ -1,0 +1,15 @@
+[package]
+name = "maxgus-script"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Extending the editor: scripts that define commands."
+
+[lints]
+workspace = true
+
+[dependencies]
+rhai = { version = "1.26.0", default-features = false, features = ["std", "sync"] }
+thiserror = "2.0.20"

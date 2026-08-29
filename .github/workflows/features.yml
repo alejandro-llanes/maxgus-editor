@@ -28,6 +28,7 @@ jobs:
           - git
           - terminal
           - grep
+          - script
           - "lsp,git"
           - "syntax,lsp"
           - "git,terminal"

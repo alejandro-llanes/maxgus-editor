@@ -2593,3 +2593,76 @@ fn a_snippet_file_is_found_and_expanded() {
     );
     assert_eq!(session.quit(), 0);
 }
+
+#[test]
+fn dired_lists_a_real_directory_and_acts_on_what_is_marked() {
+    // The listing, the marks, and a deletion that really happens.
+    let fixture = Fixture::new("dired");
+    let root = fixture.path();
+    // A directory of its own, so what is in it is exactly what this test put
+    // there and counting lines means something.
+    let work = root.join("work");
+    std::fs::create_dir_all(work.join("subdir")).unwrap();
+    for name in ["a-gone.txt", "b-gone.txt", "c-keep.txt"] {
+        std::fs::write(work.join(name), "x\n").unwrap();
+    }
+    std::fs::write(
+        root.join("config.kdl"),
+        "set nerd-font-icons=#false\nset line-numbers=#false\n",
+    )
+    .unwrap();
+
+    let mut session = Session::start(root, &["--config", "config.kdl", "keep.txt"]);
+    assert!(
+        wait_for(&mut session, "maxgus started in", 60),
+        "no startup"
+    );
+
+    session.send(b"\x18d"); // C-x d
+    session.settle();
+    session.send(b"work\r");
+    assert!(
+        wait_for(&mut session, "a-gone.txt", 60),
+        "the directory did not list:\n{:#?}",
+        session.screen()
+    );
+    let screen = session.screen();
+    assert!(
+        screen.iter().any(|line| line.contains("subdir/")),
+        "no directory in the listing:\n{screen:#?}"
+    );
+    assert!(
+        screen.iter().any(|line| line.contains("rw")),
+        "no permissions in the listing:\n{screen:#?}"
+    );
+
+    // The listing is `subdir/`, then the three files in order. Point starts
+    // on `subdir`, so one `n` reaches the first file.
+    session.send(b"n");
+    session.settle();
+    session.send(b"mm"); // mark a-gone.txt and b-gone.txt
+    session.settle();
+    session.send(b"D");
+    session.settle();
+    session.send(b"yes\r");
+    assert!(
+        wait_for(&mut session, "Deleted 2 item(s)", 100),
+        "the deletion did not happen:\n{:#?}",
+        session.screen()
+    );
+
+    assert!(
+        !work.join("a-gone.txt").exists(),
+        "a-gone.txt is still there"
+    );
+    assert!(
+        !work.join("b-gone.txt").exists(),
+        "b-gone.txt is still there"
+    );
+    assert!(
+        work.join("c-keep.txt").exists(),
+        "it deleted the wrong thing"
+    );
+    assert!(work.join("subdir").exists(), "it deleted the directory");
+    assert_eq!(session.quit(), 0);
+}

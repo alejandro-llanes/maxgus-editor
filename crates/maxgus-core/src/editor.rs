@@ -64,6 +64,8 @@ pub struct Editor {
     pub config_says_theme: Option<String>,
     /// A file being read, and the line point should land on when it arrives.
     pub pending_line: Option<(PathBuf, usize)>,
+    /// The directory listing, when one is open.
+    pub dired: Option<crate::dired::DiredView>,
     /// The snippets that have been loaded, from the configuration directory.
     pub snippets: Vec<crate::snippet::Snippet>,
     /// The fields of the snippet being filled in, as buffer offsets.
@@ -278,6 +280,7 @@ impl Editor {
             state_dir: None,
             config_says_theme: None,
             pending_line: None,
+            dired: None,
             snippets: Vec::new(),
             snippet_fields: Vec::new(),
             snippet_field: 0,
@@ -968,6 +971,9 @@ impl Editor {
                 return Some(crate::commands::git::COMMIT_MODE.to_string());
             }
         }
+        if buffer.name() == crate::commands::dired::DIRED_BUFFER_NAME {
+            return Some(crate::commands::dired::DIRED_MODE.to_string());
+        }
         if buffer.name() == crate::commands::undo_tree::VISUALIZER_BUFFER_NAME {
             return Some(crate::commands::undo_tree::VISUALIZER_MODE.to_string());
         }
@@ -1035,6 +1041,7 @@ impl Editor {
             crate::commands::grep::GREP_MODE => crate::keymap::grep_keymap().ok(),
             #[cfg(feature = "grep")]
             crate::commands::grep::GREP_EDIT_MODE => crate::keymap::grep_edit_keymap().ok(),
+            crate::commands::dired::DIRED_MODE => crate::keymap::dired_keymap().ok(),
             crate::commands::undo_tree::VISUALIZER_MODE => crate::keymap::undo_tree_keymap().ok(),
             crate::commands::tree::SYMBOLS_MODE => crate::keymap::symbols_keymap().ok(),
             crate::commands::tree::BUFFERS_MODE => crate::keymap::buffers_keymap().ok(),
@@ -1557,6 +1564,17 @@ impl Editor {
                     "Wrote {} line(s) in {} file(s)",
                     applied.lines, applied.files
                 ));
+                Ok(())
+            }
+            TaskResult::DiredListed { path, entries } => {
+                if let Err(error) = crate::commands::dired::show(self, path, entries) {
+                    self.error(error.to_string());
+                }
+                Ok(())
+            }
+            TaskResult::DiredDone { said, relist } => {
+                self.message(said);
+                self.spawn(crate::task::Task::Dired { path: relist });
                 Ok(())
             }
             TaskResult::SessionRead { session } => {

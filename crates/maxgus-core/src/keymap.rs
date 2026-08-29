@@ -162,6 +162,7 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     // ---- point, mark and the rest of C-x ----
     ("C-x C-x", "exchange-point-and-mark"),
     ("C-x h", "mark-whole-buffer"),
+    ("C-x d", "dired"),
     ("C-x u", "undo"),
     ("S-TAB", "snippet-previous-field"),
     ("C-c s", "insert-snippet"),
@@ -635,6 +636,38 @@ pub const UNDO_TREE_BINDINGS: &[(&str, &str)] = &[
 pub fn undo_tree_keymap() -> Result<Keymap> {
     let mut map = Keymap::new(crate::commands::undo_tree::VISUALIZER_MODE);
     for (keys, command) in UNDO_TREE_BINDINGS {
+        map.define_str(keys, *command)?;
+    }
+    Ok(map)
+}
+
+/// Dired's own keys, spelled as Emacs spells them.
+pub const DIRED_BINDINGS: &[(&str, &str)] = &[
+    ("n", "dired-next"),
+    ("p", "dired-previous"),
+    ("<down>", "dired-next"),
+    ("<up>", "dired-previous"),
+    ("RET", "dired-visit"),
+    ("f", "dired-visit"),
+    ("^", "dired-up"),
+    ("g", "dired-refresh"),
+    ("m", "dired-mark"),
+    ("u", "dired-unmark"),
+    ("U", "dired-unmark-all"),
+    ("t", "dired-toggle-marks"),
+    ("d", "dired-flag-deletion"),
+    ("x", "dired-do-flagged-delete"),
+    ("D", "dired-do-delete"),
+    ("C", "dired-do-copy"),
+    ("R", "dired-do-rename"),
+    ("+", "dired-create-directory"),
+    ("!", "dired-do-shell-command"),
+    ("q", "dired-quit"),
+];
+
+pub fn dired_keymap() -> Result<Keymap> {
+    let mut map = Keymap::new(crate::commands::dired::DIRED_MODE);
+    for (keys, command) in DIRED_BINDINGS {
         map.define_str(keys, *command)?;
     }
     Ok(map)

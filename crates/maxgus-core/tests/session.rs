@@ -4480,9 +4480,9 @@ fn the_readme_quotes_the_right_totals() {
 }
 
 #[cfg(feature = "full")]
-const README_BINDINGS: usize = 343;
+const README_BINDINGS: usize = 344;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 405;
+const README_COMMANDS: usize = 423;
 
 #[cfg(feature = "lsp")]
 #[test]
@@ -5995,5 +5995,220 @@ fn a_snippet_for_another_mode_is_not_offered() {
         !s.editor.current_buffer().text().contains("defun"),
         "another mode's snippet was expanded: {:?}",
         s.editor.current_buffer().text()
+    );
+}
+
+// ---- dired ---------------------------------------------------------------
+
+fn dired_entry(name: &str, is_dir: bool, size: u64) -> maxgus_core::dired::Entry {
+    maxgus_core::dired::Entry {
+        name: name.into(),
+        is_dir,
+        link: None,
+        size,
+        permissions: if is_dir { "drwxr-xr-x" } else { "-rw-r--r--" }.into(),
+        modified: "Aug 29 15:03".into(),
+    }
+}
+
+fn with_dired() -> Session {
+    let mut s = tall_session("/project/main.rs", "fn main() {}\n");
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::DiredListed {
+            path: "/project/src".into(),
+            entries: vec![
+                dired_entry("nested", true, 0),
+                dired_entry("alpha.rs", false, 100),
+                dired_entry("beta.rs", false, 200),
+            ],
+        })
+        .unwrap();
+    s.editor.tasks.drain();
+    s
+}
+
+#[test]
+fn a_directory_opens_as_a_buffer_of_its_contents() {
+    let mut s = with_dired();
+    assert_eq!(s.editor.current_buffer().name(), "*dired*");
+    let screen = s.screen();
+    let has = |needle: &str| screen.iter().any(|line| line.contains(needle));
+    assert!(has("/project/src"), "no title:\n{screen:#?}");
+    assert!(has("nested/"), "no directory");
+    assert!(has("alpha.rs"), "no file");
+    assert!(has(".."), "no way up");
+}
+
+#[test]
+fn marking_moves_on_so_a_run_of_files_is_m_m_m() {
+    let mut s = with_dired();
+    let line = |s: &Session| {
+        s.editor
+            .current_buffer()
+            .line_of(s.editor.windows.current().point)
+    };
+    let start = line(&s);
+    s.keys("m");
+    assert!(line(&s) > start, "`m` did not move on");
+    s.keys("m");
+    let marked = s
+        .editor
+        .dired
+        .as_ref()
+        .expect("a listing")
+        .with_mark(maxgus_core::dired::Mark::Marked);
+    assert_eq!(marked.len(), 2, "two `m`s marked {} things", marked.len());
+}
+
+#[test]
+fn an_operation_acts_on_the_marks_when_there_are_any() {
+    let mut s = with_dired();
+    s.keys("m"); // the first entry
+    s.keys("m"); // and the second
+    s.editor.tasks.drain();
+    s.keys("D");
+    s.type_text("yes");
+    s.keys("RET");
+    match &s.editor.tasks.drain()[..] {
+        [
+            Task::DiredAct {
+                action: maxgus_core::task::FileAction::Delete(paths),
+            },
+        ] => assert_eq!(paths.len(), 2, "it acted on {} things", paths.len()),
+        other => panic!("expected a delete, got {other:?}"),
+    }
+}
+
+#[test]
+fn deleting_asks_first_and_taking_it_back_stops_it() {
+    let mut s = with_dired();
+    s.editor.tasks.drain();
+    s.keys("D");
+    assert!(s.editor.minibuffer.is_active(), "it did not ask");
+    s.type_text("no");
+    s.keys("RET");
+    assert!(s.editor.tasks.drain().is_empty(), "it deleted anyway");
+    assert!(s.echo().contains("Nothing deleted"), "got `{}`", s.echo());
+}
+
+#[test]
+fn flagging_and_executing_deletes_what_was_flagged() {
+    let mut s = with_dired();
+    s.keys("d"); // flag the first
+    s.editor.tasks.drain();
+    s.keys("x");
+    match &s.editor.tasks.drain()[..] {
+        [
+            Task::DiredAct {
+                action: maxgus_core::task::FileAction::Delete(paths),
+            },
+        ] => {
+            assert_eq!(paths.len(), 1);
+            assert!(paths[0].ends_with("nested"), "wrong target: {paths:?}");
+        }
+        other => panic!("expected a delete, got {other:?}"),
+    }
+}
+
+#[test]
+fn executing_with_nothing_flagged_says_so() {
+    let mut s = with_dired();
+    s.editor.tasks.drain();
+    s.keys("x");
+    assert!(
+        s.echo().contains("Nothing is flagged"),
+        "got `{}`",
+        s.echo()
+    );
+    assert!(s.editor.tasks.drain().is_empty());
+}
+
+#[test]
+fn return_on_a_directory_opens_it_and_on_a_file_reads_it() {
+    // Point starts on the first entry, which is the directory.
+    let mut s = with_dired();
+    s.editor.tasks.drain();
+    s.keys("RET");
+    match &s.editor.tasks.drain()[..] {
+        [Task::Dired { path }] => assert!(path.ends_with("nested")),
+        other => panic!("expected a listing, got {other:?}"),
+    }
+
+    let mut s = with_dired();
+    s.keys("n"); // onto `alpha.rs`
+    s.editor.tasks.drain();
+    s.keys("RET");
+    match &s.editor.tasks.drain()[..] {
+        [Task::ReadFile { path, .. }] => assert!(path.ends_with("alpha.rs")),
+        other => panic!("expected a read, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_shell_command_gets_the_marked_files_as_its_arguments() {
+    let mut s = with_dired();
+    s.keys("n"); // onto alpha.rs
+    s.keys("m"); // mark it
+    s.editor.tasks.drain();
+    s.keys("!");
+    s.type_text("wc -l");
+    s.keys("RET");
+    match &s.editor.tasks.drain()[..] {
+        [Task::Shell { command, .. }] => {
+            assert!(command.starts_with("wc -l "), "got `{command}`");
+            assert!(
+                command.contains("alpha.rs"),
+                "the file is missing: `{command}`"
+            );
+            assert!(
+                command.contains('\''),
+                "the path is not quoted: `{command}`"
+            );
+        }
+        other => panic!("expected a shell command, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_refresh_keeps_point_on_the_file_it_was_on() {
+    let mut s = with_dired();
+    s.keys("n"); // alpha.rs
+    let before = s
+        .editor
+        .dired
+        .as_ref()
+        .and_then(|v| {
+            v.entry(
+                s.editor
+                    .current_buffer()
+                    .line_of(s.editor.windows.current().point),
+            )
+        })
+        .map(|e| e.name.clone());
+    assert_eq!(before.as_deref(), Some("alpha.rs"));
+
+    // Something else appears, which would move it if point followed lines.
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::DiredListed {
+            path: "/project/src".into(),
+            entries: vec![
+                dired_entry("aaa", true, 0),
+                dired_entry("nested", true, 0),
+                dired_entry("alpha.rs", false, 100),
+                dired_entry("beta.rs", false, 200),
+            ],
+        })
+        .unwrap();
+    let after = s.editor.dired.as_ref().and_then(|v| {
+        v.entry(
+            s.editor
+                .current_buffer()
+                .line_of(s.editor.windows.current().point),
+        )
+    });
+    assert_eq!(
+        after.map(|e| e.name.as_str()),
+        Some("alpha.rs"),
+        "point did not stay on the file"
     );
 }

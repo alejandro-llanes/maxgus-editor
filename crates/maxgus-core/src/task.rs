@@ -118,6 +118,39 @@ impl std::fmt::Display for TerminalId {
     }
 }
 
+/// Something to do to files, as dired asks for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileAction {
+    Delete(Vec<PathBuf>),
+    Copy {
+        from: Vec<PathBuf>,
+        to: PathBuf,
+    },
+    Rename {
+        from: Vec<PathBuf>,
+        to: PathBuf,
+    },
+    CreateDirectory(PathBuf),
+    /// The directory to list again once it is done.
+    Chmod {
+        paths: Vec<PathBuf>,
+        mode: u32,
+    },
+}
+
+impl FileAction {
+    /// What to say about it afterwards.
+    pub fn describe(&self) -> String {
+        match self {
+            FileAction::Delete(paths) => format!("Deleted {} item(s)", paths.len()),
+            FileAction::Copy { from, .. } => format!("Copied {} item(s)", from.len()),
+            FileAction::Rename { from, .. } => format!("Renamed {} item(s)", from.len()),
+            FileAction::CreateDirectory(path) => format!("Created {}", path.display()),
+            FileAction::Chmod { paths, .. } => format!("Changed {} item(s)", paths.len()),
+        }
+    }
+}
+
 /// What a file's `.editorconfig` asks for.
 ///
 /// Only what the editor can honour: a property it has no setting for is left
@@ -182,6 +215,10 @@ pub enum Task {
     /// Write `set theme="…"` into the configuration file, leaving the rest of
     /// it alone.
     PersistTheme { path: PathBuf, theme: String },
+    /// List a directory with the detail dired shows.
+    Dired { path: PathBuf },
+    /// Act on files, from dired.
+    DiredAct { action: FileAction },
     /// Write the session for a project.
     SaveSession { path: PathBuf, contents: String },
     /// Read one back.
@@ -569,6 +606,17 @@ pub enum TaskResult {
     /// A session was written.
     SessionSaved {
         path: PathBuf,
+    },
+    /// A directory, listed with the detail dired shows.
+    DiredListed {
+        path: PathBuf,
+        entries: Vec<crate::dired::Entry>,
+    },
+    /// Something dired asked for is done, and the directory should be listed
+    /// again to show it.
+    DiredDone {
+        said: String,
+        relist: PathBuf,
     },
 }
 

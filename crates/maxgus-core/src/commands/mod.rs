@@ -5,6 +5,7 @@
 //! actually registered — so a binding can never point at nothing.
 
 pub mod buffer;
+pub mod dired;
 pub mod edit;
 pub mod file;
 #[cfg(feature = "git")]
@@ -37,6 +38,7 @@ use crate::command::Registry;
 pub fn standard_registry() -> Registry {
     let mut registry = Registry::new();
     motion::register(&mut registry);
+    dired::register(&mut registry);
     edit::register(&mut registry);
     minibuffer::register(&mut registry);
     multi::register(&mut registry);

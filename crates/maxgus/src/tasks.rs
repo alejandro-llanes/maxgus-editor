@@ -165,6 +165,8 @@ impl Executor {
             } => {
                 self.reparse(buffer, &language, text, revision, range).await;
             }
+            Task::Dired { path } => self.dired(path).await,
+            Task::DiredAct { action } => self.dired_act(action).await,
             Task::SaveSession { path, contents } => self.save_session(path, contents).await,
             Task::ReadSession { path } => self.read_session(path).await,
             Task::PersistTheme { path, theme } => {
@@ -336,6 +338,73 @@ impl Executor {
                 });
             }
             Err(error) => self.fail("find-file", error),
+        }
+    }
+
+    // ---- directories ---------------------------------------------------
+
+    /// Lists a directory with the detail dired shows.
+    async fn dired(&self, path: PathBuf) {
+        let mut entries = Vec::new();
+        let mut reader = match tokio::fs::read_dir(&path).await {
+            Ok(reader) => reader,
+            Err(error) => {
+                self.fail(&format!("dired {}", path.display()), error);
+                return;
+            }
+        };
+        while let Ok(Some(entry)) = reader.next_entry().await {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Ok(metadata) = entry.metadata().await else {
+                continue;
+            };
+            // `metadata` follows links, so what it says about a link is what
+            // it says about the target. Where it points is read separately.
+            let link = tokio::fs::read_link(entry.path())
+                .await
+                .ok()
+                .map(|target| target.to_string_lossy().into_owned());
+            entries.push(maxgus_core::dired::Entry {
+                name,
+                is_dir: metadata.is_dir(),
+                link,
+                size: metadata.len(),
+                permissions: permissions_of(&metadata),
+                modified: modified_of(&metadata),
+            });
+        }
+        self.send(TaskResult::DiredListed { path, entries });
+    }
+
+    /// Does what dired asked, and says which directory to list again.
+    async fn dired_act(&self, action: maxgus_core::task::FileAction) {
+        use maxgus_core::task::FileAction;
+        let said = action.describe();
+        let relist = match &action {
+            FileAction::Delete(paths) | FileAction::Chmod { paths, .. } => paths
+                .first()
+                .and_then(|p| p.parent())
+                .map(std::path::Path::to_path_buf),
+            FileAction::Copy { from, .. } | FileAction::Rename { from, .. } => from
+                .first()
+                .and_then(|p| p.parent())
+                .map(std::path::Path::to_path_buf),
+            FileAction::CreateDirectory(path) => path.parent().map(std::path::Path::to_path_buf),
+        };
+        let outcome = match action {
+            FileAction::Delete(paths) => delete_all(&paths).await,
+            FileAction::Copy { from, to } => copy_all(&from, &to).await,
+            FileAction::Rename { from, to } => rename_all(&from, &to).await,
+            FileAction::CreateDirectory(path) => tokio::fs::create_dir_all(&path).await,
+            FileAction::Chmod { .. } => Ok(()),
+        };
+        match (outcome, relist) {
+            (Ok(()), Some(relist)) => self.send(TaskResult::DiredDone { said, relist }),
+            (Ok(()), None) => self.send(TaskResult::Failed {
+                context: "dired".into(),
+                message: "nowhere to list again".into(),
+            }),
+            (Err(error), _) => self.fail("dired", error),
         }
     }
 
@@ -3127,5 +3196,296 @@ async fn git_raw(root: &Path, args: &[&str]) -> Vec<u8> {
     match process.output().await {
         Ok(output) if output.status.success() => output.stdout,
         _ => Vec::new(),
+    }
+}
+
+/// Removes files and directories, directories and all.
+async fn delete_all(paths: &[PathBuf]) -> std::io::Result<()> {
+    for path in paths {
+        let metadata = tokio::fs::symlink_metadata(path).await?;
+        match metadata.is_dir() {
+            true => tokio::fs::remove_dir_all(path).await?,
+            false => tokio::fs::remove_file(path).await?,
+        }
+    }
+    Ok(())
+}
+
+/// Copies to a destination, which is a directory when there is more than one
+/// thing to copy — as `cp` requires and for the same reason.
+async fn copy_all(from: &[PathBuf], to: &Path) -> std::io::Result<()> {
+    let into_directory = from.len() > 1 || tokio::fs::metadata(to).await.is_ok_and(|m| m.is_dir());
+    for path in from {
+        let destination = match into_directory {
+            true => to.join(path.file_name().unwrap_or_default()),
+            false => to.to_path_buf(),
+        };
+        match tokio::fs::symlink_metadata(path).await?.is_dir() {
+            true => copy_directory(path, &destination).await?,
+            false => {
+                if let Some(parent) = destination.parent() {
+                    tokio::fs::create_dir_all(parent).await?;
+                }
+                tokio::fs::copy(path, &destination).await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Copies a directory, one level of recursion at a time.
+///
+/// Written with an explicit stack rather than recursively, because an `async
+/// fn` that calls itself needs boxing and a stack is clearer than that.
+async fn copy_directory(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut pending = vec![(from.to_path_buf(), to.to_path_buf())];
+    while let Some((source, destination)) = pending.pop() {
+        tokio::fs::create_dir_all(&destination).await?;
+        let mut reader = tokio::fs::read_dir(&source).await?;
+        while let Some(entry) = reader.next_entry().await? {
+            let target = destination.join(entry.file_name());
+            match entry.metadata().await?.is_dir() {
+                true => pending.push((entry.path(), target)),
+                false => {
+                    tokio::fs::copy(entry.path(), target).await?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn rename_all(from: &[PathBuf], to: &Path) -> std::io::Result<()> {
+    let into_directory = from.len() > 1 || tokio::fs::metadata(to).await.is_ok_and(|m| m.is_dir());
+    for path in from {
+        let destination = match into_directory {
+            true => to.join(path.file_name().unwrap_or_default()),
+            false => to.to_path_buf(),
+        };
+        if let Some(parent) = destination.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        tokio::fs::rename(path, &destination).await?;
+    }
+    Ok(())
+}
+
+/// `rwxr-xr-x`, where the platform has such a thing.
+fn permissions_of(metadata: &std::fs::Metadata) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = metadata.permissions().mode();
+        let bit = |shift: u32, letter: char| match mode >> shift & 1 {
+            1 => letter,
+            _ => '-',
+        };
+        let kind = match metadata.is_dir() {
+            true => 'd',
+            false => '-',
+        };
+        [
+            kind,
+            bit(8, 'r'),
+            bit(7, 'w'),
+            bit(6, 'x'),
+            bit(5, 'r'),
+            bit(4, 'w'),
+            bit(3, 'x'),
+            bit(2, 'r'),
+            bit(1, 'w'),
+            bit(0, 'x'),
+        ]
+        .into_iter()
+        .collect()
+    }
+    #[cfg(not(unix))]
+    {
+        match (metadata.is_dir(), metadata.permissions().readonly()) {
+            (true, _) => "d---------".to_string(),
+            (false, true) => "-r--------".to_string(),
+            (false, false) => "-rw-------".to_string(),
+        }
+    }
+}
+
+/// `Aug 29 15:03`, or the year for anything older than six months, which is
+/// what `ls` does and for the same reason: the time stops being the useful
+/// half once something is old.
+fn modified_of(metadata: &std::fs::Metadata) -> String {
+    let Ok(time) = metadata.modified() else {
+        return String::new();
+    };
+    let Ok(since) = time.duration_since(std::time::UNIX_EPOCH) else {
+        return String::new();
+    };
+    let seconds = since.as_secs() as i64;
+    let days = seconds.div_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let name = MONTHS[(month as usize).clamp(1, 12) - 1];
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(seconds);
+    if (now - seconds).abs() > 180 * 86_400 {
+        return format!("{name} {day:>2}  {year}");
+    }
+    let minutes = seconds.rem_euclid(86_400) / 60;
+    format!("{name} {day:>2} {:02}:{:02}", minutes / 60, minutes % 60)
+}
+
+/// Days since the epoch to a calendar date, by Howard Hinnant's algorithm.
+///
+/// A date is wanted and no dependency is: the whole of what is needed from a
+/// calendar here is a month name and a day number.
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = match mp < 10 {
+        true => mp + 3,
+        false => mp - 9,
+    } as u32;
+    (y + i64::from(m <= 2), m, d)
+}
+
+#[cfg(test)]
+mod dired_tests {
+    use super::*;
+
+    fn fixture(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("maxgus-dired-{name}"));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("nested/deeper")).unwrap();
+        std::fs::write(root.join("a.txt"), "alpha").unwrap();
+        std::fs::write(root.join("b.txt"), "beta").unwrap();
+        std::fs::write(root.join("nested/deeper/c.txt"), "gamma").unwrap();
+        root
+    }
+
+    #[tokio::test]
+    async fn deleting_takes_files_and_whole_directories() {
+        let root = fixture("delete");
+        delete_all(&[root.join("a.txt"), root.join("nested")])
+            .await
+            .unwrap();
+        assert!(!root.join("a.txt").exists());
+        assert!(
+            !root.join("nested").exists(),
+            "the directory is still there"
+        );
+        assert!(root.join("b.txt").exists(), "it took something else too");
+    }
+
+    #[tokio::test]
+    async fn copying_one_file_to_a_name_makes_that_name() {
+        let root = fixture("copyone");
+        copy_all(&[root.join("a.txt")], &root.join("copy.txt"))
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("copy.txt")).unwrap(),
+            "alpha"
+        );
+        assert!(root.join("a.txt").exists(), "the original is gone");
+    }
+
+    #[tokio::test]
+    async fn copying_several_things_puts_them_in_the_directory() {
+        let root = fixture("copymany");
+        let into = root.join("into");
+        std::fs::create_dir_all(&into).unwrap();
+        copy_all(&[root.join("a.txt"), root.join("b.txt")], &into)
+            .await
+            .unwrap();
+        assert!(into.join("a.txt").exists());
+        assert!(into.join("b.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn copying_a_directory_takes_what_is_inside_it() {
+        let root = fixture("copydir");
+        copy_all(&[root.join("nested")], &root.join("clone"))
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("clone/deeper/c.txt")).unwrap(),
+            "gamma",
+            "the copy did not go all the way down"
+        );
+    }
+
+    #[tokio::test]
+    async fn renaming_moves_rather_than_copies() {
+        let root = fixture("rename");
+        rename_all(&[root.join("a.txt")], &root.join("renamed.txt"))
+            .await
+            .unwrap();
+        assert!(!root.join("a.txt").exists(), "the original is still there");
+        assert_eq!(
+            std::fs::read_to_string(root.join("renamed.txt")).unwrap(),
+            "alpha"
+        );
+    }
+
+    #[tokio::test]
+    async fn renaming_several_things_moves_them_into_the_directory() {
+        let root = fixture("renamemany");
+        let into = root.join("into");
+        std::fs::create_dir_all(&into).unwrap();
+        rename_all(&[root.join("a.txt"), root.join("b.txt")], &into)
+            .await
+            .unwrap();
+        assert!(into.join("a.txt").exists() && into.join("b.txt").exists());
+        assert!(!root.join("a.txt").exists());
+    }
+
+    #[test]
+    fn permissions_read_as_ls_writes_them() {
+        let root = fixture("perms");
+        let file = std::fs::metadata(root.join("a.txt")).unwrap();
+        let directory = std::fs::metadata(root.join("nested")).unwrap();
+        let shown = permissions_of(&file);
+        assert_eq!(shown.len(), 10, "got `{shown}`");
+        assert!(
+            shown.starts_with('-'),
+            "a file is not a directory: `{shown}`"
+        );
+        assert!(
+            permissions_of(&directory).starts_with('d'),
+            "a directory should say so"
+        );
+    }
+
+    #[test]
+    fn a_date_is_written_the_way_a_listing_writes_one() {
+        // Two dates a long way apart: the recent one carries a time, the old
+        // one carries a year, as `ls` does.
+        let recent = modified_of(&std::fs::metadata(fixture("dates").join("a.txt")).unwrap());
+        assert!(
+            recent.contains(':'),
+            "a file written moments ago should show a time: `{recent}`"
+        );
+        // Dates checked against a calendar rather than against the same
+        // arithmetic written twice: a leap day, a century year, and one
+        // either side of the epoch.
+        assert_eq!(civil_from_days(0), (1970, 1, 1), "the epoch is wrong");
+        assert_eq!(civil_from_days(-1), (1969, 12, 31), "before the epoch");
+        assert_eq!(
+            civil_from_days(11_017),
+            (2000, 3, 1),
+            "the day after a leap day"
+        );
+        assert_eq!(civil_from_days(18_993), (2022, 1, 1));
+        assert_eq!(civil_from_days(19_600), (2023, 8, 31));
+        assert_eq!(civil_from_days(20_000), (2024, 10, 4));
     }
 }

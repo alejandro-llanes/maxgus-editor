@@ -90,8 +90,8 @@ $ ./target/release/maxgus
 
 ### Emacs keys, and they behave like Emacs
 
-**343 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **405 commands**. Prefix
+**344 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
+the panel, tree, magit and terminal maps, driving **423 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -236,6 +236,34 @@ The tree keeps **47 bindings and 41 commands** from treemacs' own keymap:
 `c f`/`c d` to create, `R`, `d`, `m`, `!`, `y a`/`y r`/`y p`/`y f` to copy
 paths, `t h`/`t w`/`t f`/`t g`/`t d` to toggle, `g r` to refresh. Git status
 in the gutter, follow mode, `?` for help.
+
+### Dired: a directory you can work on
+
+The tree is for browsing a project. `C-x d` is for working on a directory —
+marking a dozen files and doing something to all of them:
+
+```
+/home/you/project/src  —  12 file(s), 2 director(ies), 84.2k
+
+  ..
+  drwxr-xr-x      - Aug 29 15:03 nested/
+* -rw-r--r--   2.0k Aug 29 14:22 alpha.rs
+D -rw-r--r--    823 Aug 28 09:10 scratch.rs
+```
+
+`m` marks and moves on, so a run of files is `m m m`. `u` unmarks, `U` clears
+them all, `t` swaps them. `d` flags for deletion and `x` carries the flags
+out. `D` deletes, `C` copies, `R` renames or moves, `+` makes a directory, and
+`!` runs a shell command with the marked files as its arguments.
+
+Everything acts on what is marked, or on the line point is on when nothing is
+— dired's own rule, and the reason marking is worth having rather than being a
+mode you enter. Deleting is the one thing that cannot be undone, so it asks
+first and says what it is about to lose. The marks survive a refresh, and
+point stays on the file it was on rather than on the line it was on.
+
+`RET` opens a file or descends into a directory, `^` goes up, `g` reads the
+directory again, `q` closes it.
 
 ### Snippets
 
@@ -505,6 +533,7 @@ first.
 | `C-x U` | Show the undo history as a tree |
 | `C->` `C-<` | A cursor at the next / previous occurrence |
 | `C-c C-<` | A cursor at every occurrence |
+| `C-x d` | Open a directory as a buffer |
 | `C-x t t` | Toggle the side panel |
 | `C-x t 1` / `2` / `3` | Select the tree, the outline, the buffer list |
 | `C-x t v` | Toggle the terminal panel |
@@ -642,7 +671,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1870 tests.** Unit tests beside the code; session tests that press real keys
+**1901 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

@@ -10,6 +10,7 @@
 pub mod buffers;
 pub mod command;
 pub mod commands;
+pub mod dired;
 pub mod dispatch;
 pub mod editor;
 pub mod fuzzy;

@@ -35,7 +35,10 @@ impl Config {
     /// Parses a configuration document.
     pub fn parse(source: &str) -> Result<Config> {
         let doc = KdlDocument::parse(source).map_err(ConfigError::from)?;
-        let mut parser = Parser { source, config: Config::default() };
+        let mut parser = Parser {
+            source,
+            config: Config::default(),
+        };
         parser.document(&doc);
         Ok(parser.config)
     }
@@ -107,12 +110,19 @@ impl Config {
 
 /// Positional arguments of a node, in order.
 fn args(node: &KdlNode) -> Vec<&KdlValue> {
-    node.entries().iter().filter(|e| e.name().is_none()).map(|e| e.value()).collect()
+    node.entries()
+        .iter()
+        .filter(|e| e.name().is_none())
+        .map(|e| e.value())
+        .collect()
 }
 
 /// Positional arguments coerced to strings, skipping any that are not.
 fn string_args(node: &KdlNode) -> Vec<String> {
-    args(node).iter().filter_map(|v| v.as_string().map(str::to_string)).collect()
+    args(node)
+        .iter()
+        .filter_map(|v| v.as_string().map(str::to_string))
+        .collect()
 }
 
 /// A named property, if present.
@@ -138,7 +148,13 @@ impl<'a> Parser<'a> {
         match args(node).first().and_then(|v| v.as_string()) {
             Some(s) => Some(s.to_string()),
             None => {
-                self.warn(node, format!("`{}` needs a {what} as its first argument", node.name().value()));
+                self.warn(
+                    node,
+                    format!(
+                        "`{}` needs a {what} as its first argument",
+                        node.name().value()
+                    ),
+                );
                 None
             }
         }
@@ -148,7 +164,10 @@ impl<'a> Parser<'a> {
         match value {
             KdlValue::Bool(b) => Some(*b),
             other => {
-                self.warn(node, format!("`{key}` expects #true or #false, found {other}"));
+                self.warn(
+                    node,
+                    format!("`{key}` expects #true or #false, found {other}"),
+                );
                 None
             }
         }
@@ -304,6 +323,51 @@ impl<'a> Parser<'a> {
                     self.config.settings.nerd_font_icons = b;
                 }
             }
+            "panel-tree" => {
+                if let Some(b) = self.bool_value(node, key, value) {
+                    self.config.settings.panel_tree = b;
+                }
+            }
+            "panel-symbols" => {
+                if let Some(b) = self.bool_value(node, key, value) {
+                    self.config.settings.panel_symbols = b;
+                }
+            }
+            "panel-buffers" => {
+                if let Some(b) = self.bool_value(node, key, value) {
+                    self.config.settings.panel_buffers = b;
+                }
+            }
+            "panel-at-startup" => {
+                if let Some(b) = self.bool_value(node, key, value) {
+                    self.config.settings.panel_at_startup = b;
+                }
+            }
+            "panel-symbols-height" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.panel_symbols_height = n;
+                }
+            }
+            "panel-buffers-height" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.panel_buffers_height = n;
+                }
+            }
+            "shell" => {
+                if let Some(text) = self.string_value(node, key, value) {
+                    self.config.settings.shell = Some(text);
+                }
+            }
+            "gui-font" => {
+                if let Some(text) = self.string_value(node, key, value) {
+                    self.config.settings.gui_font = text;
+                }
+            }
+            "gui-font-size" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.gui_font_size = n.clamp(6, 96);
+                }
+            }
             "blink-cursor" => {
                 if let Some(b) = self.bool_value(node, key, value) {
                     self.config.settings.blink_cursor = b;
@@ -325,7 +389,9 @@ impl<'a> Parser<'a> {
 
     /// `keymap "name" { bind "keys" "command"; unbind "keys" }`
     fn keymap_node(&mut self, node: &KdlNode) {
-        let Some(name) = self.required_name(node, "keymap name") else { return };
+        let Some(name) = self.required_name(node, "keymap name") else {
+            return;
+        };
         let Some(children) = node.children() else {
             self.warn(node, format!("`keymap \"{name}\"` has no bindings"));
             return;
@@ -335,7 +401,10 @@ impl<'a> Parser<'a> {
             match child.name().value() {
                 "bind" => self.bind_node(child, &mut spec),
                 "unbind" => self.unbind_node(child, &mut spec),
-                other => self.warn(child, format!("unknown node `{other}` inside `keymap`, ignored")),
+                other => self.warn(
+                    child,
+                    format!("unknown node `{other}` inside `keymap`, ignored"),
+                ),
             }
         }
         // Merge into an earlier block of the same name rather than shadowing.
@@ -351,7 +420,10 @@ impl<'a> Parser<'a> {
     fn bind_node(&mut self, node: &KdlNode, spec: &mut KeymapSpec) {
         let a = string_args(node);
         let [keys, command] = a.as_slice() else {
-            self.warn(node, "`bind` takes exactly two strings: a key sequence and a command");
+            self.warn(
+                node,
+                "`bind` takes exactly two strings: a key sequence and a command",
+            );
             return;
         };
         match KeySequence::parse(keys) {
@@ -378,7 +450,9 @@ impl<'a> Parser<'a> {
 
     /// `theme "name" { face "name" fg="…" bold=#true }`
     fn theme_node(&mut self, node: &KdlNode) {
-        let Some(name) = self.required_name(node, "theme name") else { return };
+        let Some(name) = self.required_name(node, "theme name") else {
+            return;
+        };
         let Some(children) = node.children() else {
             self.warn(node, format!("`theme \"{name}\"` has no faces"));
             return;
@@ -392,7 +466,10 @@ impl<'a> Parser<'a> {
         for child in children.nodes() {
             match child.name().value() {
                 "face" => self.face_node(child, &mut spec),
-                other => self.warn(child, format!("unknown node `{other}` inside `theme`, ignored")),
+                other => self.warn(
+                    child,
+                    format!("unknown node `{other}` inside `theme`, ignored"),
+                ),
             }
         }
         match self.config.themes.iter_mut().find(|t| t.name == spec.name) {
@@ -402,12 +479,16 @@ impl<'a> Parser<'a> {
     }
 
     fn face_node(&mut self, node: &KdlNode, theme: &mut ThemeSpec) {
-        let Some(name) = self.required_name(node, "face name") else { return };
+        let Some(name) = self.required_name(node, "face name") else {
+            return;
+        };
         let mut face = FaceSpec::new(&name);
         // Recorded so whoever knows which faces exist can point at this line.
         face.line = self.line(node);
         for entry in node.entries() {
-            let Some(key) = entry.name().map(|n| n.value().to_string()) else { continue };
+            let Some(key) = entry.name().map(|n| n.value().to_string()) else {
+                continue;
+            };
             let value = entry.value().clone();
             match key.as_str() {
                 // `fg`/`bg` are the short spellings; the long ones also work.
@@ -435,12 +516,19 @@ impl<'a> Parser<'a> {
 
     /// `lsp "language" command="…" { args "…"; root-markers "…" }`
     fn lsp_node(&mut self, node: &KdlNode) {
-        let Some(language) = self.required_name(node, "language name") else { return };
-        let Some(command) = prop(node, "command").cloned() else {
-            self.warn(node, format!("`lsp \"{language}\"` needs a `command=` property"));
+        let Some(language) = self.required_name(node, "language name") else {
             return;
         };
-        let Some(command) = self.string_value(node, "command", &command) else { return };
+        let Some(command) = prop(node, "command").cloned() else {
+            self.warn(
+                node,
+                format!("`lsp \"{language}\"` needs a `command=` property"),
+            );
+            return;
+        };
+        let Some(command) = self.string_value(node, "command", &command) else {
+            return;
+        };
         let mut spec = LspSpec::new(&language, command);
 
         // A single argument may be given inline as `args="--stdio"`.
@@ -455,7 +543,10 @@ impl<'a> Parser<'a> {
                     "args" => spec.args.extend(string_args(child)),
                     "root-markers" => spec.root_markers.extend(string_args(child)),
                     other => {
-                        self.warn(child, format!("unknown node `{other}` inside `lsp`, ignored"));
+                        self.warn(
+                            child,
+                            format!("unknown node `{other}` inside `lsp`, ignored"),
+                        );
                     }
                 }
             }
@@ -508,7 +599,10 @@ impl<'a> Parser<'a> {
                     }
                     None => self.warn(child, "`width` takes a column count"),
                 },
-                other => self.warn(child, format!("unknown node `{other}` inside `tree`, ignored")),
+                other => self.warn(
+                    child,
+                    format!("unknown node `{other}` inside `tree`, ignored"),
+                ),
             }
         }
     }
@@ -524,7 +618,11 @@ mod tests {
 
     fn clean(src: &str) -> Config {
         let c = parse(src);
-        assert!(c.warnings.is_empty(), "unexpected warnings: {:?}", c.warnings);
+        assert!(
+            c.warnings.is_empty(),
+            "unexpected warnings: {:?}",
+            c.warnings
+        );
         c
     }
 
@@ -560,9 +658,24 @@ mod tests {
 
     #[test]
     fn case_fold_search_accepts_a_tri_state() {
-        assert_eq!(clean("set case-fold-search=#true").settings.case_fold_search, Some(true));
-        assert_eq!(clean("set case-fold-search=#false").settings.case_fold_search, Some(false));
-        assert_eq!(clean("set case-fold-search=#null").settings.case_fold_search, None);
+        assert_eq!(
+            clean("set case-fold-search=#true")
+                .settings
+                .case_fold_search,
+            Some(true)
+        );
+        assert_eq!(
+            clean("set case-fold-search=#false")
+                .settings
+                .case_fold_search,
+            Some(false)
+        );
+        assert_eq!(
+            clean("set case-fold-search=#null")
+                .settings
+                .case_fold_search,
+            None
+        );
     }
 
     #[test]
@@ -603,7 +716,11 @@ mod tests {
         let c = parse("future-feature \"x\"\nset tab-width=2");
         assert_eq!(c.settings.tab_width, 2, "later nodes still parse");
         assert_eq!(c.warnings.len(), 1);
-        assert!(c.warnings[0].message.contains("unknown node `future-feature`"));
+        assert!(
+            c.warnings[0]
+                .message
+                .contains("unknown node `future-feature`")
+        );
     }
 
     #[test]
@@ -687,9 +804,15 @@ mod tests {
         );
         let t = c.theme("maxgus-dark").unwrap();
         assert_eq!(t.faces.len(), 4);
-        assert_eq!(t.face("default").unwrap().foreground.as_deref(), Some("#c5c8c6"));
+        assert_eq!(
+            t.face("default").unwrap().foreground.as_deref(),
+            Some("#c5c8c6")
+        );
         assert_eq!(t.face("font-lock-keyword").unwrap().bold, Some(true));
-        assert_eq!(t.face("region").unwrap().background.as_deref(), Some("#373b41"));
+        assert_eq!(
+            t.face("region").unwrap().background.as_deref(),
+            Some("#373b41")
+        );
         assert_eq!(t.face("error").unwrap().inherit.as_deref(), Some("default"));
     }
 
@@ -712,8 +835,20 @@ mod tests {
     fn an_unknown_face_attribute_warns_but_keeps_the_rest() {
         let c = parse(r##"theme "t" { face "default" fg="#fff" sparkle=#true }"##);
         assert_eq!(c.warnings.len(), 1);
-        assert!(c.warnings[0].message.contains("unknown face attribute `sparkle`"));
-        assert_eq!(c.theme("t").unwrap().face("default").unwrap().foreground.as_deref(), Some("#fff"));
+        assert!(
+            c.warnings[0]
+                .message
+                .contains("unknown face attribute `sparkle`")
+        );
+        assert_eq!(
+            c.theme("t")
+                .unwrap()
+                .face("default")
+                .unwrap()
+                .foreground
+                .as_deref(),
+            Some("#fff")
+        );
     }
 
     #[test]
@@ -746,7 +881,11 @@ mod tests {
     #[test]
     fn an_lsp_entry_without_a_command_is_rejected() {
         let c = parse(r##"lsp "rust""##);
-        assert!(c.warnings[0].message.contains("needs a `command=` property"));
+        assert!(
+            c.warnings[0]
+                .message
+                .contains("needs a `command=` property")
+        );
         assert!(c.lsp.is_empty());
     }
 
@@ -801,7 +940,11 @@ mod tests {
     fn an_empty_ignore_list_warns() {
         let c = parse("tree { ignore }");
         assert!(c.warnings[0].message.contains("one or more names"));
-        assert_eq!(c.tree.ignore, TreeConfig::default().ignore, "the default list is kept");
+        assert_eq!(
+            c.tree.ignore,
+            TreeConfig::default().ignore,
+            "the default list is kept"
+        );
     }
 
     #[test]
@@ -847,7 +990,9 @@ mod tests {
         let mut rest = readme;
         while let Some(open) = rest.find("```kdl\n") {
             let body = &rest[open + 7..];
-            let close = body.find("```").expect("an unterminated kdl block in the README");
+            let close = body
+                .find("```")
+                .expect("an unterminated kdl block in the README");
             let source = &body[..close];
             let config = Config::parse(source)
                 .unwrap_or_else(|e| panic!("README kdl block {blocks} is not valid KDL: {e}"));
@@ -867,7 +1012,11 @@ mod tests {
         // The example is documentation people copy; it must be correct.
         let source = include_str!("../../../docs/config.example.kdl");
         let config = Config::parse(source).expect("the example is valid KDL");
-        assert!(config.warnings.is_empty(), "the example warns: {:?}", config.warnings);
+        assert!(
+            config.warnings.is_empty(),
+            "the example warns: {:?}",
+            config.warnings
+        );
         assert_eq!(config.settings.tab_width, 4);
         assert_eq!(config.settings.theme, "maxgus-dark");
         assert_eq!(config.lsp.len(), 4);
@@ -876,7 +1025,10 @@ mod tests {
         assert!(config.theme("maxgus-dark").is_some());
         // The `args` child node takes more than the `args=` property can.
         assert_eq!(
-            config.lsp_for("typescript").expect("the typescript entry").args,
+            config
+                .lsp_for("typescript")
+                .expect("the typescript entry")
+                .args,
             ["--stdio", "--log-level", "2"]
         );
     }
@@ -893,7 +1045,10 @@ mod tests {
             .copied()
             .filter(|name| !source.contains(&format!("{name}=")))
             .collect();
-        assert!(missing.is_empty(), "settings the example never shows: {missing:?}");
+        assert!(
+            missing.is_empty(),
+            "settings the example never shows: {missing:?}"
+        );
     }
 
     #[test]
@@ -904,7 +1059,10 @@ mod tests {
             .copied()
             .filter(|name| !source.contains(&format!("{name}=")))
             .collect();
-        assert!(missing.is_empty(), "face attributes the example never shows: {missing:?}");
+        assert!(
+            missing.is_empty(),
+            "face attributes the example never shows: {missing:?}"
+        );
     }
 
     #[test]
@@ -924,8 +1082,15 @@ mod tests {
                 "`{attribute}` is on the list but the parser complains: {:?}",
                 config.warnings
             );
-            let face = config.theme("t").expect("the theme").face("region").expect("the face");
-            assert!(!face.is_empty(), "`{attribute}` parsed but set nothing on the face");
+            let face = config
+                .theme("t")
+                .expect("the theme")
+                .face("region")
+                .expect("the face");
+            assert!(
+                !face.is_empty(),
+                "`{attribute}` parsed but set nothing on the face"
+            );
         }
     }
 

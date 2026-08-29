@@ -240,7 +240,10 @@ impl Motion {
             let from = at;
             let mut i = at;
             // Step off any terminator we are already sitting on.
-            while i > 0 && (rope.char(i - 1).is_whitespace() || matches!(rope.char(i - 1), '"' | '\'' | ')' | ']')) {
+            while i > 0
+                && (rope.char(i - 1).is_whitespace()
+                    || matches!(rope.char(i - 1), '"' | '\'' | ')' | ']'))
+            {
                 i -= 1;
             }
             while i > 0 && matches!(rope.char(i - 1), '.' | '?' | '!') {
@@ -467,7 +470,11 @@ mod tests {
         // back onto the whitespace before it.
         let rope = Rope::from_str("One. Two three.");
         let at = rope.len_chars() - 1;
-        assert_eq!(Motion::backward_sentence(&rope, at, 1), 5, "the `T` of `Two`");
+        assert_eq!(
+            Motion::backward_sentence(&rope, at, 1),
+            5,
+            "the `T` of `Two`"
+        );
     }
 
     use super::*;
@@ -486,7 +493,10 @@ mod tests {
         assert_eq!(CharClass::of('}'), CharClass::Close);
         assert_eq!(CharClass::of('"'), CharClass::Quote);
         assert_eq!(CharClass::of('+'), CharClass::Punctuation);
-        assert!(CharClass::of('é').is_word(), "non-ASCII letters are word constituents");
+        assert!(
+            CharClass::of('é').is_word(),
+            "non-ASCII letters are word constituents"
+        );
     }
 
     #[test]
@@ -495,7 +505,11 @@ mod tests {
         assert_eq!(Motion::forward_word(&r, 0, 1), 3);
         assert_eq!(Motion::forward_word(&r, 0, 2), 8, "stops at the hyphen");
         assert_eq!(Motion::forward_word(&r, 0, 3), 12);
-        assert_eq!(Motion::forward_word(&r, 12, 1), 12, "clamps at end of buffer");
+        assert_eq!(
+            Motion::forward_word(&r, 12, 1),
+            12,
+            "clamps at end of buffer"
+        );
         assert_eq!(Motion::backward_word(&r, 12, 1), 9);
         assert_eq!(Motion::backward_word(&r, 12, 3), 0);
         assert_eq!(Motion::backward_word(&r, 0, 1), 0);
@@ -508,7 +522,11 @@ mod tests {
         assert_eq!(Motion::line_end(&r, 3), 5);
         assert_eq!(Motion::line_start(&r, 7), 6);
         assert_eq!(Motion::line_end(&r, 7), 10, "CRLF is stripped");
-        assert_eq!(Motion::line_end(&r, 14), r.len_chars(), "final line has no terminator");
+        assert_eq!(
+            Motion::line_end(&r, 14),
+            r.len_chars(),
+            "final line has no terminator"
+        );
     }
 
     #[test]
@@ -522,7 +540,11 @@ mod tests {
     fn word_bounds_accept_point_just_after_a_word() {
         let r = rope("one two");
         assert_eq!(Motion::word_bounds(&r, 5), Some((4, 7)));
-        assert_eq!(Motion::word_bounds(&r, 3), Some((0, 3)), "point after `one`");
+        assert_eq!(
+            Motion::word_bounds(&r, 3),
+            Some((0, 3)),
+            "point after `one`"
+        );
         assert_eq!(Motion::word_bounds(&rope("  "), 1), None);
     }
 
@@ -542,7 +564,11 @@ mod tests {
         let r = rope("One two. Three four! Five.");
         assert_eq!(Motion::forward_sentence(&r, 0, 1), 8);
         assert_eq!(Motion::forward_sentence(&r, 0, 2), 20);
-        assert_eq!(Motion::forward_sentence(&r, 0, 9), r.len_chars(), "clamps at the end");
+        assert_eq!(
+            Motion::forward_sentence(&r, 0, 9),
+            r.len_chars(),
+            "clamps at the end"
+        );
         assert_eq!(Motion::backward_sentence(&r, 26, 1), 21);
     }
 
@@ -576,7 +602,11 @@ mod tests {
         assert_eq!(Motion::forward_sexp(&r, 0, 1), Some(7));
         assert_eq!(Motion::backward_sexp(&r, 7, 1), Some(0));
         let escaped = rope(r#""a\"b" x"#);
-        assert_eq!(Motion::forward_sexp(&escaped, 0, 1), Some(6), "escaped quotes do not terminate");
+        assert_eq!(
+            Motion::forward_sexp(&escaped, 0, 1),
+            Some(6),
+            "escaped quotes do not terminate"
+        );
     }
 
     #[test]
@@ -586,7 +616,11 @@ mod tests {
         assert_eq!(Motion::matching_delimiter(&r, 16), Some(7));
         assert_eq!(Motion::matching_delimiter(&r, 11), Some(13));
         assert_eq!(Motion::matching_delimiter(&r, 0), None, "not a delimiter");
-        assert_eq!(Motion::matching_delimiter(&rope("("), 0), None, "unbalanced");
+        assert_eq!(
+            Motion::matching_delimiter(&rope("("), 0),
+            None,
+            "unbalanced"
+        );
     }
 
     #[test]
@@ -596,7 +630,11 @@ mod tests {
         assert_eq!(Motion::beginning_of_defun(&r, inside_b), r.line_to_char(4));
         let inside_a = r.line_to_char(1) + 2;
         assert_eq!(Motion::end_of_defun(&r, inside_a), r.line_to_char(4));
-        assert_eq!(Motion::beginning_of_defun(&r, 3), 0, "clamps to buffer start");
+        assert_eq!(
+            Motion::beginning_of_defun(&r, 3),
+            0,
+            "clamps to buffer start"
+        );
     }
 
     #[test]

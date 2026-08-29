@@ -28,6 +28,13 @@ pub struct App {
     /// The half-typed key sequence, held back until the user has hesitated
     /// long enough for showing it to be helpful rather than distracting.
     unechoed_prefix: Option<String>,
+    /// True until the startup time has been announced or given up on.
+    ///
+    /// The measurement is taken before the loop starts; only the saying of it
+    /// waits, for the files named on the command line to finish reporting
+    /// themselves. A keystroke cancels it: someone already typing does not
+    /// want the echo area taken from under them.
+    greeting_owed: bool,
 }
 
 impl App {
@@ -53,6 +60,7 @@ impl App {
             results,
             idle_owed: false,
             unechoed_prefix: None,
+            greeting_owed: true,
         }
     }
 
@@ -66,10 +74,24 @@ impl App {
         Duration::from_millis(self.editor.settings.idle_delay_ms.max(1))
     }
 
+    /// Long enough for the files named on the command line to have been read
+    /// and to have said so, short enough to be the first thing seen.
+    const GREETING_DELAY: Duration = Duration::from_millis(200);
+
+    /// Says how long the editor took, unless something worth more is showing.
+    fn announce_startup(&mut self) {
+        self.greeting_owed = false;
+        if let Some(text) = self.editor.startup_message() {
+            // A configuration problem outranks a boast about speed.
+            self.editor.message_unless_error(text);
+        }
+    }
+
     /// Runs until `C-x C-c`.
     pub async fn run(mut self) -> Result<()> {
         let mut events = Terminal::events();
-        self.terminal.set_cursor_blinking(self.editor.settings.blink_cursor)?;
+        self.terminal
+            .set_cursor_blinking(self.editor.settings.blink_cursor)?;
         self.resize(self.terminal.size());
         // Whatever startup queued — the files named on the command line, the
         // first tree read — has to reach the executor before the loop blocks
@@ -86,6 +108,8 @@ impl App {
         // half-typed sequence, so a fluent `C-x C-s` never flashes anything.
         let echo = tokio::time::sleep(Duration::from_secs(86_400));
         tokio::pin!(echo);
+        let greeting = tokio::time::sleep(App::GREETING_DELAY);
+        tokio::pin!(greeting);
 
         while !self.editor.quit {
             tokio::select! {
@@ -94,6 +118,8 @@ impl App {
                 Some(event) = events.next() => {
                     self.on_event(event)?;
                     self.idle_owed = true;
+                    // Someone is typing: the echo area is theirs now.
+                    self.greeting_owed = false;
                     idle.as_mut().reset(tokio::time::Instant::now() + self.idle_delay());
                     match self.unechoed_prefix.is_some() {
                         true => echo.as_mut().reset(
@@ -113,6 +139,7 @@ impl App {
                         tokio::time::Instant::now() + Duration::from_secs(86_400),
                     );
                 }
+                () = &mut greeting, if self.greeting_owed => self.announce_startup(),
                 () = &mut idle, if self.idle_owed => {
                     self.on_idle();
                     // Park the timer until something changes again.
@@ -140,8 +167,9 @@ impl App {
             TuiEvent::Paste(text) => {
                 if self.editor.minibuffer.is_active() {
                     self.editor.minibuffer.insert(&text.replace('\n', " "));
-                } else if let Err(error) =
-                    self.editor.with_current_buffer(|b| b.insert_at_point(&text))
+                } else if let Err(error) = self
+                    .editor
+                    .with_current_buffer(|b| b.insert_at_point(&text))
                 {
                     self.editor.error(error.to_string());
                 }
@@ -178,7 +206,13 @@ impl App {
     fn on_result(&mut self, result: TaskResult) {
         // Shell output is the one result the editor cannot fold in by itself,
         // because where it goes depends on how the command was invoked.
-        if let TaskResult::ShellOutput { command, output, insert_at, .. } = &result {
+        if let TaskResult::ShellOutput {
+            command,
+            output,
+            insert_at,
+            ..
+        } = &result
+        {
             match insert_at {
                 Some((buffer, offset)) => {
                     let (buffer, offset) = (*buffer, *offset);
@@ -198,6 +232,7 @@ impl App {
             }
             return;
         }
+        #[cfg(feature = "lsp")]
         if let TaskResult::LspResponse { .. } | TaskResult::LspApplyEdit { .. } = &result {
             self.editor.apply_lsp_response(result);
             return;
@@ -243,6 +278,7 @@ impl App {
     fn on_idle(&mut self) {
         self.idle_owed = false;
         let id = self.editor.current_buffer_id();
+        #[cfg(feature = "syntax")]
         if self.editor.highlights_are_stale(id) {
             self.editor.request_highlighting(id);
         }
@@ -258,15 +294,19 @@ impl App {
         if Some(self.editor.windows.current_id()) == self.editor.tree_window {
             return;
         }
-        let Some(path) =
-            self.editor.current_buffer().path().map(std::path::Path::to_path_buf)
+        let Some(path) = self
+            .editor
+            .current_buffer()
+            .path()
+            .map(std::path::Path::to_path_buf)
         else {
             return;
         };
         if self.editor.tree.iter().any(|n| n.path == path) {
             self.editor.select_tree_path(&path);
         } else {
-            self.editor.spawn(Task::Tree(maxgus_core::TreeAction::Reveal(path)));
+            self.editor
+                .spawn(Task::Tree(maxgus_core::TreeAction::Reveal(path)));
         }
     }
 
@@ -316,7 +356,8 @@ impl App {
         // no event — a stopped process is told nothing — so the size is asked
         // for again rather than carried across.
         self.terminal = Terminal::new()?;
-        self.terminal.set_cursor_blinking(self.editor.settings.blink_cursor)?;
+        self.terminal
+            .set_cursor_blinking(self.editor.settings.blink_cursor)?;
         self.resize(self.terminal.size());
         match outcome {
             // Nothing to say: the screen coming back is the whole answer.

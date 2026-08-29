@@ -1,0 +1,15 @@
+[package]
+name = "maxgus-term"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+maxgus-faces = { version = "0.1.0", path = "../maxgus-faces" }
+maxgus-keys = { version = "0.1.0", path = "../maxgus-keys" }
+unicode-width = "0.2.2"
+vte = "0.15.0"

@@ -19,16 +19,20 @@ struct Session {
 
 impl Session {
     fn new(width: u16, height: u16) -> Session {
+        Session::configured(Settings::default(), width, height)
+    }
+
+    /// A session started from settings the test chose, which is the only way
+    /// to cover anything read out of the configuration at startup.
+    fn configured(settings: Settings, width: u16, height: u16) -> Session {
         let frame = Rect::new(0, 0, width, height);
-        let mut editor = Editor::new(
-            Settings::default(),
-            defaults::builtin("maxgus-dark").unwrap(),
-            frame,
-        );
+        let mut editor = Editor::new(settings, defaults::builtin("maxgus-dark").unwrap(), frame);
         let registry = maxgus_core::standard_registry();
         editor.command_names = registry.interactive_names();
-        editor.command_docs =
-            registry.iter().map(|c| (c.name.to_string(), c.doc.to_string())).collect();
+        editor.command_docs = registry
+            .iter()
+            .map(|c| (c.name.to_string(), c.doc.to_string()))
+            .collect();
         Session {
             editor,
             dispatcher: Dispatcher::new(registry),
@@ -57,7 +61,11 @@ impl Session {
     /// Types `text` one self-inserting character at a time.
     fn type_text(&mut self, text: &str) -> &mut Session {
         for c in text.chars() {
-            let key = if c == ' ' { "SPC".to_string() } else { c.to_string() };
+            let key = if c == ' ' {
+                "SPC".to_string()
+            } else {
+                c.to_string()
+            };
             self.dispatcher.handle_keys(&mut self.editor, &key);
         }
         self
@@ -74,7 +82,11 @@ impl Session {
     /// The screen as the user would see it, with trailing blanks trimmed.
     fn screen(&mut self) -> Vec<String> {
         maxgus_core::draw(&self.editor, &mut self.surface);
-        self.surface.to_lines().into_iter().map(|l| l.trim_end().to_string()).collect()
+        self.surface
+            .to_lines()
+            .into_iter()
+            .map(|l| l.trim_end().to_string())
+            .collect()
     }
 
     fn echo(&mut self) -> String {
@@ -184,7 +196,11 @@ fn a_failing_search_says_so_and_going_back_recovers() {
     let mut s = Session::editing("/project/notes.txt", "alpha beta");
     s.keys("C-s");
     s.type_text("alz");
-    assert!(s.echo().starts_with("failing I-search"), "got `{}`", s.echo());
+    assert!(
+        s.echo().starts_with("failing I-search"),
+        "got `{}`",
+        s.echo()
+    );
     s.keys("DEL");
     assert!(s.echo().starts_with("I-search: al"), "got `{}`", s.echo());
     s.keys("C-g");
@@ -241,12 +257,20 @@ fn splitting_and_moving_between_windows_works_from_the_keyboard() {
 fn the_mode_line_tracks_the_buffer_state() {
     let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
     s.editor.with_current_buffer(|b| b.mark_saved());
-    assert!(s.mode_line().contains(maxgus_core::icons::SAVED), "unmodified, got `{}`", s.mode_line());
+    assert!(
+        s.mode_line().contains(maxgus_core::icons::SAVED),
+        "unmodified, got `{}`",
+        s.mode_line()
+    );
     assert!(s.mode_line().contains("main.rs"));
     assert!(s.mode_line().contains("rust"));
 
     s.type_text("x");
-    assert!(s.mode_line().contains(maxgus_core::icons::MODIFIED), "modified, got `{}`", s.mode_line());
+    assert!(
+        s.mode_line().contains(maxgus_core::icons::MODIFIED),
+        "modified, got `{}`",
+        s.mode_line()
+    );
 }
 
 #[test]
@@ -258,14 +282,25 @@ fn saving_queues_a_write_and_the_result_clears_the_flag() {
 
     s.keys("C-x C-s");
     let tasks = s.editor.tasks.drain();
-    let Some(Task::WriteFile { path, contents, buffer, .. }) = tasks.into_iter().next() else {
+    let Some(Task::WriteFile {
+        path,
+        contents,
+        buffer,
+        ..
+    }) = tasks.into_iter().next()
+    else {
         panic!("no write was queued");
     };
     assert_eq!(path, std::path::Path::new("/project/main.rs"));
     assert!(contents.starts_with("// note"));
 
     s.editor
-        .apply_task_result(maxgus_core::TaskResult::FileWritten { path, buffer, bytes: 21, disk_time: None })
+        .apply_task_result(maxgus_core::TaskResult::FileWritten {
+            path,
+            buffer,
+            bytes: 21,
+            disk_time: None,
+        })
         .unwrap();
     assert!(!s.editor.current_buffer().is_modified());
     assert!(s.echo().contains("Wrote"), "got `{}`", s.echo());
@@ -277,16 +312,20 @@ fn find_file_prompts_and_queues_a_read() {
     s.keys("C-x C-f");
     assert_eq!(s.editor.minibuffer.kind(), Some(MinibufferKind::File));
     assert_eq!(s.editor.minibuffer.input(), "/project/");
-    assert!(s.echo().starts_with("Find file: /project/"), "got `{}`", s.echo());
+    assert!(
+        s.echo().starts_with("Find file: /project/"),
+        "got `{}`",
+        s.echo()
+    );
 
     s.editor.tasks.drain();
     s.type_text("other.rs");
     s.keys("RET");
     let tasks = s.editor.tasks.drain();
     assert!(
-        tasks.iter().any(
-            |t| matches!(t, Task::ReadFile { path, .. } if path.ends_with("other.rs"))
-        ),
+        tasks
+            .iter()
+            .any(|t| matches!(t, Task::ReadFile { path, .. } if path.ends_with("other.rs"))),
         "got {tasks:?}"
     );
 }
@@ -324,7 +363,10 @@ fn the_file_tree_opens_beside_the_buffer_and_takes_the_keyboard() {
     let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
     s.keys("C-x t t");
     let tree = s.editor.tree_window.expect("the tree opened");
-    assert_eq!(s.editor.windows.len(), 2);
+    // The panel is a column: the tree and the buffer list, since no language
+    // server is running to give an outline. Plus the window being edited.
+    assert_eq!(s.editor.panel_windows.len(), 2);
+    assert_eq!(s.editor.windows.len(), 3);
 
     // A snapshot arrives from the executor.
     s.editor
@@ -356,7 +398,8 @@ fn the_file_tree_opens_beside_the_buffer_and_takes_the_keyboard() {
         })
         .unwrap();
 
-    // The tree is drawn on the left, the buffer beside it.
+    // The tree is drawn on the left, the buffer beside it. Each panel window
+    // holds one section and nothing else, so the tree's first row is a node.
     let screen = s.screen();
     // `v` is the arrow, then the directory glyph, then the name.
     assert!(screen[0].starts_with('v'), "the arrow, got `{}`", screen[0]);
@@ -367,14 +410,18 @@ fn the_file_tree_opens_beside_the_buffer_and_takes_the_keyboard() {
     s.editor.select_window(tree);
     s.keys("n");
     assert_eq!(s.editor.tree_selection().unwrap().name, "main.rs");
-    // Depth one indents by two, and a file has no arrow, so four spaces.
+    // The tree's buffer is the tree and nothing else: one line per node,
+    // which is what lets its commands index straight into the snapshot.
+    // Depth one indents by two and a file has no arrow, so four spaces.
     assert_eq!(s.editor.current_buffer().text(), "v project\n    main.rs\n");
 
     s.keys("q");
     assert!(s.editor.tree_window.is_none());
+    assert!(s.editor.panel_windows.is_empty());
     assert_eq!(s.editor.windows.len(), 1);
 }
 
+#[cfg(feature = "syntax")]
 #[test]
 fn syntax_highlighting_reaches_the_screen() {
     let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
@@ -391,29 +438,42 @@ fn syntax_highlighting_reaches_the_screen() {
 
     maxgus_core::draw(&s.editor, &mut s.surface);
     let keyword = s.editor.theme.resolve("font-lock-keyword");
-    assert_eq!(s.surface.get(0, 0).unwrap().face, keyword, "`fn` is a keyword");
+    assert_eq!(
+        s.surface.get(0, 0).unwrap().face,
+        keyword,
+        "`fn` is a keyword"
+    );
     assert_ne!(s.surface.get(3, 0).unwrap().face, keyword, "`main` is not");
 }
 
+#[cfg(feature = "lsp")]
 #[test]
 fn a_diagnostic_is_underlined_and_counted_in_the_mode_line() {
     let mut s = Session::editing("/project/main.rs", "let unused = 1;\n");
-    s.editor.apply_task_result(maxgus_core::TaskResult::Diagnostics {
-        uri: maxgus_lsp::client::path_to_uri(std::path::Path::new("/project/main.rs")),
-        diagnostics: vec![maxgus_lsp::Diagnostic::new(
-            maxgus_lsp::LspRange::new(
-                maxgus_lsp::LspPosition::new(0, 4),
-                maxgus_lsp::LspPosition::new(0, 10),
-            ),
-            maxgus_lsp::Severity::Warning,
-            "unused variable",
-        )],
-    })
-    .unwrap();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::Diagnostics {
+            uri: maxgus_lsp::client::path_to_uri(std::path::Path::new("/project/main.rs")),
+            diagnostics: vec![maxgus_lsp::Diagnostic::new(
+                maxgus_lsp::LspRange::new(
+                    maxgus_lsp::LspPosition::new(0, 4),
+                    maxgus_lsp::LspPosition::new(0, 10),
+                ),
+                maxgus_lsp::Severity::Warning,
+                "unused variable",
+            )],
+        })
+        .unwrap();
 
     maxgus_core::draw(&s.editor, &mut s.surface);
-    assert_eq!(s.surface.get(4, 0).unwrap().face.attributes.underline, Some(true));
-    assert!(s.mode_line().contains(maxgus_core::icons::WARNING), "got `{}`", s.mode_line());
+    assert_eq!(
+        s.surface.get(4, 0).unwrap().face.attributes.underline,
+        Some(true)
+    );
+    assert!(
+        s.mode_line().contains(maxgus_core::icons::WARNING),
+        "got `{}`",
+        s.mode_line()
+    );
 
     // `M-g n` jumps to it and reports what it says.
     s.keys("M-g n");
@@ -421,6 +481,7 @@ fn a_diagnostic_is_underlined_and_counted_in_the_mode_line() {
     assert!(s.echo().contains("unused variable"), "got `{}`", s.echo());
 }
 
+#[cfg(feature = "lsp")]
 #[test]
 fn editing_after_opening_a_file_is_reported_to_the_language_server() {
     let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
@@ -429,7 +490,10 @@ fn editing_after_opening_a_file_is_reported_to_the_language_server() {
     s.editor.tasks.drain();
 
     s.type_text("x");
-    assert!(s.editor.sync_language_server(id), "the change is worth reporting");
+    assert!(
+        s.editor.sync_language_server(id),
+        "the change is worth reporting"
+    );
     let tasks = s.editor.tasks.drain();
     assert!(
         tasks.iter().any(|t| matches!(t, Task::LspDidChange { .. })),
@@ -507,6 +571,7 @@ fn a_narrow_terminal_still_renders_without_panicking() {
     assert_eq!(screen[0], "x".repeat(20));
 }
 
+#[cfg(feature = "full")]
 /// The README's key table is documentation people rely on; a binding that is
 /// renamed or removed should break this rather than quietly mislead.
 #[test]
@@ -524,7 +589,9 @@ fn every_key_the_readme_documents_is_really_bound() {
     let mut checked = 0usize;
 
     for row in table.lines().filter(|l| l.starts_with('|')) {
-        let Some(keys_cell) = row.split('|').nth(1) else { continue };
+        let Some(keys_cell) = row.split('|').nth(1) else {
+            continue;
+        };
         // Each cell holds one or more key sequences in backticks.
         for description in keys_cell.split('`').skip(1).step_by(2) {
             let description = description.trim();
@@ -535,8 +602,9 @@ fn every_key_the_readme_documents_is_really_bound() {
             if description == "?" {
                 continue;
             }
-            let sequence = maxgus_keys::KeySequence::parse(description)
-                .unwrap_or_else(|e| panic!("the README documents `{description}`, which is not a key: {e}"));
+            let sequence = maxgus_keys::KeySequence::parse(description).unwrap_or_else(|e| {
+                panic!("the README documents `{description}`, which is not a key: {e}")
+            });
             let lookup = session.editor.keymaps.lookup(&sequence);
             assert!(
                 !lookup.is_undefined(),
@@ -545,7 +613,10 @@ fn every_key_the_readme_documents_is_really_bound() {
             checked += 1;
         }
     }
-    assert!(checked >= 15, "only {checked} keys were checked; is the table still there?");
+    assert!(
+        checked >= 15,
+        "only {checked} keys were checked; is the table still there?"
+    );
 }
 
 /// The commands the README names in its feature list must exist.
@@ -631,7 +702,9 @@ fn no_setting_is_merely_decorative() {
     let mut production = String::new();
     let mut stack = vec![workspace.join("crates")];
     while let Some(directory) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&directory) else { continue };
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
@@ -697,7 +770,10 @@ fn assert_consistent(session: &Session, after: &str) {
         editor.windows.is_consistent(),
         "after `{after}` the window tree disagrees with the windows that exist"
     );
-    assert!(!editor.buffers.is_empty(), "after `{after}` there are no buffers left");
+    assert!(
+        !editor.buffers.is_empty(),
+        "after `{after}` there are no buffers left"
+    );
     assert!(
         editor.buffers.get(editor.current_buffer_id()).is_some(),
         "after `{after}` the selected window shows a buffer that is gone"
@@ -757,8 +833,11 @@ fn assert_consistent(session: &Session, after: &str) {
     );
     // Highlight spans are drawn by byte offset; one past the end would be read
     // out of the buffer it describes.
+    #[cfg(feature = "syntax")]
     for (buffer, (_, _, spans)) in &editor.highlights {
-        let Some(length) = editor.buffers.get(*buffer).map(|b| b.text().len()) else { continue };
+        let Some(length) = editor.buffers.get(*buffer).map(|b| b.text().len()) else {
+            continue;
+        };
         for span in spans {
             assert!(
                 span.start <= span.end && span.end <= length,
@@ -784,7 +863,9 @@ fn assert_consistent(session: &Session, after: &str) {
 /// sweep that stops there never reaches the code that kills the buffer.
 fn answer_any_prompt(session: &mut Session) {
     for _ in 0..4 {
-        let Some(kind) = session.editor.minibuffer.kind() else { return };
+        let Some(kind) = session.editor.minibuffer.kind() else {
+            return;
+        };
         match kind {
             // A single-key prompt takes the first plausible answer.
             MinibufferKind::Char => {
@@ -806,7 +887,10 @@ fn answer_any_prompt(session: &mut Session) {
 /// A session with something to work on: several lines, a region, a kill ring
 /// entry and a mark, so commands have material rather than empty buffers.
 fn furnished() -> Session {
-    let mut session = Session::editing("/project/main.rs", "fn main() {\n    let x = 1;\n    let y = 2;\n}\n");
+    let mut session = Session::editing(
+        "/project/main.rs",
+        "fn main() {\n    let x = 1;\n    let y = 2;\n}\n",
+    );
     session.editor.kill_ring.kill_new("something to yank");
     session.editor.with_current_buffer(|b| {
         b.set_point(0);
@@ -819,7 +903,9 @@ fn furnished() -> Session {
 /// A session on a file far taller than the window, so the scrolling paths are
 /// actually reached: on a buffer that fits on screen they never run at all.
 fn furnished_long() -> Session {
-    let text: String = (0..500).map(|n| format!("line {n} of a long file\n")).collect();
+    let text: String = (0..500)
+        .map(|n| format!("line {n} of a long file\n"))
+        .collect();
     let mut session = Session::editing("/project/long.rs", &text);
     session.editor.kill_ring.kill_new("something to yank");
     session.editor.with_current_buffer(|b| {
@@ -977,7 +1063,11 @@ fn every_tree_binding_leaves_the_editor_consistent() {
 fn assert_draws_sanely(session: &mut Session, after: &str) {
     let lines = session.screen();
     let size = session.surface.size();
-    assert_eq!(lines.len(), size.height as usize, "after `{after}` the frame changed height");
+    assert_eq!(
+        lines.len(),
+        size.height as usize,
+        "after `{after}` the frame changed height"
+    );
 
     let (x, y) = session.editor.cursor_position();
     assert!(
@@ -1020,8 +1110,8 @@ impl Rng {
 
 /// Keys that are worth pressing between bindings: text, motion and answers.
 const FILLER: &[&str] = &[
-    "a", "b", "SPC", "RET", "x", "1", "y", "n", "q", "DEL", "TAB",
-    "C-f", "C-b", "C-n", "C-p", "C-a", "C-e", "C-g", "M-f", "M-b",
+    "a", "b", "SPC", "RET", "x", "1", "y", "n", "q", "DEL", "TAB", "C-f", "C-b", "C-n", "C-p",
+    "C-a", "C-e", "C-g", "M-f", "M-b",
 ];
 
 /// Runs a pseudo-random walk over the keymap, checking after every step.
@@ -1060,7 +1150,11 @@ fn a_long_random_exploration() {
     // the net that caught the stale window points, the mark that undo left
     // behind, and point stepping outside a narrowed region.
     for seed in 1..120u64 {
-        let mut session = if seed % 3 == 0 { furnished_long() } else { furnished() };
+        let mut session = if seed % 3 == 0 {
+            furnished_long()
+        } else {
+            furnished()
+        };
         if seed % 4 == 0 {
             session.keys("C-x t t");
         }
@@ -1095,17 +1189,15 @@ fn a_random_walk_with_the_tree_open_never_corrupts_the_editor() {
 
 /// Keys that change the buffer without leaving it or opening a prompt.
 const EDITS: &[&str] = &[
-    "a", "b", "SPC", "RET", "x", "1", "TAB",
-    "C-o", "C-d", "DEL", "C-k", "C-w", "M-w", "C-y", "M-y", "C-j",
-    "C-t", "M-t", "M-u", "M-l", "M-c", "M-d", "M-DEL", "C-M-k",
-    "M-\\", "M-SPC", "M-^", "C-x C-o", "M-;", "M-q", "C-S-DEL",
-    "C-x C-u", "C-x C-l", "C-x C-t",
+    "a", "b", "SPC", "RET", "x", "1", "TAB", "C-o", "C-d", "DEL", "C-k", "C-w", "M-w", "C-y",
+    "M-y", "C-j", "C-t", "M-t", "M-u", "M-l", "M-c", "M-d", "M-DEL", "C-M-k", "M-\\", "M-SPC",
+    "M-^", "C-x C-o", "M-;", "M-q", "C-S-DEL", "C-x C-u", "C-x C-l", "C-x C-t",
 ];
 
 /// Keys that move around without changing anything.
 const MOVES: &[&str] = &[
-    "C-f", "C-b", "C-n", "C-p", "C-a", "C-e", "M-f", "M-b",
-    "M-<", "M->", "C-SPC", "C-x C-x", "M-m", "C-M-f", "C-M-b",
+    "C-f", "C-b", "C-n", "C-p", "C-a", "C-e", "M-f", "M-b", "M-<", "M->", "C-SPC", "C-x C-x",
+    "M-m", "C-M-f", "C-M-b",
 ];
 
 #[test]
@@ -1233,14 +1325,20 @@ fn the_buffer_arrows_walk_the_buffer_list_from_the_keyboard() {
     // had no key, so they could only be run through `M-x`. Pressing the keys
     // Emacs uses is the only thing that shows they are reachable now.
     let mut session = Session::editing("/project/first.rs", "one\n");
-    let second = session.editor.buffers.visit_file("/project/second.rs", "two\n");
+    let second = session
+        .editor
+        .buffers
+        .visit_file("/project/second.rs", "two\n");
     session.editor.switch_to_buffer(second).unwrap();
     session.editor.tasks.drain();
     assert!(session.mode_line().contains("second.rs"));
 
     session.keys("C-x <right>");
     let after_next = session.mode_line();
-    assert!(!after_next.contains("second.rs"), "the buffer did not change: `{after_next}`");
+    assert!(
+        !after_next.contains("second.rs"),
+        "the buffer did not change: `{after_next}`"
+    );
 
     session.keys("C-x <left>");
     assert!(
@@ -1251,7 +1349,11 @@ fn the_buffer_arrows_walk_the_buffer_list_from_the_keyboard() {
 
     // Emacs binds the control-modified arrows to the same pair.
     session.keys("C-x C-<right>");
-    assert_eq!(session.mode_line(), after_next, "`C-x C-<right>` is the same command");
+    assert_eq!(
+        session.mode_line(),
+        after_next,
+        "`C-x C-<right>` is the same command"
+    );
 }
 
 #[test]
@@ -1287,8 +1389,14 @@ fn typing_narrows_the_command_list_and_deleting_widens_it_again() {
 
     session.type_text("save-");
     let narrowed = session.editor.minibuffer.completion().candidates.clone();
-    assert!(narrowed.len() < everything, "typing did not narrow anything");
-    assert!(narrowed.iter().all(|c| c.starts_with("save-")), "got {narrowed:?}");
+    assert!(
+        narrowed.len() < everything,
+        "typing did not narrow anything"
+    );
+    assert!(
+        narrowed.iter().all(|c| c.starts_with("save-")),
+        "got {narrowed:?}"
+    );
     assert!(narrowed.iter().any(|c| c == "save-buffer"));
 
     // Cleared rather than one DEL: every command beginning `save` also begins
@@ -1312,8 +1420,16 @@ fn c_x_b_lists_the_buffers_that_exist() {
     session.keys("C-x b");
     let shown = session.editor.minibuffer.completion();
     assert!(shown.visible, "the buffer list is not up");
-    assert!(shown.candidates.iter().any(|c| c == "main.rs"), "got {:?}", shown.candidates);
-    assert!(shown.candidates.iter().any(|c| c == "other.rs"), "got {:?}", shown.candidates);
+    assert!(
+        shown.candidates.iter().any(|c| c == "main.rs"),
+        "got {:?}",
+        shown.candidates
+    );
+    assert!(
+        shown.candidates.iter().any(|c| c == "other.rs"),
+        "got {:?}",
+        shown.candidates
+    );
 }
 
 #[test]
@@ -1342,7 +1458,9 @@ fn every_prompt_edit_keeps_the_list_in_step_with_the_input() {
     // The re-filter is called from each editing command by hand, so a new one
     // could be added without it. Every key that changes the input is pressed
     // here, and the list has to match what is actually typed afterwards.
-    let edits = ["a", "DEL", "C-k", "C-a", "C-e", "M-DEL", "C-d", "M-p", "M-n"];
+    let edits = [
+        "a", "DEL", "C-k", "C-a", "C-e", "M-DEL", "C-d", "M-p", "M-n",
+    ];
     for keys in edits {
         let mut session = Session::editing("/project/main.rs", "fn main() {}\n");
         session.keys("M-x");
@@ -1351,9 +1469,11 @@ fn every_prompt_edit_keeps_the_list_in_step_with_the_input() {
 
         let input = session.editor.minibuffer.input().to_string();
         let shown = session.editor.minibuffer.completion().candidates.clone();
-        let expected =
-            maxgus_core::fuzzy::matches(&input, session.editor.command_names.iter());
-        assert_eq!(shown, expected, "after `{keys}` the list does not match `{input}`");
+        let expected = maxgus_core::fuzzy::matches(&input, session.editor.command_names.iter());
+        assert_eq!(
+            shown, expected,
+            "after `{keys}` the list does not match `{input}`"
+        );
     }
 }
 
@@ -1361,7 +1481,11 @@ fn node(path: &str, name: &str, dir: bool, depth: usize, root: bool) -> maxgus_t
     maxgus_tree::VisibleNode {
         path: path.into(),
         name: name.into(),
-        kind: if dir { maxgus_tree::NodeKind::Directory } else { maxgus_tree::NodeKind::File },
+        kind: if dir {
+            maxgus_tree::NodeKind::Directory
+        } else {
+            maxgus_tree::NodeKind::File
+        },
         depth,
         expanded: dir,
         expandable: dir,
@@ -1397,7 +1521,12 @@ fn follow_tree(s: &mut Session) {
     if Some(s.editor.windows.current_id()) == s.editor.tree_window {
         return;
     }
-    let Some(path) = s.editor.current_buffer().path().map(std::path::Path::to_path_buf) else {
+    let Some(path) = s
+        .editor
+        .current_buffer()
+        .path()
+        .map(std::path::Path::to_path_buf)
+    else {
         return;
     };
     if s.editor.tree.iter().any(|n| n.path == path) {
@@ -1415,14 +1544,28 @@ fn control_arrows_move_between_the_tree_and_the_code() {
     assert_ne!(tree, code, "the tree opened beside the file, not over it");
 
     s.keys("C-<left>");
-    assert_eq!(s.editor.windows.current_id(), tree, "C-<left> did not reach the tree");
+    assert!(
+        s.editor
+            .panel_windows
+            .contains(&s.editor.windows.current_id()),
+        "C-<left> did not reach the panel"
+    );
+    s.editor.select_window(tree);
 
     s.keys("C-<right>");
-    assert_eq!(s.editor.windows.current_id(), code, "C-<right> did not come back");
+    assert_eq!(
+        s.editor.windows.current_id(),
+        code,
+        "C-<right> did not come back"
+    );
 
     // And repeating it does not wander off somewhere else.
     s.keys("C-<right>");
-    assert_eq!(s.editor.windows.current_id(), code, "there is nothing to the right");
+    assert_eq!(
+        s.editor.windows.current_id(),
+        code,
+        "there is nothing to the right"
+    );
 }
 
 #[test]
@@ -1436,7 +1579,11 @@ fn control_arrows_move_up_and_down_between_stacked_windows() {
     assert_ne!(bottom, top, "C-<down> did not move");
 
     s.keys("C-<up>");
-    assert_eq!(s.editor.windows.current_id(), top, "C-<up> did not come back");
+    assert_eq!(
+        s.editor.windows.current_id(),
+        top,
+        "C-<up> did not come back"
+    );
 }
 
 #[test]
@@ -1445,8 +1592,15 @@ fn moving_where_there_is_no_window_says_so_and_stays_put() {
     let only = s.editor.windows.current_id();
     for keys in ["C-<left>", "C-<right>", "C-<up>", "C-<down>"] {
         s.keys(keys);
-        assert_eq!(s.editor.windows.current_id(), only, "`{keys}` moved somewhere");
-        assert!(s.editor.minibuffer.message_is_error(), "`{keys}` said nothing");
+        assert_eq!(
+            s.editor.windows.current_id(),
+            only,
+            "`{keys}` moved somewhere"
+        );
+        assert!(
+            s.editor.minibuffer.message_is_error(),
+            "`{keys}` said nothing"
+        );
     }
 }
 
@@ -1455,13 +1609,18 @@ fn moving_between_windows_keeps_each_one_where_it_was() {
     // The point of a window is that it remembers its own place.
     let mut s = with_tree();
     s.keys("C-n C-n");
-    let code_line = s.editor.current_buffer().line_of(s.editor.windows.current().point);
+    let code_line = s
+        .editor
+        .current_buffer()
+        .line_of(s.editor.windows.current().point);
 
     s.keys("C-<left>");
     assert_eq!(s.editor.current_buffer().name(), "*treefile*");
     s.keys("C-<right>");
     assert_eq!(
-        s.editor.current_buffer().line_of(s.editor.windows.current().point),
+        s.editor
+            .current_buffer()
+            .line_of(s.editor.windows.current().point),
         code_line,
         "coming back landed somewhere else"
     );
@@ -1486,15 +1645,17 @@ fn tree_follow_mode_does_not_disturb_the_window_being_edited() {
         points.windows(2).all(|w| w[1] > w[0]),
         "point stopped moving while the tree was following: {points:?}"
     );
-    assert_eq!(s.editor.current_buffer().name(), "main.rs", "focus left the file");
+    assert_eq!(
+        s.editor.current_buffer().name(),
+        "main.rs",
+        "focus left the file"
+    );
 
     // And the tree did follow: its cursor sits on the file being edited.
-    let tree = s.editor.tree_window.expect("the tree");
-    let line = s.editor.buffers.get(s.editor.windows.get(tree).unwrap().buffer)
-        .map(|b| b.line_of(s.editor.windows.get(tree).unwrap().point))
-        .expect("a tree buffer");
+    // Asked through `tree_selection`, because a panel line is no longer a
+    // tree index — the section headings sit between them.
     assert_eq!(
-        s.editor.tree.get(line).map(|n| n.name.as_str()),
+        s.editor.tree_selection().map(|n| n.name.as_str()),
         Some("main.rs"),
         "the tree did not follow the file being edited"
     );
@@ -1507,7 +1668,11 @@ fn the_arrow_keys_move_in_a_file_while_the_tree_is_open() {
     // file from the tree, Left/Right/Up/Down do not work, but PgUp/PgDown do",
     // because the tree map has the arrows and not the paging keys.
     let mut s = with_tree();
-    assert_eq!(s.editor.current_buffer().name(), "main.rs", "focus is in the file");
+    assert_eq!(
+        s.editor.current_buffer().name(),
+        "main.rs",
+        "focus is in the file"
+    );
 
     let start = s.editor.windows.current().point;
     s.keys("<down>");
@@ -1515,10 +1680,16 @@ fn the_arrow_keys_move_in_a_file_while_the_tree_is_open() {
     assert!(down > start, "<down> did not move point in the file");
 
     s.keys("<right>");
-    assert!(s.editor.windows.current().point > down, "<right> did not move point");
+    assert!(
+        s.editor.windows.current().point > down,
+        "<right> did not move point"
+    );
 
     s.keys("<up>");
-    assert!(s.editor.windows.current().point < down + 1, "<up> did not move point back");
+    assert!(
+        s.editor.windows.current().point < down + 1,
+        "<up> did not move point back"
+    );
 }
 
 #[test]
@@ -1641,13 +1812,23 @@ fn visiting_themes_shows_each_one_as_it_comes_under_the_cursor() {
     s.type_text("visit-theme");
     s.keys("RET");
     assert!(s.editor.minibuffer.is_active(), "the prompt did not open");
-    assert!(s.editor.minibuffer.completion().visible, "the themes are not listed");
+    assert!(
+        s.editor.minibuffer.completion().visible,
+        "the themes are not listed"
+    );
 
     // Typing a name shows it without anything being accepted yet.
     s.type_text("daylight");
-    assert_eq!(s.editor.theme.name(), "daylight", "the theme was not previewed");
+    assert_eq!(
+        s.editor.theme.name(),
+        "daylight",
+        "the theme was not previewed"
+    );
     assert!(s.editor.minibuffer.is_active(), "the prompt closed early");
-    assert_ne!(started_as, "daylight", "the fixture proves nothing otherwise");
+    assert_ne!(
+        started_as, "daylight",
+        "the fixture proves nothing otherwise"
+    );
 }
 
 #[test]
@@ -1675,8 +1856,15 @@ fn keeping_a_visited_theme_asks_whether_to_write_it_down() {
     s.type_text("daylight");
     s.keys("RET");
 
-    assert_eq!(s.editor.theme.name(), "daylight", "the choice did not stick");
-    assert!(s.editor.minibuffer.is_active(), "it did not ask about the config file");
+    assert_eq!(
+        s.editor.theme.name(),
+        "daylight",
+        "the choice did not stick"
+    );
+    assert!(
+        s.editor.minibuffer.is_active(),
+        "it did not ask about the config file"
+    );
     assert!(
         s.editor.minibuffer.prompt().contains("config file"),
         "got `{}`",
@@ -1702,7 +1890,11 @@ fn answering_no_keeps_the_theme_for_the_session_only() {
         s.editor.tasks.drain().is_empty(),
         "answering no still wrote to the configuration file"
     );
-    assert!(s.editor.minibuffer.display().contains("session"), "got `{}`", s.editor.minibuffer.display());
+    assert!(
+        s.editor.minibuffer.display().contains("session"),
+        "got `{}`",
+        s.editor.minibuffer.display()
+    );
 }
 
 #[test]
@@ -1719,9 +1911,9 @@ fn answering_yes_queues_the_write() {
     s.keys("RET");
 
     let queued = s.editor.tasks.drain();
-    let wrote = queued.iter().any(|task| {
-        matches!(task, maxgus_core::Task::PersistTheme { theme, .. } if theme == "daylight")
-    });
+    let wrote = queued.iter().any(
+        |task| matches!(task, maxgus_core::Task::PersistTheme { theme, .. } if theme == "daylight"),
+    );
     assert!(wrote, "nothing was queued to write the theme: {queued:?}");
 }
 
@@ -1739,6 +1931,7 @@ fn visiting_the_theme_already_in_the_config_asks_nothing() {
     assert_eq!(s.editor.theme.name(), "maxgus-dark");
 }
 
+#[cfg(feature = "git")]
 #[test]
 fn the_mode_line_shows_the_branch_once_it_is_known() {
     let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
@@ -1756,9 +1949,13 @@ fn the_mode_line_shows_the_branch_once_it_is_known() {
 
     let line = s.mode_line();
     assert!(line.contains("feature/icons"), "got `{line}`");
-    assert!(line.contains(maxgus_core::icons::BRANCH), "without its glyph: `{line}`");
+    assert!(
+        line.contains(maxgus_core::icons::BRANCH),
+        "without its glyph: `{line}`"
+    );
 }
 
+#[cfg(feature = "git")]
 #[test]
 fn a_directory_that_is_not_a_repository_shows_no_branch() {
     let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
@@ -1781,16 +1978,43 @@ fn m_x_opens_a_popup_at_the_top_of_the_frame() {
     let total = s.editor.command_names.len();
     let screen = s.screen();
 
-    assert!(screen[0].starts_with('\u{256d}'), "no popup border: `{}`", screen[0]);
+    // The box is centred, so every one of its rows starts at the same column
+    // rather than at the frame's edge.
+    let left = popup_left(&mut s);
+    let at = |row: &str, column: usize| row.chars().nth(column);
+    assert_eq!(
+        at(&screen[0], left),
+        Some('\u{256d}'),
+        "no popup border: `{}`",
+        screen[0]
+    );
+    let right = screen[0]
+        .chars()
+        .position(|c| c == '\u{256e}')
+        .expect("the box has a right corner");
+    assert!(
+        left.abs_diff(60 - 1 - right) <= 1,
+        "the popup is not centred: `{}`",
+        screen[0]
+    );
     // Where the highlight is, out of how many match: the first of all of them.
     assert!(
         screen[1].contains(&format!("1/{total} M-x")),
         "the prompt line does not count the list: `{}`",
         screen[1]
     );
-    assert!(screen[2].starts_with('\u{2502}'), "no candidates under it: `{}`", screen[2]);
+    assert_eq!(
+        at(&screen[2], left),
+        Some('\u{2502}'),
+        "no candidates under it: `{}`",
+        screen[2]
+    );
     // The prompt went up with the list instead of being drawn in both places.
-    assert!(screen[9].is_empty(), "the echo area still prompts: `{}`", screen[9]);
+    assert!(
+        screen[9].is_empty(),
+        "the echo area still prompts: `{}`",
+        screen[9]
+    );
 
     // Narrowing changes the right half of the count and walking the list
     // changes the left. Telling them apart needs a case where the two differ
@@ -1799,11 +2023,17 @@ fn m_x_opens_a_popup_at_the_top_of_the_frame() {
     let matched = s.editor.minibuffer.completion().len();
     assert!(matched < total, "`buffer` matched the whole command set");
     let row = s.screen()[1].clone();
-    assert!(row.contains(&format!("1/{matched} M-x buffer")), "count line is `{row}`");
+    assert!(
+        row.contains(&format!("1/{matched} M-x buffer")),
+        "count line is `{row}`"
+    );
 
     s.keys("<down>");
     let row = s.screen()[1].clone();
-    assert!(row.contains(&format!("2/{matched} M-x buffer")), "count line is `{row}`");
+    assert!(
+        row.contains(&format!("2/{matched} M-x buffer")),
+        "count line is `{row}`"
+    );
 }
 
 #[test]
@@ -1815,11 +2045,44 @@ fn the_popup_says_what_each_command_does_and_which_key_runs_it() {
     s.type_text("save-buffer");
     // From the third line down: the first two are the border and the prompt,
     // and the prompt holds what was typed, which is the same text.
-    let row = s.screen().into_iter().skip(2).find(|l| l.contains("save-buffer")).unwrap();
-    assert!(row.contains("C-x C-s"), "no key binding beside the name: `{row}`");
+    let row = s
+        .screen()
+        .into_iter()
+        .skip(2)
+        .find(|l| l.contains("save-buffer"))
+        .unwrap();
+    assert!(
+        row.contains("C-x C-s"),
+        "no key binding beside the name: `{row}`"
+    );
     // Clipped at the right edge of a sixty-column frame, which is what the
     // column is for: the name and the key stay put and the prose gives way.
-    assert!(row.contains("Save this buffer"), "no summary: `{row}`");
+    assert!(row.contains("Save this"), "no summary: `{row}`");
+}
+
+#[test]
+fn a_wide_frame_gives_the_summary_room_to_finish() {
+    // The other side of the popup no longer taking the whole frame: what it
+    // does take has to be enough for the documentation column to say
+    // something. A terminal with room shows the whole line.
+    let mut s = Session::new(140, 20);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "fn main() {}\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.keys("M-x");
+    s.type_text("save-buffer");
+    let row = s
+        .screen()
+        .into_iter()
+        .skip(2)
+        .find(|l| l.contains("save-buffer"))
+        .expect("the candidate row");
+    assert!(
+        row.contains("Save this buffer to its file."),
+        "the summary is still clipped in a wide frame: `{row}`"
+    );
 }
 
 #[test]
@@ -1834,7 +2097,10 @@ fn the_command_list_is_matched_fuzzily() {
         found.iter().any(|c| c == "save-buffer"),
         "fuzzy matching did not reach `save-buffer`: {found:?}"
     );
-    assert!(s.screen().iter().any(|l| l.contains("save-buffer")), "it is not on screen");
+    assert!(
+        s.screen().iter().any(|l| l.contains("save-buffer")),
+        "it is not on screen"
+    );
 }
 
 #[test]
@@ -1842,18 +2108,42 @@ fn the_arrow_keys_walk_the_candidate_list() {
     let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
     s.keys("M-x");
     s.type_text("buffer");
-    let first = s.editor.minibuffer.completion().current().unwrap().to_string();
+    let first = s
+        .editor
+        .minibuffer
+        .completion()
+        .current()
+        .unwrap()
+        .to_string();
 
     s.keys("<down>");
-    let second = s.editor.minibuffer.completion().current().unwrap().to_string();
+    let second = s
+        .editor
+        .minibuffer
+        .completion()
+        .current()
+        .unwrap()
+        .to_string();
     assert_ne!(first, second, "`<down>` did not move the highlight");
     // The highlight is on the row it moved to, not the one it left.
     let chosen = s.editor.theme.resolve("completion-selected").background;
-    assert_eq!(s.face_at(1, 3).background, chosen, "the second row is not marked");
-    assert_ne!(s.face_at(1, 2).background, chosen, "the first row is still marked");
+    let inside = popup_left(&mut s) as u16 + 1;
+    assert_eq!(
+        s.face_at(inside, 3).background,
+        chosen,
+        "the second row is not marked"
+    );
+    assert_ne!(
+        s.face_at(inside, 2).background,
+        chosen,
+        "the first row is still marked"
+    );
 
     s.keys("<up>");
-    assert_eq!(s.editor.minibuffer.completion().current(), Some(first.as_str()));
+    assert_eq!(
+        s.editor.minibuffer.completion().current(),
+        Some(first.as_str())
+    );
 }
 
 #[test]
@@ -1861,7 +2151,10 @@ fn the_page_keys_move_a_screenful_of_candidates() {
     let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
     s.keys("M-x");
     let page = s.editor.completion_rows();
-    assert!(page > 1, "a page of {page} rows cannot tell paging from stepping");
+    assert!(
+        page > 1,
+        "a page of {page} rows cannot tell paging from stepping"
+    );
 
     s.keys("<next>");
     assert_eq!(s.editor.minibuffer.completion().selected, Some(page));
@@ -1883,7 +2176,11 @@ fn return_runs_the_highlighted_candidate() {
     }
     s.keys("RET");
     let whole = maxgus_text::Range::new(0, s.editor.current_buffer().len_chars());
-    assert_eq!(s.editor.region().unwrap(), whole, "`mark-whole-buffer` did not run");
+    assert_eq!(
+        s.editor.region().unwrap(),
+        whole,
+        "`mark-whole-buffer` did not run"
+    );
 }
 
 #[test]
@@ -1898,7 +2195,10 @@ fn the_cursor_follows_the_prompt_into_the_popup() {
     assert_eq!(y, 1, "the cursor is not on the popup's prompt line");
     let row: Vec<char> = s.screen()[1].chars().collect();
     let before: String = row[1..x as usize].iter().collect();
-    assert!(before.ends_with("M-x save"), "the cursor is not after what was typed: `{before}`");
+    assert!(
+        before.ends_with("M-x save"),
+        "the cursor is not after what was typed: `{before}`"
+    );
     assert_eq!(row[x as usize], ' ', "the cursor sits on top of drawn text");
 }
 
@@ -1920,14 +2220,21 @@ fn a_file_prompt_answers_with_what_was_typed_not_what_it_matched() {
 
     s.type_text("notes");
     assert!(
-        s.editor.minibuffer.completion().candidates.iter().any(|c| c.ends_with("2024.md")),
+        s.editor
+            .minibuffer
+            .completion()
+            .candidates
+            .iter()
+            .any(|c| c.ends_with("2024.md")),
         "the older file should still be offered"
     );
     s.keys("RET");
 
     let tasks = s.editor.tasks.drain();
     assert!(
-        tasks.iter().any(|t| matches!(t, Task::ReadFile { path, .. } if path.ends_with("notes"))),
+        tasks
+            .iter()
+            .any(|t| matches!(t, Task::ReadFile { path, .. } if path.ends_with("notes"))),
         "the prompt visited something other than what was typed: {tasks:?}"
     );
 }
@@ -1950,7 +2257,9 @@ fn a_file_prompt_answers_with_the_candidate_once_the_arrows_pick_one() {
     s.keys("RET");
     let tasks = s.editor.tasks.drain();
     assert!(
-        tasks.iter().any(|t| matches!(t, Task::ReadFile { path, .. } if path.ends_with("notes-2024.md"))),
+        tasks
+            .iter()
+            .any(|t| matches!(t, Task::ReadFile { path, .. } if path.ends_with("notes-2024.md"))),
         "the highlighted file was not the one visited: {tasks:?}"
     );
 }
@@ -1980,10 +2289,2620 @@ fn a_query_that_matches_nothing_keeps_the_popup_where_it_is() {
     let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
     s.keys("M-x");
     s.type_text("zzzq");
-    assert!(s.editor.minibuffer.completion().is_empty(), "`zzzq` matched something");
+    assert!(
+        s.editor.minibuffer.completion().is_empty(),
+        "`zzzq` matched something"
+    );
 
     let screen = s.screen();
-    assert!(screen[0].starts_with('\u{256d}'), "the popup left: {screen:#?}");
-    assert!(screen[1].contains("0/0 M-x zzzq"), "prompt line is `{}`", screen[1]);
-    assert!(screen[9].is_empty(), "the prompt fell back to the echo area: `{}`", screen[9]);
+    assert!(
+        screen[0].contains('\u{256d}'),
+        "the popup left: {screen:#?}"
+    );
+    assert!(
+        screen[1].contains("0/0 M-x zzzq"),
+        "prompt line is `{}`",
+        screen[1]
+    );
+    assert!(
+        screen[9].is_empty(),
+        "the prompt fell back to the echo area: `{}`",
+        screen[9]
+    );
+}
+
+// ---- the side panel -----------------------------------------------------
+
+/// A session with room for all three sections at once. The default ten rows
+/// fit the tree and the outline and push the buffer list off the bottom.
+fn tall_session(path: &str, text: &str) -> Session {
+    let mut session = Session::new(90, 30);
+    let id = session.editor.buffers.visit_file(path, text);
+    session.editor.switch_to_buffer(id).unwrap();
+    session.editor.with_current_buffer(|b| b.set_point(0));
+    session.editor.tasks.drain();
+    session
+}
+
+#[cfg(feature = "lsp")]
+/// A session with the panel open: three windows down the left, the tree
+/// filled, a language server up, and an outline delivered.
+fn with_panel() -> Session {
+    let mut s = tall_session("/project/main.rs", "fn one() {}\nfn two() {}\nstruct S;\n");
+    s.editor
+        .buffers
+        .visit_file("/project/other.rs", "fn other() {}\n");
+    // The server first: whether the outline window exists is decided when the
+    // column is built.
+    start_server(&mut s);
+    s.keys("C-x t t");
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::TreeUpdated {
+            nodes: vec![
+                node("/project", "project", true, 0, true),
+                node("/project/main.rs", "main.rs", false, 1, false),
+                node("/project/other.rs", "other.rs", false, 1, false),
+            ],
+            select: None,
+            show_hidden: false,
+        })
+        .unwrap();
+    deliver_symbols(&mut s);
+    s.editor.tasks.drain();
+    s
+}
+
+#[cfg(feature = "lsp")]
+fn start_server(s: &mut Session) {
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::LanguageServerStarted {
+            language: "rust".into(),
+            encoding: maxgus_lsp::PositionEncoding::Utf16,
+        })
+        .unwrap();
+}
+
+#[cfg(feature = "lsp")]
+/// `one` and `two` are plain functions; `S` is a struct with a field, so the
+/// outline has something to fold.
+fn deliver_symbols(s: &mut Session) {
+    let symbols = serde_json::json!([
+        {"name": "one", "kind": 12, "selectionRange": {"start": {"line": 0, "character": 3}}},
+        {"name": "two", "kind": 12, "selectionRange": {"start": {"line": 1, "character": 3}}},
+        {"name": "S", "kind": 23, "selectionRange": {"start": {"line": 2, "character": 7}},
+         "children": [
+            {"name": "field", "kind": 8, "selectionRange": {"start": {"line": 2, "character": 9}}}
+         ]}
+    ]);
+    s.editor
+        .apply_lsp_response(maxgus_core::TaskResult::LspResponse {
+            language: "rust".into(),
+            uri: "file:///project/main.rs".into(),
+            query: maxgus_core::LspQuery::DocumentSymbols { for_panel: true },
+            result: symbols,
+        });
+}
+
+/// Selects the panel window showing `name`, and says which it was.
+fn select_panel_window(s: &mut Session, name: &str) -> maxgus_core::window::WindowId {
+    let id = s
+        .editor
+        .buffers
+        .find_by_name(name)
+        .unwrap_or_else(|| panic!("no {name} buffer"));
+    let window = *s
+        .editor
+        .windows
+        .showing(id)
+        .first()
+        .unwrap_or_else(|| panic!("{name} is not in a window"));
+    s.editor.select_window(window);
+    window
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn the_panel_is_three_windows_stacked_down_the_left() {
+    // One window per section rather than one buffer with headings in it, so
+    // that moving between them is ordinary window movement and each keeps its
+    // own point.
+    let s = with_panel();
+    assert_eq!(s.editor.panel_windows.len(), 3, "not three windows");
+    let rects: Vec<_> = s
+        .editor
+        .panel_windows
+        .iter()
+        .filter_map(|id| s.editor.windows.get(*id))
+        .collect();
+    for window in &rects {
+        assert_eq!(window.rect.x, 0, "a panel window is not on the left");
+        assert_eq!(
+            window.rect.width, s.editor.tree_width,
+            "a panel window is the wrong width"
+        );
+    }
+    // Stacked, in order, without overlapping.
+    assert!(rects[0].rect.bottom() <= rects[1].rect.y);
+    assert!(rects[1].rect.bottom() <= rects[2].rect.y);
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn the_control_arrows_move_between_the_panels_windows() {
+    // The reason for making them windows: this is ordinary window movement,
+    // with nothing special about the panel at all.
+    let mut s = with_panel();
+    let names = ["*treefile*", "*symbols*", "*buffers*"];
+    select_panel_window(&mut s, names[0]);
+
+    for expected in &names[1..] {
+        s.keys("C-<down>");
+        assert_eq!(
+            s.editor.current_buffer().name(),
+            *expected,
+            "`C-<down>` did not reach {expected}"
+        );
+    }
+    for expected in names[..2].iter().rev() {
+        s.keys("C-<up>");
+        assert_eq!(s.editor.current_buffer().name(), *expected);
+    }
+    // And out of the column to the file being edited.
+    s.keys("C-<right>");
+    assert_eq!(s.editor.current_buffer().name(), "main.rs");
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn each_panel_window_keeps_its_own_point() {
+    // The other reason: a single buffer could not do this.
+    let mut s = with_panel();
+    select_panel_window(&mut s, "*symbols*");
+    s.keys("n");
+    s.keys("n");
+    let symbol = s.editor.symbol_at_cursor();
+    assert_eq!(symbol, Some(2), "the outline did not move");
+
+    select_panel_window(&mut s, "*treefile*");
+    s.keys("n");
+    assert_eq!(s.editor.tree_cursor_line(), 1);
+
+    // Back to the outline, still where it was.
+    select_panel_window(&mut s, "*symbols*");
+    assert_eq!(
+        s.editor.symbol_at_cursor(),
+        symbol,
+        "the outline lost its place"
+    );
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn a_symbol_is_selected_and_gone_to() {
+    let mut s = with_panel();
+    select_panel_window(&mut s, "*symbols*");
+    s.keys("n");
+    s.keys("n");
+    assert_eq!(s.editor.symbol_at_cursor(), Some(2), "not on the struct");
+
+    s.keys("RET");
+    // In the window beside the panel, not in one of the panel's own: showing
+    // the file inside the outline window would leave both useless.
+    assert!(
+        !s.editor
+            .panel_windows
+            .contains(&s.editor.windows.current_id()),
+        "the file was opened inside the panel"
+    );
+    assert_eq!(
+        s.editor.current_buffer().name(),
+        "main.rs",
+        "focus did not leave the panel"
+    );
+    let position = s.editor.current_buffer().position_of(s.point());
+    assert_eq!(
+        (position.line, position.column),
+        (2, 7),
+        "point is not on the struct"
+    );
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn a_buffer_is_selected_and_shown() {
+    let mut s = with_panel();
+    select_panel_window(&mut s, "*buffers*");
+    let expected = s
+        .editor
+        .listed_buffer_at_cursor()
+        .expect("a buffer under point");
+    s.keys("RET");
+    assert_eq!(s.editor.windows.current().buffer, expected);
+    // And the panel's own buffers are not in the list.
+    let listed: Vec<String> = s
+        .editor
+        .panel_buffers()
+        .into_iter()
+        .map(|(_, name)| name)
+        .collect();
+    assert!(
+        !listed
+            .iter()
+            .any(|name| name.starts_with('*') && name.ends_with('*') && name != "*scratch*"),
+        "a panel buffer is listed: {listed:?}"
+    );
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn tab_folds_a_symbol_and_hides_what_is_inside_it() {
+    let mut s = with_panel();
+    select_panel_window(&mut s, "*symbols*");
+    let shown = |s: &Session| s.editor.panel.visible_symbols().len();
+    assert_eq!(shown(&s), 4);
+
+    s.keys("n");
+    s.keys("n");
+    s.keys("TAB");
+    assert_eq!(shown(&s), 3, "the struct's field is still shown");
+    // Point stays on the symbol that was folded.
+    assert_eq!(s.editor.symbol_at_cursor(), Some(2));
+    s.keys("TAB");
+    assert_eq!(shown(&s), 4);
+}
+
+#[test]
+fn the_outline_window_is_absent_when_there_is_no_server() {
+    // Not an empty window — absent. A window over nothing is worse than one
+    // section fewer.
+    let mut s = tall_session("/project/main.rs", "fn one() {}\n");
+    s.keys("C-x t t");
+    assert_eq!(
+        s.editor.panel_windows.len(),
+        2,
+        "the outline window should not be there"
+    );
+    assert!(s.editor.buffers.find_by_name("*symbols*").is_none());
+}
+
+#[test]
+fn a_section_switched_off_in_configuration_is_not_in_the_panel() {
+    let settings = Settings {
+        panel_buffers: false,
+        ..Settings::default()
+    };
+    let mut s = Session::configured(settings, 90, 30);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "fn one() {}\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.editor.tasks.drain();
+    s.keys("C-x t t");
+    assert!(
+        s.editor.buffers.find_by_name("*buffers*").is_none(),
+        "the list is still there"
+    );
+    assert!(s.editor.buffers.find_by_name("*treefile*").is_some());
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn switching_a_section_on_rebuilds_the_column() {
+    let mut s = with_panel();
+    assert_eq!(s.editor.panel_windows.len(), 3);
+    select_panel_window(&mut s, "*treefile*");
+    s.keys("t b");
+    assert_eq!(
+        s.editor.panel_windows.len(),
+        2,
+        "the buffer list did not go"
+    );
+    s.keys("t b");
+    assert_eq!(s.editor.panel_windows.len(), 3, "it did not come back");
+}
+
+#[test]
+fn the_last_section_cannot_be_switched_off() {
+    let mut s = tall_session("/project/main.rs", "fn one() {}\n");
+    s.keys("C-x t t");
+    select_panel_window(&mut s, "*treefile*");
+    s.keys("t b");
+    s.keys("t r");
+    assert!(s.echo().contains("nothing left"), "got `{}`", s.echo());
+    assert!(
+        s.editor.buffers.find_by_name("*treefile*").is_some(),
+        "the tree went away"
+    );
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn the_outline_belongs_to_the_buffer_being_edited() {
+    // Symbols for one file shown against another is worse than no symbols.
+    let mut s = with_panel();
+    assert_eq!(s.editor.panel.symbols.len(), 4);
+
+    let other = s
+        .editor
+        .buffers
+        .find_by_path(std::path::Path::new("/project/other.rs"))
+        .unwrap();
+    let editing = s
+        .editor
+        .windows
+        .ids()
+        .into_iter()
+        .find(|id| !s.editor.panel_windows.contains(id))
+        .expect("a window to edit in");
+    s.editor.select_window(editing);
+    s.editor.switch_to_buffer(other).unwrap();
+    assert!(
+        s.editor.panel.symbols.is_empty(),
+        "the old file's outline is still up"
+    );
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn a_tree_command_typed_in_the_outline_does_nothing_to_the_tree() {
+    // Each window has its own keymap, so `d` in the outline is not the
+    // tree's delete at all.
+    let mut s = with_panel();
+    select_panel_window(&mut s, "*symbols*");
+    s.editor.tasks.drain();
+    s.keys("d");
+    assert!(
+        s.editor.tasks.drain().is_empty(),
+        "a tree task was queued from the outline"
+    );
+}
+
+// ---- the terminal panel -------------------------------------------------
+
+#[cfg(feature = "terminal")]
+/// A session with the terminal open and its shell "started".
+fn with_terminal() -> Session {
+    let mut s = tall_session("/project/main.rs", "fn main() {}\n");
+    s.keys("C-x t v");
+    s.editor.tasks.drain();
+    s
+}
+
+#[cfg(feature = "terminal")]
+/// The bytes sent to the shell since the last drain.
+fn sent(s: &mut Session) -> Vec<u8> {
+    s.editor
+        .tasks
+        .drain()
+        .into_iter()
+        .filter_map(|task| match task {
+            Task::TerminalInput { bytes, .. } => Some(bytes),
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+#[cfg(feature = "terminal")]
+/// Feeds output from the program to the terminal showing.
+fn output(s: &mut Session, bytes: &str) {
+    let terminal = s.editor.terminals.current().expect("a terminal").id;
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::TerminalOutput {
+            terminal,
+            bytes: bytes.as_bytes().to_vec(),
+        })
+        .unwrap();
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn the_terminal_opens_along_the_bottom_and_starts_a_shell() {
+    let mut s = tall_session("/project/main.rs", "fn main() {}\n");
+    s.keys("C-x t v");
+
+    let window = s.editor.terminal_window.expect("the terminal window");
+    let rect = s.editor.windows.get(window).unwrap().rect;
+    assert_eq!(rect.width, 90, "the panel does not span the frame");
+    assert!(rect.y > 0, "it is not along the bottom");
+
+    let tasks = s.editor.tasks.drain();
+    assert!(
+        tasks.iter().any(|t| matches!(t, Task::TerminalOpen { .. })),
+        "no shell was started: {tasks:?}"
+    );
+    // Opening it means wanting to type in it.
+    assert_eq!(s.editor.windows.current_id(), window);
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn typing_in_a_terminal_reaches_the_shell_rather_than_the_editor() {
+    // This is the whole point of a terminal window: `C-a` is readline's, not
+    // `move-beginning-of-line`, and `l` is a keystroke, not `self-insert`.
+    let mut s = with_terminal();
+    let before = s
+        .editor
+        .buffers
+        .get(s.editor.buffers.ids()[1])
+        .map(|b| b.text());
+
+    s.type_text("ls");
+    s.keys("C-a");
+    s.keys("RET");
+    assert_eq!(sent(&mut s), b"ls\x01\r");
+
+    let after = s
+        .editor
+        .buffers
+        .get(s.editor.buffers.ids()[1])
+        .map(|b| b.text());
+    assert_eq!(before, after, "a keystroke was inserted into a buffer");
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn what_the_shell_writes_is_drawn_in_the_panel() {
+    let mut s = with_terminal();
+    output(&mut s, "hello from the shell\r\n$ ");
+    assert!(
+        s.screen()
+            .iter()
+            .any(|line| line.contains("hello from the shell")),
+        "the output is not on screen:\n{:#?}",
+        s.screen()
+    );
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn tabs_are_opened_and_walked_between() {
+    let mut s = with_terminal();
+    assert_eq!(s.editor.terminals.len(), 1);
+
+    s.keys("C-c t");
+    assert_eq!(s.editor.terminals.len(), 2, "`C-c t` did not open a tab");
+    assert_eq!(
+        s.editor.terminals.current_index(),
+        1,
+        "the new tab is not the one showing"
+    );
+
+    s.keys("C-c p");
+    assert_eq!(s.editor.terminals.current_index(), 0);
+    s.keys("C-c n");
+    assert_eq!(s.editor.terminals.current_index(), 1);
+    // Two tabs is few enough that walking off the end should come round.
+    s.keys("C-c n");
+    assert_eq!(s.editor.terminals.current_index(), 0);
+
+    // And the bar says which is which, by the number `C-c 1` refers to.
+    let bar = s
+        .screen()
+        .into_iter()
+        .find(|line| line.contains(" 1 "))
+        .unwrap_or_default();
+    assert!(
+        bar.contains(" 2 "),
+        "the tab bar does not list both: `{bar}`"
+    );
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn a_tab_is_chosen_by_its_number() {
+    let mut s = with_terminal();
+    s.keys("C-c t");
+    s.keys("C-c t");
+    assert_eq!(s.editor.terminals.len(), 3);
+
+    s.keys("C-c 1");
+    assert_eq!(s.editor.terminals.current_index(), 0);
+    s.keys("C-c 3");
+    assert_eq!(s.editor.terminals.current_index(), 2);
+    s.keys("C-c 9");
+    assert!(s.echo().contains("no tab 9"), "got `{}`", s.echo());
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn closing_the_last_tab_closes_the_panel_with_it() {
+    // A terminal panel with no terminal in it is a band of nothing across the
+    // bottom of the frame.
+    let mut s = with_terminal();
+    s.keys("C-c t");
+    s.keys("C-c k");
+    assert_eq!(s.editor.terminals.len(), 1);
+    assert!(
+        s.editor.terminal_window.is_some(),
+        "the panel closed too early"
+    );
+
+    s.keys("C-c k");
+    assert!(s.editor.terminals.is_empty());
+    assert!(
+        s.editor.terminal_window.is_none(),
+        "the panel outlived its last tab"
+    );
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn reading_mode_stops_the_keys_reaching_the_shell() {
+    let mut s = with_terminal();
+    output(&mut s, "one\r\ntwo\r\nthree\r\n");
+    s.editor.tasks.drain();
+
+    s.keys("C-c C-t");
+    assert!(s.editor.terminals.current().unwrap().in_copy_mode());
+    // `n` moves the reading cursor; it must not be typed at the shell.
+    s.keys("n");
+    s.keys("p");
+    assert!(
+        sent(&mut s).is_empty(),
+        "keys leaked to the shell while reading"
+    );
+
+    s.keys("C-g");
+    assert!(!s.editor.terminals.current().unwrap().in_copy_mode());
+    s.type_text("x");
+    assert_eq!(sent(&mut s), b"x", "the keyboard did not come back");
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn a_selection_made_while_reading_goes_to_the_kill_ring() {
+    let mut s = with_terminal();
+    output(&mut s, "hello world\r\n");
+    s.keys("C-c C-t");
+
+    // To the start of the first line, mark, then five characters right.
+    s.keys("M-<");
+    s.keys("C-SPC");
+    for _ in 0..4 {
+        s.keys("C-f");
+    }
+    s.keys("M-w");
+
+    assert_eq!(s.editor.kill_ring.front(), Some("hello"));
+    assert!(
+        !s.editor.terminals.current().unwrap().in_copy_mode(),
+        "copying should end reading"
+    );
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn a_paste_goes_in_bracketed_when_the_shell_asked_for_that() {
+    let mut s = with_terminal();
+    s.editor.kill_ring.kill_new("echo one\necho two");
+    s.editor.tasks.drain();
+
+    s.keys("C-c C-y");
+    assert_eq!(sent(&mut s), b"echo one\recho two", "a plain paste");
+
+    // Once the shell turns bracketed paste on, the same paste is wrapped so
+    // it cannot run half of itself.
+    output(&mut s, "\x1b[?2004h");
+    s.editor.tasks.drain();
+    s.keys("C-c C-y");
+    assert_eq!(
+        sent(&mut s),
+        b"\x1b[200~echo one\recho two\x1b[201~".to_vec()
+    );
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn the_interrupt_key_is_given_back_by_the_prefix_that_took_it() {
+    // `C-c` is the prefix, so `C-c c` has to send a real interrupt or there
+    // would be no way to stop a program.
+    let mut s = with_terminal();
+    s.keys("C-c c");
+    assert_eq!(sent(&mut s), [3]);
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn resizing_the_frame_tells_the_programs_inside() {
+    // Without this, `vim` in a tab goes on drawing to the shape it started
+    // with, which looks like a corrupt screen rather than a stale size.
+    let mut s = with_terminal();
+    s.editor.tasks.drain();
+    s.editor.set_frame(maxgus_tui::Rect::new(0, 0, 100, 40));
+
+    let tasks = s.editor.tasks.drain();
+    assert!(
+        tasks
+            .iter()
+            .any(|t| matches!(t, Task::TerminalResize { columns: 100, .. })),
+        "no resize was sent: {tasks:?}"
+    );
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn the_terminal_spans_the_frame_with_the_side_panel_open() {
+    let mut s = with_terminal();
+    s.keys("C-x t t");
+    let terminal = s.editor.terminal_window.expect("the terminal");
+    let panel = s.editor.tree_window.expect("the panel");
+    assert_eq!(s.editor.windows.get(terminal).unwrap().rect.width, 90);
+    assert!(
+        s.editor.windows.get(panel).unwrap().rect.bottom()
+            <= s.editor.windows.get(terminal).unwrap().rect.y,
+        "the side panel overlaps the terminal"
+    );
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn the_arrows_change_shape_when_the_shell_asks() {
+    // `DECCKM`. Sending the wrong spelling makes the arrows print `^[[A` at a
+    // prompt instead of walking the history.
+    let mut s = with_terminal();
+    s.editor.tasks.drain();
+    s.keys("<up>");
+    assert_eq!(sent(&mut s), b"\x1b[A");
+
+    output(&mut s, "\x1b[?1h");
+    s.editor.tasks.drain();
+    s.keys("<up>");
+    assert_eq!(sent(&mut s), b"\x1bOA");
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn the_editors_own_prefix_still_works_from_inside_a_terminal() {
+    // Without this the terminal swallows `C-x` along with everything else and
+    // there is no way out of it — no other window, no saving, no quitting.
+    let mut s = with_terminal();
+    s.editor.tasks.drain();
+
+    s.keys("C-x t v");
+    assert!(
+        s.editor.terminal_window.is_none(),
+        "`C-x t v` did not reach the editor"
+    );
+    assert!(sent(&mut s).is_empty(), "the prefix leaked to the shell");
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn the_keys_the_editor_keeps_are_given_back_under_the_prefix() {
+    // Four keys stay the editor's, so each has a spelling that sends it for
+    // real: a program that wants `C-x` or `C-g` must still be able to have it.
+    let mut s = with_terminal();
+    s.editor.tasks.drain();
+
+    s.keys("C-c x");
+    assert_eq!(sent(&mut s), [0x18], "C-c x should send a real C-x");
+    s.keys("C-c g");
+    assert_eq!(sent(&mut s), [0x07], "C-c g should send a real C-g");
+    s.keys("C-c c");
+    assert_eq!(sent(&mut s), [0x03], "C-c c should send a real interrupt");
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn help_and_m_x_still_reach_the_editor_from_a_terminal() {
+    let mut s = with_terminal();
+    s.editor.tasks.drain();
+    s.keys("M-x");
+    assert_eq!(
+        s.editor.minibuffer.kind(),
+        Some(MinibufferKind::Command),
+        "M-x was swallowed"
+    );
+    s.keys("C-g");
+    assert!(
+        sent(&mut s).is_empty(),
+        "the editor's keys leaked to the shell"
+    );
+}
+
+// ---- the git status view ------------------------------------------------
+
+#[cfg(feature = "git")]
+const UNSTAGED_DIFF: &str = "\
+diff --git a/src/a.rs b/src/a.rs
+index 111..222 100644
+--- a/src/a.rs
++++ b/src/a.rs
+@@ -1,2 +1,2 @@
+-old first
++new first
+ tail
+@@ -20,2 +20,2 @@
+-old second
++new second
+ tail
+";
+
+#[cfg(feature = "git")]
+const STAGED_DIFF: &str = "\
+diff --git a/src/b.rs b/src/b.rs
+index 333..444 100644
+--- a/src/b.rs
++++ b/src/b.rs
+@@ -5,2 +5,2 @@
+-was
++is
+ tail
+";
+
+#[cfg(feature = "git")]
+/// A session showing a repository with one unstaged file, one staged file,
+/// an untracked file and a stash.
+fn with_git() -> Session {
+    // Thirty lines, so a jump to the second hunk at line twenty lands
+    // somewhere rather than being clamped to the end of a short file.
+    let text: String = (1..=30).map(|n| format!("line {n}\n")).collect();
+    let mut s = tall_session("/project/src/a.rs", &text);
+    s.keys("C-x g");
+    s.editor.tasks.drain();
+    refresh_git(&mut s);
+    s
+}
+
+#[cfg(feature = "git")]
+fn refresh_git(s: &mut Session) {
+    let status = maxgus_git::status::parse(
+        b"# branch.oid 5958f5e13418d8b5\0\
+          # branch.head main\0\
+          # branch.upstream origin/main\0\
+          # branch.ab +1 -0\0\
+          1 .M N... 100644 100644 100644 aaa bbb src/a.rs\0\
+          1 M. N... 100644 100644 100644 aaa bbb src/b.rs\0\
+          ? notes.txt\0",
+    );
+    let snapshot = maxgus_core::task::GitSnapshot {
+        root: "/project".into(),
+        status,
+        unstaged: maxgus_git::diff::parse(UNSTAGED_DIFF),
+        staged: maxgus_git::diff::parse(STAGED_DIFF),
+        stashes: maxgus_git::log::parse_stashes("stash@{0}\u{1f}WIP on main\u{1e}\n"),
+        unpushed: maxgus_git::log::parse_log(
+            "h1\u{1f}abc1234\u{1f}Someone\u{1f}an hour ago\u{1f}\u{1f}not pushed yet\u{1e}\n",
+        ),
+        unpulled: Vec::new(),
+        recent: maxgus_git::log::parse_log(
+            "h2\u{1f}def5678\u{1f}Someone\u{1f}a day ago\u{1f}HEAD -> main, tag: v1\u{1f}the last one\u{1e}\n",
+        ),
+        head_subject: "the last one".into(),
+        branches: vec!["main".into(), "feature/x".into()],
+        references: vec![
+            maxgus_git::Reference {
+                name: "main".into(),
+                kind: maxgus_git::RefKind::Local,
+            },
+            maxgus_git::Reference {
+                name: "feature/x".into(),
+                kind: maxgus_git::RefKind::Local,
+            },
+            maxgus_git::Reference {
+                name: "origin/main".into(),
+                kind: maxgus_git::RefKind::Remote,
+            },
+            maxgus_git::Reference {
+                name: "v1.0".into(),
+                kind: maxgus_git::RefKind::Tag,
+            },
+        ],
+    };
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GitRefreshed(Box::new(snapshot)))
+        .unwrap();
+    s.editor.tasks.drain();
+}
+
+#[cfg(feature = "git")]
+/// Moves point to the first row matching, and says which line it was.
+fn go_to_git(s: &mut Session, matching: impl Fn(&maxgus_core::git::Row) -> bool) -> usize {
+    let line = s
+        .editor
+        .git
+        .rows()
+        .iter()
+        .position(&matching)
+        .expect("no such row");
+    s.editor.move_git_cursor_to_line(line);
+    line
+}
+
+#[cfg(feature = "git")]
+/// The git tasks queued since the last drain.
+fn git_tasks(s: &mut Session) -> Vec<maxgus_core::task::GitAction> {
+    s.editor
+        .tasks
+        .drain()
+        .into_iter()
+        .filter_map(|task| match task {
+            Task::Git { action, .. } => Some(action),
+            _ => None,
+        })
+        .collect()
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn the_status_view_shows_the_whole_state_of_the_repository() {
+    let mut s = with_git();
+    let screen = s.screen();
+    let has = |needle: &str| screen.iter().any(|line| line.contains(needle));
+
+    assert!(has("Head:"), "no head line:\n{screen:#?}");
+    assert!(has("main"), "no branch");
+    assert!(
+        has("Untracked files (1)"),
+        "no untracked section:\n{screen:#?}"
+    );
+    assert!(has("Unstaged changes (1)"), "no unstaged section");
+    assert!(has("Staged changes (1)"), "no staged section");
+    assert!(has("Stashes (1)"), "no stashes");
+    assert!(has("Unpushed to upstream (1)"), "no unpushed section");
+    assert!(has("Recent commits (1)"), "no recent commits");
+    // Nothing is unpulled, so that heading should not be there at all.
+    assert!(
+        !has("Unpulled"),
+        "an empty section was headed:\n{screen:#?}"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn tab_folds_a_section_a_file_and_a_hunk_in_turn() {
+    let mut s = with_git();
+    let rows = |s: &Session| s.editor.git.rows().len();
+
+    // A file first: its hunks appear.
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::File { section, .. }
+        if *section == maxgus_core::git::Section::Unstaged)
+    });
+    let before = rows(&s);
+    s.keys("TAB");
+    assert!(rows(&s) > before, "opening the file showed nothing");
+    assert!(
+        s.editor
+            .git
+            .rows()
+            .iter()
+            .any(|r| matches!(r, maxgus_core::git::Row::Hunk { .. })),
+        "no hunks appeared"
+    );
+
+    // Then one of its hunks.
+    let opened = rows(&s);
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Hunk { .. })
+    });
+    s.keys("TAB");
+    assert!(rows(&s) < opened, "folding the hunk hid nothing");
+
+    // Then the whole section.
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Section(section)
+        if *section == maxgus_core::git::Section::Unstaged)
+    });
+    s.keys("TAB");
+    assert!(
+        !s.editor
+            .git
+            .rows()
+            .iter()
+            .any(|r| matches!(r, maxgus_core::git::Row::File { section, .. }
+            if *section == maxgus_core::git::Section::Unstaged)),
+        "the section folded but its files are still listed"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn point_stays_on_the_row_that_was_folded() {
+    // Everything below a fold moves. Coming back to the same line number
+    // would leave point somewhere unrelated to what was just acted on.
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Section(section)
+        if *section == maxgus_core::git::Section::Untracked)
+    });
+    s.keys("TAB");
+    assert!(
+        matches!(
+            s.editor.git_row_at_cursor(),
+            Some(maxgus_core::git::Row::Section(
+                maxgus_core::git::Section::Untracked
+            ))
+        ),
+        "point left the row it folded: {:?}",
+        s.editor.git_row_at_cursor()
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn staging_a_file_stages_that_file() {
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::File { section, .. }
+        if *section == maxgus_core::git::Section::Unstaged)
+    });
+    s.keys("s");
+    let actions = git_tasks(&mut s);
+    assert_eq!(actions.len(), 1, "got {actions:?}");
+    match &actions[0] {
+        maxgus_core::task::GitAction::Stage(paths) => {
+            assert_eq!(paths.len(), 1);
+            assert_eq!(paths[0].to_string_lossy(), "src/a.rs");
+        }
+        other => panic!("expected a stage, got {other:?}"),
+    }
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn staging_one_hunk_sends_a_patch_of_that_hunk_alone() {
+    // The signature magit operation, and the one where getting it wrong
+    // stages something the user did not look at.
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::File { section, .. }
+        if *section == maxgus_core::git::Section::Unstaged)
+    });
+    s.keys("TAB");
+    // The second hunk, so taking the whole file would be visibly wrong.
+    let line = go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Hunk { hunk: 1, .. })
+    });
+    assert!(line > 0);
+    s.editor.tasks.drain();
+
+    s.keys("s");
+    let actions = git_tasks(&mut s);
+    match &actions[..] {
+        [
+            maxgus_core::task::GitAction::ApplyPatch {
+                patch, arguments, ..
+            },
+        ] => {
+            assert_eq!(arguments, &["--cached".to_string()]);
+            assert!(patch.contains("new second"), "the wrong hunk:\n{patch}");
+            assert!(
+                !patch.contains("new first"),
+                "the other hunk came too:\n{patch}"
+            );
+            assert!(patch.starts_with("diff --git"), "no header:\n{patch}");
+        }
+        other => panic!("expected one patch, got {other:?}"),
+    }
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn unstaging_a_hunk_reverses_the_same_patch() {
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::File { section, .. }
+        if *section == maxgus_core::git::Section::Staged)
+    });
+    s.keys("TAB");
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Hunk { section, .. }
+        if *section == maxgus_core::git::Section::Staged)
+    });
+    s.editor.tasks.drain();
+
+    s.keys("u");
+    match &git_tasks(&mut s)[..] {
+        [
+            maxgus_core::task::GitAction::ApplyPatch {
+                arguments, patch, ..
+            },
+        ] => {
+            assert_eq!(
+                arguments,
+                &["--cached".to_string(), "--reverse".to_string()]
+            );
+            assert!(
+                patch.contains("+is"),
+                "the staged change is not in the patch:\n{patch}"
+            );
+        }
+        other => panic!("expected a reversed patch, got {other:?}"),
+    }
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn staging_something_already_staged_says_so_rather_than_doing_it_twice() {
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::File { section, .. }
+        if *section == maxgus_core::git::Section::Staged)
+    });
+    s.keys("s");
+    assert!(s.echo().contains("Already staged"), "got `{}`", s.echo());
+    assert!(git_tasks(&mut s).is_empty(), "it went ahead anyway");
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn discarding_asks_first_and_says_what_it_will_lose() {
+    // The one irreversible thing here.
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::File { section, .. }
+        if *section == maxgus_core::git::Section::Unstaged)
+    });
+    s.keys("k");
+    assert_eq!(
+        s.editor.minibuffer.kind(),
+        Some(MinibufferKind::YesNo),
+        "it did not ask"
+    );
+    assert!(
+        s.editor.minibuffer.prompt().contains("src/a.rs"),
+        "the question does not say what: `{}`",
+        s.editor.minibuffer.prompt()
+    );
+    assert!(git_tasks(&mut s).is_empty(), "it discarded before asking");
+
+    s.type_text("no");
+    s.keys("RET");
+    assert!(git_tasks(&mut s).is_empty(), "`no` discarded it anyway");
+
+    s.keys("k");
+    s.type_text("yes");
+    s.keys("RET");
+    assert!(
+        matches!(
+            git_tasks(&mut s).first(),
+            Some(maxgus_core::task::GitAction::Discard(_))
+        ),
+        "`yes` did not discard"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn a_commit_is_written_in_a_buffer_and_finished_with_two_keys() {
+    let mut s = with_git();
+    s.keys("c c");
+    assert_eq!(
+        s.editor.current_buffer().name(),
+        "COMMIT_EDITMSG",
+        "no message buffer"
+    );
+
+    s.type_text("a good commit message");
+    s.keys("C-c C-c");
+    match &git_tasks(&mut s)[..] {
+        [maxgus_core::task::GitAction::Commit { message, amend, .. }] => {
+            assert_eq!(message.trim(), "a good commit message");
+            assert!(!amend);
+        }
+        other => panic!("expected a commit, got {other:?}"),
+    }
+    assert_ne!(
+        s.editor.current_buffer().name(),
+        "COMMIT_EDITMSG",
+        "the buffer stayed up"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn an_empty_commit_message_is_refused() {
+    let mut s = with_git();
+    s.keys("c c");
+    s.keys("C-c C-c");
+    assert!(
+        s.echo().contains("empty commit message"),
+        "got `{}`",
+        s.echo()
+    );
+    assert!(git_tasks(&mut s).is_empty(), "it committed nothing");
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn comment_lines_are_stripped_from_a_commit_message() {
+    // As git strips them, so a template can explain itself without ending up
+    // in the history.
+    let mut s = with_git();
+    s.keys("c c");
+    s.type_text("the subject");
+    s.keys("RET");
+    s.type_text("# this is a comment");
+    s.keys("C-c C-c");
+    match &git_tasks(&mut s)[..] {
+        [maxgus_core::task::GitAction::Commit { message, .. }] => {
+            assert!(
+                !message.contains("comment"),
+                "the comment was committed: `{message}`"
+            );
+            assert!(message.contains("the subject"));
+        }
+        other => panic!("expected a commit, got {other:?}"),
+    }
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn return_on_a_hunk_opens_the_file_at_that_hunk() {
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::File { section, .. }
+        if *section == maxgus_core::git::Section::Unstaged)
+    });
+    s.keys("TAB");
+    // The second hunk starts at line 20 of the new file.
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Hunk { hunk: 1, .. })
+    });
+    s.editor.tasks.drain();
+    s.keys("RET");
+
+    // The file is already open, so it is shown rather than read again; either
+    // way what matters is where point ends up.
+    assert_eq!(
+        s.editor.current_buffer().name(),
+        "a.rs",
+        "the file was not shown"
+    );
+    let position = s.editor.current_buffer().position_of(s.point());
+    assert_eq!(position.line, 19, "point is not at the hunk");
+}
+
+#[cfg(all(feature = "git", feature = "lsp"))]
+#[test]
+fn return_on_a_hunk_of_a_file_not_open_yet_reads_it_and_then_jumps() {
+    let mut s = with_git();
+    // The staged change is to a file this session has never opened.
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::File { section, .. }
+        if *section == maxgus_core::git::Section::Staged)
+    });
+    s.keys("TAB");
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Hunk { section, .. }
+        if *section == maxgus_core::git::Section::Staged)
+    });
+    s.editor.tasks.drain();
+    s.keys("RET");
+
+    let tasks = s.editor.tasks.drain();
+    assert!(
+        tasks
+            .iter()
+            .any(|t| matches!(t, Task::ReadFile { path, .. } if path.ends_with("src/b.rs"))),
+        "the file was not read: {tasks:?}"
+    );
+    // The jump waits for the read, which is what `pending_line` is for.
+    assert_eq!(
+        s.editor.pending_line.as_ref().map(|(_, line)| *line),
+        Some(4),
+        "it did not aim at the hunk"
+    );
+}
+
+#[cfg(all(feature = "git", feature = "lsp"))]
+#[test]
+fn return_on_a_diff_line_counts_only_the_lines_that_exist_in_the_file() {
+    // The hunk is `-was`, `+is`, ` tail` starting at line five. A removed
+    // line is not in the file being opened, so counting it would land a line
+    // further down every time a hunk removes anything.
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::File { section, .. }
+        if *section == maxgus_core::git::Section::Staged)
+    });
+    s.keys("TAB");
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Line { section, line: 2, .. }
+        if *section == maxgus_core::git::Section::Staged)
+    });
+    s.editor.tasks.drain();
+    s.keys("RET");
+
+    // ` tail` is the second line of the new file's hunk: line six, which is
+    // five zero-based.
+    assert_eq!(
+        s.editor.pending_line.as_ref().map(|(_, line)| *line),
+        Some(5),
+        "the removed line was counted as if it were in the file"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn the_section_keys_walk_between_headings() {
+    let mut s = with_git();
+    let section = |s: &Session| s.editor.git_row_at_cursor().and_then(|row| row.section());
+    s.editor.move_git_cursor_to_line(0);
+    s.keys("M-n");
+    assert_eq!(section(&s), Some(maxgus_core::git::Section::Untracked));
+    s.keys("M-n");
+    assert_eq!(section(&s), Some(maxgus_core::git::Section::Unstaged));
+    s.keys("M-p");
+    assert_eq!(section(&s), Some(maxgus_core::git::Section::Untracked));
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn a_stash_is_acted_on_by_the_name_git_knows_it_by() {
+    let mut s = with_git();
+    go_to_git(&mut s, |row| matches!(row, maxgus_core::git::Row::Stash(_)));
+    s.keys("z p");
+    match &git_tasks(&mut s)[..] {
+        [maxgus_core::task::GitAction::StashPop(name)] => assert_eq!(name, "stash@{0}"),
+        other => panic!("expected a pop, got {other:?}"),
+    }
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn the_branch_prompt_offers_the_branches_there_are() {
+    let mut s = with_git();
+    s.keys("b b");
+    assert_eq!(s.editor.minibuffer.kind(), Some(MinibufferKind::Choice));
+    let offered = s.editor.completion_candidates.clone();
+    assert!(
+        offered.contains(&"feature/x".to_string()),
+        "got {offered:?}"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn the_mode_line_branch_comes_from_the_same_reading_as_the_view() {
+    // Two sources would eventually disagree, and the one on screen all the
+    // time is the one that would be wrong.
+    let s = with_git();
+    assert_eq!(s.editor.git_branch.as_deref(), Some("main"));
+}
+
+// ---- the transient menus ------------------------------------------------
+
+#[cfg(feature = "git")]
+#[test]
+fn the_dispatch_menu_shows_what_git_can_do_here() {
+    let mut s = with_git();
+    s.keys("?");
+    assert!(s.editor.transient.is_some(), "no menu opened");
+    let screen = s.screen();
+    let has = |needle: &str| screen.iter().any(|line| line.contains(needle));
+    assert!(has("Git"), "no title:\n{screen:#?}");
+    assert!(has("Commit"), "no committing entry");
+    assert!(has("Push"), "no pushing entry");
+    assert!(has("Inspect"), "no group headings");
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn a_key_in_a_menu_opens_the_menu_underneath_it() {
+    let mut s = with_git();
+    s.keys("?");
+    s.keys("P");
+    let screen = s.screen();
+    assert!(
+        screen.iter().any(|line| line.contains("Force with lease")),
+        "the push menu did not open:\n{screen:#?}"
+    );
+    // And going back returns to the one it came from.
+    s.keys("C-g");
+    assert!(
+        s.screen().iter().any(|line| line.contains("Inspect")),
+        "C-g did not go back to the top menu"
+    );
+    s.keys("C-g");
+    assert!(s.editor.transient.is_none(), "the menu would not close");
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn a_switch_stays_on_and_is_given_to_the_command() {
+    // The whole point of a menu: `--force-with-lease` is visible before it
+    // happens rather than remembered afterwards.
+    let mut s = with_git();
+    s.keys("P");
+    s.keys("- f");
+    assert!(
+        s.screen()
+            .iter()
+            .any(|line| line.contains("Force with lease") && line.contains('\u{2713}')),
+        "the switch is not shown as on:\n{:#?}",
+        s.screen()
+    );
+    s.editor.tasks.drain();
+
+    s.keys("p");
+    assert!(
+        s.editor.transient.is_none(),
+        "running a command should close the menu"
+    );
+    match &git_tasks(&mut s)[..] {
+        [maxgus_core::task::GitAction::Push { arguments }] => {
+            assert_eq!(arguments, &["--force-with-lease".to_string()]);
+        }
+        other => panic!("expected a push, got {other:?}"),
+    }
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn a_key_that_is_not_in_the_menu_says_so_and_leaves_it_up() {
+    let mut s = with_git();
+    s.keys("?");
+    s.keys("Z");
+    assert!(
+        s.editor.transient.is_some(),
+        "an unknown key closed the menu"
+    );
+    assert!(s.echo().contains("not one of these"), "got `{}`", s.echo());
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn the_menu_takes_every_key_while_it_is_up() {
+    // A menu that let some keys through would be competing with whatever
+    // they mean underneath. `TAB` is the case that matters: it inserts
+    // nothing, so a menu that only caught self-inserting keys would let it
+    // through and fold a section behind the menu.
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Section(_))
+    });
+    let before = s.editor.git.rows().len();
+    s.editor.tasks.drain();
+
+    s.keys("c");
+    s.keys("TAB");
+    assert_eq!(
+        s.editor.git.rows().len(),
+        before,
+        "`TAB` folded a section behind the menu"
+    );
+    s.keys("s");
+    assert!(
+        git_tasks(&mut s).is_empty(),
+        "`s` staged something behind the menu"
+    );
+    assert!(s.editor.transient.is_some(), "the menu should still be up");
+}
+
+// ---- the other views ----------------------------------------------------
+
+#[cfg(feature = "git")]
+/// Feeds a commit as the executor would answer a `Show`.
+fn deliver_revision(s: &mut Session) {
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GitDiff {
+            title: "commit abc1234".into(),
+            preamble: vec![
+                "Author:     Someone <s@example.invalid>".into(),
+                "AuthorDate: 2026-08-29 10:00".into(),
+                String::new(),
+                "    the commit message".into(),
+            ],
+            files: maxgus_git::diff::parse(&format!("{UNSTAGED_DIFF}{STAGED_DIFF}")),
+        })
+        .unwrap();
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn return_on_a_commit_shows_it_in_full() {
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Commit { .. })
+    });
+    s.editor.tasks.drain();
+    s.keys("RET");
+
+    // It asks for the commit, by hash.
+    match &git_tasks(&mut s)[..] {
+        [maxgus_core::task::GitAction::Show { revision }] => assert_eq!(revision, "h1"),
+        other => panic!("expected a show, got {other:?}"),
+    }
+
+    deliver_revision(&mut s);
+    assert_eq!(s.editor.current_buffer().name(), "magit: revision");
+    assert_eq!(
+        s.editor.windows.current().point,
+        0,
+        "a commit should open at its first line"
+    );
+    let screen = s.screen();
+    let has = |needle: &str| screen.iter().any(|line| line.contains(needle));
+    assert!(has("commit abc1234"), "no title:\n{screen:#?}");
+    assert!(has("Author:"), "no author line");
+    assert!(has("the commit message"), "no message");
+    assert!(has("src/b.rs"), "no diff");
+    assert!(has("+is"), "the diff has no lines");
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn a_file_in_a_revision_folds_on_its_own() {
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Commit { .. })
+    });
+    s.keys("RET");
+    deliver_revision(&mut s);
+    let shows = |s: &mut Session, needle: &str| s.screen().iter().any(|l| l.contains(needle));
+    assert!(
+        shows(&mut s, "+new first"),
+        "the first file's diff is missing"
+    );
+    assert!(shows(&mut s, "+is"), "the second file's diff is missing");
+
+    // Down to the first file's heading and fold it.
+    let line = s
+        .editor
+        .git_diff_view()
+        .expect("a diff view")
+        .rows()
+        .iter()
+        .position(|row| matches!(row, maxgus_core::git::DiffRow::File(_)))
+        .expect("a file row");
+    let offset = s.editor.current_buffer().line_start(line);
+    s.editor.windows.current_mut().point = offset;
+    s.keys("TAB");
+    assert!(
+        !shows(&mut s, "+new first"),
+        "the file folded but its lines are still drawn:\n{:#?}",
+        s.screen()
+    );
+    // On its own: the other file is untouched.
+    assert!(
+        shows(&mut s, "+is"),
+        "folding one file took the other's lines with it:\n{:#?}",
+        s.screen()
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn folding_a_file_in_a_revision_leaves_point_on_it() {
+    // What magit does: `TAB` folds the section point is on and point stays on
+    // its heading. Sent back to line 1, a reader loses their place in a long
+    // commit every time they collapse a file.
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Commit { .. })
+    });
+    s.keys("RET");
+    deliver_revision(&mut s);
+
+    let file_line = |s: &Session| -> usize {
+        s.editor
+            .git_diff_view()
+            .expect("a diff view")
+            .rows()
+            .iter()
+            .position(|row| matches!(row, maxgus_core::git::DiffRow::File(_)))
+            .expect("a file row")
+    };
+    let line = file_line(&s);
+    assert!(line > 0, "the test needs a file below the first line");
+    let offset = s.editor.current_buffer().line_start(line);
+    s.editor.windows.current_mut().point = offset;
+
+    s.keys("TAB"); // fold
+    assert_eq!(
+        s.editor
+            .current_buffer()
+            .line_of(s.editor.windows.current().point),
+        file_line(&s),
+        "folding moved point off the file"
+    );
+
+    s.keys("TAB"); // and open it again
+    assert_eq!(
+        s.editor
+            .current_buffer()
+            .line_of(s.editor.windows.current().point),
+        file_line(&s),
+        "expanding moved point off the file"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn folding_the_second_file_keeps_point_on_the_second_file() {
+    // The line a file's heading is on changes when a file above it folds, so
+    // point has to be put back by which row it was on, not by its old line.
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Commit { .. })
+    });
+    s.keys("RET");
+    deliver_revision(&mut s);
+
+    let files: Vec<usize> = s
+        .editor
+        .git_diff_view()
+        .expect("a diff view")
+        .rows()
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| matches!(row, maxgus_core::git::DiffRow::File(_)))
+        .map(|(line, _)| line)
+        .collect();
+    assert_eq!(files.len(), 2, "the fixture should have two files");
+    // Fold the first file: every heading below it moves up.
+    let offset = s.editor.current_buffer().line_start(files[0]);
+    s.editor.windows.current_mut().point = offset;
+    s.keys("TAB");
+    // Now fold the second, from its new line.
+    let moved = s
+        .editor
+        .git_diff_view()
+        .expect("a diff view")
+        .rows()
+        .iter()
+        .position(|row| matches!(row, maxgus_core::git::DiffRow::File(1)))
+        .expect("the second file");
+    assert!(moved < files[1], "the first file did not fold");
+    let offset = s.editor.current_buffer().line_start(moved);
+    s.editor.windows.current_mut().point = offset;
+    s.keys("TAB");
+
+    let now = s
+        .editor
+        .current_buffer()
+        .line_of(s.editor.windows.current().point);
+    let row = s
+        .editor
+        .git_diff_view()
+        .expect("a diff view")
+        .row(now)
+        .cloned();
+    assert_eq!(
+        row,
+        Some(maxgus_core::git::DiffRow::File(1)),
+        "point left the second file"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn q_kills_the_magit_buffer_rather_than_leaving_it_behind() {
+    // Magit's views are scratch views. Buried, they pile up in `C-x b` and
+    // have to be killed by hand, which is what a reader ends up doing.
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Commit { .. })
+    });
+    s.keys("RET");
+    deliver_revision(&mut s);
+    assert_eq!(s.editor.current_buffer().name(), "magit: revision");
+
+    s.keys("q");
+    assert!(
+        s.editor.buffers.find_by_name("magit: revision").is_none(),
+        "`q` left the revision buffer behind: {:?}",
+        buffer_names(&s)
+    );
+    // And it goes back to where the revision was opened from.
+    assert_eq!(s.editor.current_buffer().name(), "magit: status");
+
+    s.keys("q");
+    assert!(
+        s.editor.buffers.find_by_name("magit: status").is_none(),
+        "`q` left the status buffer behind: {:?}",
+        buffer_names(&s)
+    );
+    assert_eq!(
+        s.editor.current_buffer().name(),
+        "a.rs",
+        "it did not go back to the file"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn a_prefix_argument_keeps_the_magit_buffer() {
+    // The way back for anyone who wants the view kept: `C-u q` buries it,
+    // which is what `q` used to do on its own.
+    let mut s = with_git();
+    s.keys("C-u q");
+    assert!(
+        s.editor.buffers.find_by_name("magit: status").is_some(),
+        "`C-u q` killed the buffer: {:?}",
+        buffer_names(&s)
+    );
+    assert_ne!(
+        s.editor.current_buffer().name(),
+        "magit: status",
+        "it stayed"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn quitting_magit_twice_over_does_not_run_out_of_buffers() {
+    // `q` on the last buffer standing has nothing to fall back to. It has to
+    // report that rather than kill the only buffer there is.
+    let mut s = with_git();
+    while s.editor.buffers.ids().len() > 1 {
+        let id = s.editor.current_buffer_id();
+        if s.editor.kill_buffer(id).is_err() {
+            break;
+        }
+    }
+    s.keys("C-x g");
+    refresh_git(&mut s);
+    while s.editor.buffers.find_by_name("magit: status").is_some() {
+        let before = s.editor.buffers.ids().len();
+        s.keys("q");
+        if s.editor.buffers.ids().len() == before {
+            break; // it refused, which is the point
+        }
+    }
+    assert!(
+        !s.editor.buffers.ids().is_empty(),
+        "every buffer was killed"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn the_commit_message_buffer_goes_when_the_commit_is_made() {
+    // Left behind it is a stale message sitting in `C-x b`, and the next
+    // commit opens on top of it.
+    let mut s = with_git();
+    s.keys("c");
+    s.keys("c");
+    assert_eq!(s.editor.current_buffer().name(), "COMMIT_EDITMSG");
+    s.type_text("a message");
+    s.keys("C-c C-c");
+    assert!(
+        s.editor.buffers.find_by_name("COMMIT_EDITMSG").is_none(),
+        "the message buffer outlived the commit: {:?}",
+        buffer_names(&s)
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn the_commit_message_buffer_goes_when_the_commit_is_abandoned() {
+    let mut s = with_git();
+    s.keys("c");
+    s.keys("c");
+    s.type_text("half a thought");
+    s.keys("C-c C-k");
+    assert!(
+        s.editor.buffers.find_by_name("COMMIT_EDITMSG").is_none(),
+        "abandoning kept the message: {:?}",
+        buffer_names(&s)
+    );
+    // And the next commit starts empty rather than on top of it.
+    s.keys("c");
+    s.keys("c");
+    assert_eq!(
+        s.editor.current_buffer().text().trim(),
+        "",
+        "the old message came back"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn killing_a_buffer_takes_the_keymap_of_the_one_left_showing() {
+    // The window shows a different buffer afterwards, which is as much a
+    // change of buffer as switching to it. Without it the dead buffer's map
+    // is still in effect and `q` in the magit buffer underneath types a `q`.
+    let mut s = with_git();
+    s.editor
+        .buffers
+        .visit_file("/project/notes.txt", "a note\n");
+    let id = s
+        .editor
+        .buffers
+        .find_by_name("notes.txt")
+        .expect("the note");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.editor.kill_buffer(id).unwrap();
+
+    assert_eq!(s.editor.current_buffer().name(), "magit: status");
+    s.keys("q");
+    assert!(
+        s.editor.buffers.find_by_name("magit: status").is_none(),
+        "`q` did not reach the magit map: {:?}",
+        buffer_names(&s)
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn the_log_menu_opens_a_log_buffer() {
+    let mut s = with_git();
+    s.editor.tasks.drain();
+    s.keys("l");
+    s.keys("l");
+    match &git_tasks(&mut s)[..] {
+        [maxgus_core::task::GitAction::Log { arguments, title }] => {
+            assert!(title.contains("main"), "got `{title}`");
+            assert!(arguments.contains(&"main".to_string()));
+        }
+        other => panic!("expected a log, got {other:?}"),
+    }
+
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GitLog {
+            title: "Log main".into(),
+            commits: maxgus_git::log::parse_log(
+                "abc\u{1f}abc1234\u{1f}Someone\u{1f}an hour ago\u{1f}HEAD -> main\u{1f}a change\u{1e}\n",
+            ),
+        })
+        .unwrap();
+    assert_eq!(s.editor.current_buffer().name(), "magit: log");
+    assert!(
+        s.screen()
+            .iter()
+            .any(|line| line.contains("abc1234") && line.contains("a change"))
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn return_in_a_log_shows_the_commit_that_line_is() {
+    let mut s = with_git();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GitLog {
+            title: "Log".into(),
+            commits: maxgus_git::log::parse_log(
+                "thehash\u{1f}abc1234\u{1f}Someone\u{1f}an hour ago\u{1f}\u{1f}a change\u{1e}\n",
+            ),
+        })
+        .unwrap();
+    s.editor.tasks.drain();
+    s.keys("RET");
+    match &git_tasks(&mut s)[..] {
+        [maxgus_core::task::GitAction::Show { revision }] => assert_eq!(revision, "thehash"),
+        other => panic!("expected a show, got {other:?}"),
+    }
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn the_references_view_lists_branches_and_tags_apart() {
+    let mut s = with_git();
+    s.keys("y");
+    assert_eq!(s.editor.current_buffer().name(), "magit: refs");
+    let screen = s.screen();
+    let has = |needle: &str| screen.iter().any(|line| line.contains(needle));
+    assert!(has("Branches"), "no branches heading:\n{screen:#?}");
+    assert!(has("Remotes"), "no remotes heading");
+    assert!(has("Tags"), "no tags heading");
+    assert!(has("* main"), "the current branch is not marked");
+    // `feature/x` is a local branch with a slash; it must not be filed as a
+    // remote.
+    let branches = screen
+        .iter()
+        .position(|line| line.contains("Branches"))
+        .unwrap();
+    let remotes = screen
+        .iter()
+        .position(|line| line.contains("Remotes"))
+        .unwrap();
+    let feature = screen
+        .iter()
+        .position(|line| line.contains("feature/x"))
+        .unwrap();
+    assert!(
+        feature > branches && feature < remotes,
+        "a local branch was listed as a remote"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn return_in_the_references_view_checks_that_branch_out() {
+    let mut s = with_git();
+    s.keys("y");
+    // Down to the first branch.
+    while !s.editor.current_buffer().text().is_empty() && s.editor.git_list_target().is_none() {
+        s.keys("C-n");
+    }
+    s.editor.tasks.drain();
+    s.keys("RET");
+    match &git_tasks(&mut s)[..] {
+        [maxgus_core::task::GitAction::Checkout(name)] => assert_eq!(name, "main"),
+        other => panic!("expected a checkout, got {other:?}"),
+    }
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn the_process_buffer_shows_what_git_was_asked_to_do() {
+    let mut s = with_git();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GitDone {
+            action: "Stage".into(),
+            command: "git add -- src/a.rs".into(),
+            output: "".into(),
+        })
+        .unwrap();
+    s.keys("$");
+    assert_eq!(s.editor.current_buffer().name(), "magit: process");
+    assert!(
+        s.screen()
+            .iter()
+            .any(|line| line.contains("git add -- src/a.rs")),
+        "the command is not listed:\n{:#?}",
+        s.screen()
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn n_and_p_move_by_section_rather_than_by_line() {
+    // Stepping through the lines of a hunk one at a time is what `C-n` is
+    // for; `n` is for getting about.
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::File { section, .. }
+        if *section == maxgus_core::git::Section::Unstaged)
+    });
+    s.keys("TAB");
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Hunk { hunk: 0, .. })
+    });
+
+    s.keys("n");
+    assert!(
+        matches!(
+            s.editor.git_row_at_cursor(),
+            Some(maxgus_core::git::Row::Hunk { hunk: 1, .. })
+        ),
+        "`n` stopped inside the hunk: {:?}",
+        s.editor.git_row_at_cursor()
+    );
+
+    // `C-n` does step into it.
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Hunk { hunk: 0, .. })
+    });
+    s.keys("C-n");
+    assert!(
+        matches!(
+            s.editor.git_row_at_cursor(),
+            Some(maxgus_core::git::Row::Line { .. })
+        ),
+        "`C-n` did not move by line"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn the_caret_goes_out_to_what_contains_this() {
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::File { section, .. }
+        if *section == maxgus_core::git::Section::Unstaged)
+    });
+    s.keys("TAB");
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Hunk { hunk: 1, .. })
+    });
+
+    s.keys("^");
+    assert!(
+        matches!(
+            s.editor.git_row_at_cursor(),
+            Some(maxgus_core::git::Row::File { .. })
+        ),
+        "`^` did not go out to the file: {:?}",
+        s.editor.git_row_at_cursor()
+    );
+    s.keys("^");
+    assert!(
+        matches!(
+            s.editor.git_row_at_cursor(),
+            Some(maxgus_core::git::Row::Section(_))
+        ),
+        "`^` did not go out to the section"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn magit_is_reachable_by_the_name_a_person_types() {
+    // In Emacs `magit` is an alias for `magit-status`. Someone reaching for
+    // it should not have to discover that this one spells it differently.
+    let mut s = tall_session("/project/main.rs", "fn main() {}\n");
+    s.keys("M-x");
+    s.type_text("magit");
+    s.keys("RET");
+    let said = s.echo();
+    assert_eq!(
+        s.editor.current_buffer().name(),
+        "magit: status",
+        "`M-x magit` did not open the status view; got `{said}`"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn magit_and_magit_status_are_the_same_command() {
+    let registry = maxgus_core::standard_registry();
+    for name in ["magit", "magit-status", "magit-dispatch"] {
+        assert!(registry.contains(name), "`M-x {name}` is not a command");
+    }
+}
+
+// ---- the mode line ------------------------------------------------------
+
+#[cfg(feature = "git")]
+#[test]
+fn the_mode_line_says_how_big_the_buffer_is_and_where_the_file_is() {
+    // Three buffers called `mod.rs` are told apart by where they are, which
+    // is exactly what a bare file name leaves out.
+    let mut s = tall_session("/project/src/deep/mod.rs", "fn main() {}\n");
+    s.editor.git_root = Some("/project".into());
+    let bar = s.mode_line();
+    assert!(
+        bar.contains("project/src/deep/mod.rs"),
+        "no project path: `{bar}`"
+    );
+    assert!(bar.contains("13"), "no size: `{bar}`");
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn a_file_outside_the_project_keeps_its_bare_name() {
+    // An absolute path is usually longer than the bar and tells the reader
+    // nothing they wanted.
+    let mut s = tall_session("/elsewhere/notes.txt", "hello\n");
+    s.editor.git_root = Some("/project".into());
+    let bar = s.mode_line();
+    assert!(bar.contains("notes.txt"), "got `{bar}`");
+    assert!(
+        !bar.contains("/elsewhere"),
+        "the absolute path leaked in: `{bar}`"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn the_branch_and_the_language_sit_against_the_right_edge() {
+    // What is being edited is on the left, where the eye starts; what the
+    // editor knows about it is on the right, to be glanced at.
+    let mut s = tall_session("/project/main.rs", "fn main() {}\n");
+    s.editor.git_branch = Some("main".into());
+    let bar = s.mode_line();
+    let trimmed = bar.trim_end();
+    assert!(
+        trimmed.ends_with("rust"),
+        "the language is not at the edge: `{bar}`"
+    );
+    let branch = trimmed.rfind("main").expect("the branch");
+    let name = trimmed.find("main.rs").expect("the file name");
+    assert!(
+        branch > name,
+        "the branch is not to the right of the file: `{bar}`"
+    );
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn a_narrow_bar_keeps_the_file_and_drops_the_rest() {
+    // The file being edited is what must survive a narrow window; the two
+    // halves overlapping would leave neither readable.
+    let mut s = Session::new(28, 10);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "fn main() {}\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.editor.git_branch = Some("a-very-long-branch-name".into());
+    let bar = s.mode_line();
+    assert!(bar.contains("main.rs"), "the file was pushed out: `{bar}`");
+    assert!(
+        !bar.contains("a-very-long-branch-name"),
+        "the two halves overlapped: `{bar}`"
+    );
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn the_outline_window_appears_when_a_server_starts_later() {
+    // Which windows the column has is decided when it is built, so a server
+    // that starts after the panel was opened would otherwise never get one.
+    let mut s = tall_session("/project/main.rs", "fn one() {}\n");
+    s.keys("C-x t t");
+    assert!(
+        s.editor.buffers.find_by_name("*symbols*").is_none(),
+        "an outline with no server"
+    );
+    let before = s.editor.panel_windows.len();
+
+    start_server(&mut s);
+    assert_eq!(
+        s.editor.panel_windows.len(),
+        before + 1,
+        "no outline window appeared"
+    );
+    let id = s
+        .editor
+        .buffers
+        .find_by_name("*symbols*")
+        .expect("the outline buffer");
+    assert!(!s.editor.windows.showing(id).is_empty(), "it has no window");
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn the_outline_window_goes_when_its_server_does() {
+    let mut s = with_panel();
+    assert_eq!(s.editor.panel_windows.len(), 3);
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::LanguageServerStopped {
+            language: "rust".into(),
+        })
+        .unwrap();
+    assert_eq!(
+        s.editor.panel_windows.len(),
+        2,
+        "the outline window outlived its server"
+    );
+}
+
+#[test]
+fn the_configuration_file_is_opened_by_a_key() {
+    // The usual reason to reach for this is that there is no configuration
+    // yet, so it opens the file rather than complaining about it.
+    let mut s = tall_session("/project/main.rs", "fn main() {}\n");
+    s.editor.config_path = Some("/home/someone/.config/maxgus/config.kdl".into());
+    s.editor.tasks.drain();
+
+    s.keys("C-c e");
+    let tasks = s.editor.tasks.drain();
+    assert!(
+        tasks.iter().any(|t| matches!(t, Task::ReadFile { path, .. }
+            if path.ends_with("maxgus/config.kdl"))),
+        "the configuration was not opened: {tasks:?}"
+    );
+}
+
+#[test]
+fn opening_the_configuration_twice_shows_the_buffer_it_already_has() {
+    let mut s = tall_session("/project/main.rs", "fn main() {}\n");
+    let path = "/home/someone/.config/maxgus/config.kdl";
+    s.editor.config_path = Some(path.into());
+    s.editor.buffers.visit_file(path, "set tab-width=4\n");
+    s.editor.tasks.drain();
+
+    s.keys("C-c e");
+    assert_eq!(s.editor.current_buffer().name(), "config.kdl");
+    assert!(s.editor.tasks.drain().is_empty(), "it read the file again");
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn each_panel_window_is_reached_by_its_own_key() {
+    let mut s = with_panel();
+    s.keys("C-x t 2");
+    assert_eq!(s.editor.current_buffer().name(), "*symbols*");
+    s.keys("C-x t 3");
+    assert_eq!(s.editor.current_buffer().name(), "*buffers*");
+    s.keys("C-x t 1");
+    assert_eq!(s.editor.current_buffer().name(), "*treefile*");
+}
+
+#[test]
+fn asking_for_the_outline_with_no_server_says_so() {
+    // Not a panic and not a silent no-op: the section is on, but with no
+    // server there is no window to go to.
+    let mut s = tall_session("/project/main.rs", "fn main() {}\n");
+    s.keys("C-x t t");
+    s.keys("C-x t 2");
+    assert!(
+        s.echo().contains("outline is not shown"),
+        "no explanation: `{}`",
+        s.echo()
+    );
+    // And it left the selection alone rather than dropping it somewhere else.
+    assert_eq!(s.editor.current_buffer().name(), "main.rs");
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn a_short_frame_still_leaves_the_tree_something_to_show() {
+    // Configured heights are what the user wants, not what the frame has. A
+    // 12-row outline and an 8-row list in a 16-row frame would take every row
+    // and leave the tree — the window the panel exists for — nothing.
+    let mut s = Session::new(90, 16);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "fn one() {}\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.editor.symbols_height = 12;
+    s.editor.buffers_height = 8;
+    start_server(&mut s);
+    s.keys("C-x t t");
+    deliver_symbols(&mut s);
+
+    let rects: Vec<_> = s
+        .editor
+        .panel_windows
+        .iter()
+        .map(|id| s.editor.windows.get(*id).expect("a panel window").rect)
+        .collect();
+    assert_eq!(rects.len(), 3, "not every section got a window");
+    for rect in &rects {
+        assert!(rect.height >= 3, "a panel window got {} rows", rect.height);
+    }
+    // And they still fit: the column does not run off the bottom.
+    let bottom = rects.last().expect("three windows").bottom();
+    assert!(
+        bottom <= s.editor.frame.height,
+        "the column overflows the frame"
+    );
+}
+
+#[cfg(all(feature = "git", feature = "terminal"))]
+/// The two numbers the README quotes, counted the way a reader would check
+/// them: what `C-h b` lists, and what `M-x` offers.
+///
+/// A count of the whole editor, so it is a claim about the full build.
+#[cfg(feature = "full")]
+#[test]
+fn the_readme_quotes_the_right_totals() {
+    let s = tall_session("/project/main.rs", "fn main() {}\n");
+    let mut bindings = s.editor.keymaps.bindings().len();
+    // Plus the maps that only a particular buffer has.
+    bindings += maxgus_tree::keymap::treemacs_keymap()
+        .expect("the tree map")
+        .bindings()
+        .len();
+    for map in [
+        maxgus_core::keymap::symbols_keymap(),
+        maxgus_core::keymap::buffers_keymap(),
+        maxgus_core::keymap::magit_keymap(),
+        maxgus_core::keymap::terminal_keymap(),
+    ] {
+        bindings += map.expect("a keymap").bindings().len();
+    }
+    let commands = s.dispatcher.registry.len();
+    assert_eq!(
+        (bindings, commands),
+        (README_BINDINGS, README_COMMANDS),
+        "the README says {README_BINDINGS} bindings and {README_COMMANDS} commands"
+    );
+}
+
+#[cfg(feature = "full")]
+const README_BINDINGS: usize = 332;
+#[cfg(feature = "full")]
+const README_COMMANDS: usize = 375;
+
+#[cfg(feature = "lsp")]
+#[test]
+fn a_second_outline_answer_does_not_open_a_listing_over_the_file() {
+    // Two requests can be in flight at once — the panel refreshing itself
+    // after a rebuild, and the panel refreshing itself again on a buffer
+    // switch. Both answers are for the panel; neither is a person asking for
+    // `*xref*`, and one arriving after the other must not become one.
+    let mut s = with_panel();
+    s.keys("C-<right>"); // out of the panel, into the file
+    let before = s.editor.current_buffer().name().to_string();
+
+    deliver_symbols(&mut s);
+    deliver_symbols(&mut s);
+
+    assert_eq!(
+        s.editor.current_buffer().name(),
+        before,
+        "an answer replaced the file being edited"
+    );
+    assert!(
+        s.editor.buffers.find_by_name("*xref*").is_none(),
+        "the panel's own answer opened a listing"
+    );
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn asking_for_the_symbol_listing_still_opens_it() {
+    // The other half: `M-x lsp-document-symbols` is a person asking, and it
+    // still gets the listing even while the panel is refreshing itself.
+    let mut s = with_panel();
+    s.keys("C-<right>"); // out of the panel, into the file
+    s.editor.tasks.drain();
+    s.dispatcher
+        .execute(&mut s.editor, "lsp-document-symbols", None);
+    let query = s
+        .editor
+        .tasks
+        .drain()
+        .into_iter()
+        .find_map(|t| match t {
+            Task::LspRequest { query, .. } => Some(query),
+            _ => None,
+        })
+        .expect("a request went out");
+    assert!(
+        matches!(
+            query,
+            maxgus_core::task::LspQuery::DocumentSymbols { for_panel: false }
+        ),
+        "the command asked as if it were the panel: {query:?}"
+    );
+
+    s.editor.apply_lsp_response(maxgus_core::TaskResult::LspResponse {
+        language: "rust".into(),
+        uri: "file:///project/main.rs".into(),
+        query,
+        result: serde_json::json!([{
+            "name": "one", "kind": 12,
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 10}},
+            "selectionRange": {"start": {"line": 0, "character": 3}, "end": {"line": 0, "character": 6}},
+        }]),
+    });
+    assert_eq!(
+        s.editor.current_buffer().name(),
+        "*xref*",
+        "no listing appeared"
+    );
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn a_listing_never_takes_over_a_panel_window() {
+    // Point is in the buffer list when the answer arrives. The listing has to
+    // go to the file's window: shown here it would replace the list, and the
+    // next rebuild would find a window in the column that is not the panel's.
+    let mut s = with_panel();
+    select_panel_window(&mut s, "*buffers*");
+
+    s.editor.apply_lsp_response(maxgus_core::TaskResult::LspResponse {
+        language: "rust".into(),
+        uri: "file:///project/main.rs".into(),
+        query: maxgus_core::task::LspQuery::DocumentSymbols { for_panel: false },
+        result: serde_json::json!([{
+            "name": "one", "kind": 12,
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 10}},
+            "selectionRange": {"start": {"line": 0, "character": 3}, "end": {"line": 0, "character": 6}},
+        }]),
+    });
+
+    assert_eq!(s.editor.current_buffer().name(), "*xref*");
+    assert!(
+        !s.editor
+            .panel_windows
+            .contains(&s.editor.windows.current_id()),
+        "the listing took over a panel window"
+    );
+    // Read the column as it stands: showing the listing rebuilds it, so the
+    // windows are not the ones it had a moment ago.
+    for window in s.editor.panel_windows.clone() {
+        let buffer = s.editor.windows.get(window).expect("a panel window").buffer;
+        let name = s
+            .editor
+            .buffers
+            .get(buffer)
+            .expect("its buffer")
+            .name()
+            .to_string();
+        assert!(
+            maxgus_core::commands::tree::PANEL_BUFFERS.contains(&name.as_str()),
+            "a panel window is showing `{name}`"
+        );
+    }
+}
+
+#[cfg(feature = "git")]
+fn buffer_names(s: &Session) -> Vec<String> {
+    s.editor
+        .buffers
+        .iter()
+        .map(|b| b.name().to_string())
+        .collect()
+}
+
+#[test]
+fn holding_down_walks_the_whole_list_and_comes_back_round() {
+    // The list as a person drives it: `M-x`, then `<down>` past the bottom of
+    // the box, on to the end of the list, and round to the top again — with
+    // the highlight on screen the whole way.
+    let mut s = Session::new(100, 16);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "fn main() {}\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.keys("M-x");
+    s.type_text("buffer");
+    let total = s.editor.minibuffer.completion().len();
+    assert!(
+        total > s.editor.completion_rows(),
+        "the list should not fit"
+    );
+
+    // `total` presses from the first row walks every row and wraps back to it.
+    for step in 0..total {
+        let selected = s
+            .editor
+            .minibuffer
+            .completion()
+            .current()
+            .expect("something is highlighted")
+            .to_string();
+        let screen = s.screen();
+        assert!(
+            screen.iter().skip(2).any(|line| line.contains(&selected)),
+            "step {step}: `{selected}` is highlighted but not drawn:\n{screen:#?}"
+        );
+        s.keys("<down>");
+    }
+    // All the way round: back where it started.
+    assert_eq!(s.editor.minibuffer.completion().selected, Some(0));
+
+    // And the same walking up.
+    for step in 0..total {
+        s.keys("<up>");
+        let selected = s
+            .editor
+            .minibuffer
+            .completion()
+            .current()
+            .expect("something is highlighted")
+            .to_string();
+        let screen = s.screen();
+        assert!(
+            screen.iter().skip(2).any(|line| line.contains(&selected)),
+            "step {step} going up: `{selected}` is not drawn:\n{screen:#?}"
+        );
+    }
+    assert_eq!(s.editor.minibuffer.completion().selected, Some(0));
+}
+
+#[test]
+fn a_page_at_a_time_keeps_the_highlight_on_screen_too() {
+    let mut s = Session::new(100, 16);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "fn main() {}\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.keys("M-x");
+    s.type_text("buffer");
+    for _ in 0..4 {
+        s.keys("<next>");
+        let selected = s
+            .editor
+            .minibuffer
+            .completion()
+            .current()
+            .expect("something is highlighted")
+            .to_string();
+        let screen = s.screen();
+        assert!(
+            screen.iter().skip(2).any(|line| line.contains(&selected)),
+            "`{selected}` is highlighted but not drawn:\n{screen:#?}"
+        );
+    }
+}
+
+/// The column the completion popup's left border is on. The box is centred,
+/// so this is where the rows inside it start rather than column zero.
+fn popup_left(s: &mut Session) -> usize {
+    let screen = s.screen();
+    screen[0]
+        .chars()
+        .position(|c| c == '\u{256d}')
+        .unwrap_or_else(|| panic!("no popup on screen:\n{screen:#?}"))
+}
+
+// ---- what a pointer means ------------------------------------------------
+
+#[test]
+fn a_click_puts_point_on_the_character_under_it() {
+    let mut s = Session::new(60, 10);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "first line\nsecond line\nthird line\n");
+    s.editor.switch_to_buffer(id).unwrap();
+
+    // Row 1, column 3: the `o` of `second`.
+    assert!(s.editor.point_at_cell(3, 1), "the cell is in a window");
+    let point = s.editor.windows.current().point;
+    assert_eq!(
+        s.editor.current_buffer().text()[point..point + 1].to_string(),
+        "o"
+    );
+}
+
+#[test]
+fn a_click_past_the_end_of_a_line_lands_at_its_end() {
+    let mut s = Session::new(60, 10);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "ab\nlonger line\n");
+    s.editor.switch_to_buffer(id).unwrap();
+
+    s.editor.point_at_cell(40, 0);
+    let point = s.editor.windows.current().point;
+    assert_eq!(point, 2, "point should be at the end of `ab`, not past it");
+}
+
+#[test]
+fn a_click_below_the_text_lands_at_the_end_of_the_buffer() {
+    let mut s = Session::new(60, 10);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "one\ntwo\n");
+    s.editor.switch_to_buffer(id).unwrap();
+
+    s.editor.point_at_cell(0, 6);
+    assert_eq!(
+        s.editor.windows.current().point,
+        s.editor.current_buffer().len_chars()
+    );
+}
+
+#[test]
+fn a_click_on_a_mode_line_or_the_echo_area_is_not_a_click_on_text() {
+    let mut s = Session::new(60, 10);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "one\ntwo\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    let before = s.editor.windows.current().point;
+
+    // The window's last row is its mode line; the frame's is the echo area.
+    let mode_line = s.editor.windows.current().rect.bottom() - 1;
+    assert!(
+        !s.editor.point_at_cell(0, mode_line),
+        "the mode line is not text"
+    );
+    assert!(!s.editor.point_at_cell(0, 9), "the echo area is not text");
+    assert_eq!(
+        s.editor.windows.current().point,
+        before,
+        "point moved anyway"
+    );
+}
+
+#[test]
+fn a_click_in_another_window_selects_it() {
+    let mut s = Session::new(60, 20);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "one\ntwo\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.keys("C-x 2"); // split
+    let first = s.editor.windows.current_id();
+    let other = s
+        .editor
+        .windows
+        .ids()
+        .into_iter()
+        .find(|w| *w != first)
+        .expect("two windows");
+    let rect = s.editor.windows.get(other).expect("the other").rect;
+
+    assert!(s.editor.point_at_cell(rect.x, rect.y));
+    assert_eq!(s.editor.windows.current_id(), other, "it stayed put");
+}
+
+#[test]
+fn a_drag_stays_in_the_window_it_started_in() {
+    let mut s = Session::new(60, 20);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "one\ntwo\nthree\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.keys("C-x 2");
+    let first = s.editor.windows.current_id();
+    let other = s
+        .editor
+        .windows
+        .ids()
+        .into_iter()
+        .find(|w| *w != first)
+        .expect("two windows");
+    let elsewhere = s.editor.windows.get(other).expect("the other").rect;
+
+    s.editor.point_at_cell(0, 0);
+    s.editor.set_mark_here();
+    assert!(
+        !s.editor.extend_to_cell(elsewhere.x, elsewhere.y),
+        "the drag reached into another window"
+    );
+    assert_eq!(s.editor.windows.current_id(), first, "it changed window");
+}
+
+#[test]
+fn a_drag_selects_what_it_covers() {
+    let mut s = Session::new(60, 10);
+    let id = s.editor.buffers.visit_file("/project/main.rs", "abcdef\n");
+    s.editor.switch_to_buffer(id).unwrap();
+
+    s.editor.point_at_cell(1, 0);
+    s.editor.set_mark_here();
+    s.editor.extend_to_cell(4, 0);
+    assert_eq!(s.editor.region_text().as_deref(), Some("bcd"));
+}
+
+#[test]
+fn the_wheel_moves_the_view_and_drags_point_along_when_it_has_to() {
+    let text: String = (1..=100).map(|n| format!("line {n}\n")).collect();
+    let mut s = Session::new(60, 12);
+    let id = s.editor.buffers.visit_file("/project/main.rs", &text);
+    s.editor.switch_to_buffer(id).unwrap();
+    s.editor.with_current_buffer(|b| b.set_point(0));
+
+    s.editor.scroll_lines(30);
+    assert_eq!(
+        s.editor.windows.current().top_line,
+        30,
+        "the view did not move"
+    );
+    let line = {
+        let point = s.editor.windows.current().point;
+        s.editor.current_buffer().line_of(point)
+    };
+    assert!(
+        (30..30 + 12).contains(&line),
+        "point was left off screen at line {line}"
+    );
+}
+
+#[test]
+fn the_wheel_stops_at_the_ends_rather_than_scrolling_into_nothing() {
+    let mut s = Session::new(60, 12);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "one\ntwo\n");
+    s.editor.switch_to_buffer(id).unwrap();
+
+    s.editor.scroll_lines(-100);
+    assert_eq!(s.editor.windows.current().top_line, 0);
+    s.editor.scroll_lines(1000);
+    assert!(
+        s.editor.windows.current().top_line < s.editor.current_buffer().len_lines(),
+        "it scrolled past the end of the buffer"
+    );
+}
+
+#[test]
+fn a_file_is_handed_to_the_desktop_to_open() {
+    let mut s = tall_session("/project/diagram.png", "");
+    s.editor.tasks.drain();
+    s.keys("C-c o");
+    let tasks = s.editor.tasks.drain();
+    match &tasks[..] {
+        [Task::Shell { command, .. }] => {
+            assert!(
+                command.contains("'/project/diagram.png'"),
+                "the path is not quoted into the command: `{command}`"
+            );
+        }
+        other => panic!("expected one shell command, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_buffer_with_no_file_says_so_rather_than_opening_nothing() {
+    let mut s = Session::new(60, 10);
+    s.editor.tasks.drain();
+    s.keys("C-c o");
+    assert!(s.echo().contains("no file"), "got `{}`", s.echo());
+    assert!(s.editor.tasks.drain().is_empty(), "it ran something anyway");
 }

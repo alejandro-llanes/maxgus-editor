@@ -17,25 +17,58 @@ use std::path::{Path, PathBuf};
 /// Registers the file commands.
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
+        command!(
+            "open-externally",
+            "Open this file with whatever the desktop opens it with.",
+            open_externally
+        ),
         command!("find-file", "Visit a file in this window.", find_file),
-        command!("find-file-other-window", "Visit a file in another window.", find_file_other_window),
-        command!("find-alternate-file", "Visit another file in place of this one.", find_alternate_file),
+        command!(
+            "find-file-other-window",
+            "Visit a file in another window.",
+            find_file_other_window
+        ),
+        command!(
+            "find-alternate-file",
+            "Visit another file in place of this one.",
+            find_alternate_file
+        ),
         command!("save-buffer", "Save this buffer to its file.", save_buffer),
         command!(
             "save-buffer-anyway",
             "Save over a file that has changed on disk.",
             save_buffer_anyway
         ),
-        command!("write-file", "Save this buffer under another name.", write_file),
-        command!("save-some-buffers", "Save every buffer with unsaved changes.", save_some_buffers),
-        command!("insert-file", "Insert a file's contents at point.", insert_file),
-        command!("revert-buffer", "Re-read this buffer from its file.", revert_buffer),
+        command!(
+            "write-file",
+            "Save this buffer under another name.",
+            write_file
+        ),
+        command!(
+            "save-some-buffers",
+            "Save every buffer with unsaved changes.",
+            save_some_buffers
+        ),
+        command!(
+            "insert-file",
+            "Insert a file's contents at point.",
+            insert_file
+        ),
+        command!(
+            "revert-buffer",
+            "Re-read this buffer from its file.",
+            revert_buffer
+        ),
         command!(
             "set-buffer-file-coding-system",
             "Choose the line endings this buffer is saved with.",
             set_buffer_file_coding_system
         ),
-        command!("save-buffers-kill-terminal", "Save and leave the editor.", kill_terminal),
+        command!(
+            "save-buffers-kill-terminal",
+            "Save and leave the editor.",
+            kill_terminal
+        ),
     ]);
 }
 
@@ -50,11 +83,17 @@ fn expand_against(directory: &Path, home: Option<&Path>, input: &str) -> PathBuf
     {
         return home.join(rest);
     }
-    if text == "~" && let Some(home) = home {
+    if text == "~"
+        && let Some(home) = home
+    {
         return home.to_path_buf();
     }
     let path = PathBuf::from(text);
-    if path.is_absolute() { path } else { directory.join(path) }
+    if path.is_absolute() {
+        path
+    } else {
+        directory.join(path)
+    }
 }
 
 fn expand(editor: &Editor, input: &str) -> PathBuf {
@@ -70,7 +109,13 @@ fn prompt_for_file(editor: &mut Editor, command: &str, verb: &str) {
     if !initial.ends_with('/') {
         initial.push('/');
     }
-    editor.prompt_for(command, MinibufferKind::File, format!("{verb}: "), &initial, Vec::new());
+    editor.prompt_for(
+        command,
+        MinibufferKind::File,
+        format!("{verb}: "),
+        &initial,
+        Vec::new(),
+    );
     editor.spawn(Task::ListDirectory { path: directory });
 }
 
@@ -85,7 +130,11 @@ fn visit(editor: &mut Editor, path: PathBuf, other_window: bool) -> Result<()> {
         }
         return editor.switch_to_buffer(id);
     }
-    editor.spawn(Task::ReadFile { path, reverting: None, other_window });
+    editor.spawn(Task::ReadFile {
+        path,
+        reverting: None,
+        other_window,
+    });
     Ok(())
 }
 
@@ -103,7 +152,11 @@ fn find_file(editor: &mut Editor, args: &Args) -> Result<()> {
 
 fn find_file_other_window(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(input) = args.input.clone() else {
-        prompt_for_file(editor, "find-file-other-window", "Find file in other window");
+        prompt_for_file(
+            editor,
+            "find-file-other-window",
+            "Find file in other window",
+        );
         return Ok(());
     };
     if input.trim().is_empty() {
@@ -131,7 +184,10 @@ fn find_alternate_file(editor: &mut Editor, args: &Args) -> Result<()> {
         return Ok(());
     };
     let id = editor.current_buffer_id();
-    let unsaved = editor.buffers.get(id).is_some_and(|b| b.is_modified() && b.path().is_some());
+    let unsaved = editor
+        .buffers
+        .get(id)
+        .is_some_and(|b| b.is_modified() && b.path().is_some());
     if unsaved && !args.prefix.is_present() {
         return Err(crate::CoreError::Message(
             "Buffer has unsaved changes; C-u C-x C-v replaces it anyway".into(),
@@ -150,16 +206,25 @@ fn find_alternate_file(editor: &mut Editor, args: &Args) -> Result<()> {
 fn contents_for_disk(editor: &mut Editor, id: maxgus_text::BufferId) -> Result<String> {
     if editor.settings.delete_trailing_whitespace {
         let cleaned: String = {
-            let buffer = editor.buffers.get(id).ok_or(crate::CoreError::NoSuchBuffer)?;
+            let buffer = editor
+                .buffers
+                .get(id)
+                .ok_or(crate::CoreError::NoSuchBuffer)?;
             let text = buffer.text();
-            let mut out: String =
-                text.split('\n').map(|line| line.trim_end()).collect::<Vec<_>>().join("\n");
+            let mut out: String = text
+                .split('\n')
+                .map(|line| line.trim_end())
+                .collect::<Vec<_>>()
+                .join("\n");
             if text.is_empty() {
                 out = text;
             }
             out
         };
-        let buffer = editor.buffers.get_mut(id).ok_or(crate::CoreError::NoSuchBuffer)?;
+        let buffer = editor
+            .buffers
+            .get_mut(id)
+            .ok_or(crate::CoreError::NoSuchBuffer)?;
         if buffer.text() != cleaned {
             let point = buffer.point();
             buffer.replace_all(&cleaned)?;
@@ -167,13 +232,19 @@ fn contents_for_disk(editor: &mut Editor, id: maxgus_text::BufferId) -> Result<S
         }
     }
     if editor.settings.require_final_newline {
-        let buffer = editor.buffers.get_mut(id).ok_or(crate::CoreError::NoSuchBuffer)?;
+        let buffer = editor
+            .buffers
+            .get_mut(id)
+            .ok_or(crate::CoreError::NoSuchBuffer)?;
         if !buffer.is_empty() && buffer.char_before(buffer.len_chars()) != Some('\n') {
             let end = buffer.len_chars();
             buffer.insert(end, "\n")?;
         }
     }
-    let buffer = editor.buffers.get(id).ok_or(crate::CoreError::NoSuchBuffer)?;
+    let buffer = editor
+        .buffers
+        .get(id)
+        .ok_or(crate::CoreError::NoSuchBuffer)?;
     Ok(buffer.to_disk_string())
 }
 
@@ -191,14 +262,23 @@ fn write_guarded(
 ) -> Result<()> {
     let contents = contents_for_disk(editor, id)?;
     let backup = editor.settings.backup_files;
-    editor.spawn(Task::WriteFile { path, contents, buffer: id, backup, guard });
+    editor.spawn(Task::WriteFile {
+        path,
+        contents,
+        buffer: id,
+        backup,
+        guard,
+    });
     Ok(())
 }
 
 fn save_buffer(editor: &mut Editor, args: &Args) -> Result<()> {
     let id = editor.current_buffer_id();
     let (path, modified) = {
-        let buffer = editor.buffers.get(id).ok_or(crate::CoreError::NoSuchBuffer)?;
+        let buffer = editor
+            .buffers
+            .get(id)
+            .ok_or(crate::CoreError::NoSuchBuffer)?;
         (buffer.path().map(Path::to_path_buf), buffer.is_modified())
     };
     let Some(path) = path else {
@@ -221,7 +301,11 @@ fn save_buffer_anyway(editor: &mut Editor, _: &Args) -> Result<()> {
             "No save is waiting to be forced".into(),
         ));
     };
-    let Some(path) = editor.buffers.get(id).and_then(|b| b.path().map(Path::to_path_buf)) else {
+    let Some(path) = editor
+        .buffers
+        .get(id)
+        .and_then(|b| b.path().map(Path::to_path_buf))
+    else {
         return Err(crate::CoreError::NoSuchBuffer);
     };
     write_guarded(editor, id, path, WriteGuard::Regardless)
@@ -234,7 +318,13 @@ fn write_file(editor: &mut Editor, args: &Args) -> Result<()> {
         if !initial.ends_with('/') {
             initial.push('/');
         }
-        editor.prompt_for("write-file", MinibufferKind::File, "Write file: ", &initial, Vec::new());
+        editor.prompt_for(
+            "write-file",
+            MinibufferKind::File,
+            "Write file: ",
+            &initial,
+            Vec::new(),
+        );
         return Ok(());
     };
     if input.trim().is_empty() {
@@ -244,8 +334,7 @@ fn write_file(editor: &mut Editor, args: &Args) -> Result<()> {
     let id = editor.current_buffer_id();
     // Writing back to the file this buffer already visits is an ordinary
     // save; writing to any other name must not destroy whatever is there.
-    let same_file =
-        editor.buffers.get(id).and_then(|b| b.path()) == Some(path.as_path());
+    let same_file = editor.buffers.get(id).and_then(|b| b.path()) == Some(path.as_path());
     let guard = match same_file {
         true => WriteGuard::Unchanged(editor.buffers.get(id).and_then(|b| b.disk_time())),
         false => WriteGuard::Absent,
@@ -270,7 +359,12 @@ fn save_some_buffers(editor: &mut Editor, _: &Args) -> Result<()> {
     }
     let count = modified.len();
     for id in modified {
-        let Some(path) = editor.buffers.get(id).and_then(|b| b.path()).map(Path::to_path_buf) else {
+        let Some(path) = editor
+            .buffers
+            .get(id)
+            .and_then(|b| b.path())
+            .map(Path::to_path_buf)
+        else {
             continue;
         };
         write(editor, id, path)?;
@@ -287,7 +381,11 @@ fn insert_file(editor: &mut Editor, args: &Args) -> Result<()> {
     let path = expand(editor, &input);
     // An already-open file is inserted from the buffer, not re-read.
     let Some(id) = editor.buffers.find_by_path(&path) else {
-        editor.spawn(Task::ReadFile { path, reverting: None, other_window: false });
+        editor.spawn(Task::ReadFile {
+            path,
+            reverting: None,
+            other_window: false,
+        });
         return Ok(());
     };
     let text = editor.buffers.get(id).expect("just found").text();
@@ -298,8 +396,15 @@ fn insert_file(editor: &mut Editor, args: &Args) -> Result<()> {
 
 fn revert_buffer(editor: &mut Editor, args: &Args) -> Result<()> {
     let id = editor.current_buffer_id();
-    let Some(path) = editor.buffers.get(id).and_then(|b| b.path()).map(Path::to_path_buf) else {
-        return Err(crate::CoreError::Message("Buffer is not visiting a file".into()));
+    let Some(path) = editor
+        .buffers
+        .get(id)
+        .and_then(|b| b.path())
+        .map(Path::to_path_buf)
+    else {
+        return Err(crate::CoreError::Message(
+            "Buffer is not visiting a file".into(),
+        ));
     };
     let modified = editor.buffers.get(id).is_some_and(|b| b.is_modified());
     if modified && !args.prefix.is_present() {
@@ -307,7 +412,11 @@ fn revert_buffer(editor: &mut Editor, args: &Args) -> Result<()> {
             "Buffer has unsaved changes; C-u reverts anyway".into(),
         ));
     }
-    editor.spawn(Task::ReadFile { path, reverting: Some(id), other_window: false });
+    editor.spawn(Task::ReadFile {
+        path,
+        reverting: Some(id),
+        other_window: false,
+    });
     Ok(())
 }
 
@@ -365,7 +474,9 @@ fn set_buffer_file_coding_system(editor: &mut Editor, args: &Args) -> Result<()>
         CODING_UNIX => maxgus_text::LineEnding::Lf,
         CODING_DOS => maxgus_text::LineEnding::Crlf,
         other => {
-            return Err(crate::CoreError::Message(format!("Unknown coding system `{other}`")));
+            return Err(crate::CoreError::Message(format!(
+                "Unknown coding system `{other}`"
+            )));
         }
     };
     editor.with_current_buffer(|buffer| {
@@ -376,6 +487,26 @@ fn set_buffer_file_coding_system(editor: &mut Editor, args: &Args) -> Result<()>
         buffer.mark_modified();
     });
     editor.message(format!("Coding system set to {name}"));
+    Ok(())
+}
+
+/// `C-c o`: hands the file being edited to the desktop.
+///
+/// The editor is not an image viewer or a PDF reader and has no business
+/// becoming one. What it can do is ask the desktop, which already knows.
+fn open_externally(editor: &mut Editor, _: &Args) -> Result<()> {
+    let path = editor
+        .current_buffer()
+        .path()
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or_else(|| crate::CoreError::Message("This buffer has no file".into()))?;
+    let directory = editor.default_directory();
+    editor.spawn(crate::task::Task::Shell {
+        command: crate::desktop_open_command(&path),
+        directory,
+        insert_at: None,
+    });
+    editor.message(format!("Opening {path}"));
     Ok(())
 }
 
@@ -394,7 +525,9 @@ mod tests {
             Rect::new(0, 0, 80, 24),
         );
         // A predictable default directory, whatever the test runner's cwd is.
-        let id = editor.buffers.visit_file("/project/main.rs", "fn main() {}\n");
+        let id = editor
+            .buffers
+            .visit_file("/project/main.rs", "fn main() {}\n");
         editor.switch_to_buffer(id).unwrap();
         editor.buffers.get_mut(id).unwrap().mark_saved();
 
@@ -410,7 +543,10 @@ mod tests {
 
     fn run(d: &mut Dispatcher, e: &mut Editor, command: &str) {
         let out = d.execute(e, command, None);
-        assert!(!matches!(out, Dispatch::Failed { .. }), "`{command}` failed: {out:?}");
+        assert!(
+            !matches!(out, Dispatch::Failed { .. }),
+            "`{command}` failed: {out:?}"
+        );
     }
 
     fn fails(d: &mut Dispatcher, e: &mut Editor, command: &str) -> String {
@@ -433,7 +569,10 @@ mod tests {
         let (mut d, mut e) = setup();
         run(&mut d, &mut e, "set-buffer-file-coding-system");
         assert!(e.minibuffer.is_active());
-        assert_eq!(e.completion_candidates, vec!["unix".to_string(), "dos".to_string()]);
+        assert_eq!(
+            e.completion_candidates,
+            vec!["unix".to_string(), "dos".to_string()]
+        );
         assert_eq!(e.minibuffer.input(), "");
         // The file was read with LF, so that is the default offered.
         assert!(e.minibuffer.prompt().contains("default unix"));
@@ -460,7 +599,10 @@ mod tests {
         // that can stop `save-buffer` from declining to write and losing the
         // choice silently.
         let (mut d, mut e) = setup();
-        assert!(!e.current_buffer().is_modified(), "the fixture starts saved");
+        assert!(
+            !e.current_buffer().is_modified(),
+            "the fixture starts saved"
+        );
         run(&mut d, &mut e, "set-buffer-file-coding-system");
         answer(&mut d, &mut e, "dos");
         assert!(e.current_buffer().is_modified());
@@ -472,7 +614,10 @@ mod tests {
         run(&mut d, &mut e, "set-buffer-file-coding-system");
         answer(&mut d, &mut e, "dos");
         run(&mut d, &mut e, "set-buffer-file-coding-system");
-        assert!(e.minibuffer.prompt().contains("default dos"), "the default follows the buffer");
+        assert!(
+            e.minibuffer.prompt().contains("default dos"),
+            "the default follows the buffer"
+        );
         answer(&mut d, &mut e, "unix");
         e.tasks.drain();
 
@@ -511,7 +656,12 @@ mod tests {
     fn every_file_binding_is_registered() {
         let mut registry = Registry::new();
         register(&mut registry);
-        for name in ["find-file", "save-buffer", "write-file", "save-buffers-kill-terminal"] {
+        for name in [
+            "find-file",
+            "save-buffer",
+            "write-file",
+            "save-buffers-kill-terminal",
+        ] {
             assert!(registry.contains(name), "`{name}` is missing");
         }
     }
@@ -524,7 +674,10 @@ mod tests {
         assert_eq!(e.minibuffer.input(), "/project/");
         // The prompt also asks for a listing so TAB has candidates.
         assert!(
-            e.tasks.peek().iter().any(|t| matches!(t, Task::ListDirectory { .. })),
+            e.tasks
+                .peek()
+                .iter()
+                .any(|t| matches!(t, Task::ListDirectory { .. })),
             "no listing was requested"
         );
     }
@@ -581,7 +734,10 @@ mod tests {
             expand_against(directory, home, "~/notes.txt"),
             Path::new("/home/tester/notes.txt")
         );
-        assert_eq!(expand_against(directory, home, "~"), Path::new("/home/tester"));
+        assert_eq!(
+            expand_against(directory, home, "~"),
+            Path::new("/home/tester")
+        );
         assert_eq!(
             expand_against(directory, None, "~/notes.txt"),
             Path::new("/project/~/notes.txt"),
@@ -635,10 +791,14 @@ mod tests {
 
         assert_eq!(e.current_buffer().name(), "new.rs");
         assert_eq!(e.current_buffer().text(), "fn new() {}\n");
-        assert!(!e.current_buffer().is_modified(), "a freshly read file is not modified");
+        assert!(
+            !e.current_buffer().is_modified(),
+            "a freshly read file is not modified"
+        );
         assert!(e.minibuffer.display().contains("new.rs"));
     }
 
+    #[cfg(all(feature = "lsp", feature = "syntax"))]
     #[test]
     fn opening_a_file_asks_for_highlighting_and_a_language_server() {
         let (_d, mut e) = setup();
@@ -655,12 +815,20 @@ mod tests {
         .unwrap();
 
         let tasks = e.tasks.drain();
-        assert!(tasks.iter().any(|t| matches!(t, Task::Reparse { .. })), "no reparse queued");
         assert!(
-            tasks.iter().any(|t| matches!(t, Task::StartLanguageServer { .. })),
+            tasks.iter().any(|t| matches!(t, Task::Reparse { .. })),
+            "no reparse queued"
+        );
+        assert!(
+            tasks
+                .iter()
+                .any(|t| matches!(t, Task::StartLanguageServer { .. })),
             "no server start queued"
         );
-        assert!(tasks.iter().any(|t| matches!(t, Task::LspDidOpen { .. })), "no didOpen queued");
+        assert!(
+            tasks.iter().any(|t| matches!(t, Task::LspDidOpen { .. })),
+            "no didOpen queued"
+        );
     }
 
     #[test]
@@ -689,7 +857,13 @@ mod tests {
         e.tasks.drain();
         answer(&mut d, &mut e, "/project/other.rs");
         let tasks = e.tasks.drain();
-        assert!(matches!(&tasks[0], Task::ReadFile { other_window: true, .. }));
+        assert!(matches!(
+            &tasks[0],
+            Task::ReadFile {
+                other_window: true,
+                ..
+            }
+        ));
 
         e.apply_task_result(TaskResult::FileRead {
             path: PathBuf::from("/project/other.rs"),
@@ -714,7 +888,9 @@ mod tests {
 
         let tasks = e.tasks.drain();
         assert_eq!(tasks.len(), 1);
-        let Task::WriteFile { path, contents, .. } = &tasks[0] else { panic!("{:?}", tasks[0]) };
+        let Task::WriteFile { path, contents, .. } = &tasks[0] else {
+            panic!("{:?}", tasks[0])
+        };
         assert_eq!(path, Path::new("/project/main.rs"));
         assert!(contents.starts_with("// edit"));
     }
@@ -769,7 +945,10 @@ mod tests {
         answer(&mut d, &mut e, "/project/notes.py");
 
         assert_eq!(e.current_buffer().name(), "notes.py");
-        assert_eq!(e.current_buffer().path().unwrap(), Path::new("/project/notes.py"));
+        assert_eq!(
+            e.current_buffer().path().unwrap(),
+            Path::new("/project/notes.py")
+        );
         assert_eq!(e.current_buffer().language(), Some("python"));
         assert!(matches!(&e.tasks.peek()[0], Task::WriteFile { .. }));
     }
@@ -783,7 +962,9 @@ mod tests {
         });
         e.tasks.drain();
         run(&mut d, &mut e, "save-buffer");
-        let Task::WriteFile { contents, .. } = &e.tasks.peek()[0] else { panic!() };
+        let Task::WriteFile { contents, .. } = &e.tasks.peek()[0] else {
+            panic!()
+        };
         assert!(contents.ends_with('\n'));
     }
 
@@ -796,7 +977,9 @@ mod tests {
         });
         e.tasks.drain();
         run(&mut d, &mut e, "save-buffer");
-        let Task::WriteFile { contents, .. } = &e.tasks.peek()[0] else { panic!() };
+        let Task::WriteFile { contents, .. } = &e.tasks.peek()[0] else {
+            panic!()
+        };
         assert_eq!(contents, "line one\nline two\n");
     }
 
@@ -809,7 +992,9 @@ mod tests {
         e.with_current_buffer(|b| b.insert_at_point("x").unwrap());
         e.tasks.drain();
         run(&mut d, &mut e, "save-buffer");
-        let Task::WriteFile { contents, .. } = &e.tasks.peek()[0] else { panic!() };
+        let Task::WriteFile { contents, .. } = &e.tasks.peek()[0] else {
+            panic!()
+        };
         assert!(contents.contains("\r\n"), "got `{contents:?}`");
     }
 
@@ -818,8 +1003,16 @@ mod tests {
         let (mut d, mut e) = setup();
         let a = e.buffers.visit_file("/project/a.rs", "");
         let b = e.buffers.visit_file("/project/b.rs", "");
-        e.buffers.get_mut(a).unwrap().insert_at_point("edit").unwrap();
-        e.buffers.get_mut(b).unwrap().insert_at_point("edit").unwrap();
+        e.buffers
+            .get_mut(a)
+            .unwrap()
+            .insert_at_point("edit")
+            .unwrap();
+        e.buffers
+            .get_mut(b)
+            .unwrap()
+            .insert_at_point("edit")
+            .unwrap();
         e.tasks.drain();
 
         run(&mut d, &mut e, "save-some-buffers");
@@ -842,14 +1035,23 @@ mod tests {
         e.switch_to_buffer(id).unwrap();
         assert!(fails(&mut d, &mut e, "revert-buffer").contains("not visiting a file"));
 
-        let file = e.buffers.find_by_path(Path::new("/project/main.rs")).unwrap();
+        let file = e
+            .buffers
+            .find_by_path(Path::new("/project/main.rs"))
+            .unwrap();
         e.switch_to_buffer(file).unwrap();
         e.with_current_buffer(|b| b.insert_at_point("edit").unwrap());
         assert!(fails(&mut d, &mut e, "revert-buffer").contains("unsaved"));
 
         e.prefix = Prefix::Universal(1);
         d.execute(&mut e, "revert-buffer", None);
-        assert!(matches!(&e.tasks.peek()[0], Task::ReadFile { reverting: Some(_), .. }));
+        assert!(matches!(
+            &e.tasks.peek()[0],
+            Task::ReadFile {
+                reverting: Some(_),
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -879,11 +1081,18 @@ mod tests {
         let (mut d, mut e) = setup();
         let original = e.current_buffer_id();
         run(&mut d, &mut e, "find-alternate-file");
-        assert_eq!(e.minibuffer.input(), "/project/main.rs", "pre-filled with this file");
+        assert_eq!(
+            e.minibuffer.input(),
+            "/project/main.rs",
+            "pre-filled with this file"
+        );
         e.tasks.drain();
         answer(&mut d, &mut e, "/project/other.rs");
 
-        assert!(e.buffers.get(original).is_none(), "the old buffer was killed");
+        assert!(
+            e.buffers.get(original).is_none(),
+            "the old buffer was killed"
+        );
         assert!(matches!(&e.tasks.peek()[0], Task::ReadFile { .. }));
     }
 
@@ -952,6 +1161,7 @@ mod tests {
         assert!(e.minibuffer.display().contains("No such file"));
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn diagnostics_results_are_stored_against_their_document() {
         let (_d, mut e) = setup();

@@ -46,7 +46,11 @@ impl LineEnding {
     pub fn detect(text: &str) -> LineEnding {
         let crlf = text.matches("\r\n").count();
         let lf = text.matches('\n').count() - crlf;
-        if crlf > lf { LineEnding::Crlf } else { LineEnding::Lf }
+        if crlf > lf {
+            LineEnding::Crlf
+        } else {
+            LineEnding::Lf
+        }
     }
 
     /// Emacs' mode-line indicator for the coding system.
@@ -335,7 +339,8 @@ impl Buffer {
 
     /// `point-max`: the buffer length, or the narrowing end.
     pub fn point_max(&self) -> usize {
-        self.narrowing.map_or(self.rope.len_chars(), |r| r.end.min(self.rope.len_chars()))
+        self.narrowing
+            .map_or(self.rope.len_chars(), |r| r.end.min(self.rope.len_chars()))
     }
 
     pub fn is_narrowed(&self) -> bool {
@@ -375,7 +380,11 @@ impl Buffer {
     pub fn display_column(&self, offset: usize) -> usize {
         let start = Motion::line_start(&self.rope, offset);
         let mut col = 0usize;
-        for c in self.rope.slice(start..offset.min(self.rope.len_chars())).chars() {
+        for c in self
+            .rope
+            .slice(start..offset.min(self.rope.len_chars()))
+            .chars()
+        {
             col += self.char_display_width(c, col);
         }
         col
@@ -500,7 +509,8 @@ impl Buffer {
 
     /// The active region, or `None` when the mark is inactive or unset.
     pub fn region(&self) -> Option<Range> {
-        self.is_mark_active().then(|| Range::ordered(self.point, self.mark.expect("checked")))
+        self.is_mark_active()
+            .then(|| Range::ordered(self.point, self.mark.expect("checked")))
     }
 
     /// The region regardless of whether it is active, as commands invoked with
@@ -710,7 +720,6 @@ impl Buffer {
         self.replace(all, &text.replace("\r\n", "\n")).map(|_| ())
     }
 
-
     // ---- undo ----------------------------------------------------------
 
     pub fn can_undo(&self) -> bool {
@@ -726,7 +735,9 @@ impl Buffer {
         self.ensure_writable()?;
         self.open_groups = 0;
         self.undo.commit(self.point);
-        let Some(group) = self.undo.undo() else { return Ok(false) };
+        let Some(group) = self.undo.undo() else {
+            return Ok(false);
+        };
         let inverse = group.invert();
         for edit in &inverse.edits {
             self.apply_raw(edit);
@@ -741,7 +752,9 @@ impl Buffer {
         self.ensure_writable()?;
         self.open_groups = 0;
         self.undo.commit(self.point);
-        let Some(group) = self.undo.redo() else { return Ok(false) };
+        let Some(group) = self.undo.redo() else {
+            return Ok(false);
+        };
         for edit in &group.edits {
             self.apply_raw(edit);
         }
@@ -820,9 +833,18 @@ mod tests {
 
     #[test]
     fn language_detection_covers_names_and_extensions() {
-        assert_eq!(language_for_path(Path::new("a/Cargo.lock")).as_deref(), Some("toml"));
-        assert_eq!(language_for_path(Path::new("Makefile")).as_deref(), Some("make"));
-        assert_eq!(language_for_path(Path::new("x.PY")).as_deref(), Some("python"));
+        assert_eq!(
+            language_for_path(Path::new("a/Cargo.lock")).as_deref(),
+            Some("toml")
+        );
+        assert_eq!(
+            language_for_path(Path::new("Makefile")).as_deref(),
+            Some("make")
+        );
+        assert_eq!(
+            language_for_path(Path::new("x.PY")).as_deref(),
+            Some("python")
+        );
         assert_eq!(language_for_path(Path::new("x.unknown")), None);
         assert_eq!(language_for_path(Path::new("noext")), None);
     }
@@ -965,7 +987,10 @@ mod tests {
     #[test]
     fn exchange_without_a_mark_is_an_error() {
         let mut b = buf("x");
-        assert!(matches!(b.exchange_point_and_mark(), Err(TextError::NoMark)));
+        assert!(matches!(
+            b.exchange_point_and_mark(),
+            Err(TextError::NoMark)
+        ));
     }
 
     #[test]
@@ -1007,7 +1032,10 @@ mod tests {
         b.set_mark(5);
         b.set_point(9);
         assert_eq!(b.pop_mark_ring(), Some(1));
-        assert!(b.pop_mark_ring().is_some(), "point was pushed on in exchange");
+        assert!(
+            b.pop_mark_ring().is_some(),
+            "point was pushed on in exchange"
+        );
     }
 
     #[test]
@@ -1065,7 +1093,11 @@ mod tests {
         b.set_mark(0);
         b.set_point(5);
         b.replace(Range::new(0, 5), "HELLO").unwrap();
-        assert_eq!(b.mark(), Some(0), "the mark anchors the region being replaced");
+        assert_eq!(
+            b.mark(),
+            Some(0),
+            "the mark anchors the region being replaced"
+        );
         assert_eq!(b.region(), Some(Range::new(0, 5)));
     }
 
@@ -1099,7 +1131,11 @@ mod tests {
         assert_eq!(b.position_of(0), Position::new(0, 0));
         assert_eq!(b.position_of(8), Position::new(1, 2));
         assert_eq!(b.offset_of(Position::new(1, 2)), 8);
-        assert_eq!(b.offset_of(Position::new(1, 99)), 10, "column clamps to line end");
+        assert_eq!(
+            b.offset_of(Position::new(1, 99)),
+            10,
+            "column clamps to line end"
+        );
         assert_eq!(b.offset_of(Position::new(99, 0)), b.len_chars());
     }
 
@@ -1167,7 +1203,10 @@ mod tests {
         b.insert_at_point("x").unwrap();
         assert_eq!(b.point_max(), 6, "the region grew to hold what was typed");
         assert_eq!(b.point(), 6);
-        assert!(b.point() <= b.point_max(), "point must stay inside the region");
+        assert!(
+            b.point() <= b.point_max(),
+            "point must stay inside the region"
+        );
         assert_eq!(b.slice(Range::new(b.point_min(), b.point_max())), "01234x");
     }
 

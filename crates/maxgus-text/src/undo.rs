@@ -54,7 +54,10 @@ pub struct UndoStack {
 
 impl UndoStack {
     pub fn new() -> Self {
-        Self { saved_depth: Some(0), ..Default::default() }
+        Self {
+            saved_depth: Some(0),
+            ..Default::default()
+        }
     }
 
     /// Opens a new undo group. `amalgamating` groups may merge with the
@@ -72,8 +75,12 @@ impl UndoStack {
             self.pending = Some(prev);
             return;
         }
-        self.pending =
-            Some(UndoGroup { edits: Vec::new(), point_before: point, point_after: point, amalgamating });
+        self.pending = Some(UndoGroup {
+            edits: Vec::new(),
+            point_before: point,
+            point_after: point,
+            amalgamating,
+        });
     }
 
     /// True when a group is currently open.
@@ -93,7 +100,9 @@ impl UndoStack {
 
     /// Closes the open group, discarding it when it produced no edits.
     pub fn commit(&mut self, point_after: usize) {
-        let Some(mut group) = self.pending.take() else { return };
+        let Some(mut group) = self.pending.take() else {
+            return;
+        };
         if group.is_empty() {
             return;
         }
@@ -228,7 +237,11 @@ mod tests {
         assert_eq!(s.depth(), 1, "all insertions merged into one group");
         // The next insertion exceeds the limit and starts a fresh group.
         s.begin(AMALGAMATING_UNDO_LIMIT, true);
-        s.push(Edit::insert(AMALGAMATING_UNDO_LIMIT, "x", AMALGAMATING_UNDO_LIMIT));
+        s.push(Edit::insert(
+            AMALGAMATING_UNDO_LIMIT,
+            "x",
+            AMALGAMATING_UNDO_LIMIT,
+        ));
         s.commit(AMALGAMATING_UNDO_LIMIT + 1);
         assert_eq!(s.depth(), 2);
     }

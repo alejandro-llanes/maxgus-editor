@@ -8,7 +8,8 @@
 use crate::{Result, TuiError, geometry::Size};
 use crossterm::event::{
     DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange, Event,
-    EventStream, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    EventStream, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
 };
 use crossterm::{
     cursor::{Hide, MoveTo, SetCursorStyle, Show},
@@ -24,7 +25,10 @@ use std::io::{Stdout, Write, stdout};
 
 /// The smallest terminal the editor will run in: room for a text line, a mode
 /// line and the echo area.
-pub const MINIMUM_SIZE: Size = Size { width: 20, height: 3 };
+pub const MINIMUM_SIZE: Size = Size {
+    width: 20,
+    height: 3,
+};
 
 /// An input event, already translated out of crossterm's vocabulary.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,7 +85,13 @@ impl Terminal {
         }
         let mut out = stdout();
         enable_raw_mode()?;
-        execute!(out, EnterAlternateScreen, EnableBracketedPaste, EnableFocusChange, Hide)?;
+        execute!(
+            out,
+            EnterAlternateScreen,
+            EnableBracketedPaste,
+            EnableFocusChange,
+            Hide
+        )?;
 
         // Ask for disambiguated key events where the terminal supports them,
         // so `C-i` and TAB can be told apart. Terminals that do not understand
@@ -92,7 +102,12 @@ impl Terminal {
         )
         .is_ok();
 
-        Ok(Terminal { out, size, active: true, enhanced_keys })
+        Ok(Terminal {
+            out,
+            size,
+            active: true,
+            enhanced_keys,
+        })
     }
 
     /// The terminal size right now.
@@ -162,7 +177,13 @@ impl Terminal {
         if self.enhanced_keys {
             execute!(self.out, PopKeyboardEnhancementFlags).ok();
         }
-        execute!(self.out, DisableFocusChange, DisableBracketedPaste, Show, LeaveAlternateScreen)?;
+        execute!(
+            self.out,
+            DisableFocusChange,
+            DisableBracketedPaste,
+            Show,
+            LeaveAlternateScreen
+        )?;
         disable_raw_mode()?;
         self.out.flush()?;
         Ok(())
@@ -203,7 +224,14 @@ pub fn install_panic_hook() {
     std::panic::set_hook(Box::new(move |info| {
         let mut out = stdout();
         execute!(out, PopKeyboardEnhancementFlags).ok();
-        execute!(out, DisableFocusChange, DisableBracketedPaste, Show, LeaveAlternateScreen).ok();
+        execute!(
+            out,
+            DisableFocusChange,
+            DisableBracketedPaste,
+            Show,
+            LeaveAlternateScreen
+        )
+        .ok();
         disable_raw_mode().ok();
         previous(info);
     }));
@@ -212,13 +240,18 @@ pub fn install_panic_hook() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
+    use crossterm::event::{
+        KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
+    };
     use maxgus_keys::KeyCode as MaxgusCode;
 
     #[test]
     fn key_events_translate_into_editor_keys() {
         let event = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL));
-        assert_eq!(TuiEvent::from_crossterm(event), Some(TuiEvent::Key(Key::ctrl('x'))));
+        assert_eq!(
+            TuiEvent::from_crossterm(event),
+            Some(TuiEvent::Key(Key::ctrl('x')))
+        );
     }
 
     #[test]
@@ -232,13 +265,22 @@ mod tests {
     #[test]
     fn a_paste_stays_one_event_rather_than_becoming_keystrokes() {
         let event = Event::Paste("C-x C-f".into());
-        assert_eq!(TuiEvent::from_crossterm(event), Some(TuiEvent::Paste("C-x C-f".into())));
+        assert_eq!(
+            TuiEvent::from_crossterm(event),
+            Some(TuiEvent::Paste("C-x C-f".into()))
+        );
     }
 
     #[test]
     fn focus_events_translate() {
-        assert_eq!(TuiEvent::from_crossterm(Event::FocusGained), Some(TuiEvent::FocusGained));
-        assert_eq!(TuiEvent::from_crossterm(Event::FocusLost), Some(TuiEvent::FocusLost));
+        assert_eq!(
+            TuiEvent::from_crossterm(Event::FocusGained),
+            Some(TuiEvent::FocusGained)
+        );
+        assert_eq!(
+            TuiEvent::from_crossterm(Event::FocusLost),
+            Some(TuiEvent::FocusLost)
+        );
     }
 
     #[test]

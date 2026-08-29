@@ -19,19 +19,63 @@ pub const XREF_NAME: &str = "*xref*";
 /// Registers the language-server commands.
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
-        command!("lsp-find-definition", "Go to the definition of the symbol at point.", find_definition),
-        command!("lsp-find-references", "List the references to the symbol at point.", find_references),
-        command!("lsp-describe-thing-at-point", "Describe the symbol at point.", describe_thing),
-        command!("lsp-rename", "Rename the symbol at point everywhere.", rename),
+        command!(
+            "lsp-find-definition",
+            "Go to the definition of the symbol at point.",
+            find_definition
+        ),
+        command!(
+            "lsp-find-references",
+            "List the references to the symbol at point.",
+            find_references
+        ),
+        command!(
+            "lsp-describe-thing-at-point",
+            "Describe the symbol at point.",
+            describe_thing
+        ),
+        command!(
+            "lsp-rename",
+            "Rename the symbol at point everywhere.",
+            rename
+        ),
         command!("lsp-format-buffer", "Reformat this buffer.", format_buffer),
-        command!("lsp-code-action", "Offer the server's fixes for this line.", code_action),
-        command!("lsp-signature-help", "Show the signature of the call around point.", signature_help),
-        command!("lsp-workspace-symbol", "Find a symbol anywhere in the project.", workspace_symbol),
-        command!("lsp-document-symbols", "List the symbols in this buffer.", document_symbols),
-        command!("lsp-restart-server", "Stop and restart the language server.", restart_server),
-        command!("completion-at-point", "Complete the symbol at point.", completion_at_point),
+        command!(
+            "lsp-code-action",
+            "Offer the server's fixes for this line.",
+            code_action
+        ),
+        command!(
+            "lsp-signature-help",
+            "Show the signature of the call around point.",
+            signature_help
+        ),
+        command!(
+            "lsp-workspace-symbol",
+            "Find a symbol anywhere in the project.",
+            workspace_symbol
+        ),
+        command!(
+            "lsp-document-symbols",
+            "List the symbols in this buffer.",
+            document_symbols
+        ),
+        command!(
+            "lsp-restart-server",
+            "Stop and restart the language server.",
+            restart_server
+        ),
+        command!(
+            "completion-at-point",
+            "Complete the symbol at point.",
+            completion_at_point
+        ),
         command!("next-error", "Go to the next diagnostic.", next_error),
-        command!("previous-error", "Go to the previous diagnostic.", previous_error),
+        command!(
+            "previous-error",
+            "Go to the previous diagnostic.",
+            previous_error
+        ),
     ]);
 }
 
@@ -39,7 +83,9 @@ pub fn register(registry: &mut Registry) {
 /// why there is no server to ask.
 fn document(editor: &mut Editor) -> Result<(String, String)> {
     if !editor.settings.lsp_enabled {
-        return Err(crate::CoreError::Message("Language server support is off".into()));
+        return Err(crate::CoreError::Message(
+            "Language server support is off".into(),
+        ));
     }
     editor.sync_to_buffer();
     let buffer = editor.current_buffer();
@@ -47,7 +93,9 @@ fn document(editor: &mut Editor) -> Result<(String, String)> {
         return Err(crate::CoreError::Message("Buffer has no language".into()));
     };
     let Some(path) = buffer.path() else {
-        return Err(crate::CoreError::Message("Buffer is not visiting a file".into()));
+        return Err(crate::CoreError::Message(
+            "Buffer is not visiting a file".into(),
+        ));
     };
     Ok((language, maxgus_lsp::client::path_to_uri(path)))
 }
@@ -62,7 +110,11 @@ pub fn point_position(editor: &Editor, encoding: PositionEncoding) -> LspPositio
 fn ask(editor: &mut Editor, query: LspQuery) -> Result<()> {
     let (language, uri) = document(editor)?;
     editor.message(format!("Language server: {}...", query.description()));
-    editor.spawn(Task::LspRequest { language, uri, query });
+    editor.spawn(Task::LspRequest {
+        language,
+        uri,
+        query,
+    });
     Ok(())
 }
 
@@ -105,7 +157,13 @@ fn rename(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(new_name) = args.input.clone() else {
         // The symbol under point is offered as the starting point.
         let current = symbol_at_point(editor);
-        editor.prompt_for("lsp-rename", MinibufferKind::Text, "Rename to: ", &current, Vec::new());
+        editor.prompt_for(
+            "lsp-rename",
+            MinibufferKind::Text,
+            "Rename to: ",
+            &current,
+            Vec::new(),
+        );
         return Ok(());
     };
     if new_name.trim().is_empty() {
@@ -125,9 +183,14 @@ fn symbol_at_point(editor: &Editor) -> String {
 }
 
 fn format_buffer(editor: &mut Editor, _: &Args) -> Result<()> {
-    let (tab_size, insert_spaces) =
-        (editor.settings.tab_width, !editor.settings.indent_with_tabs);
-    ask(editor, LspQuery::Format { tab_size, insert_spaces })
+    let (tab_size, insert_spaces) = (editor.settings.tab_width, !editor.settings.indent_with_tabs);
+    ask(
+        editor,
+        LspQuery::Format {
+            tab_size,
+            insert_spaces,
+        },
+    )
 }
 
 fn code_action(editor: &mut Editor, _: &Args) -> Result<()> {
@@ -162,7 +225,7 @@ fn code_action(editor: &mut Editor, _: &Args) -> Result<()> {
 }
 
 fn document_symbols(editor: &mut Editor, _: &Args) -> Result<()> {
-    ask(editor, LspQuery::DocumentSymbols)
+    ask(editor, LspQuery::DocumentSymbols { for_panel: false })
 }
 
 fn workspace_symbol(editor: &mut Editor, args: &Args) -> Result<()> {
@@ -181,8 +244,12 @@ fn workspace_symbol(editor: &mut Editor, args: &Args) -> Result<()> {
 
 fn restart_server(editor: &mut Editor, _: &Args) -> Result<()> {
     let (language, _) = document(editor)?;
-    editor.spawn(Task::StopLanguageServer { language: language.clone() });
-    editor.spawn(Task::StartLanguageServer { language: language.clone() });
+    editor.spawn(Task::StopLanguageServer {
+        language: language.clone(),
+    });
+    editor.spawn(Task::StartLanguageServer {
+        language: language.clone(),
+    });
     let id = editor.current_buffer_id();
     editor.request_language_server(id);
     editor.message(format!("Restarting the {language} language server"));
@@ -194,7 +261,9 @@ fn restart_server(editor: &mut Editor, _: &Args) -> Result<()> {
 /// Moves to the next or previous diagnostic in this buffer.
 fn step_error(editor: &mut Editor, forward: bool) -> Result<()> {
     let Some(path) = editor.current_buffer().path() else {
-        return Err(crate::CoreError::Message("Buffer is not visiting a file".into()));
+        return Err(crate::CoreError::Message(
+            "Buffer is not visiting a file".into(),
+        ));
     };
     let uri = maxgus_lsp::client::path_to_uri(path);
     let encoding = encoding(editor);
@@ -207,11 +276,19 @@ fn step_error(editor: &mut Editor, forward: bool) -> Result<()> {
     };
     let Some(diagnostic) = found else {
         return Err(crate::CoreError::Message(
-            if forward { "No further diagnostics" } else { "No previous diagnostics" }.into(),
+            if forward {
+                "No further diagnostics"
+            } else {
+                "No previous diagnostics"
+            }
+            .into(),
         ));
     };
-    let offset =
-        crate::position::offset_of_position(editor.current_buffer(), diagnostic.range.start, encoding);
+    let offset = crate::position::offset_of_position(
+        editor.current_buffer(),
+        diagnostic.range.start,
+        encoding,
+    );
     editor.with_current_buffer(|b| b.set_point(offset));
     editor.follow_point();
     editor.message(diagnostic.summary());
@@ -245,7 +322,22 @@ pub fn apply_response(editor: &mut Editor, query: &LspQuery, result: &serde_json
         }
         LspQuery::Format { .. } => apply_text_edits(editor, result.as_array().map(Vec::as_slice)),
         LspQuery::CodeAction { .. } => list_code_actions(editor, result),
-        LspQuery::DocumentSymbols => list_symbols(editor, "Document symbols", result),
+        LspQuery::DocumentSymbols { for_panel } => {
+            // Both askers get their answer: the outline is filed either way,
+            // and the listing buffer opens only for the request a person
+            // made. Reading `for_panel` rather than the editor's pending flag
+            // is what keeps a second answer from popping a listing over the
+            // file, once the first has already cleared the flag.
+            if let Some(buffer) = editor.panel.symbols_buffer {
+                editor
+                    .panel
+                    .set_symbols(buffer, crate::panel::symbols_from_lsp(result));
+                editor.render_panel_buffer();
+            }
+            if !*for_panel {
+                list_symbols(editor, "Document symbols", result);
+            }
+        }
         LspQuery::WorkspaceSymbols(_) => list_symbols(editor, "Workspace symbols", result),
     }
 }
@@ -259,9 +351,10 @@ fn parse_location(value: &serde_json::Value) -> Option<(String, LspPosition)> {
         .or_else(|| object.get("targetUri"))
         .and_then(|v| v.as_str())?
         .to_string();
-    let range = object.get("range").or_else(|| object.get("targetSelectionRange")).or_else(|| {
-        object.get("targetRange")
-    })?;
+    let range = object
+        .get("range")
+        .or_else(|| object.get("targetSelectionRange"))
+        .or_else(|| object.get("targetRange"))?;
     let start = range.get("start")?;
     Some((
         uri,
@@ -325,7 +418,11 @@ fn jump_to(editor: &mut Editor, uri: &str, position: LspPosition) {
         None => {
             // The file has to be read first; point is set once it arrives.
             editor.pending_jump = Some((path.clone(), position));
-            editor.spawn(Task::ReadFile { path, reverting: None, other_window: false });
+            editor.spawn(Task::ReadFile {
+                path,
+                reverting: None,
+                other_window: false,
+            });
         }
     }
 }
@@ -394,8 +491,10 @@ fn apply_completion(editor: &mut Editor, result: &serde_json::Value) {
         return;
     }
     let prefix = symbol_at_point(editor);
-    let matching: Vec<String> =
-        labels.into_iter().filter(|l| l.starts_with(&prefix)).collect();
+    let matching: Vec<String> = labels
+        .into_iter()
+        .filter(|l| l.starts_with(&prefix))
+        .collect();
     if matching.is_empty() {
         editor.error("No matching completions");
         return;
@@ -410,7 +509,11 @@ fn apply_completion(editor: &mut Editor, result: &serde_json::Value) {
     if common.len() > prefix.len() {
         insert_completion(editor, &prefix, &common);
     }
-    editor.message(format!("{} completions: {}", matching.len(), preview(&matching)));
+    editor.message(format!(
+        "{} completions: {}",
+        matching.len(),
+        preview(&matching)
+    ));
     editor.completion_candidates = matching;
 }
 
@@ -420,7 +523,10 @@ fn insert_completion(editor: &mut Editor, prefix: &str, completion: &str) {
     if remainder.is_empty() {
         return;
     }
-    if editor.with_current_buffer(|b| b.insert_at_point(remainder)).is_err() {
+    if editor
+        .with_current_buffer(|b| b.insert_at_point(remainder))
+        .is_err()
+    {
         editor.error("Buffer is read-only");
         return;
     }
@@ -438,10 +544,16 @@ fn preview(items: &[String]) -> String {
 }
 
 fn longest_common_prefix(items: &[String]) -> String {
-    let Some(first) = items.first() else { return String::new() };
+    let Some(first) = items.first() else {
+        return String::new();
+    };
     let mut prefix: Vec<char> = first.chars().collect();
     for item in &items[1..] {
-        let shared = prefix.iter().zip(item.chars()).take_while(|(a, b)| **a == *b).count();
+        let shared = prefix
+            .iter()
+            .zip(item.chars())
+            .take_while(|(a, b)| **a == *b)
+            .count();
         prefix.truncate(shared);
     }
     prefix.into_iter().collect()
@@ -490,7 +602,10 @@ fn apply_text_edits(editor: &mut Editor, edits: Option<&[serde_json::Value]>) {
             let start = crate::position::offset_of_position(buffer, position("start")?, encoding);
             let end = crate::position::offset_of_position(buffer, position("end")?, encoding);
             let replacement = edit.get("newText")?.as_str()?.to_string();
-            Some((maxgus_text::Range::new(start.min(end), end.max(start)), replacement))
+            Some((
+                maxgus_text::Range::new(start.min(end), end.max(start)),
+                replacement,
+            ))
         })
         .collect();
     resolved.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
@@ -530,7 +645,10 @@ pub(crate) fn apply_workspace_edit(editor: &mut Editor, result: &serde_json::Val
             // referring to a file that was never moved.
             let mut skipped: Vec<String> = Vec::new();
             for change in document_changes {
-                let Some(uri) = change.get("textDocument").and_then(|d| d.get("uri")).and_then(|v| v.as_str())
+                let Some(uri) = change
+                    .get("textDocument")
+                    .and_then(|d| d.get("uri"))
+                    .and_then(|v| v.as_str())
                 else {
                     if let Some(kind) = change.get("kind").and_then(|v| v.as_str()) {
                         skipped.push(kind.to_string());
@@ -569,11 +687,16 @@ pub(crate) fn apply_workspace_edit(editor: &mut Editor, result: &serde_json::Val
 
 /// Applies edits to whichever buffer holds `uri`, if one is open.
 fn apply_edits_to(editor: &mut Editor, uri: &str, edits: Option<&Vec<serde_json::Value>>) {
-    let Some(path) = maxgus_lsp::client::uri_to_path(uri) else { return };
+    let Some(path) = maxgus_lsp::client::uri_to_path(uri) else {
+        return;
+    };
     let Some(id) = editor.buffers.find_by_path(&path) else {
         // A rename can touch files that are not open; those are left for the
         // user to visit rather than edited behind their back.
-        editor.message(format!("`{}` was not changed: it is not open", path.display()));
+        editor.message(format!(
+            "`{}` was not changed: it is not open",
+            path.display()
+        ));
         return;
     };
     let previous = editor.current_buffer_id();
@@ -591,13 +714,20 @@ fn list_locations(editor: &mut Editor, heading: &str, result: &serde_json::Value
         editor.error(format!("No {}", heading.to_lowercase()));
         return;
     }
-    let root = editor.tree_root.clone().unwrap_or_else(|| editor.default_directory());
+    let root = editor
+        .tree_root
+        .clone()
+        .unwrap_or_else(|| editor.default_directory());
     let mut text = format!("{heading} ({})\n\n", locations.len());
     for (uri, position) in &locations {
         let shown = maxgus_lsp::client::uri_to_path(uri)
             .map(|path| display_path(&path, &root))
             .unwrap_or_else(|| uri.clone());
-        text.push_str(&format!("{shown}:{}:{}\n", position.line + 1, position.character + 1));
+        text.push_str(&format!(
+            "{shown}:{}:{}\n",
+            position.line + 1,
+            position.character + 1
+        ));
     }
     let count = locations.len();
     show_listing(editor, &text);
@@ -607,7 +737,10 @@ fn list_locations(editor: &mut Editor, heading: &str, result: &serde_json::Value
 /// A path as it should appear in a listing: relative to the project root when
 /// it is inside it, so a full screen width is not spent on a shared prefix.
 fn display_path(path: &std::path::Path, root: &std::path::Path) -> String {
-    path.strip_prefix(root).unwrap_or(path).display().to_string()
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
 }
 
 fn list_code_actions(editor: &mut Editor, result: &serde_json::Value) {
@@ -615,8 +748,10 @@ fn list_code_actions(editor: &mut Editor, result: &serde_json::Value) {
         editor.error("No code actions available");
         return;
     };
-    let titles: Vec<&str> =
-        actions.iter().filter_map(|a| a.get("title").and_then(|v| v.as_str())).collect();
+    let titles: Vec<&str> = actions
+        .iter()
+        .filter_map(|a| a.get("title").and_then(|v| v.as_str()))
+        .collect();
     if titles.is_empty() {
         editor.error("No code actions available");
         return;
@@ -651,7 +786,9 @@ fn list_symbols(editor: &mut Editor, heading: &str, result: &serde_json::Value) 
 /// Walks the symbol tree, which may be flat or nested.
 fn collect_symbols(symbols: &[serde_json::Value], depth: usize, out: &mut String) {
     for symbol in symbols {
-        let Some(name) = symbol.get("name").and_then(|v| v.as_str()) else { continue };
+        let Some(name) = symbol.get("name").and_then(|v| v.as_str()) else {
+            continue;
+        };
         let kind = symbol.get("kind").and_then(|v| v.as_u64()).unwrap_or(0);
         let line = symbol
             .get("range")
@@ -662,7 +799,10 @@ fn collect_symbols(symbols: &[serde_json::Value], depth: usize, out: &mut String
             .map(|l| l + 1);
         let indent = "  ".repeat(depth);
         match line {
-            Some(line) => out.push_str(&format!("{indent}{name}  [{}]  line {line}\n", symbol_kind(kind))),
+            Some(line) => out.push_str(&format!(
+                "{indent}{name}  [{}]  line {line}\n",
+                symbol_kind(kind)
+            )),
             None => out.push_str(&format!("{indent}{name}  [{}]\n", symbol_kind(kind))),
         }
         if let Some(children) = symbol.get("children").and_then(|v| v.as_array()) {
@@ -712,14 +852,7 @@ fn show_listing(editor: &mut Editor, text: &str) {
     if let Some(buffer) = editor.buffers.get_mut(id) {
         buffer.set_read_only(true);
     }
-    // Never take over the tree's window.
-    let tree_window = editor.tree_window;
-    if Some(editor.windows.current_id()) == tree_window
-        && let Some(target) = editor.windows.ids().into_iter().find(|w| Some(*w) != tree_window)
-    {
-        editor.select_window(target);
-    }
-    editor.switch_to_buffer(id).ok();
+    editor.show_in_editing_window(id).ok();
 }
 
 #[cfg(test)]
@@ -749,9 +882,11 @@ mod tests {
     /// The answer the editor queued for the server, if it queued one.
     fn queued_answer(e: &mut Editor) -> Option<(String, maxgus_lsp::RequestId, bool)> {
         e.tasks.drain().into_iter().find_map(|task| match task {
-            crate::task::Task::LspRespond { language, id, applied } => {
-                Some((language, id, applied))
-            }
+            crate::task::Task::LspRespond {
+                language,
+                id,
+                applied,
+            } => Some((language, id, applied)),
             _ => None,
         })
     }
@@ -784,7 +919,11 @@ mod tests {
             0,
             "the jump landed somewhere"
         );
-        assert!(!e.minibuffer.message_is_error(), "got `{}`", e.minibuffer.display());
+        assert!(
+            !e.minibuffer.message_is_error(),
+            "got `{}`",
+            e.minibuffer.display()
+        );
     }
 
     #[test]
@@ -831,7 +970,10 @@ mod tests {
 
         assert_eq!(applied, 1, "the text edit still goes in");
         assert_eq!(e.current_buffer().text(), "mod new;\n");
-        assert!(e.minibuffer.message_is_error(), "a half-done edit is not good news");
+        assert!(
+            e.minibuffer.message_is_error(),
+            "a half-done edit is not good news"
+        );
         let said = e.minibuffer.display();
         assert!(said.contains("rename"), "it does not say which: `{said}`");
         assert!(said.contains("file operation"), "got `{said}`");
@@ -853,7 +995,11 @@ mod tests {
                 }]
             }]}),
         );
-        assert!(!e.minibuffer.message_is_error(), "got `{}`", e.minibuffer.display());
+        assert!(
+            !e.minibuffer.message_is_error(),
+            "got `{}`",
+            e.minibuffer.display()
+        );
         assert_eq!(e.minibuffer.display(), "Applied 1 change(s)");
     }
 
@@ -897,7 +1043,10 @@ mod tests {
 
     fn run(d: &mut Dispatcher, e: &mut Editor, command: &str) {
         let out = d.execute(e, command, None);
-        assert!(!matches!(out, Dispatch::Failed { .. }), "`{command}` failed: {out:?}");
+        assert!(
+            !matches!(out, Dispatch::Failed { .. }),
+            "`{command}` failed: {out:?}"
+        );
     }
 
     fn fails(d: &mut Dispatcher, e: &mut Editor, command: &str) -> String {
@@ -961,7 +1110,9 @@ mod tests {
         // Past both accented characters.
         e.with_current_buffer(|b| b.set_point(16));
         run(&mut d, &mut e, "lsp-find-definition");
-        let LspQuery::Definition(position) = queued(&mut e) else { panic!() };
+        let LspQuery::Definition(position) = queued(&mut e) else {
+            panic!()
+        };
         assert_eq!(position.line, 0);
         assert_eq!(position.character, 16, "UTF-16 units, the protocol default");
     }
@@ -972,7 +1123,13 @@ mod tests {
         e.settings.tab_width = 2;
         e.settings.indent_with_tabs = true;
         run(&mut d, &mut e, "lsp-format-buffer");
-        assert_eq!(queued(&mut e), LspQuery::Format { tab_size: 2, insert_spaces: false });
+        assert_eq!(
+            queued(&mut e),
+            LspQuery::Format {
+                tab_size: 2,
+                insert_spaces: false
+            }
+        );
     }
 
     #[test]
@@ -984,7 +1141,9 @@ mod tests {
             b.set_point(7);
         });
         run(&mut d, &mut e, "lsp-code-action");
-        let LspQuery::CodeAction { range, .. } = queued(&mut e) else { panic!() };
+        let LspQuery::CodeAction { range, .. } = queued(&mut e) else {
+            panic!()
+        };
         assert_eq!(range.start, LspPosition::new(0, 0));
         assert_eq!(range.end, LspPosition::new(1, 3));
     }
@@ -994,7 +1153,9 @@ mod tests {
         let (mut d, mut e) = setup("one\ntwo\n");
         e.with_current_buffer(|b| b.set_point(5));
         run(&mut d, &mut e, "lsp-code-action");
-        let LspQuery::CodeAction { range, .. } = queued(&mut e) else { panic!() };
+        let LspQuery::CodeAction { range, .. } = queued(&mut e) else {
+            panic!()
+        };
         assert!(range.is_empty());
         assert_eq!(range.start, LspPosition::new(1, 1));
     }
@@ -1005,10 +1166,7 @@ mod tests {
         let uri = maxgus_lsp::client::path_to_uri(std::path::Path::new("/project/main.rs"));
         let at = |line: u32| {
             maxgus_lsp::Diagnostic::new(
-                maxgus_lsp::LspRange::new(
-                    LspPosition::new(line, 4),
-                    LspPosition::new(line, 10),
-                ),
+                maxgus_lsp::LspRange::new(LspPosition::new(line, 4), LspPosition::new(line, 10)),
                 maxgus_lsp::Severity::Warning,
                 format!("problem on line {line}"),
             )
@@ -1018,7 +1176,9 @@ mod tests {
         // Point on the first line, no region: only that line's diagnostic.
         e.with_current_buffer(|b| b.set_point(5));
         run(&mut d, &mut e, "lsp-code-action");
-        let LspQuery::CodeAction { diagnostics, .. } = queued(&mut e) else { panic!() };
+        let LspQuery::CodeAction { diagnostics, .. } = queued(&mut e) else {
+            panic!()
+        };
         assert_eq!(diagnostics.len(), 1, "got {diagnostics:?}");
         assert!(diagnostics[0].message.contains("line 0"));
     }
@@ -1042,7 +1202,9 @@ mod tests {
             b.set_point(end);
         });
         run(&mut d, &mut e, "lsp-code-action");
-        let LspQuery::CodeAction { diagnostics, .. } = queued(&mut e) else { panic!() };
+        let LspQuery::CodeAction { diagnostics, .. } = queued(&mut e) else {
+            panic!()
+        };
         assert_eq!(diagnostics.len(), 2);
     }
 
@@ -1058,7 +1220,9 @@ mod tests {
             e.minibuffer.insert_char(c);
         }
         d.handle_keys(&mut e, "RET");
-        let LspQuery::Rename { new_name, .. } = queued(&mut e) else { panic!() };
+        let LspQuery::Rename { new_name, .. } = queued(&mut e) else {
+            panic!()
+        };
         assert_eq!(new_name, "renamed");
     }
 
@@ -1067,7 +1231,10 @@ mod tests {
         let (mut d, mut e) = setup("let x = 1;\n");
         d.execute(&mut e, "lsp-rename", None);
         e.minibuffer.kill_whole();
-        assert!(matches!(d.handle_keys(&mut e, "RET"), Dispatch::Failed { .. }));
+        assert!(matches!(
+            d.handle_keys(&mut e, "RET"),
+            Dispatch::Failed { .. }
+        ));
     }
 
     #[test]
@@ -1085,14 +1252,20 @@ mod tests {
         let (mut d, mut e) = setup("fn main() {\n    helper(\n}\n");
         e.with_current_buffer(|b| b.set_point(b.line_start(1) + 11));
         run(&mut d, &mut e, "lsp-signature-help");
-        assert_eq!(queued(&mut e), LspQuery::SignatureHelp(LspPosition::new(1, 11)));
+        assert_eq!(
+            queued(&mut e),
+            LspQuery::SignatureHelp(LspPosition::new(1, 11))
+        );
     }
 
     #[test]
     fn document_symbols_needs_no_argument() {
         let (mut d, mut e) = setup("fn main() {}\n");
         run(&mut d, &mut e, "lsp-document-symbols");
-        assert_eq!(queued(&mut e), LspQuery::DocumentSymbols);
+        assert_eq!(
+            queued(&mut e),
+            LspQuery::DocumentSymbols { for_panel: false }
+        );
     }
 
     #[test]
@@ -1100,8 +1273,16 @@ mod tests {
         let (mut d, mut e) = setup("fn main() {}\n");
         run(&mut d, &mut e, "lsp-restart-server");
         let tasks = e.tasks.drain();
-        assert!(tasks.iter().any(|t| matches!(t, Task::StopLanguageServer { .. })));
-        assert!(tasks.iter().any(|t| matches!(t, Task::StartLanguageServer { .. })));
+        assert!(
+            tasks
+                .iter()
+                .any(|t| matches!(t, Task::StopLanguageServer { .. }))
+        );
+        assert!(
+            tasks
+                .iter()
+                .any(|t| matches!(t, Task::StartLanguageServer { .. }))
+        );
         assert!(tasks.iter().any(|t| matches!(t, Task::LspDidOpen { .. })));
     }
 
@@ -1141,7 +1322,11 @@ mod tests {
         };
         e.diagnostics.replace(
             "file:///project/main.rs",
-            vec![at(1, Severity::Error), at(3, Severity::Warning), at(5, Severity::Error)],
+            vec![
+                at(1, Severity::Error),
+                at(3, Severity::Warning),
+                at(5, Severity::Error),
+            ],
         );
     }
 
@@ -1203,15 +1388,26 @@ mod tests {
             &location("file:///project/main.rs", 0, 3),
         );
 
-        assert_eq!(e.current_buffer().line_of(e.windows.current().point), 0, "jumped to line 1");
+        assert_eq!(
+            e.current_buffer().line_of(e.windows.current().point),
+            0,
+            "jumped to line 1"
+        );
         // The in-flight message must not survive the jump.
         assert!(
             !e.minibuffer.display().contains("finding definition"),
             "a stale message was left behind: `{}`",
             e.minibuffer.display()
         );
-        assert!(e.minibuffer.display().contains("main.rs:1"), "got `{}`", e.minibuffer.display());
-        assert!(e.minibuffer.display().contains("M-,"), "it says how to come back");
+        assert!(
+            e.minibuffer.display().contains("main.rs:1"),
+            "got `{}`",
+            e.minibuffer.display()
+        );
+        assert!(
+            e.minibuffer.display().contains("M-,"),
+            "it says how to come back"
+        );
     }
 
     #[test]
@@ -1225,7 +1421,11 @@ mod tests {
             &LspQuery::Definition(LspPosition::new(3, 4)),
             &location("file:///project/main.rs", 0, 3),
         );
-        assert_eq!(e.current_buffer().mark(), Some(from), "M-, has somewhere to go back to");
+        assert_eq!(
+            e.current_buffer().mark(),
+            Some(from),
+            "M-, has somewhere to go back to"
+        );
     }
 
     #[test]
@@ -1239,7 +1439,9 @@ mod tests {
         );
         let tasks = e.tasks.drain();
         assert!(
-            tasks.iter().any(|t| matches!(t, Task::ReadFile { path, .. } if path.ends_with("other.rs"))),
+            tasks
+                .iter()
+                .any(|t| matches!(t, Task::ReadFile { path, .. } if path.ends_with("other.rs"))),
             "got {tasks:?}"
         );
         // The jump is remembered until the file arrives.
@@ -1268,9 +1470,17 @@ mod tests {
     fn no_definition_is_reported_rather_than_leaving_the_message_hanging() {
         let (_d, mut e) = setup("fn main() {}\n");
         e.message("Language server: finding definition...");
-        apply_response(&mut e, &LspQuery::Definition(LspPosition::ZERO), &serde_json::Value::Null);
+        apply_response(
+            &mut e,
+            &LspQuery::Definition(LspPosition::ZERO),
+            &serde_json::Value::Null,
+        );
         assert!(e.minibuffer.message_is_error());
-        assert!(e.minibuffer.display().contains("No definition"), "got `{}`", e.minibuffer.display());
+        assert!(
+            e.minibuffer.display().contains("No definition"),
+            "got `{}`",
+            e.minibuffer.display()
+        );
     }
 
     /// A plausible reply for each kind of question, for checking that none of
@@ -1281,14 +1491,26 @@ mod tests {
             "end": {"line": 0, "character": 3}
         });
         vec![
-            (LspQuery::Definition(LspPosition::ZERO), location("file:///project/main.rs", 0, 0)),
-            (LspQuery::Definition(LspPosition::ZERO), serde_json::Value::Null),
+            (
+                LspQuery::Definition(LspPosition::ZERO),
+                location("file:///project/main.rs", 0, 0),
+            ),
+            (
+                LspQuery::Definition(LspPosition::ZERO),
+                serde_json::Value::Null,
+            ),
             (
                 LspQuery::References(LspPosition::ZERO),
                 serde_json::json!([location("file:///project/main.rs", 1, 0)]),
             ),
-            (LspQuery::References(LspPosition::ZERO), serde_json::json!([])),
-            (LspQuery::Hover(LspPosition::ZERO), serde_json::json!({"contents": "one line"})),
+            (
+                LspQuery::References(LspPosition::ZERO),
+                serde_json::json!([]),
+            ),
+            (
+                LspQuery::Hover(LspPosition::ZERO),
+                serde_json::json!({"contents": "one line"}),
+            ),
             (
                 LspQuery::Hover(LspPosition::ZERO),
                 serde_json::json!({"contents": {"value": "first\n\nsecond"}}),
@@ -1302,28 +1524,46 @@ mod tests {
                 LspQuery::Completion(LspPosition::ZERO),
                 serde_json::json!([{"label": "fnalpha"}, {"label": "fnbeta"}]),
             ),
-            (LspQuery::Completion(LspPosition::ZERO), serde_json::json!([])),
+            (
+                LspQuery::Completion(LspPosition::ZERO),
+                serde_json::json!([]),
+            ),
             (
                 LspQuery::SignatureHelp(LspPosition::ZERO),
                 serde_json::json!({"signatures": [{"label": "fn(x: i32)"}]}),
             ),
-            (LspQuery::SignatureHelp(LspPosition::ZERO), serde_json::Value::Null),
             (
-                LspQuery::Rename { position: LspPosition::ZERO, new_name: "x".into() },
+                LspQuery::SignatureHelp(LspPosition::ZERO),
+                serde_json::Value::Null,
+            ),
+            (
+                LspQuery::Rename {
+                    position: LspPosition::ZERO,
+                    new_name: "x".into(),
+                },
                 serde_json::json!({"changes": {"file:///project/main.rs": [
                     {"range": range, "newText": "xyz"}
                 ]}}),
             ),
             (
-                LspQuery::Rename { position: LspPosition::ZERO, new_name: "x".into() },
+                LspQuery::Rename {
+                    position: LspPosition::ZERO,
+                    new_name: "x".into(),
+                },
                 serde_json::json!({}),
             ),
             (
-                LspQuery::Format { tab_size: 4, insert_spaces: true },
+                LspQuery::Format {
+                    tab_size: 4,
+                    insert_spaces: true,
+                },
                 serde_json::json!([{"range": range, "newText": "abc"}]),
             ),
             (
-                LspQuery::Format { tab_size: 4, insert_spaces: true },
+                LspQuery::Format {
+                    tab_size: 4,
+                    insert_spaces: true,
+                },
                 serde_json::json!([]),
             ),
             (
@@ -1341,11 +1581,14 @@ mod tests {
                 serde_json::json!([]),
             ),
             (
-                LspQuery::DocumentSymbols,
+                LspQuery::DocumentSymbols { for_panel: false },
                 serde_json::json!([{"name": "main", "kind": 12,
                     "range": {"start": {"line": 0, "character": 0}}}]),
             ),
-            (LspQuery::DocumentSymbols, serde_json::json!([])),
+            (
+                LspQuery::DocumentSymbols { for_panel: false },
+                serde_json::json!([]),
+            ),
             (
                 LspQuery::WorkspaceSymbols("m".into()),
                 serde_json::json!([{"name": "main", "kind": 12,
@@ -1369,7 +1612,11 @@ mod tests {
                 "`{}` with reply `{reply}` left `{shown}` on screen",
                 query.description()
             );
-            assert!(!shown.is_empty(), "`{}` said nothing at all", query.description());
+            assert!(
+                !shown.is_empty(),
+                "`{}` said nothing at all",
+                query.description()
+            );
         }
     }
 
@@ -1404,13 +1651,19 @@ mod tests {
         );
         let text = e.current_buffer().text();
         assert!(text.contains("src/deep/thing.rs:42:8"), "got `{text}`");
-        assert!(!text.contains("/project/src"), "the shared prefix is not repeated: `{text}`");
+        assert!(
+            !text.contains("/project/src"),
+            "the shared prefix is not repeated: `{text}`"
+        );
     }
 
     #[test]
     fn a_path_outside_the_project_is_shown_in_full() {
         let root = std::path::Path::new("/project");
-        assert_eq!(display_path(std::path::Path::new("/project/src/a.rs"), root), "src/a.rs");
+        assert_eq!(
+            display_path(std::path::Path::new("/project/src/a.rs"), root),
+            "src/a.rs"
+        );
         assert_eq!(
             display_path(std::path::Path::new("/usr/include/stdio.h"), root),
             "/usr/include/stdio.h",
@@ -1424,7 +1677,7 @@ mod tests {
         e.message("Language server: document symbols...");
         apply_response(
             &mut e,
-            &LspQuery::DocumentSymbols,
+            &LspQuery::DocumentSymbols { for_panel: false },
             &serde_json::json!([
                 {"name": "helper", "kind": 12, "range": {"start": {"line": 2, "character": 0}}},
                 {"name": "main", "kind": 12, "range": {"start": {"line": 6, "character": 0}}},
@@ -1440,7 +1693,11 @@ mod tests {
         let (_d, mut e) = setup("let x = 1;\n");
 
         // A plain string.
-        apply_response(&mut e, &LspQuery::Hover(LspPosition::ZERO), &serde_json::json!({"contents": "an integer"}));
+        apply_response(
+            &mut e,
+            &LspQuery::Hover(LspPosition::ZERO),
+            &serde_json::json!({"contents": "an integer"}),
+        );
         assert_eq!(e.minibuffer.display(), "an integer");
 
         // `MarkupContent`, which is what clangd and rust-analyzer send.
@@ -1449,7 +1706,11 @@ mod tests {
             &LspQuery::Hover(LspPosition::ZERO),
             &serde_json::json!({"contents": {"kind": "markdown", "value": "variable x\n\nType: int"}}),
         );
-        assert_eq!(e.current_buffer().name(), "*Help*", "a multi-line answer needs room");
+        assert_eq!(
+            e.current_buffer().name(),
+            "*Help*",
+            "a multi-line answer needs room"
+        );
         assert!(e.current_buffer().text().contains("Type: int"));
     }
 
@@ -1460,7 +1721,11 @@ mod tests {
         assert_eq!(symbol_at_point(&e), "helper");
         // `helper` spans 4..10, so offset 10 is immediately after it.
         e.with_current_buffer(|b| b.set_point(10));
-        assert_eq!(symbol_at_point(&e), "helper", "point just after the word still counts");
+        assert_eq!(
+            symbol_at_point(&e),
+            "helper",
+            "point just after the word still counts"
+        );
         e.with_current_buffer(|b| b.set_point(11));
         assert_eq!(symbol_at_point(&e), "", "on a space there is no symbol");
     }

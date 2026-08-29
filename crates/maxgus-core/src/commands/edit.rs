@@ -11,45 +11,178 @@ use maxgus_text::{CharClass, Motion, Range};
 /// Registers the editing commands.
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
-        command!("self-insert-command", "Insert the character that invoked this command.", self_insert, non_interactive),
+        command!(
+            "self-insert-command",
+            "Insert the character that invoked this command.",
+            self_insert,
+            non_interactive
+        ),
         command!("newline", "Insert a newline.", newline),
-        command!("electric-newline-and-maybe-indent", "Insert a newline and indent it.", newline_and_indent),
-        command!("open-line", "Insert a newline after point, leaving point where it is.", open_line),
-        command!("quoted-insert", "Insert the next character literally.", quoted_insert),
-        command!("delete-char", "Delete the character after point.", delete_char),
-        command!("delete-backward-char", "Delete the character before point.", delete_backward_char),
+        command!(
+            "electric-newline-and-maybe-indent",
+            "Insert a newline and indent it.",
+            newline_and_indent
+        ),
+        command!(
+            "open-line",
+            "Insert a newline after point, leaving point where it is.",
+            open_line
+        ),
+        command!(
+            "quoted-insert",
+            "Insert the next character literally.",
+            quoted_insert
+        ),
+        command!(
+            "delete-char",
+            "Delete the character after point.",
+            delete_char
+        ),
+        command!(
+            "delete-backward-char",
+            "Delete the character before point.",
+            delete_backward_char
+        ),
         command!("kill-line", "Kill to the end of the line.", kill_line),
-        command!("kill-whole-line", "Kill the whole line including its newline.", kill_whole_line),
+        command!(
+            "kill-whole-line",
+            "Kill the whole line including its newline.",
+            kill_whole_line
+        ),
         command!("kill-word", "Kill to the end of the next word.", kill_word),
-        command!("backward-kill-word", "Kill back to the start of the previous word.", backward_kill_word),
-        command!("kill-region", "Kill the text between point and the mark.", kill_region),
-        command!("kill-ring-save", "Copy the region to the kill ring.", kill_ring_save),
-        command!("kill-sexp", "Kill the balanced expression after point.", kill_sexp),
-        command!("kill-sentence", "Kill to the end of the sentence.", kill_sentence),
-        command!("backward-kill-sentence", "Kill back to the start of the sentence.", backward_kill_sentence),
-        command!("zap-to-char", "Kill up to and including a given character.", zap_to_char),
+        command!(
+            "backward-kill-word",
+            "Kill back to the start of the previous word.",
+            backward_kill_word
+        ),
+        command!(
+            "kill-region",
+            "Kill the text between point and the mark.",
+            kill_region
+        ),
+        command!(
+            "kill-ring-save",
+            "Copy the region to the kill ring.",
+            kill_ring_save
+        ),
+        command!(
+            "kill-sexp",
+            "Kill the balanced expression after point.",
+            kill_sexp
+        ),
+        command!(
+            "kill-sentence",
+            "Kill to the end of the sentence.",
+            kill_sentence
+        ),
+        command!(
+            "backward-kill-sentence",
+            "Kill back to the start of the sentence.",
+            backward_kill_sentence
+        ),
+        command!(
+            "zap-to-char",
+            "Kill up to and including a given character.",
+            zap_to_char
+        ),
         command!("yank", "Insert the most recent kill.", yank),
-        command!("yank-pop", "Replace the last yank with an earlier kill.", yank_pop),
+        command!(
+            "yank-pop",
+            "Replace the last yank with an earlier kill.",
+            yank_pop
+        ),
         command!("undo", "Undo the last change.", undo),
         command!("undo-redo", "Redo the last undone change.", undo_redo),
-        command!("transpose-chars", "Swap the characters around point.", transpose_chars),
-        command!("transpose-words", "Swap the words around point.", transpose_words),
-        command!("transpose-lines", "Swap the lines around point.", transpose_lines),
-        command!("upcase-word", "Convert the next word to upper case.", upcase_word),
-        command!("downcase-word", "Convert the next word to lower case.", downcase_word),
-        command!("capitalize-word", "Capitalise the next word.", capitalize_word),
-        command!("upcase-region", "Convert the region to upper case.", upcase_region),
-        command!("downcase-region", "Convert the region to lower case.", downcase_region),
-        command!("delete-horizontal-space", "Delete the whitespace around point.", delete_horizontal_space),
-        command!("just-one-space", "Leave exactly one space around point.", just_one_space),
-        command!("delete-indentation", "Join this line to the previous one.", delete_indentation),
-        command!("delete-blank-lines", "Delete the blank lines around point.", delete_blank_lines),
-        command!("indent-for-tab-command", "Indent the line, or insert indentation.", indent_for_tab),
-        command!("indent-rigidly", "Shift the region by the indentation width.", indent_rigidly),
-        command!("indent-region", "Indent every line of the region.", indent_region),
-        command!("split-line", "Split the line at point, indenting the rest to this column.", split_line),
-        command!("tab-to-tab-stop", "Insert space up to the next tab stop.", tab_to_tab_stop),
-        command!("keyboard-quit", "Abandon whatever is in progress.", keyboard_quit),
+        command!(
+            "transpose-chars",
+            "Swap the characters around point.",
+            transpose_chars
+        ),
+        command!(
+            "transpose-words",
+            "Swap the words around point.",
+            transpose_words
+        ),
+        command!(
+            "transpose-lines",
+            "Swap the lines around point.",
+            transpose_lines
+        ),
+        command!(
+            "upcase-word",
+            "Convert the next word to upper case.",
+            upcase_word
+        ),
+        command!(
+            "downcase-word",
+            "Convert the next word to lower case.",
+            downcase_word
+        ),
+        command!(
+            "capitalize-word",
+            "Capitalise the next word.",
+            capitalize_word
+        ),
+        command!(
+            "upcase-region",
+            "Convert the region to upper case.",
+            upcase_region
+        ),
+        command!(
+            "downcase-region",
+            "Convert the region to lower case.",
+            downcase_region
+        ),
+        command!(
+            "delete-horizontal-space",
+            "Delete the whitespace around point.",
+            delete_horizontal_space
+        ),
+        command!(
+            "just-one-space",
+            "Leave exactly one space around point.",
+            just_one_space
+        ),
+        command!(
+            "delete-indentation",
+            "Join this line to the previous one.",
+            delete_indentation
+        ),
+        command!(
+            "delete-blank-lines",
+            "Delete the blank lines around point.",
+            delete_blank_lines
+        ),
+        command!(
+            "indent-for-tab-command",
+            "Indent the line, or insert indentation.",
+            indent_for_tab
+        ),
+        command!(
+            "indent-rigidly",
+            "Shift the region by the indentation width.",
+            indent_rigidly
+        ),
+        command!(
+            "indent-region",
+            "Indent every line of the region.",
+            indent_region
+        ),
+        command!(
+            "split-line",
+            "Split the line at point, indenting the rest to this column.",
+            split_line
+        ),
+        command!(
+            "tab-to-tab-stop",
+            "Insert space up to the next tab stop.",
+            tab_to_tab_stop
+        ),
+        command!(
+            "keyboard-quit",
+            "Abandon whatever is in progress.",
+            keyboard_quit
+        ),
     ]);
 }
 
@@ -66,7 +199,9 @@ fn indent_unit(editor: &Editor) -> String {
 
 fn self_insert(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(c) = args.key.and_then(|k| k.as_char()) else {
-        return Err(crate::CoreError::Message("That key does not insert a character".into()));
+        return Err(crate::CoreError::Message(
+            "That key does not insert a character".into(),
+        ));
     };
     let text: String = std::iter::repeat_n(c, args.count()).collect();
     editor.with_current_buffer(|b| b.insert_at_point(&text))?;
@@ -126,7 +261,9 @@ fn quoted_insert(editor: &mut Editor, args: &Args) -> Result<()> {
     };
     // Any character the key names, control characters included.
     let c = match key.code {
-        maxgus_keys::KeyCode::Char(c) if key.modifiers.contains(maxgus_keys::Modifiers::CONTROL) => {
+        maxgus_keys::KeyCode::Char(c)
+            if key.modifiers.contains(maxgus_keys::Modifiers::CONTROL) =>
+        {
             // `C-a` is U+0001, and so on up the alphabet.
             let upper = c.to_ascii_uppercase();
             char::from(upper as u8 & 0x1f)
@@ -229,7 +366,10 @@ fn kill_word(editor: &mut Editor, args: &Args) -> Result<()> {
     let range = {
         let buffer = editor.current_buffer();
         let point = buffer.point();
-        Range::new(point, Motion::forward_word(buffer.rope(), point, n as usize))
+        Range::new(
+            point,
+            Motion::forward_word(buffer.rope(), point, n as usize),
+        )
     };
     kill_range(editor, range, false)
 }
@@ -242,7 +382,10 @@ fn kill_sentence(editor: &mut Editor, args: &Args) -> Result<()> {
     let range = {
         let buffer = editor.current_buffer();
         let point = buffer.point();
-        Range::new(point, Motion::forward_sentence(buffer.rope(), point, n as usize))
+        Range::new(
+            point,
+            Motion::forward_sentence(buffer.rope(), point, n as usize),
+        )
     };
     kill_range(editor, range, false)
 }
@@ -255,7 +398,10 @@ fn backward_kill_sentence(editor: &mut Editor, args: &Args) -> Result<()> {
     let range = {
         let buffer = editor.current_buffer();
         let point = buffer.point();
-        Range::new(Motion::backward_sentence(buffer.rope(), point, n as usize), point)
+        Range::new(
+            Motion::backward_sentence(buffer.rope(), point, n as usize),
+            point,
+        )
     };
     // Killed backwards, so it joins the front of the last kill rather than the
     // back, the way `M-DEL` does.
@@ -270,7 +416,10 @@ fn backward_kill_word(editor: &mut Editor, args: &Args) -> Result<()> {
     let range = {
         let buffer = editor.current_buffer();
         let point = buffer.point();
-        Range::new(Motion::backward_word(buffer.rope(), point, n as usize), point)
+        Range::new(
+            Motion::backward_word(buffer.rope(), point, n as usize),
+            point,
+        )
     };
     kill_range(editor, range, true)
 }
@@ -279,8 +428,9 @@ fn kill_sexp(editor: &mut Editor, args: &Args) -> Result<()> {
     let range = {
         let buffer = editor.current_buffer();
         let point = buffer.point();
-        let to = Motion::forward_sexp(buffer.rope(), point, args.count())
-            .ok_or_else(|| crate::CoreError::Message("Containing expression ends prematurely".into()))?;
+        let to = Motion::forward_sexp(buffer.rope(), point, args.count()).ok_or_else(|| {
+            crate::CoreError::Message("Containing expression ends prematurely".into())
+        })?;
         Range::new(point, to)
     };
     kill_range(editor, range, false)
@@ -310,7 +460,9 @@ fn zap_to_char(editor: &mut Editor, args: &Args) -> Result<()> {
         return Ok(());
     };
     let Some(target) = key.as_char() else {
-        return Err(crate::CoreError::Message("That key names no character".into()));
+        return Err(crate::CoreError::Message(
+            "That key names no character".into(),
+        ));
     };
     let range = {
         let buffer = editor.current_buffer();
@@ -363,8 +515,13 @@ fn yank(editor: &mut Editor, args: &Args) -> Result<()> {
 
 /// `M-y`: only meaningful straight after a yank.
 fn yank_pop(editor: &mut Editor, _: &Args) -> Result<()> {
-    if !matches!(editor.last_command.as_deref(), Some("yank") | Some("yank-pop")) {
-        return Err(crate::CoreError::Message("Previous command was not a yank".into()));
+    if !matches!(
+        editor.last_command.as_deref(),
+        Some("yank") | Some("yank-pop")
+    ) {
+        return Err(crate::CoreError::Message(
+            "Previous command was not a yank".into(),
+        ));
     }
     let Some(previous) = editor.kill_ring.front().map(str::to_string) else {
         return Err(crate::CoreError::Message("Kill ring is empty".into()));
@@ -395,7 +552,9 @@ fn undo(editor: &mut Editor, args: &Args) -> Result<()> {
     }
     editor.follow_point();
     if !any {
-        return Err(crate::CoreError::Message("No further undo information".into()));
+        return Err(crate::CoreError::Message(
+            "No further undo information".into(),
+        ));
     }
     editor.message("Undo");
     Ok(())
@@ -411,7 +570,9 @@ fn undo_redo(editor: &mut Editor, args: &Args) -> Result<()> {
     }
     editor.follow_point();
     if !any {
-        return Err(crate::CoreError::Message("No further redo information".into()));
+        return Err(crate::CoreError::Message(
+            "No further redo information".into(),
+        ));
     }
     editor.message("Redo");
     Ok(())
@@ -476,7 +637,10 @@ fn transpose_words(editor: &mut Editor, _: &Args) -> Result<()> {
         if first_start >= second_start {
             return Err(crate::CoreError::Message("Nothing to transpose".into()));
         }
-        (Range::new(first_start, first_end), Range::new(second_start, second_end))
+        (
+            Range::new(first_start, first_end),
+            Range::new(second_start, second_end),
+        )
     };
     swap(editor, first, second)
 }
@@ -606,7 +770,11 @@ fn delete_horizontal_space(editor: &mut Editor, _: &Args) -> Result<()> {
 
 fn just_one_space(editor: &mut Editor, args: &Args) -> Result<()> {
     let range = horizontal_space(editor);
-    let spaces = " ".repeat(args.prefix.positive_count().max(if args.prefix.is_present() { 0 } else { 1 }));
+    let spaces = " ".repeat(
+        args.prefix
+            .positive_count()
+            .max(if args.prefix.is_present() { 0 } else { 1 }),
+    );
     editor.with_current_buffer(|b| b.replace(range, &spaces))?;
     editor.with_current_buffer(|b| b.set_point(range.start + spaces.chars().count()));
     editor.follow_point();
@@ -627,7 +795,10 @@ fn delete_indentation(editor: &mut Editor, _: &Args) -> Result<()> {
     };
     // A join leaves one space unless the previous line ended empty.
     let separator = if range.start == 0
-        || editor.current_buffer().char_before(range.start).is_some_and(char::is_whitespace)
+        || editor
+            .current_buffer()
+            .char_before(range.start)
+            .is_some_and(char::is_whitespace)
     {
         ""
     } else {
@@ -685,10 +856,17 @@ fn indent_for_tab(editor: &mut Editor, _: &Args) -> Result<()> {
             String::new()
         } else {
             let above = buffer.line_start(line - 1);
-            buffer.slice(Range::new(above, Motion::back_to_indentation(buffer.rope(), above)))
+            buffer.slice(Range::new(
+                above,
+                Motion::back_to_indentation(buffer.rope(), above),
+            ))
         };
         // Matching the line above already? Then add a level.
-        let target = if current == previous { format!("{current}{unit}") } else { previous };
+        let target = if current == previous {
+            format!("{current}{unit}")
+        } else {
+            previous
+        };
         (Range::new(start, first), target, point)
     };
     let before = range.len();
@@ -737,7 +915,10 @@ fn indent_region(editor: &mut Editor, _: &Args) -> Result<()> {
                     .find(|n| !buffer.line_text(*n).trim().is_empty())
                     .map(|n| {
                         let at = buffer.line_start(n);
-                        buffer.slice(Range::new(at, Motion::back_to_indentation(buffer.rope(), at)))
+                        buffer.slice(Range::new(
+                            at,
+                            Motion::back_to_indentation(buffer.rope(), at),
+                        ))
                     })
                     .unwrap_or_default();
                 buffer.replace(Range::new(start, first_char), &above)?;
@@ -752,7 +933,9 @@ fn indent_region(editor: &mut Editor, _: &Args) -> Result<()> {
 /// `C-M-o`: pushes the rest of the line down, indented to where point is, and
 /// leaves point exactly where it was.
 fn split_line(editor: &mut Editor, args: &Args) -> Result<()> {
-    let column = editor.current_buffer().display_column(editor.current_buffer().point());
+    let column = editor
+        .current_buffer()
+        .display_column(editor.current_buffer().point());
     let text = format!("{}{}", "\n".repeat(args.count()), " ".repeat(column));
     editor.with_current_buffer(|b| {
         let at = b.point();
@@ -769,7 +952,9 @@ fn split_line(editor: &mut Editor, args: &Args) -> Result<()> {
 /// `M-i`: space out to the next multiple of the tab width.
 fn tab_to_tab_stop(editor: &mut Editor, _: &Args) -> Result<()> {
     let width = editor.settings.tab_width.max(1);
-    let column = editor.current_buffer().display_column(editor.current_buffer().point());
+    let column = editor
+        .current_buffer()
+        .display_column(editor.current_buffer().point());
     // Always moves: sitting on a stop already means going to the next one.
     let spaces = width - (column % width);
     editor.with_current_buffer(|b| b.insert_at_point(&" ".repeat(spaces)))?;
@@ -853,13 +1038,19 @@ mod tests {
 
     fn run(d: &mut Dispatcher, e: &mut Editor, command: &str) {
         let out = d.execute(e, command, None);
-        assert!(!matches!(out, Dispatch::Failed { .. }), "`{command}` failed: {out:?}");
+        assert!(
+            !matches!(out, Dispatch::Failed { .. }),
+            "`{command}` failed: {out:?}"
+        );
     }
 
     fn run_n(d: &mut Dispatcher, e: &mut Editor, command: &str, n: i32) {
         e.prefix = Prefix::Numeric(n);
         let out = d.execute(e, command, None);
-        assert!(!matches!(out, Dispatch::Failed { .. }), "`{command}` failed: {out:?}");
+        assert!(
+            !matches!(out, Dispatch::Failed { .. }),
+            "`{command}` failed: {out:?}"
+        );
     }
 
     fn fails(d: &mut Dispatcher, e: &mut Editor, command: &str) -> String {
@@ -904,14 +1095,22 @@ mod tests {
     fn self_insert_repeats_with_a_prefix_argument() {
         let (mut d, mut e) = setup("");
         e.prefix = Prefix::Numeric(5);
-        d.execute(&mut e, "self-insert-command", Some(maxgus_keys::Key::char('x')));
+        d.execute(
+            &mut e,
+            "self-insert-command",
+            Some(maxgus_keys::Key::char('x')),
+        );
         assert_eq!(text(&e), "xxxxx");
     }
 
     #[test]
     fn self_insert_refuses_a_key_that_names_no_character() {
         let (mut d, mut e) = setup("");
-        let out = d.execute(&mut e, "self-insert-command", Some(maxgus_keys::Key::ctrl('x')));
+        let out = d.execute(
+            &mut e,
+            "self-insert-command",
+            Some(maxgus_keys::Key::ctrl('x')),
+        );
         assert!(matches!(out, Dispatch::Failed { .. }));
     }
 
@@ -1158,7 +1357,11 @@ mod tests {
         goto(&mut e, 5);
         run(&mut d, &mut e, "yank");
         assert_eq!(text(&e), "worldhello ");
-        assert_eq!(e.current_buffer().mark(), Some(5), "the yank start was marked");
+        assert_eq!(
+            e.current_buffer().mark(),
+            Some(5),
+            "the yank start was marked"
+        );
     }
 
     #[test]
@@ -1439,7 +1642,11 @@ mod tests {
         let (mut d, mut e) = setup("   hello there.\n");
         e.with_current_buffer(|b| b.set_point(1));
         run(&mut d, &mut e, "backward-kill-sentence");
-        assert_eq!(text(&e), "  hello there.\n", "back to the buffer start, one space");
+        assert_eq!(
+            text(&e),
+            "  hello there.\n",
+            "back to the buffer start, one space"
+        );
     }
 
     #[test]
@@ -1487,7 +1694,11 @@ mod tests {
         let (mut d, mut e) = setup("abcdef\n");
         e.with_current_buffer(|b| b.set_point(3));
         run(&mut d, &mut e, "split-line");
-        assert_eq!(text(&e), "abc\n   def\n", "indented to the column point was in");
+        assert_eq!(
+            text(&e),
+            "abc\n   def\n",
+            "indented to the column point was in"
+        );
         assert_eq!(e.current_buffer().point(), 3, "point did not move");
     }
 
@@ -1567,7 +1778,10 @@ mod tests {
         e.with_current_buffer(|b| b.set_read_only(true));
         for command in ["newline", "delete-char", "kill-line", "upcase-word"] {
             let out = d.execute(&mut e, command, None);
-            assert!(matches!(out, Dispatch::Failed { .. }), "`{command}` should have been refused");
+            assert!(
+                matches!(out, Dispatch::Failed { .. }),
+                "`{command}` should have been refused"
+            );
         }
         assert_eq!(text(&e), "protected");
     }

@@ -19,7 +19,12 @@ pub struct Change {
 
 impl Change {
     pub fn new(x: u16, y: u16, face: Face, text: impl Into<String>) -> Change {
-        Change { x, y, face, text: text.into() }
+        Change {
+            x,
+            y,
+            face,
+            text: text.into(),
+        }
     }
 }
 
@@ -102,7 +107,10 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(size: Size, depth: ColorDepth) -> Renderer {
-        Renderer { on_screen: Surface::new(size), depth }
+        Renderer {
+            on_screen: Surface::new(size),
+            depth,
+        }
     }
 
     pub fn depth(&self) -> ColorDepth {
@@ -241,7 +249,10 @@ mod tests {
         b.set_string(0, 0, "漢字", Face::default(), 4);
         let changes = diff(&a, &b);
         assert_eq!(changes.len(), 1);
-        assert_eq!(changes[0].text, "漢字", "the wide chars carry their own width");
+        assert_eq!(
+            changes[0].text, "漢字",
+            "the wide chars carry their own width"
+        );
         assert_eq!(changes[0].x, 0);
     }
 

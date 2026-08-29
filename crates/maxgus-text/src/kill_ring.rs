@@ -25,7 +25,11 @@ impl Default for KillRing {
 
 impl KillRing {
     pub fn new(max: usize) -> Self {
-        Self { entries: Vec::new(), yank_pointer: 0, max: max.max(1) }
+        Self {
+            entries: Vec::new(),
+            yank_pointer: 0,
+            max: max.max(1),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -150,7 +154,11 @@ mod tests {
         assert_eq!(r.rotate(1), Some("b"));
         assert_eq!(r.rotate(1), Some("a"));
         assert_eq!(r.rotate(1), Some("c"), "wraps around to the newest entry");
-        assert_eq!(r.rotate(-1), Some("a"), "negative rotation walks the other way");
+        assert_eq!(
+            r.rotate(-1),
+            Some("a"),
+            "negative rotation walks the other way"
+        );
     }
 
     #[test]

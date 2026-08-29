@@ -43,9 +43,7 @@ fn parent_can_resume(group: i32, session: i32, parent: Option<(i32, i32)>) -> bo
         // A parent inside our own group stops when we do, so nothing would be
         // left running to continue us. A parent in another session is not
         // doing job control for this terminal.
-        Some((parent_group, parent_session)) => {
-            parent_group != group && parent_session == session
-        }
+        Some((parent_group, parent_session)) => parent_group != group && parent_session == session,
         None => false,
     }
 }
@@ -63,7 +61,11 @@ fn job_control_is_available() -> bool {
             process::getsid(Some(parent)).ok()?.as_raw_pid(),
         ))
     });
-    parent_can_resume(process::getpgrp().as_raw_pid(), session.as_raw_pid(), parent)
+    parent_can_resume(
+        process::getpgrp().as_raw_pid(),
+        session.as_raw_pid(),
+        parent,
+    )
 }
 
 /// Stops this process, returning once something has resumed it.

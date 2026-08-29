@@ -14,40 +14,172 @@ use maxgus_text::Motion;
 /// Registers the motion commands.
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
-        command!("forward-char", "Move point forward one character.", forward_char),
-        command!("backward-char", "Move point backward one character.", backward_char),
-        command!("next-line", "Move point down one line, keeping the goal column.", next_line),
-        command!("previous-line", "Move point up one line, keeping the goal column.", previous_line),
-        command!("move-beginning-of-line", "Move point to the beginning of the line.", beginning_of_line),
-        command!("move-end-of-line", "Move point to the end of the line.", end_of_line),
-        command!("back-to-indentation", "Move point to the first non-blank character.", back_to_indentation),
+        command!(
+            "forward-char",
+            "Move point forward one character.",
+            forward_char
+        ),
+        command!(
+            "backward-char",
+            "Move point backward one character.",
+            backward_char
+        ),
+        command!(
+            "next-line",
+            "Move point down one line, keeping the goal column.",
+            next_line
+        ),
+        command!(
+            "previous-line",
+            "Move point up one line, keeping the goal column.",
+            previous_line
+        ),
+        command!(
+            "move-beginning-of-line",
+            "Move point to the beginning of the line.",
+            beginning_of_line
+        ),
+        command!(
+            "move-end-of-line",
+            "Move point to the end of the line.",
+            end_of_line
+        ),
+        command!(
+            "back-to-indentation",
+            "Move point to the first non-blank character.",
+            back_to_indentation
+        ),
         command!("forward-word", "Move point forward one word.", forward_word),
-        command!("backward-word", "Move point backward one word.", backward_word),
-        command!("forward-sentence", "Move point forward one sentence.", forward_sentence),
-        command!("backward-sentence", "Move point backward one sentence.", backward_sentence),
-        command!("forward-paragraph", "Move point forward one paragraph.", forward_paragraph),
-        command!("backward-paragraph", "Move point backward one paragraph.", backward_paragraph),
-        command!("forward-sexp", "Move point forward one balanced expression.", forward_sexp),
-        command!("backward-sexp", "Move point backward one balanced expression.", backward_sexp),
-        command!("beginning-of-defun", "Move point to the start of the enclosing definition.", beginning_of_defun),
-        command!("end-of-defun", "Move point past the end of the enclosing definition.", end_of_defun),
-        command!("beginning-of-buffer", "Move point to the beginning of the buffer.", beginning_of_buffer),
-        command!("end-of-buffer", "Move point to the end of the buffer.", end_of_buffer),
-        command!("goto-char", "Move point to a given character offset.", goto_char),
-        command!("goto-line", "Move point to the beginning of a given line.", goto_line),
-        command!("scroll-up-command", "Scroll the window down one screenful.", scroll_up),
-        command!("scroll-down-command", "Scroll the window up one screenful.", scroll_down),
-        command!("recenter-top-bottom", "Centre point, then cycle to the top and bottom.", recenter),
-        command!("set-mark-command", "Set the mark at point, or pop the mark ring.", set_mark),
-        command!("exchange-point-and-mark", "Swap point and the mark.", exchange_point_and_mark),
-        command!("mark-whole-buffer", "Put point at the beginning and the mark at the end.", mark_whole_buffer),
-        command!("mark-word", "Extend the region over the next word.", mark_word),
-        command!("mark-sexp", "Extend the region over the next balanced expression.", mark_sexp),
-        command!("mark-paragraph", "Put point before this paragraph and the mark after it.", mark_paragraph),
-        command!("mark-defun", "Put point before this definition and the mark after it.", mark_defun),
-        command!("count-words", "Report the lines, words and characters in the region.", count_words),
-        command!("pop-mark", "Move point to the previous mark-ring entry.", pop_mark),
-        command!("what-cursor-position", "Describe the character and position under point.", what_cursor_position),
+        command!(
+            "backward-word",
+            "Move point backward one word.",
+            backward_word
+        ),
+        command!(
+            "forward-sentence",
+            "Move point forward one sentence.",
+            forward_sentence
+        ),
+        command!(
+            "backward-sentence",
+            "Move point backward one sentence.",
+            backward_sentence
+        ),
+        command!(
+            "forward-paragraph",
+            "Move point forward one paragraph.",
+            forward_paragraph
+        ),
+        command!(
+            "backward-paragraph",
+            "Move point backward one paragraph.",
+            backward_paragraph
+        ),
+        command!(
+            "forward-sexp",
+            "Move point forward one balanced expression.",
+            forward_sexp
+        ),
+        command!(
+            "backward-sexp",
+            "Move point backward one balanced expression.",
+            backward_sexp
+        ),
+        command!(
+            "beginning-of-defun",
+            "Move point to the start of the enclosing definition.",
+            beginning_of_defun
+        ),
+        command!(
+            "end-of-defun",
+            "Move point past the end of the enclosing definition.",
+            end_of_defun
+        ),
+        command!(
+            "beginning-of-buffer",
+            "Move point to the beginning of the buffer.",
+            beginning_of_buffer
+        ),
+        command!(
+            "end-of-buffer",
+            "Move point to the end of the buffer.",
+            end_of_buffer
+        ),
+        command!(
+            "goto-char",
+            "Move point to a given character offset.",
+            goto_char
+        ),
+        command!(
+            "goto-line",
+            "Move point to the beginning of a given line.",
+            goto_line
+        ),
+        command!(
+            "scroll-up-command",
+            "Scroll the window down one screenful.",
+            scroll_up
+        ),
+        command!(
+            "scroll-down-command",
+            "Scroll the window up one screenful.",
+            scroll_down
+        ),
+        command!(
+            "recenter-top-bottom",
+            "Centre point, then cycle to the top and bottom.",
+            recenter
+        ),
+        command!(
+            "set-mark-command",
+            "Set the mark at point, or pop the mark ring.",
+            set_mark
+        ),
+        command!(
+            "exchange-point-and-mark",
+            "Swap point and the mark.",
+            exchange_point_and_mark
+        ),
+        command!(
+            "mark-whole-buffer",
+            "Put point at the beginning and the mark at the end.",
+            mark_whole_buffer
+        ),
+        command!(
+            "mark-word",
+            "Extend the region over the next word.",
+            mark_word
+        ),
+        command!(
+            "mark-sexp",
+            "Extend the region over the next balanced expression.",
+            mark_sexp
+        ),
+        command!(
+            "mark-paragraph",
+            "Put point before this paragraph and the mark after it.",
+            mark_paragraph
+        ),
+        command!(
+            "mark-defun",
+            "Put point before this definition and the mark after it.",
+            mark_defun
+        ),
+        command!(
+            "count-words",
+            "Report the lines, words and characters in the region.",
+            count_words
+        ),
+        command!(
+            "pop-mark",
+            "Move point to the previous mark-ring entry.",
+            pop_mark
+        ),
+        command!(
+            "what-cursor-position",
+            "Describe the character and position under point.",
+            what_cursor_position
+        ),
     ]);
 }
 
@@ -118,7 +250,9 @@ fn line_motion(editor: &mut Editor, delta: isize) -> Result<()> {
         let point = buffer.point();
         let goal = existing.unwrap_or_else(|| buffer.display_column(point));
         let line = buffer.line_of(point);
-        let target = line.saturating_add_signed(delta).min(buffer.len_lines().saturating_sub(1));
+        let target = line
+            .saturating_add_signed(delta)
+            .min(buffer.len_lines().saturating_sub(1));
         let to = buffer.offset_at_display_column(target, goal);
         buffer.set_point_keeping_goal(to);
         buffer.set_goal_column(Some(goal));
@@ -186,7 +320,12 @@ macro_rules! paired_motion {
     };
 }
 
-paired_motion!(forward_word, backward_word, Motion::forward_word, Motion::backward_word);
+paired_motion!(
+    forward_word,
+    backward_word,
+    Motion::forward_word,
+    Motion::backward_word
+);
 paired_motion!(
     forward_sentence,
     backward_sentence,
@@ -218,18 +357,30 @@ fn sexp_motion(editor: &mut Editor, n: usize, forward: bool) -> Result<()> {
         to.is_some()
     });
     if !found {
-        return Err(crate::CoreError::Message("Containing expression ends prematurely".into()));
+        return Err(crate::CoreError::Message(
+            "Containing expression ends prematurely".into(),
+        ));
     }
     editor.follow_point();
     Ok(())
 }
 
 fn forward_sexp(editor: &mut Editor, args: &Args) -> Result<()> {
-    directional(editor, args, |e, n| sexp_motion(e, n, true), |e, n| sexp_motion(e, n, false))
+    directional(
+        editor,
+        args,
+        |e, n| sexp_motion(e, n, true),
+        |e, n| sexp_motion(e, n, false),
+    )
 }
 
 fn backward_sexp(editor: &mut Editor, args: &Args) -> Result<()> {
-    directional(editor, args, |e, n| sexp_motion(e, n, false), |e, n| sexp_motion(e, n, true))
+    directional(
+        editor,
+        args,
+        |e, n| sexp_motion(e, n, false),
+        |e, n| sexp_motion(e, n, true),
+    )
 }
 
 fn beginning_of_defun(editor: &mut Editor, args: &Args) -> Result<()> {
@@ -272,7 +423,9 @@ fn end_of_buffer(editor: &mut Editor, _: &Args) -> Result<()> {
 
 fn goto_char(editor: &mut Editor, args: &Args) -> Result<()> {
     if !args.prefix.is_present() {
-        return Err(crate::CoreError::Message("goto-char needs a position".into()));
+        return Err(crate::CoreError::Message(
+            "goto-char needs a position".into(),
+        ));
     }
     let target = args.prefix.count().max(0) as usize;
     jump_to(editor, |b| b.clamp(target));
@@ -281,11 +434,15 @@ fn goto_char(editor: &mut Editor, args: &Args) -> Result<()> {
 
 fn goto_line(editor: &mut Editor, args: &Args) -> Result<()> {
     if !args.prefix.is_present() {
-        return Err(crate::CoreError::Message("goto-line needs a line number".into()));
+        return Err(crate::CoreError::Message(
+            "goto-line needs a line number".into(),
+        ));
     }
     // Line numbers are one-based everywhere the user sees them.
     let line = (args.prefix.count().max(1) as usize) - 1;
-    jump_to(editor, |b| b.line_start(line.min(b.len_lines().saturating_sub(1))));
+    jump_to(editor, |b| {
+        b.line_start(line.min(b.len_lines().saturating_sub(1)))
+    });
     Ok(())
 }
 
@@ -379,7 +536,9 @@ fn pop_mark(editor: &mut Editor, _: &Args) -> Result<()> {
         None => false,
     });
     if !moved {
-        return Err(crate::CoreError::Message("No mark set in this buffer".into()));
+        return Err(crate::CoreError::Message(
+            "No mark set in this buffer".into(),
+        ));
     }
     editor.follow_point();
     Ok(())
@@ -435,7 +594,9 @@ fn mark_thing(
         }
     });
     if !extended {
-        return Err(crate::CoreError::Message("Containing expression ends prematurely".into()));
+        return Err(crate::CoreError::Message(
+            "Containing expression ends prematurely".into(),
+        ));
     }
     Ok(())
 }
@@ -457,7 +618,10 @@ fn mark_enclosing(
         // An active mark means this is a repeat, so the far end moves on from
         // where it already is and point stays where it was put.
         let (from, extend_at) = match buffer.is_mark_active() {
-            true => (buffer.point(), buffer.mark().unwrap_or_else(|| buffer.point())),
+            true => (
+                buffer.point(),
+                buffer.mark().unwrap_or_else(|| buffer.point()),
+            ),
             false => (buffer.point(), buffer.point()),
         };
         let saved = buffer.point();
@@ -501,11 +665,15 @@ fn mark_defun(editor: &mut Editor, args: &Args) -> Result<()> {
 }
 
 fn mark_word(editor: &mut Editor, args: &Args) -> Result<()> {
-    mark_thing(editor, args, |b, n| Some(Motion::forward_word(b.rope(), b.point(), n)))
+    mark_thing(editor, args, |b, n| {
+        Some(Motion::forward_word(b.rope(), b.point(), n))
+    })
 }
 
 fn mark_sexp(editor: &mut Editor, args: &Args) -> Result<()> {
-    mark_thing(editor, args, |b, n| Motion::forward_sexp(b.rope(), b.point(), n))
+    mark_thing(editor, args, |b, n| {
+        Motion::forward_sexp(b.rope(), b.point(), n)
+    })
 }
 
 /// `M-=`: counts the region, or the whole buffer when there is no region —
@@ -515,7 +683,13 @@ fn count_words(editor: &mut Editor, _: &Args) -> Result<()> {
         let buffer = editor.current_buffer();
         match buffer.region() {
             Some(range) => ("Region", buffer.slice(range)),
-            None => ("Buffer", buffer.slice(maxgus_text::Range::new(buffer.point_min(), buffer.point_max()))),
+            None => (
+                "Buffer",
+                buffer.slice(maxgus_text::Range::new(
+                    buffer.point_min(),
+                    buffer.point_max(),
+                )),
+            ),
         }
     };
     let characters = text.chars().count();
@@ -550,7 +724,10 @@ fn what_cursor_position(editor: &mut Editor, _: &Args) -> Result<()> {
         let total = buffer.len_chars();
         let position = buffer.position_of(point);
         let column = buffer.display_column(point);
-        let percent = point.checked_mul(100).and_then(|n| n.checked_div(total)).unwrap_or(0);
+        let percent = point
+            .checked_mul(100)
+            .and_then(|n| n.checked_div(total))
+            .unwrap_or(0);
         match buffer.char_after(point) {
             Some(c) => format!(
                 "Char: {} (U+{:04X})  point={} of {} ({}%)  line {} column {}",
@@ -590,9 +767,9 @@ fn describe_char(c: char) -> String {
 mod tests {
     use super::*;
     use crate::Dispatcher;
-    use maxgus_text::Range;
     use maxgus_config::Settings;
     use maxgus_faces::defaults;
+    use maxgus_text::Range;
     use maxgus_tui::Rect;
 
     /// An editor showing `text` with point at the start, plus a dispatcher
@@ -615,14 +792,20 @@ mod tests {
     /// Runs `command` with no prefix argument, asserting it succeeded.
     fn run(d: &mut Dispatcher, e: &mut Editor, command: &str) {
         let out = d.execute(e, command, None);
-        assert!(!matches!(out, crate::Dispatch::Failed { .. }), "`{command}` failed: {out:?}");
+        assert!(
+            !matches!(out, crate::Dispatch::Failed { .. }),
+            "`{command}` failed: {out:?}"
+        );
     }
 
     /// Runs `command` with a numeric prefix argument.
     fn run_n(d: &mut Dispatcher, e: &mut Editor, command: &str, n: i32) {
         e.prefix = crate::Prefix::Numeric(n);
         let out = d.execute(e, command, None);
-        assert!(!matches!(out, crate::Dispatch::Failed { .. }), "`{command}` failed: {out:?}");
+        assert!(
+            !matches!(out, crate::Dispatch::Failed { .. }),
+            "`{command}` failed: {out:?}"
+        );
     }
 
     fn point(e: &Editor) -> usize {
@@ -641,7 +824,10 @@ mod tests {
         let text = e.current_buffer().slice(region);
         assert!(text.contains("one two"), "got {text:?}");
         assert!(text.contains("three"), "got {text:?}");
-        assert!(!text.contains("second para"), "it stopped at the blank line: {text:?}");
+        assert!(
+            !text.contains("second para"),
+            "it stopped at the blank line: {text:?}"
+        );
     }
 
     #[test]
@@ -652,8 +838,14 @@ mod tests {
         let once = e.current_buffer().region().expect("a region");
         run(&mut d, &mut e, "mark-paragraph");
         let twice = e.current_buffer().region().expect("a region");
-        assert_eq!(twice.start, once.start, "point stays where the first put it");
-        assert!(twice.end > once.end, "the far end moved on: {once:?} then {twice:?}");
+        assert_eq!(
+            twice.start, once.start,
+            "point stays where the first put it"
+        );
+        assert!(
+            twice.end > once.end,
+            "the far end moved on: {once:?} then {twice:?}"
+        );
     }
 
     #[test]
@@ -665,7 +857,10 @@ mod tests {
         let region = e.current_buffer().region().expect("a region");
         let text = e.current_buffer().slice(region);
         assert!(text.contains("fn one()"), "got {text:?}");
-        assert!(!text.contains("fn two()"), "it stopped at the next definition: {text:?}");
+        assert!(
+            !text.contains("fn two()"),
+            "it stopped at the next definition: {text:?}"
+        );
     }
 
     #[test]
@@ -706,7 +901,13 @@ mod tests {
     fn every_motion_command_is_registered() {
         let mut registry = Registry::new();
         register(&mut registry);
-        for name in ["forward-char", "next-line", "forward-word", "beginning-of-buffer", "set-mark-command"] {
+        for name in [
+            "forward-char",
+            "next-line",
+            "forward-word",
+            "beginning-of-buffer",
+            "set-mark-command",
+        ] {
             assert!(registry.contains(name), "`{name}` is missing");
         }
     }
@@ -841,7 +1042,11 @@ mod tests {
         run_n(&mut d, &mut e, "forward-char", 5);
         run(&mut d, &mut e, "end-of-buffer");
         assert_eq!(point(&e), 10);
-        assert_eq!(e.current_buffer().mark(), Some(5), "the old position was marked");
+        assert_eq!(
+            e.current_buffer().mark(),
+            Some(5),
+            "the old position was marked"
+        );
         run(&mut d, &mut e, "beginning-of-buffer");
         assert_eq!(point(&e), 0);
     }
@@ -852,7 +1057,11 @@ mod tests {
         run_n(&mut d, &mut e, "goto-line", 3);
         assert_eq!(e.current_buffer().line_of(point(&e)), 2);
         run_n(&mut d, &mut e, "goto-line", 999);
-        assert_eq!(e.current_buffer().line_of(point(&e)), 3, "clamps to the last line");
+        assert_eq!(
+            e.current_buffer().line_of(point(&e)),
+            3,
+            "clamps to the last line"
+        );
         run_n(&mut d, &mut e, "goto-line", 1);
         assert_eq!(point(&e), 0);
     }
@@ -860,8 +1069,14 @@ mod tests {
     #[test]
     fn goto_commands_need_an_argument() {
         let (mut d, mut e) = setup("text");
-        assert!(matches!(d.execute(&mut e, "goto-line", None), crate::Dispatch::Failed { .. }));
-        assert!(matches!(d.execute(&mut e, "goto-char", None), crate::Dispatch::Failed { .. }));
+        assert!(matches!(
+            d.execute(&mut e, "goto-line", None),
+            crate::Dispatch::Failed { .. }
+        ));
+        assert!(matches!(
+            d.execute(&mut e, "goto-char", None),
+            crate::Dispatch::Failed { .. }
+        ));
     }
 
     #[test]
@@ -903,7 +1118,11 @@ mod tests {
         assert_eq!(e.windows.current().top_line, 100, "then the top");
 
         run(&mut d, &mut e, "recenter-top-bottom");
-        assert_eq!(e.windows.current().top_line, 100 - (height - 1), "then the bottom");
+        assert_eq!(
+            e.windows.current().top_line,
+            100 - (height - 1),
+            "then the bottom"
+        );
     }
 
     #[test]
@@ -941,7 +1160,10 @@ mod tests {
     #[test]
     fn popping_an_empty_mark_ring_is_an_error() {
         let (mut d, mut e) = setup("text");
-        assert!(matches!(d.execute(&mut e, "pop-mark", None), crate::Dispatch::Failed { .. }));
+        assert!(matches!(
+            d.execute(&mut e, "pop-mark", None),
+            crate::Dispatch::Failed { .. }
+        ));
     }
 
     #[test]
@@ -999,7 +1221,10 @@ mod tests {
     #[test]
     fn marking_an_unbalanced_sexp_is_an_error() {
         let (mut d, mut e) = setup("(a b");
-        assert!(matches!(d.execute(&mut e, "mark-sexp", None), crate::Dispatch::Failed { .. }));
+        assert!(matches!(
+            d.execute(&mut e, "mark-sexp", None),
+            crate::Dispatch::Failed { .. }
+        ));
     }
 
     #[test]
@@ -1017,7 +1242,11 @@ mod tests {
         let (mut d, mut e) = setup("a\tb");
         run_n(&mut d, &mut e, "forward-char", 1);
         run(&mut d, &mut e, "what-cursor-position");
-        assert!(e.minibuffer.display().contains("^I"), "got `{}`", e.minibuffer.display());
+        assert!(
+            e.minibuffer.display().contains("^I"),
+            "got `{}`",
+            e.minibuffer.display()
+        );
         assert_eq!(describe_char('\n'), "^J");
         assert_eq!(describe_char('\u{1}'), "^A");
     }

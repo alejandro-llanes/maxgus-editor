@@ -9,7 +9,10 @@ members = [
     "crates/maxgus-lsp",
     "crates/maxgus-tree",
     "crates/maxgus-core",
+    "crates/maxgus-git",
+    "crates/maxgus-term",
     "crates/maxgus-tui",
+    "crates/maxgus-gui",
     "crates/maxgus",
 ]
 

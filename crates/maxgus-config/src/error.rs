@@ -26,7 +26,10 @@ pub struct Warning {
 
 impl Warning {
     pub fn new(line: usize, message: impl Into<String>) -> Self {
-        Self { line, message: message.into() }
+        Self {
+            line,
+            message: message.into(),
+        }
     }
 }
 
@@ -62,6 +65,9 @@ mod tests {
 
     #[test]
     fn warnings_render_with_their_line() {
-        assert_eq!(Warning::new(7, "unknown node `foo`").to_string(), "line 7: unknown node `foo`");
+        assert_eq!(
+            Warning::new(7, "unknown node `foo`").to_string(),
+            "line 7: unknown node `foo`"
+        );
     }
 }

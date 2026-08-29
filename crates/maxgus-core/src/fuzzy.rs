@@ -114,7 +114,11 @@ mod tests {
     #[test]
     fn an_empty_query_matches_everything() {
         assert_eq!(score("", "anything"), Some(0));
-        assert_eq!(best("", &["a", "b"]), vec!["a", "b"], "and keeps the order given");
+        assert_eq!(
+            best("", &["a", "b"]),
+            vec!["a", "b"],
+            "and keeps the order given"
+        );
     }
 
     #[test]
@@ -135,7 +139,10 @@ mod tests {
 
     #[test]
     fn the_shorter_of_two_equal_matches_comes_first() {
-        let ranked = best("sb", &["save-buffer-and-do-something-else-entirely", "save-buffer"]);
+        let ranked = best(
+            "sb",
+            &["save-buffer-and-do-something-else-entirely", "save-buffer"],
+        );
         assert_eq!(ranked[0], "save-buffer");
     }
 

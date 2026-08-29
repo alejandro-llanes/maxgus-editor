@@ -12,7 +12,11 @@ pub enum Register {
     /// `copy-to-register` / `insert-register`.
     Text(String),
     /// `point-to-register` / `jump-to-register`.
-    Position { buffer: String, position: Position, offset: usize },
+    Position {
+        buffer: String,
+        position: Position,
+        offset: usize,
+    },
     /// `copy-rectangle-to-register`, stored as one string per row.
     Rectangle(Vec<String>),
     /// `number-to-register`, incremented by `increment-register`.
@@ -86,7 +90,9 @@ impl Registers {
                 let preview: String = t.chars().take(60).collect();
                 format!("{key}: text \"{}\"", preview.replace('\n', "\\n"))
             }
-            Register::Position { buffer, position, .. } => {
+            Register::Position {
+                buffer, position, ..
+            } => {
                 format!("{key}: position {position} in {buffer}")
             }
             Register::Rectangle(rows) => format!("{key}: rectangle, {} rows", rows.len()),
@@ -118,7 +124,11 @@ mod tests {
         let mut r = Registers::new();
         r.set(
             'p',
-            Register::Position { buffer: "main.rs".into(), position: Position::new(2, 4), offset: 30 },
+            Register::Position {
+                buffer: "main.rs".into(),
+                position: Position::new(2, 4),
+                offset: 30,
+            },
         );
         assert!(r.text_of('p').is_err());
         assert_eq!(r.describe('p').unwrap(), "p: position 3:5 in main.rs");

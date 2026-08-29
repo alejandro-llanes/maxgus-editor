@@ -8,16 +8,29 @@
 
 use anyhow::Result;
 use maxgus_config::{LspSpec, TreeConfig};
-use maxgus_core::task::{LspQuery, Task, TaskResult, TreeAction};
+#[cfg(feature = "lsp")]
+use maxgus_core::task::LspQuery;
+#[cfg(feature = "terminal")]
+use maxgus_core::task::TerminalId;
+#[cfg(feature = "git")]
+use maxgus_core::task::{GitAction, GitSnapshot};
+use maxgus_core::task::{Task, TaskResult, TreeAction};
+#[cfg(feature = "lsp")]
 use maxgus_lsp::{Client, ServerEvent};
+#[cfg(feature = "syntax")]
 use maxgus_syntax::Highlighter;
 use maxgus_tree::FileTree;
+#[cfg(any(feature = "syntax", feature = "lsp", feature = "terminal"))]
 use std::collections::HashMap;
+#[cfg(feature = "terminal")]
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "lsp")]
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// A buffer's parser, and the text its tree describes.
+#[cfg(feature = "syntax")]
 struct BufferSyntax {
     language: String,
     highlighter: Highlighter,
@@ -35,30 +48,67 @@ pub struct Executor {
     /// the syntax tree it is holding: sharing one between buffers would mean
     /// throwing that tree away on every switch, and a re-parse from nothing
     /// costs eighteen times what an incremental one does.
+    #[cfg(feature = "syntax")]
     highlighters: HashMap<maxgus_text::BufferId, BufferSyntax>,
     /// Running language servers, by language.
+    #[cfg(feature = "lsp")]
     servers: HashMap<String, Arc<Client>>,
     /// The text each open document was last sent as, so a change can be
     /// described as the region that differs rather than the whole file.
+    #[cfg(feature = "lsp")]
     documents: HashMap<String, String>,
+    #[cfg(feature = "lsp")]
     lsp_specs: Vec<LspSpec>,
+    /// Shells running on pseudo-terminals, by tab.
+    #[cfg(feature = "terminal")]
+    terminals: HashMap<TerminalId, Terminal>,
     results: mpsc::UnboundedSender<TaskResult>,
+}
+
+#[cfg(feature = "terminal")]
+/// One running shell: what to write to it, and how to change its size.
+///
+/// The reading half is not here. A pty read blocks until the program writes
+/// something, which may be never, so it lives on its own blocking thread that
+/// pushes straight down the results channel.
+struct Terminal {
+    commands: std::sync::mpsc::Sender<PtyCommand>,
+}
+
+#[cfg(feature = "terminal")]
+/// What the thread minding a pty can be asked to do.
+///
+/// The pty handles never leave that thread. Writing to a pty can block when
+/// the program is not reading, and resizing and killing both talk to the same
+/// handles, so all three go down one channel and are done in order by the
+/// thread that owns them — rather than behind a lock the runtime could end up
+/// waiting on.
+enum PtyCommand {
+    Write(Vec<u8>),
+    Resize(u16, u16),
+    Close,
 }
 
 impl Executor {
     pub fn new(
         root: PathBuf,
         tree_config: TreeConfig,
-        lsp_specs: Vec<LspSpec>,
+        #[cfg_attr(not(feature = "lsp"), allow(unused_variables))] lsp_specs: Vec<LspSpec>,
         results: mpsc::UnboundedSender<TaskResult>,
     ) -> Executor {
         Executor {
             root,
             tree: None,
             tree_config,
+            #[cfg(feature = "syntax")]
             highlighters: HashMap::new(),
+            #[cfg(feature = "lsp")]
             servers: HashMap::new(),
+            #[cfg(feature = "terminal")]
+            terminals: HashMap::new(),
+            #[cfg(feature = "lsp")]
             documents: HashMap::new(),
+            #[cfg(feature = "lsp")]
             lsp_specs,
             results,
         }
@@ -79,70 +129,150 @@ impl Executor {
 
     /// Reports a failure to the editor rather than swallowing it.
     fn fail(&self, context: &str, error: impl std::fmt::Display) {
-        self.send(TaskResult::Failed { context: context.to_string(), message: error.to_string() });
+        self.send(TaskResult::Failed {
+            context: context.to_string(),
+            message: error.to_string(),
+        });
     }
 
     async fn handle(&mut self, task: Task) {
         match task {
-            Task::ReadFile { path, reverting, other_window } => {
+            Task::ReadFile {
+                path,
+                reverting,
+                other_window,
+            } => {
                 self.read_file(path, reverting, other_window).await;
             }
-            Task::WriteFile { path, contents, buffer, backup, guard } => {
+            Task::WriteFile {
+                path,
+                contents,
+                buffer,
+                backup,
+                guard,
+            } => {
                 self.write_file(path, contents, buffer, backup, guard).await;
             }
             Task::ListDirectory { path } => self.list_directory(path).await,
             Task::Tree(action) => self.tree_action(action).await,
-            Task::Reparse { buffer, language, text, revision, range } => {
+            #[cfg(feature = "syntax")]
+            Task::Reparse {
+                buffer,
+                language,
+                text,
+                revision,
+                range,
+            } => {
                 self.reparse(buffer, &language, text, revision, range).await;
             }
             Task::PersistTheme { path, theme } => {
                 self.persist_theme(path, theme).await;
             }
+            #[cfg(feature = "git")]
             Task::GitBranch { root } => {
                 let branch = maxgus_tree::git::branch(&root).await;
                 self.send(TaskResult::GitBranch { branch });
             }
+            #[cfg(feature = "lsp")]
             Task::StartLanguageServer { language } => self.start_server(&language).await,
+            #[cfg(feature = "lsp")]
             Task::StopLanguageServer { language } => self.stop_server(&language).await,
-            Task::LspDidOpen { language, uri, version, text } => {
+            #[cfg(feature = "lsp")]
+            Task::LspDidOpen {
+                language,
+                uri,
+                version,
+                text,
+            } => {
                 if let Some(client) = self.servers.get(&language) {
                     let file_language = language.clone();
                     let _ = client.did_open(&uri, &file_language, version, &text);
                     self.documents.insert(uri, text);
                 }
             }
-            Task::LspDidChange { language, uri, version, text } => {
+            #[cfg(feature = "lsp")]
+            Task::LspDidChange {
+                language,
+                uri,
+                version,
+                text,
+            } => {
                 self.did_change(&language, uri, version, text).await;
             }
+            #[cfg(feature = "lsp")]
             Task::LspDidSave { language, uri } => {
                 if let Some(client) = self.servers.get(&language) {
                     let _ = client.did_save(&uri, None);
                 }
             }
+            #[cfg(feature = "lsp")]
             Task::LspDidClose { language, uri } => {
                 if let Some(client) = self.servers.get(&language) {
                     let _ = client.did_close(&uri);
                 }
                 self.documents.remove(&uri);
             }
-            Task::LspRequest { language, uri, query } => self.lsp_request(language, uri, query),
-            Task::LspRespond { language, id, applied } => {
+            #[cfg(feature = "lsp")]
+            Task::LspRequest {
+                language,
+                uri,
+                query,
+            } => self.lsp_request(language, uri, query),
+            #[cfg(feature = "lsp")]
+            Task::LspRespond {
+                language,
+                id,
+                applied,
+            } => {
                 // The editor has finished with the edit the server asked for;
                 // tell the server whether it went in.
                 if let Some(client) = self.servers.get(&language) {
                     let _ = client.respond(id, serde_json::json!({ "applied": applied }));
                 }
             }
-            Task::Shell { command, directory, insert_at } => {
+            Task::Shell {
+                command,
+                directory,
+                insert_at,
+            } => {
                 self.shell(command, directory, insert_at).await;
             }
+            #[cfg(feature = "terminal")]
+            Task::TerminalOpen {
+                terminal,
+                shell,
+                directory,
+                rows,
+                columns,
+            } => {
+                self.open_terminal(terminal, shell, directory, rows, columns);
+            }
+            #[cfg(feature = "terminal")]
+            Task::TerminalInput { terminal, bytes } => self.terminal_input(terminal, bytes),
+            #[cfg(feature = "terminal")]
+            Task::TerminalResize {
+                terminal,
+                rows,
+                columns,
+            } => {
+                self.resize_terminal(terminal, rows, columns);
+            }
+            #[cfg(feature = "terminal")]
+            Task::TerminalClose { terminal } => self.close_terminal(terminal),
+            #[cfg(feature = "git")]
+            Task::Git { root, action } => self.git(root, action).await,
             Task::ForgetBuffer { buffer } => self.forget(buffer),
         }
     }
 
     // ---- files ---------------------------------------------------------
 
-    async fn read_file(&self, path: PathBuf, reverting: Option<maxgus_text::BufferId>, other_window: bool) {
+    async fn read_file(
+        &self,
+        path: PathBuf,
+        reverting: Option<maxgus_text::BufferId>,
+        other_window: bool,
+    ) {
         match tokio::fs::read(&path).await {
             Ok(bytes) => {
                 // Invalid UTF-8 is shown rather than refused, so a stray byte
@@ -153,8 +283,10 @@ impl Executor {
                 let lossy = std::str::from_utf8(&bytes).is_err();
                 let contents = String::from_utf8_lossy(&bytes).into_owned();
                 let metadata = tokio::fs::metadata(&path).await.ok();
-                let read_only =
-                    lossy || metadata.as_ref().is_some_and(|m| m.permissions().readonly());
+                let read_only = lossy
+                    || metadata
+                        .as_ref()
+                        .is_some_and(|m| m.permissions().readonly());
                 let disk_time = metadata.and_then(|m| m.modified().ok());
                 self.send(TaskResult::FileRead {
                     path,
@@ -223,9 +355,7 @@ impl Executor {
         // with no sign it had ever existed.
         let refuse = match guard {
             maxgus_core::WriteGuard::Regardless => false,
-            maxgus_core::WriteGuard::Absent => {
-                tokio::fs::try_exists(&path).await.unwrap_or(false)
-            }
+            maxgus_core::WriteGuard::Absent => tokio::fs::try_exists(&path).await.unwrap_or(false),
             maxgus_core::WriteGuard::Unchanged(expect) => match expect {
                 Some(expect) => tokio::fs::metadata(&path)
                     .await
@@ -234,7 +364,11 @@ impl Executor {
             },
         };
         if refuse {
-            self.send(TaskResult::WriteRefused { path, buffer, because: guard });
+            self.send(TaskResult::WriteRefused {
+                path,
+                buffer,
+                because: guard,
+            });
             return;
         }
         if let Some(parent) = path.parent()
@@ -257,9 +391,16 @@ impl Executor {
             Ok(()) => {
                 // Recorded from the file just written, so the next save
                 // compares against what is actually there.
-                let disk_time =
-                    tokio::fs::metadata(&path).await.ok().and_then(|m| m.modified().ok());
-                self.send(TaskResult::FileWritten { path, buffer, bytes, disk_time });
+                let disk_time = tokio::fs::metadata(&path)
+                    .await
+                    .ok()
+                    .and_then(|m| m.modified().ok());
+                self.send(TaskResult::FileWritten {
+                    path,
+                    buffer,
+                    bytes,
+                    disk_time,
+                });
             }
             Err(error) => self.fail("save-buffer", error),
         }
@@ -301,7 +442,9 @@ impl Executor {
             self.fail("treefile", error);
             return;
         }
-        let Some(tree) = self.tree.as_mut() else { return };
+        let Some(tree) = self.tree.as_mut() else {
+            return;
+        };
 
         // Whatever the action, the cursor should end up somewhere sensible.
         let mut select = tree.selected_path().map(Path::to_path_buf);
@@ -342,11 +485,17 @@ impl Executor {
                 }
             }
             TreeAction::CreateFile { parent, name } => match Self::at(tree, &parent) {
-                Ok(()) => tree.create_file(&name).await.map(|path| select = Some(path)),
+                Ok(()) => tree
+                    .create_file(&name)
+                    .await
+                    .map(|path| select = Some(path)),
                 Err(error) => Err(error),
             },
             TreeAction::CreateDirectory { parent, name } => match Self::at(tree, &parent) {
-                Ok(()) => tree.create_directory(&name).await.map(|path| select = Some(path)),
+                Ok(()) => tree
+                    .create_directory(&name)
+                    .await
+                    .map(|path| select = Some(path)),
                 Err(error) => Err(error),
             },
             TreeAction::Delete(path) => match Self::at(tree, &path) {
@@ -354,18 +503,26 @@ impl Executor {
                 Err(error) => Err(error),
             },
             TreeAction::Rename { path, name } => match Self::at(tree, &path) {
-                Ok(()) => tree.rename_selected(&name).await.map(|path| select = Some(path)),
+                Ok(()) => tree
+                    .rename_selected(&name)
+                    .await
+                    .map(|path| select = Some(path)),
                 Err(error) => Err(error),
             },
             TreeAction::Move { path, destination } => match Self::at(tree, &path) {
-                Ok(()) => tree.move_selected(&destination).await.map(|path| select = Some(path)),
+                Ok(()) => tree
+                    .move_selected(&destination)
+                    .await
+                    .map(|path| select = Some(path)),
                 Err(error) => Err(error),
             },
         };
         if let Err(error) = outcome {
             self.fail("treefile", error);
         }
-        let Some(tree) = self.tree.as_ref() else { return };
+        let Some(tree) = self.tree.as_ref() else {
+            return;
+        };
         self.send(TaskResult::TreeUpdated {
             nodes: tree.visible().to_vec(),
             select,
@@ -388,8 +545,9 @@ impl Executor {
         }
     }
 
+    #[cfg(feature = "syntax")]
     // ---- syntax --------------------------------------------------------
-
+    #[cfg(feature = "syntax")]
     async fn reparse(
         &mut self,
         buffer: maxgus_text::BufferId,
@@ -400,7 +558,11 @@ impl Executor {
     ) {
         // A buffer whose language changed — after `write-file`, say — starts
         // over with the right grammar.
-        if self.highlighters.get(&buffer).is_some_and(|s| s.language != language) {
+        if self
+            .highlighters
+            .get(&buffer)
+            .is_some_and(|s| s.language != language)
+        {
             self.highlighters.remove(&buffer);
         }
         // Taken out of the map rather than borrowed, because the work below
@@ -410,7 +572,9 @@ impl Executor {
             None => {
                 // A language with no compiled-in grammar is not an error; it
                 // simply goes unhighlighted.
-                let Ok(highlighter) = Highlighter::new(language) else { return };
+                let Ok(highlighter) = Highlighter::new(language) else {
+                    return;
+                };
                 BufferSyntax {
                     language: language.to_string(),
                     highlighter,
@@ -447,29 +611,405 @@ impl Executor {
 
         // A parse that panicked must not take the buffer's grammar with it;
         // the next edit starts a fresh highlighter instead.
-        let Ok((syntax, outcome)) = parsed else { return };
+        let Ok((syntax, outcome)) = parsed else {
+            return;
+        };
         self.highlighters.insert(buffer, syntax);
         if let Some((range, highlights)) = outcome {
-            self.send(TaskResult::Reparsed { buffer, revision, range, highlights });
+            self.send(TaskResult::Reparsed {
+                buffer,
+                revision,
+                range,
+                highlights,
+            });
         }
     }
 
     /// Drops what was kept for a buffer that no longer exists.
     fn forget(&mut self, buffer: maxgus_text::BufferId) {
+        let _ = buffer;
+        #[cfg(feature = "syntax")]
         self.highlighters.remove(&buffer);
+    }
+
+    // ---- git -------------------------------------------------------------
+
+    #[cfg(feature = "git")]
+    /// Runs one git command, or reads the whole status.
+    async fn git(&self, root: PathBuf, action: GitAction) {
+        match action {
+            GitAction::Refresh => self.git_refresh(root).await,
+            // These three answer with a buffer rather than with a line of
+            // output, so they never reach `git_do`.
+            GitAction::Log { arguments, title } => self.git_log(root, arguments, title).await,
+            GitAction::Diff { arguments, title } => self.git_diff(root, arguments, title).await,
+            GitAction::Show { revision } => self.git_show(root, revision).await,
+            other => self.git_do(root, other).await,
+        }
+    }
+
+    #[cfg(feature = "git")]
+    /// Reads everything the status view shows, in one pass.
+    ///
+    /// One answer rather than eight: a view assembled from results arriving
+    /// separately shows a diff that disagrees with the status it is listed
+    /// under, and that is exactly the moment somebody stages the wrong thing.
+    async fn git_refresh(&self, from: PathBuf) {
+        // Where the repository actually is. `git rev-parse` is the only
+        // answer that is right for a worktree, a submodule, or a `.git` that
+        // is a file rather than a directory.
+        let top = git_output(&from, &["rev-parse", "--show-toplevel"]).await;
+        let Some(root) = top
+            .lines()
+            .next()
+            .map(PathBuf::from)
+            .filter(|p| !p.as_os_str().is_empty())
+        else {
+            return self.fail("git", "not inside a repository");
+        };
+        let run = |args: Vec<&'static str>| {
+            let root = root.clone();
+            async move { git_output(&root, &args).await }
+        };
+        // The prefixes are forced rather than left to configuration: modern
+        // git writes `i/` and `w/` for a worktree diff when `diff.mnemonicPrefix`
+        // is on, and the patches this produces have to be predictable.
+        let unstaged_args = DIFF_ARGS.to_vec();
+        let mut staged_args = DIFF_ARGS.to_vec();
+        staged_args.push("--cached");
+
+        let status_bytes = git_raw(&root, &["status", "--porcelain=v2", "-z", "--branch"]).await;
+        let snapshot = GitSnapshot {
+            root: root.clone(),
+            status: maxgus_git::status::parse(&status_bytes),
+            unstaged: maxgus_git::diff::parse(&git_output(&root, &unstaged_args).await),
+            staged: maxgus_git::diff::parse(&git_output(&root, &staged_args).await),
+            stashes: maxgus_git::log::parse_stashes(
+                &run(vec!["stash", "list", "--format=%gd%x1f%s%x1e"]).await,
+            ),
+            unpushed: maxgus_git::log::parse_log(
+                &run(vec!["log", LOG_FORMAT_ARG, "@{upstream}..HEAD"]).await,
+            ),
+            unpulled: maxgus_git::log::parse_log(
+                &run(vec!["log", LOG_FORMAT_ARG, "HEAD..@{upstream}"]).await,
+            ),
+            recent: maxgus_git::log::parse_log(&run(vec!["log", "-n", "10", LOG_FORMAT_ARG]).await),
+            head_subject: run(vec!["log", "-1", "--format=%s"])
+                .await
+                .trim()
+                .to_string(),
+            branches: Vec::new(),
+            references: maxgus_git::log::parse_refs(
+                &run(vec!["for-each-ref", "--format=%(refname)"]).await,
+            ),
+        };
+        let mut snapshot = snapshot;
+        // The prompts want the names a person types; the references view
+        // wants to know what each one is. Both come from the one reading.
+        snapshot.branches = snapshot
+            .references
+            .iter()
+            .filter(|reference| reference.kind != maxgus_git::RefKind::Tag)
+            .map(|reference| reference.name.clone())
+            .collect();
+        self.send(TaskResult::GitRefreshed(Box::new(snapshot)));
+    }
+
+    #[cfg(feature = "git")]
+    /// Reads a log into its own buffer.
+    async fn git_log(&self, root: PathBuf, arguments: Vec<String>, title: String) {
+        let mut args: Vec<String> = vec!["log".into(), LOG_FORMAT_ARG.into()];
+        args.extend(arguments);
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        let output = git_output(&root, &borrowed).await;
+        self.send(TaskResult::GitLog {
+            title,
+            commits: maxgus_git::log::parse_log(&output),
+        });
+    }
+
+    #[cfg(feature = "git")]
+    /// Reads a diff into its own buffer.
+    async fn git_diff(&self, root: PathBuf, arguments: Vec<String>, title: String) {
+        let mut args: Vec<String> = DIFF_ARGS.iter().map(|a| a.to_string()).collect();
+        args.extend(arguments);
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        let output = git_output(&root, &borrowed).await;
+        self.send(TaskResult::GitDiff {
+            title,
+            preamble: Vec::new(),
+            files: maxgus_git::diff::parse(&output),
+        });
+    }
+
+    #[cfg(feature = "git")]
+    /// Reads one commit: who made it, what they said, and what it changed.
+    ///
+    /// Two commands rather than one `git show`: the header is asked for in a
+    /// format this can read field by field, and the diff is asked for with
+    /// the same arguments every other diff uses, so the patches agree.
+    async fn git_show(&self, root: PathBuf, revision: String) {
+        let header = git_output(
+            &root,
+            &[
+                "show",
+                "--no-patch",
+                "--format=%H%n%an <%ae>%n%ad%n%cn <%ce>%n%cd%n%B",
+                "--date=format:%Y-%m-%d %H:%M",
+                &revision,
+            ],
+        )
+        .await;
+        let mut lines = header.lines();
+        let hash = lines.next().unwrap_or_default().to_string();
+        let author = lines.next().unwrap_or_default().to_string();
+        let author_date = lines.next().unwrap_or_default().to_string();
+        let committer = lines.next().unwrap_or_default().to_string();
+        let commit_date = lines.next().unwrap_or_default().to_string();
+        let mut preamble = vec![
+            format!("Author:     {author}"),
+            format!("AuthorDate: {author_date}"),
+        ];
+        // Only when it differs: on most commits the two are the same person
+        // at the same moment, and saying so twice is noise.
+        if committer != author || commit_date != author_date {
+            preamble.push(format!("Commit:     {committer}"));
+            preamble.push(format!("CommitDate: {commit_date}"));
+        }
+        preamble.push(String::new());
+        preamble.extend(lines.map(|line| format!("    {line}")));
+
+        let mut args: Vec<String> = DIFF_ARGS.iter().map(|a| a.to_string()).collect();
+        args[0] = "show".into();
+        args.push("--format=".into());
+        args.push(revision.clone());
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        let output = git_output(&root, &borrowed).await;
+        self.send(TaskResult::GitDiff {
+            title: format!("commit {hash}"),
+            preamble,
+            files: maxgus_git::diff::parse(&output),
+        });
+    }
+
+    #[cfg(feature = "git")]
+    /// Runs one git command and reports what it said, then refreshes.
+    async fn git_do(&self, root: PathBuf, action: GitAction) {
+        let Some((arguments, describe, stdin)) = git_command(action) else {
+            return self.fail(
+                "git",
+                "that action answers with a buffer and should not have come here",
+            );
+        };
+        let mut process = tokio::process::Command::new("git");
+        process
+            .args(&arguments)
+            .current_dir(&root)
+            .stdin(match stdin {
+                Some(_) => std::process::Stdio::piped(),
+                None => std::process::Stdio::null(),
+            })
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+
+        let output = match (process.spawn(), stdin) {
+            (Ok(mut child), Some(text)) => {
+                if let Some(mut pipe) = child.stdin.take() {
+                    use tokio::io::AsyncWriteExt as _;
+                    let _ = pipe.write_all(text.as_bytes()).await;
+                    let _ = pipe.shutdown().await;
+                }
+                child.wait_with_output().await
+            }
+            (Ok(child), None) => child.wait_with_output().await,
+            (Err(error), _) => return self.fail(&describe, error),
+        };
+        match output {
+            Ok(output) => {
+                let said = if output.stderr.is_empty() {
+                    &output.stdout
+                } else {
+                    &output.stderr
+                };
+                let text = String::from_utf8_lossy(said).into_owned();
+                let line = format!("git {}", arguments.join(" "));
+                if output.status.success() {
+                    self.send(TaskResult::GitDone {
+                        action: describe,
+                        command: line,
+                        output: text,
+                    });
+                } else {
+                    self.fail(&format!("{describe} ({line})"), text.trim());
+                }
+                // Whatever happened, the view is now out of date.
+                self.git_refresh(root).await;
+            }
+            Err(error) => self.fail(&describe, error),
+        }
+    }
+
+    // ---- terminals -------------------------------------------------------
+
+    #[cfg(feature = "terminal")]
+    /// Starts a shell on a pseudo-terminal and reads from it forever.
+    fn open_terminal(
+        &mut self,
+        terminal: TerminalId,
+        shell: Option<String>,
+        directory: PathBuf,
+        rows: u16,
+        columns: u16,
+    ) {
+        let size = portable_pty::PtySize {
+            rows,
+            cols: columns,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
+        let pair = match portable_pty::native_pty_system().openpty(size) {
+            Ok(pair) => pair,
+            Err(error) => return self.fail("opening a terminal", error),
+        };
+
+        let program = shell.unwrap_or_else(default_shell);
+        let mut command = portable_pty::CommandBuilder::new(&program);
+        command.cwd(&directory);
+        // `TERM` decides what the program believes it may send. Claiming more
+        // than is implemented would invite sequences that are then dropped,
+        // and a wrong screen is worse than a plain one.
+        command.env("TERM", "xterm-256color");
+        command.env("COLORTERM", "truecolor");
+
+        let child = match pair.slave.spawn_command(command) {
+            Ok(child) => child,
+            Err(error) => return self.fail(&format!("starting {program}"), error),
+        };
+        // The slave is dropped on purpose: while this process holds it open,
+        // reading the master never reaches end-of-file, and closing the tab
+        // would leave the reader thread alive for the rest of the session.
+        drop(pair.slave);
+
+        let reader = match pair.master.try_clone_reader() {
+            Ok(reader) => reader,
+            Err(error) => return self.fail("reading from the terminal", error),
+        };
+        let writer = match pair.master.take_writer() {
+            Ok(writer) => writer,
+            Err(error) => return self.fail("writing to the terminal", error),
+        };
+
+        // The reading half. A pty read blocks until the program writes, which
+        // may be never, so it gets a thread rather than a slice of the runtime.
+        let results = self.results.clone();
+        std::thread::spawn(move || {
+            let mut reader = reader;
+            let mut chunk = [0u8; 8192];
+            loop {
+                match std::io::Read::read(&mut reader, &mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => {
+                        let output = TaskResult::TerminalOutput {
+                            terminal,
+                            bytes: chunk[..read].to_vec(),
+                        };
+                        if results.send(output).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
+        // The controlling half, which owns everything that can block.
+        let (commands, orders) = std::sync::mpsc::channel();
+        let results = self.results.clone();
+        std::thread::spawn(move || {
+            let (mut writer, master, mut child) = (writer, pair.master, child);
+            while let Ok(order) = orders.recv() {
+                match order {
+                    PtyCommand::Write(bytes) => {
+                        if writer
+                            .write_all(&bytes)
+                            .and_then(|()| writer.flush())
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    PtyCommand::Resize(rows, cols) => {
+                        // A program learns its window changed from a signal
+                        // the pty sends. Without this, `vim` goes on drawing
+                        // to the shape it started with.
+                        let size = portable_pty::PtySize {
+                            rows,
+                            cols,
+                            pixel_width: 0,
+                            pixel_height: 0,
+                        };
+                        let _ = master.resize(size);
+                    }
+                    PtyCommand::Close => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return;
+                    }
+                }
+            }
+            // The shell went on its own. Say so once, so the tab can report it.
+            let status = child.wait().ok().map(|s| s.exit_code() as i32).unwrap_or(0);
+            let _ = results.send(TaskResult::TerminalExited { terminal, status });
+        });
+
+        self.terminals.insert(terminal, Terminal { commands });
+    }
+
+    #[cfg(feature = "terminal")]
+    fn terminal_input(&mut self, terminal: TerminalId, bytes: Vec<u8>) {
+        self.order(terminal, PtyCommand::Write(bytes));
+    }
+
+    #[cfg(feature = "terminal")]
+    fn resize_terminal(&mut self, terminal: TerminalId, rows: u16, columns: u16) {
+        self.order(terminal, PtyCommand::Resize(rows, columns));
+    }
+
+    #[cfg(feature = "terminal")]
+    fn close_terminal(&mut self, terminal: TerminalId) {
+        self.order(terminal, PtyCommand::Close);
+        self.terminals.remove(&terminal);
+    }
+
+    #[cfg(feature = "terminal")]
+    /// Sends one order to a terminal's thread, forgetting the terminal if the
+    /// thread has already gone.
+    fn order(&mut self, terminal: TerminalId, order: PtyCommand) {
+        let gone = match self.terminals.get(&terminal) {
+            Some(running) => running.commands.send(order).is_err(),
+            None => return,
+        };
+        if gone {
+            self.terminals.remove(&terminal);
+        }
     }
 
     // ---- language servers ----------------------------------------------
 
+    #[cfg(feature = "lsp")]
     fn spec_for(&self, language: &str) -> Option<&LspSpec> {
         self.lsp_specs.iter().find(|s| s.language == language)
     }
 
+    #[cfg(feature = "lsp")]
+    #[cfg(feature = "lsp")]
     async fn start_server(&mut self, language: &str) {
         if self.servers.contains_key(language) {
             return;
         }
-        let Some(spec) = self.spec_for(language).cloned() else { return };
+        let Some(spec) = self.spec_for(language).cloned() else {
+            return;
+        };
         // The project root is where the server is told to look. Walked in the
         // order the markers were configured, stopping at the first that hits.
         let mut root = None;
@@ -487,7 +1027,8 @@ impl Executor {
                     self.fail("language server", error);
                     return;
                 }
-                self.servers.insert(language.to_string(), Arc::clone(&client));
+                self.servers
+                    .insert(language.to_string(), Arc::clone(&client));
                 // Diagnostics and messages arrive on their own schedule.
                 tokio::spawn(forward_events(
                     events,
@@ -495,18 +1036,27 @@ impl Executor {
                     language.to_string(),
                     Arc::clone(&client),
                 ));
-                self.send(TaskResult::LanguageServerStarted { language: language.to_string() });
+                self.send(TaskResult::LanguageServerStarted {
+                    language: language.to_string(),
+                    encoding: client.encoding().await,
+                });
             }
             Err(error) => self.fail(&format!("starting {language} server"), error),
         }
     }
 
+    #[cfg(feature = "lsp")]
     async fn stop_server(&mut self, language: &str) {
-        let Some(client) = self.servers.remove(language) else { return };
+        let Some(client) = self.servers.remove(language) else {
+            return;
+        };
         let _ = client.shutdown().await;
-        self.send(TaskResult::LanguageServerStopped { language: language.to_string() });
+        self.send(TaskResult::LanguageServerStopped {
+            language: language.to_string(),
+        });
     }
 
+    #[cfg(feature = "lsp")]
     /// Tells the server a document changed, in the form it asked for.
     ///
     /// A server that declared incremental sync is sent only the region that
@@ -514,11 +1064,19 @@ impl Executor {
     /// server re-parse it from nothing, which is exactly the cost incremental
     /// sync exists to avoid.
     async fn did_change(&mut self, language: &str, uri: String, version: i64, text: String) {
-        let Some(client) = self.servers.get(language).cloned() else { return };
-        let incremental = client.sync_kind().await == maxgus_lsp::client::SyncKind::Incremental;
+        let Some(client) = self.servers.get(language).cloned() else {
+            return;
+        };
+        // Incremental sync needs a diff between the old text and the new, and
+        // the differ is tree-sitter's. A build without the grammars sends the
+        // whole document instead — correct, just larger on the wire.
+        let incremental = cfg!(feature = "syntax")
+            && client.sync_kind().await == maxgus_lsp::client::SyncKind::Incremental;
 
         let sent = match (incremental, self.documents.get(&uri)) {
-            (true, Some(previous)) => match changed_range(previous, &text, client.encoding().await) {
+            #[cfg(feature = "syntax")]
+            (true, Some(previous)) => match changed_range(previous, &text, client.encoding().await)
+            {
                 // The texts are identical; there is nothing to report.
                 None => return,
                 Some((range, replacement)) => {
@@ -532,10 +1090,13 @@ impl Executor {
         }
     }
 
+    #[cfg(feature = "lsp")]
     /// Sends a request without waiting for it here, so a slow server cannot
     /// hold up the rest of the queue.
     fn lsp_request(&self, language: String, uri: String, query: LspQuery) {
-        let Some(client) = self.servers.get(&language).cloned() else { return };
+        let Some(client) = self.servers.get(&language).cloned() else {
+            return;
+        };
         let results = self.results.clone();
         tokio::spawn(async move {
             let outcome = match &query {
@@ -547,17 +1108,23 @@ impl Executor {
                 LspQuery::Rename { position, new_name } => {
                     client.rename(&uri, *position, new_name).await
                 }
-                LspQuery::Format { tab_size, insert_spaces } => {
-                    client.formatting(&uri, *tab_size, *insert_spaces).await
-                }
+                LspQuery::Format {
+                    tab_size,
+                    insert_spaces,
+                } => client.formatting(&uri, *tab_size, *insert_spaces).await,
                 LspQuery::CodeAction { range, diagnostics } => {
                     client.code_action(&uri, *range, diagnostics).await
                 }
-                LspQuery::DocumentSymbols => client.document_symbols(&uri).await,
+                LspQuery::DocumentSymbols { .. } => client.document_symbols(&uri).await,
                 LspQuery::WorkspaceSymbols(q) => client.workspace_symbols(q).await,
             };
             let result = match outcome {
-                Ok(value) => TaskResult::LspResponse { language, uri, query, result: value },
+                Ok(value) => TaskResult::LspResponse {
+                    language,
+                    uri,
+                    query,
+                    result: value,
+                },
                 Err(error) => TaskResult::Failed {
                     context: "language server".into(),
                     message: error.to_string(),
@@ -568,9 +1135,12 @@ impl Executor {
     }
 
     async fn shutdown(&mut self) {
-        let languages: Vec<String> = self.servers.keys().cloned().collect();
-        for language in languages {
-            self.stop_server(&language).await;
+        #[cfg(feature = "lsp")]
+        {
+            let languages: Vec<String> = self.servers.keys().cloned().collect();
+            for language in languages {
+                self.stop_server(&language).await;
+            }
         }
     }
 
@@ -609,6 +1179,7 @@ impl Executor {
     }
 }
 
+#[cfg(all(feature = "lsp", feature = "syntax"))]
 /// The region in which `previous` and `current` differ, as the protocol wants
 /// it: a range in the *old* document and the text now in its place.
 fn changed_range(
@@ -621,9 +1192,13 @@ fn changed_range(
         maxgus_lsp::position::byte_to_position(previous, edit.start_byte, encoding),
         maxgus_lsp::position::byte_to_position(previous, edit.old_end_byte, encoding),
     );
-    Some((range, current[edit.start_byte..edit.new_end_byte].to_string()))
+    Some((
+        range,
+        current[edit.start_byte..edit.new_end_byte].to_string(),
+    ))
 }
 
+#[cfg(feature = "lsp")]
 /// Walks up from `start` looking for `marker`, returning the directory holding
 /// it — how a project root is found.
 pub async fn find_upwards(start: &Path, marker: &str) -> Option<PathBuf> {
@@ -632,7 +1207,10 @@ pub async fn find_upwards(start: &Path, marker: &str) -> Option<PathBuf> {
         // `tokio::fs`, not `Path::exists`: this runs while the editor is
         // already going, and a stat on a cold or networked filesystem is a
         // blocking call like any other.
-        if tokio::fs::try_exists(current.join(marker)).await.unwrap_or(false) {
+        if tokio::fs::try_exists(current.join(marker))
+            .await
+            .unwrap_or(false)
+        {
             return Some(current.to_path_buf());
         }
         directory = current.parent();
@@ -640,6 +1218,7 @@ pub async fn find_upwards(start: &Path, marker: &str) -> Option<PathBuf> {
     None
 }
 
+#[cfg(feature = "lsp")]
 /// The JSON-RPC code for a method the receiver does not implement.
 const METHOD_NOT_FOUND: i64 = -32601;
 
@@ -696,6 +1275,7 @@ fn find_theme_property(line: &str) -> Option<(usize, usize)> {
     Some((start, start + "theme=".len() + open + 1 + close + 1))
 }
 
+#[cfg(feature = "lsp")]
 /// Turns server-initiated messages into task results.
 async fn forward_events(
     mut events: mpsc::UnboundedReceiver<ServerEvent>,
@@ -713,11 +1293,14 @@ async fn forward_events(
                 if severity > maxgus_lsp::Severity::Warning {
                     continue;
                 }
-                TaskResult::Failed { context: language.clone(), message: text }
+                TaskResult::Failed {
+                    context: language.clone(),
+                    message: text,
+                }
             }
-            ServerEvent::Exited => {
-                TaskResult::LanguageServerStopped { language: language.clone() }
-            }
+            ServerEvent::Exited => TaskResult::LanguageServerStopped {
+                language: language.clone(),
+            },
             // Every server request must be answered — the protocol says so,
             // and a server that asked for something waits until it hears back.
             ServerEvent::Request(request) => match request.method.as_str() {
@@ -775,7 +1358,10 @@ mod tests {
     #[test]
     fn a_file_that_never_set_a_theme_gets_one_at_the_end() {
         let before = "set tab-width=4\n";
-        assert_eq!(with_theme(before, "nord"), "set tab-width=4\nset theme=\"nord\"\n");
+        assert_eq!(
+            with_theme(before, "nord"),
+            "set tab-width=4\nset theme=\"nord\"\n"
+        );
     }
 
     #[test]
@@ -785,7 +1371,10 @@ mod tests {
 
     #[test]
     fn a_file_with_no_final_newline_still_ends_up_well_formed() {
-        assert_eq!(with_theme("set tab-width=4", "nord"), "set tab-width=4\nset theme=\"nord\"\n");
+        assert_eq!(
+            with_theme("set tab-width=4", "nord"),
+            "set tab-width=4\nset theme=\"nord\"\n"
+        );
     }
 
     #[test]
@@ -799,7 +1388,10 @@ mod tests {
             after.starts_with("// set theme=\"old\""),
             "the comment was rewritten:\n{after}"
         );
-        assert!(after.ends_with("set theme=\"nord\"\n"), "the setting was not added:\n{after}");
+        assert!(
+            after.ends_with("set theme=\"nord\"\n"),
+            "the setting was not added:\n{after}"
+        );
     }
 
     #[test]
@@ -812,8 +1404,14 @@ mod tests {
             "}\n",
         );
         let after = with_theme(before, "nord");
-        assert!(after.starts_with(before), "the theme block was edited:\n{after}");
-        assert!(after.ends_with("set theme=\"nord\"\n"), "the setting was not added:\n{after}");
+        assert!(
+            after.starts_with(before),
+            "the theme block was edited:\n{after}"
+        );
+        assert!(
+            after.ends_with("set theme=\"nord\"\n"),
+            "the setting was not added:\n{after}"
+        );
     }
 
     #[test]
@@ -832,7 +1430,11 @@ mod tests {
         );
         let after = with_theme(before, "dracula");
         assert_eq!(after, before.replace("maxgus-dark", "dracula"));
-        assert_eq!(after.lines().count(), before.lines().count(), "no line was added or lost");
+        assert_eq!(
+            after.lines().count(),
+            before.lines().count(),
+            "no line was added or lost"
+        );
     }
 
     #[test]
@@ -841,7 +1443,10 @@ mod tests {
         // would be changing more than was asked; the first is where the value
         // is read from anyway once the duplicate is resolved.
         let before = "set theme=\"a\"\nset theme=\"b\"\n";
-        assert_eq!(with_theme(before, "nord"), "set theme=\"nord\"\nset theme=\"b\"\n");
+        assert_eq!(
+            with_theme(before, "nord"),
+            "set theme=\"nord\"\nset theme=\"b\"\n"
+        );
     }
 
     #[test]
@@ -875,7 +1480,9 @@ mod tests {
     const MAY_BLOCK: &[&str] = &["maxgus/src/main.rs"];
 
     fn rust_files(dir: &Path, found: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
@@ -899,7 +1506,11 @@ mod tests {
         for entry in std::fs::read_dir(&crates).expect("the workspace").flatten() {
             rust_files(&entry.path().join("src"), &mut files);
         }
-        assert!(files.len() > 30, "the walk found almost nothing: {}", files.len());
+        assert!(
+            files.len() > 30,
+            "the walk found almost nothing: {}",
+            files.len()
+        );
 
         let mut offences = Vec::new();
         for file in files {
@@ -907,7 +1518,9 @@ mod tests {
             if MAY_BLOCK.iter().any(|allowed| shown.ends_with(allowed)) {
                 continue;
             }
-            let Ok(source) = std::fs::read_to_string(&file) else { continue };
+            let Ok(source) = std::fs::read_to_string(&file) else {
+                continue;
+            };
             // Tests may block as much as they like; only what ships matters.
             let ships = source
                 .lines()
@@ -922,11 +1535,16 @@ mod tests {
                 }
             }
         }
-        assert!(offences.is_empty(), "blocking calls off the startup path:\n{}", offences.join("\n"));
+        assert!(
+            offences.is_empty(),
+            "blocking calls off the startup path:\n{}",
+            offences.join("\n")
+        );
     }
 
     // ---- answering the server -------------------------------------------
 
+    #[cfg(feature = "lsp")]
     /// A client wired to a pipe, with the far end for a test to play server on.
     async fn piped_client() -> (
         std::sync::Arc<maxgus_lsp::Client>,
@@ -940,6 +1558,7 @@ mod tests {
         (client, events, server_reader, server_writer)
     }
 
+    #[cfg(feature = "lsp")]
     /// Reads one message off the server end of the pipe.
     ///
     /// Bounded, because the behaviour under test is *that an answer arrives*:
@@ -966,6 +1585,7 @@ mod tests {
             .expect("the server end was never answered")
     }
 
+    #[cfg(feature = "lsp")]
     #[tokio::test]
     async fn a_server_request_we_cannot_serve_is_refused_rather_than_ignored() {
         // The protocol requires an answer to every request. Dropping one
@@ -989,9 +1609,14 @@ mod tests {
         assert_eq!(response.id, Some(maxgus_lsp::RequestId::Number(11)));
         let error = response.error.expect("an error, not silence");
         assert_eq!(error.code, METHOD_NOT_FOUND);
-        assert!(error.message.contains("workspace/workspaceFolders"), "got `{}`", error.message);
+        assert!(
+            error.message.contains("workspace/workspaceFolders"),
+            "got `{}`",
+            error.message
+        );
     }
 
+    #[cfg(feature = "lsp")]
     #[tokio::test]
     async fn an_apply_edit_request_is_carried_to_the_editor_with_its_id() {
         // This one cannot be answered here: the buffers live in the editor, so
@@ -1015,12 +1640,20 @@ mod tests {
             .await
             .expect("the edit never reached the editor")
             .expect("a result");
-        let TaskResult::LspApplyEdit { language, id, edit: carried } = received else {
+        let TaskResult::LspApplyEdit {
+            language,
+            id,
+            edit: carried,
+        } = received
+        else {
             panic!("expected the edit to reach the editor, got {received:?}")
         };
         assert_eq!(language, "rust");
         assert_eq!(id, maxgus_lsp::RequestId::Number(7));
-        assert_eq!(carried, edit, "the edit itself is carried, not just the fact of it");
+        assert_eq!(
+            carried, edit,
+            "the edit itself is carried, not just the fact of it"
+        );
     }
 
     use super::*;
@@ -1034,8 +1667,12 @@ mod tests {
             let dir = std::env::temp_dir().join(format!("maxgus-exec-{tag}"));
             tokio::fs::remove_dir_all(&dir).await.ok();
             tokio::fs::create_dir_all(dir.join("src")).await.unwrap();
-            tokio::fs::write(dir.join("Cargo.toml"), "[package]").await.unwrap();
-            tokio::fs::write(dir.join("src/main.rs"), "fn main() {}\n").await.unwrap();
+            tokio::fs::write(dir.join("Cargo.toml"), "[package]")
+                .await
+                .unwrap();
+            tokio::fs::write(dir.join("src/main.rs"), "fn main() {}\n")
+                .await
+                .unwrap();
             Fixture(dir)
         }
 
@@ -1053,12 +1690,22 @@ mod tests {
     /// An executor over `root`, with the channel its results arrive on.
     fn executor(root: &Path) -> (Executor, mpsc::UnboundedReceiver<TaskResult>) {
         let (tx, rx) = mpsc::unbounded_channel();
-        let config = TreeConfig { git_status: false, ..Default::default() };
-        (Executor::new(root.to_path_buf(), config, Vec::new(), tx), rx)
+        let config = TreeConfig {
+            git_status: false,
+            ..Default::default()
+        };
+        (
+            Executor::new(root.to_path_buf(), config, Vec::new(), tx),
+            rx,
+        )
     }
 
     /// Runs one task and returns the first result it produced.
-    async fn run_one(executor: &mut Executor, rx: &mut mpsc::UnboundedReceiver<TaskResult>, task: Task) -> TaskResult {
+    async fn run_one(
+        executor: &mut Executor,
+        rx: &mut mpsc::UnboundedReceiver<TaskResult>,
+        task: Task,
+    ) -> TaskResult {
         executor.handle(task).await;
         rx.try_recv().expect("the task produced no result")
     }
@@ -1077,7 +1724,14 @@ mod tests {
             },
         )
         .await;
-        let TaskResult::FileRead { contents, read_only, .. } = result else { panic!("{result:?}") };
+        let TaskResult::FileRead {
+            contents,
+            read_only,
+            ..
+        } = result
+        else {
+            panic!("{result:?}")
+        };
         assert_eq!(contents, "fn main() {}\n");
         assert!(!read_only);
     }
@@ -1089,10 +1743,16 @@ mod tests {
         let result = run_one(
             &mut e,
             &mut rx,
-            Task::ReadFile { path: f.path().join("new.rs"), reverting: None, other_window: false },
+            Task::ReadFile {
+                path: f.path().join("new.rs"),
+                reverting: None,
+                other_window: false,
+            },
         )
         .await;
-        let TaskResult::FileRead { contents, .. } = result else { panic!("{result:?}") };
+        let TaskResult::FileRead { contents, .. } = result else {
+            panic!("{result:?}")
+        };
         assert!(contents.is_empty(), "visiting a new file is not an error");
     }
 
@@ -1103,7 +1763,11 @@ mod tests {
         let result = run_one(
             &mut e,
             &mut rx,
-            Task::ReadFile { path: f.path().join("src"), reverting: None, other_window: false },
+            Task::ReadFile {
+                path: f.path().join("src"),
+                reverting: None,
+                other_window: false,
+            },
         )
         .await;
         assert!(result.is_error(), "got {result:?}");
@@ -1126,7 +1790,9 @@ mod tests {
             },
         )
         .await;
-        let TaskResult::FileWritten { bytes, .. } = result else { panic!("{result:?}") };
+        let TaskResult::FileWritten { bytes, .. } = result else {
+            panic!("{result:?}")
+        };
         assert_eq!(bytes, 6);
         assert_eq!(tokio::fs::read_to_string(&path).await.unwrap(), "hello\n");
     }
@@ -1148,7 +1814,9 @@ mod tests {
             },
         )
         .await;
-        let backup = tokio::fs::read_to_string(f.path().join("src/main.rs~")).await.unwrap();
+        let backup = tokio::fs::read_to_string(f.path().join("src/main.rs~"))
+            .await
+            .unwrap();
         assert_eq!(backup, "fn main() {}\n", "the previous contents were kept");
         assert_eq!(tokio::fs::read_to_string(&path).await.unwrap(), "changed\n");
     }
@@ -1157,11 +1825,25 @@ mod tests {
     async fn listing_a_directory_marks_the_directories() {
         let f = Fixture::new("list").await;
         let (mut e, mut rx) = executor(f.path());
-        let result =
-            run_one(&mut e, &mut rx, Task::ListDirectory { path: f.path().to_path_buf() }).await;
-        let TaskResult::DirectoryListed { entries, .. } = result else { panic!("{result:?}") };
-        assert!(entries.iter().any(|entry| entry.ends_with("/src/")), "got {entries:?}");
-        assert!(entries.iter().any(|entry| entry.ends_with("Cargo.toml")), "got {entries:?}");
+        let result = run_one(
+            &mut e,
+            &mut rx,
+            Task::ListDirectory {
+                path: f.path().to_path_buf(),
+            },
+        )
+        .await;
+        let TaskResult::DirectoryListed { entries, .. } = result else {
+            panic!("{result:?}")
+        };
+        assert!(
+            entries.iter().any(|entry| entry.ends_with("/src/")),
+            "got {entries:?}"
+        );
+        assert!(
+            entries.iter().any(|entry| entry.ends_with("Cargo.toml")),
+            "got {entries:?}"
+        );
     }
 
     #[tokio::test]
@@ -1170,7 +1852,9 @@ mod tests {
         let result = run_one(
             &mut e,
             &mut rx,
-            Task::ListDirectory { path: PathBuf::from("/nonexistent-maxgus-path") },
+            Task::ListDirectory {
+                path: PathBuf::from("/nonexistent-maxgus-path"),
+            },
         )
         .await;
         assert!(result.is_error());
@@ -1181,7 +1865,9 @@ mod tests {
         let f = Fixture::new("tree").await;
         let (mut e, mut rx) = executor(f.path());
         let result = run_one(&mut e, &mut rx, Task::Tree(TreeAction::Refresh)).await;
-        let TaskResult::TreeUpdated { nodes, .. } = result else { panic!("{result:?}") };
+        let TaskResult::TreeUpdated { nodes, .. } = result else {
+            panic!("{result:?}")
+        };
         assert!(nodes.iter().any(|n| n.name == "src"), "got {:?}", nodes);
         assert!(nodes.iter().any(|n| n.name == "Cargo.toml"));
     }
@@ -1191,9 +1877,15 @@ mod tests {
         let f = Fixture::new("treeexpand").await;
         let (mut e, mut rx) = executor(f.path());
         run_one(&mut e, &mut rx, Task::Tree(TreeAction::Refresh)).await;
-        let result =
-            run_one(&mut e, &mut rx, Task::Tree(TreeAction::Expand(f.path().join("src")))).await;
-        let TaskResult::TreeUpdated { nodes, .. } = result else { panic!("{result:?}") };
+        let result = run_one(
+            &mut e,
+            &mut rx,
+            Task::Tree(TreeAction::Expand(f.path().join("src"))),
+        )
+        .await;
+        let TaskResult::TreeUpdated { nodes, .. } = result else {
+            panic!("{result:?}")
+        };
         assert!(nodes.iter().any(|n| n.name == "main.rs"), "got {:?}", nodes);
     }
 
@@ -1211,10 +1903,16 @@ mod tests {
             }),
         )
         .await;
-        let TaskResult::TreeUpdated { select, nodes, .. } = result else { panic!("{result:?}") };
+        let TaskResult::TreeUpdated { select, nodes, .. } = result else {
+            panic!("{result:?}")
+        };
         assert_eq!(select, Some(f.path().join("created.txt")));
         assert!(nodes.iter().any(|n| n.name == "created.txt"));
-        assert!(tokio::fs::try_exists(f.path().join("created.txt")).await.unwrap());
+        assert!(
+            tokio::fs::try_exists(f.path().join("created.txt"))
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]
@@ -1233,10 +1931,16 @@ mod tests {
         )
         .await;
 
-        let TaskResult::TreeUpdated { select, nodes, .. } = result else { panic!("{result:?}") };
+        let TaskResult::TreeUpdated { select, nodes, .. } = result else {
+            panic!("{result:?}")
+        };
         assert_eq!(select, Some(f.path().join("Renamed.toml")));
         assert!(nodes.iter().any(|n| n.name == "Renamed.toml"));
-        assert!(!tokio::fs::try_exists(f.path().join("Cargo.toml")).await.unwrap());
+        assert!(
+            !tokio::fs::try_exists(f.path().join("Cargo.toml"))
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]
@@ -1252,11 +1956,23 @@ mod tests {
         )
         .await;
 
-        let TaskResult::TreeUpdated { select, nodes, .. } = result else { panic!("{result:?}") };
-        assert_eq!(select, None, "nothing is selected after what was selected went");
+        let TaskResult::TreeUpdated { select, nodes, .. } = result else {
+            panic!("{result:?}")
+        };
+        assert_eq!(
+            select, None,
+            "nothing is selected after what was selected went"
+        );
         assert!(!nodes.iter().any(|n| n.name == "Cargo.toml"));
-        assert!(!tokio::fs::try_exists(f.path().join("Cargo.toml")).await.unwrap());
-        assert!(tokio::fs::try_exists(f.path().join("src")).await.unwrap(), "and nothing else");
+        assert!(
+            !tokio::fs::try_exists(f.path().join("Cargo.toml"))
+                .await
+                .unwrap()
+        );
+        assert!(
+            tokio::fs::try_exists(f.path().join("src")).await.unwrap(),
+            "and nothing else"
+        );
     }
 
     #[tokio::test]
@@ -1275,10 +1991,17 @@ mod tests {
         )
         .await;
 
-        let TaskResult::TreeUpdated { select, nodes, .. } = result else { panic!("{result:?}") };
+        let TaskResult::TreeUpdated { select, nodes, .. } = result else {
+            panic!("{result:?}")
+        };
         assert_eq!(select, Some(f.path().join("made")));
         assert!(nodes.iter().any(|n| n.name == "made"));
-        assert!(tokio::fs::metadata(f.path().join("made")).await.unwrap().is_dir());
+        assert!(
+            tokio::fs::metadata(f.path().join("made"))
+                .await
+                .unwrap()
+                .is_dir()
+        );
     }
 
     #[tokio::test]
@@ -1297,22 +2020,39 @@ mod tests {
         )
         .await;
 
-        let TaskResult::TreeUpdated { select, .. } = result else { panic!("{result:?}") };
+        let TaskResult::TreeUpdated { select, .. } = result else {
+            panic!("{result:?}")
+        };
         assert_eq!(select, Some(f.path().join("src/Cargo.toml")));
-        assert!(tokio::fs::try_exists(f.path().join("src/Cargo.toml")).await.unwrap());
-        assert!(!tokio::fs::try_exists(f.path().join("Cargo.toml")).await.unwrap());
+        assert!(
+            tokio::fs::try_exists(f.path().join("src/Cargo.toml"))
+                .await
+                .unwrap()
+        );
+        assert!(
+            !tokio::fs::try_exists(f.path().join("Cargo.toml"))
+                .await
+                .unwrap()
+        );
     }
 
+    #[cfg(feature = "lsp")]
     #[tokio::test]
     async fn stopping_a_server_that_was_never_started_is_quiet() {
         // The only exercise `stop_server` gets: nothing had been started, so
         // it must return without announcing a server that never existed.
         let f = Fixture::new("treestop").await;
         let (mut e, rx) = executor(f.path());
-        e.handle(Task::StopLanguageServer { language: "rust".into() }).await;
+        e.handle(Task::StopLanguageServer {
+            language: "rust".into(),
+        })
+        .await;
         drop(e);
         let mut rx = rx;
-        assert!(rx.try_recv().is_err(), "it reported stopping something that never ran");
+        assert!(
+            rx.try_recv().is_err(),
+            "it reported stopping something that never ran"
+        );
     }
 
     #[tokio::test]
@@ -1351,26 +2091,38 @@ mod tests {
             let unseen = f.path().join("src/main.rs");
             let task = match action {
                 "delete" => TreeAction::Delete(unseen.clone()),
-                "rename" => TreeAction::Rename { path: unseen.clone(), name: "gone.txt".into() },
+                "rename" => TreeAction::Rename {
+                    path: unseen.clone(),
+                    name: "gone.txt".into(),
+                },
                 // Into `src`, not the root: the cursor's node already lives
                 // in the root, so moving it there would fail as "already
                 // exists" and hide the guard being gone.
-                "move" => {
-                    TreeAction::Move { path: unseen.clone(), destination: f.path().join("src") }
-                }
-                "create-file" => {
-                    TreeAction::CreateFile { parent: unseen.clone(), name: "made.txt".into() }
-                }
-                _ => TreeAction::CreateDirectory { parent: unseen.clone(), name: "made".into() },
+                "move" => TreeAction::Move {
+                    path: unseen.clone(),
+                    destination: f.path().join("src"),
+                },
+                "create-file" => TreeAction::CreateFile {
+                    parent: unseen.clone(),
+                    name: "made.txt".into(),
+                },
+                _ => TreeAction::CreateDirectory {
+                    parent: unseen.clone(),
+                    name: "made".into(),
+                },
             };
             run_one(&mut e, &mut rx, Task::Tree(task)).await;
 
             assert!(
-                tokio::fs::try_exists(f.path().join("Cargo.toml")).await.unwrap(),
+                tokio::fs::try_exists(f.path().join("Cargo.toml"))
+                    .await
+                    .unwrap(),
                 "`{action}` touched the node the cursor was on"
             );
             assert!(
-                !tokio::fs::try_exists(f.path().join("made.txt")).await.unwrap(),
+                !tokio::fs::try_exists(f.path().join("made.txt"))
+                    .await
+                    .unwrap(),
                 "`{action}` created something beside the cursor's node"
             );
             assert!(
@@ -1402,19 +2154,32 @@ mod tests {
     #[tokio::test]
     async fn toggling_hidden_files_changes_what_the_snapshot_holds() {
         let f = Fixture::new("treehidden").await;
-        tokio::fs::write(f.path().join(".hidden"), "").await.unwrap();
+        tokio::fs::write(f.path().join(".hidden"), "")
+            .await
+            .unwrap();
         let (mut e, mut rx) = executor(f.path());
         let result = run_one(&mut e, &mut rx, Task::Tree(TreeAction::Refresh)).await;
-        let TaskResult::TreeUpdated { nodes, show_hidden, .. } = result else { panic!() };
+        let TaskResult::TreeUpdated {
+            nodes, show_hidden, ..
+        } = result
+        else {
+            panic!()
+        };
         assert!(!show_hidden);
         assert!(!nodes.iter().any(|n| n.name == ".hidden"));
 
         let result = run_one(&mut e, &mut rx, Task::Tree(TreeAction::ToggleHidden)).await;
-        let TaskResult::TreeUpdated { nodes, show_hidden, .. } = result else { panic!() };
+        let TaskResult::TreeUpdated {
+            nodes, show_hidden, ..
+        } = result
+        else {
+            panic!()
+        };
         assert!(show_hidden);
         assert!(nodes.iter().any(|n| n.name == ".hidden"));
     }
 
+    #[cfg(feature = "syntax")]
     #[tokio::test]
     async fn reparsing_returns_highlight_spans() {
         let f = Fixture::new("parse").await;
@@ -1431,12 +2196,20 @@ mod tests {
             },
         )
         .await;
-        let TaskResult::Reparsed { revision, highlights, .. } = result else { panic!("{result:?}") };
+        let TaskResult::Reparsed {
+            revision,
+            highlights,
+            ..
+        } = result
+        else {
+            panic!("{result:?}")
+        };
         assert_eq!(revision, 7);
         assert!(!highlights.is_empty());
         assert!(highlights.iter().any(|h| h.face == "font-lock-keyword"));
     }
 
+    #[cfg(feature = "syntax")]
     #[tokio::test]
     async fn a_language_with_no_grammar_is_quietly_skipped() {
         let f = Fixture::new("parseunknown").await;
@@ -1452,6 +2225,7 @@ mod tests {
         assert!(rx.try_recv().is_err(), "no result, and no error either");
     }
 
+    #[cfg(feature = "syntax")]
     #[tokio::test]
     async fn each_buffer_keeps_its_own_parser() {
         let f = Fixture::new("parserperbuffer").await;
@@ -1469,7 +2243,9 @@ mod tests {
                 },
             )
             .await;
-            let TaskResult::Reparsed { highlights, .. } = result else { panic!() };
+            let TaskResult::Reparsed { highlights, .. } = result else {
+                panic!()
+            };
             assert!(!highlights.is_empty(), "`{text}` produced nothing");
         }
         // A parser's worth is the tree it holds, and a tree belongs to one
@@ -1477,6 +2253,7 @@ mod tests {
         assert_eq!(e.highlighters.len(), 2);
     }
 
+    #[cfg(feature = "syntax")]
     #[tokio::test]
     async fn a_reparse_keeps_the_text_its_tree_describes() {
         let f = Fixture::new("parsetext").await;
@@ -1499,6 +2276,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "syntax")]
     async fn an_edit_between_reparses_still_highlights_correctly() {
         let f = Fixture::new("parseincremental").await;
         let (mut e, mut rx) = executor(f.path());
@@ -1508,16 +2286,30 @@ mod tests {
         run_one(
             &mut e,
             &mut rx,
-            Task::Reparse { buffer: BufferId(1), language: "rust".into(), text: before.into(), revision: 1, range: 0..usize::MAX },
+            Task::Reparse {
+                buffer: BufferId(1),
+                language: "rust".into(),
+                text: before.into(),
+                revision: 1,
+                range: 0..usize::MAX,
+            },
         )
         .await;
         let result = run_one(
             &mut e,
             &mut rx,
-            Task::Reparse { buffer: BufferId(1), language: "rust".into(), text: after.into(), revision: 2, range: 0..usize::MAX },
+            Task::Reparse {
+                buffer: BufferId(1),
+                language: "rust".into(),
+                text: after.into(),
+                revision: 2,
+                range: 0..usize::MAX,
+            },
         )
         .await;
-        let TaskResult::Reparsed { highlights, .. } = result else { panic!("{result:?}") };
+        let TaskResult::Reparsed { highlights, .. } = result else {
+            panic!("{result:?}")
+        };
 
         // An incremental parse must produce the same answer a full one would.
         let mut fresh = Highlighter::new("rust").unwrap();
@@ -1525,6 +2317,7 @@ mod tests {
         assert_eq!(highlights, fresh.highlights(after));
     }
 
+    #[cfg(feature = "syntax")]
     #[tokio::test]
     async fn a_buffer_that_changes_language_starts_over() {
         let f = Fixture::new("parselanguage").await;
@@ -1532,21 +2325,36 @@ mod tests {
         run_one(
             &mut e,
             &mut rx,
-            Task::Reparse { buffer: BufferId(1), language: "rust".into(), text: "fn a() {}".into(), revision: 1, range: 0..usize::MAX },
+            Task::Reparse {
+                buffer: BufferId(1),
+                language: "rust".into(),
+                text: "fn a() {}".into(),
+                revision: 1,
+                range: 0..usize::MAX,
+            },
         )
         .await;
         // `write-file` under a new name can change a buffer's language.
         let result = run_one(
             &mut e,
             &mut rx,
-            Task::Reparse { buffer: BufferId(1), language: "python".into(), text: "def a(): pass".into(), revision: 2, range: 0..usize::MAX },
+            Task::Reparse {
+                buffer: BufferId(1),
+                language: "python".into(),
+                text: "def a(): pass".into(),
+                revision: 2,
+                range: 0..usize::MAX,
+            },
         )
         .await;
-        let TaskResult::Reparsed { highlights, .. } = result else { panic!() };
+        let TaskResult::Reparsed { highlights, .. } = result else {
+            panic!()
+        };
         assert!(!highlights.is_empty(), "the new grammar was used");
         assert_eq!(e.highlighters[&BufferId(1)].language, "python");
     }
 
+    #[cfg(feature = "syntax")]
     #[tokio::test]
     async fn forgetting_a_buffer_releases_its_parser_and_its_text() {
         let f = Fixture::new("parseforget").await;
@@ -1554,12 +2362,24 @@ mod tests {
         run_one(
             &mut e,
             &mut rx,
-            Task::Reparse { buffer: BufferId(1), language: "rust".into(), text: "fn a() {}".into(), revision: 1, range: 0..usize::MAX },
+            Task::Reparse {
+                buffer: BufferId(1),
+                language: "rust".into(),
+                text: "fn a() {}".into(),
+                revision: 1,
+                range: 0..usize::MAX,
+            },
         )
         .await;
         assert_eq!(e.highlighters.len(), 1);
-        e.handle(Task::ForgetBuffer { buffer: BufferId(1) }).await;
-        assert!(e.highlighters.is_empty(), "a killed buffer must not be held onto");
+        e.handle(Task::ForgetBuffer {
+            buffer: BufferId(1),
+        })
+        .await;
+        assert!(
+            e.highlighters.is_empty(),
+            "a killed buffer must not be held onto"
+        );
     }
 
     #[tokio::test]
@@ -1576,7 +2396,9 @@ mod tests {
             },
         )
         .await;
-        let TaskResult::ShellOutput { output, status, .. } = result else { panic!("{result:?}") };
+        let TaskResult::ShellOutput { output, status, .. } = result else {
+            panic!("{result:?}")
+        };
         assert_eq!(output.trim(), "hello");
         assert_eq!(status, 0);
     }
@@ -1595,7 +2417,9 @@ mod tests {
             },
         )
         .await;
-        let TaskResult::ShellOutput { output, status, .. } = result else { panic!("{result:?}") };
+        let TaskResult::ShellOutput { output, status, .. } = result else {
+            panic!("{result:?}")
+        };
         assert_eq!(status, 3);
         assert!(output.contains("oops"), "stderr is shown too");
     }
@@ -1607,34 +2431,49 @@ mod tests {
         let result = run_one(
             &mut e,
             &mut rx,
-            Task::Shell { command: "pwd".into(), directory: f.path().join("src"), insert_at: None },
+            Task::Shell {
+                command: "pwd".into(),
+                directory: f.path().join("src"),
+                insert_at: None,
+            },
         )
         .await;
-        let TaskResult::ShellOutput { output, .. } = result else { panic!() };
+        let TaskResult::ShellOutput { output, .. } = result else {
+            panic!()
+        };
         assert!(output.trim().ends_with("/src"), "got `{output}`");
     }
 
     #[tokio::test]
+    #[cfg(feature = "lsp")]
     async fn a_request_to_a_server_that_is_not_running_is_a_no_op() {
         let f = Fixture::new("noserver").await;
         let (mut e, mut rx) = executor(f.path());
         e.handle(Task::LspRequest {
             language: "rust".into(),
             uri: "file:///a.rs".into(),
-            query: LspQuery::DocumentSymbols,
+            query: LspQuery::DocumentSymbols { for_panel: false },
         })
         .await;
         assert!(rx.try_recv().is_err());
     }
 
+    #[cfg(feature = "lsp")]
     #[tokio::test]
     async fn starting_a_server_with_no_configuration_does_nothing() {
         let f = Fixture::new("nospec").await;
         let (mut e, mut rx) = executor(f.path());
-        e.handle(Task::StartLanguageServer { language: "rust".into() }).await;
-        assert!(rx.try_recv().is_err(), "an unconfigured language is not an error");
+        e.handle(Task::StartLanguageServer {
+            language: "rust".into(),
+        })
+        .await;
+        assert!(
+            rx.try_recv().is_err(),
+            "an unconfigured language is not an error"
+        );
     }
 
+    #[cfg(feature = "lsp")]
     #[tokio::test]
     async fn starting_a_server_that_cannot_be_launched_is_reported() {
         let f = Fixture::new("badserver").await;
@@ -1646,11 +2485,15 @@ mod tests {
             vec![spec],
             tx,
         );
-        e.handle(Task::StartLanguageServer { language: "rust".into() }).await;
+        e.handle(Task::StartLanguageServer {
+            language: "rust".into(),
+        })
+        .await;
         let result = rx.try_recv().expect("a failure was reported");
         assert!(result.is_error());
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn a_change_is_described_as_the_region_that_differs() {
         let encoding = maxgus_lsp::PositionEncoding::Utf16;
@@ -1672,12 +2515,14 @@ mod tests {
         assert_eq!(rebuilt, current);
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn identical_texts_produce_no_change_to_report() {
         let encoding = maxgus_lsp::PositionEncoding::Utf16;
         assert!(changed_range("same", "same", encoding).is_none());
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn a_multiline_change_spans_the_lines_it_touches() {
         let encoding = maxgus_lsp::PositionEncoding::Utf16;
@@ -1690,9 +2535,13 @@ mod tests {
         let mut rebuilt: String = previous.chars().take(start).collect();
         rebuilt.push_str(&replacement);
         rebuilt.extend(previous.chars().skip(end));
-        assert_eq!(rebuilt, current, "the described change does not reproduce the text");
+        assert_eq!(
+            rebuilt, current,
+            "the described change does not reproduce the text"
+        );
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn a_change_in_multibyte_text_is_described_correctly() {
         let encoding = maxgus_lsp::PositionEncoding::Utf16;
@@ -1708,12 +2557,15 @@ mod tests {
         assert_eq!(rebuilt, current);
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn a_changed_region_is_a_fraction_of_a_large_document() {
         let encoding = maxgus_lsp::PositionEncoding::Utf16;
         let previous: String = (0..5_000).map(|n| format!("line {n}\n")).collect();
         let at = previous.len() / 2;
-        let at = (at..previous.len()).find(|i| previous.is_char_boundary(*i)).unwrap();
+        let at = (at..previous.len())
+            .find(|i| previous.is_char_boundary(*i))
+            .unwrap();
         let mut current = previous.clone();
         current.insert(at, 'x');
 
@@ -1726,6 +2578,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "git")]
     #[tokio::test]
     async fn the_branch_of_a_real_repository_is_reported() {
         // The one test that runs git itself, since the branch reaching the
@@ -1745,36 +2598,67 @@ mod tests {
             return;
         }
         // A branch only exists once something is committed to it.
-        run(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "x"]);
+        run(&[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "x",
+        ]);
 
         let (mut e, mut rx) = executor(f.path());
-        let result =
-            run_one(&mut e, &mut rx, Task::GitBranch { root: f.path().to_path_buf() }).await;
-        let TaskResult::GitBranch { branch } = result else { panic!("{result:?}") };
+        let result = run_one(
+            &mut e,
+            &mut rx,
+            Task::GitBranch {
+                root: f.path().to_path_buf(),
+            },
+        )
+        .await;
+        let TaskResult::GitBranch { branch } = result else {
+            panic!("{result:?}")
+        };
         assert_eq!(branch.as_deref(), Some("trunk"));
     }
 
+    #[cfg(feature = "git")]
     #[tokio::test]
     async fn a_directory_outside_any_repository_reports_no_branch() {
         let f = Fixture::new("gitnone").await;
         let (mut e, mut rx) = executor(f.path());
-        let result =
-            run_one(&mut e, &mut rx, Task::GitBranch { root: f.path().to_path_buf() }).await;
-        let TaskResult::GitBranch { branch } = result else { panic!("{result:?}") };
+        let result = run_one(
+            &mut e,
+            &mut rx,
+            Task::GitBranch {
+                root: f.path().to_path_buf(),
+            },
+        )
+        .await;
+        let TaskResult::GitBranch { branch } = result else {
+            panic!("{result:?}")
+        };
         assert_eq!(branch, None, "a plain directory has no branch");
     }
 
+    // `find_upwards` locates a language server's project root.
+    #[cfg(feature = "lsp")]
     #[tokio::test]
     async fn a_project_root_is_found_by_walking_upwards() {
         // The workspace this test is compiled in is itself a good fixture.
         let here = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let found = find_upwards(here, "Cargo.toml").await.expect("this crate has one");
+        let found = find_upwards(here, "Cargo.toml")
+            .await
+            .expect("this crate has one");
         assert!(found.join("Cargo.toml").exists());
         assert!(find_upwards(here, "no-such-marker-file").await.is_none());
     }
 }
 
-#[cfg(test)]
+/// Parsing costs, which only a build with the grammars in it can measure.
+#[cfg(all(test, feature = "syntax"))]
 mod scale {
     use super::*;
     use maxgus_text::BufferId;
@@ -1783,19 +2667,24 @@ mod scale {
     /// A file large enough that a full parse is visible to a person.
     fn source(lines: usize) -> String {
         (0..lines)
-            .map(|n| format!("fn function_{n}(argument: &str) -> usize {{ argument.len() + {n} }}\n"))
+            .map(|n| {
+                format!("fn function_{n}(argument: &str) -> usize {{ argument.len() + {n} }}\n")
+            })
             .collect()
     }
 
     /// Typing a character into the middle of `text`.
     fn typed_into(text: &str) -> String {
         let at = text.len() / 2;
-        let at = (at..text.len()).find(|i| text.is_char_boundary(*i)).unwrap_or(text.len());
+        let at = (at..text.len())
+            .find(|i| text.is_char_boundary(*i))
+            .unwrap_or(text.len());
         let mut edited = text.to_string();
         edited.insert(at, 'x');
         edited
     }
 
+    #[cfg(feature = "syntax")]
     #[tokio::test]
     async fn parsing_does_not_stop_the_runtime_polling_anything_else() {
         // `#[tokio::test]` gives a single-threaded runtime, which is what
@@ -1812,7 +2701,10 @@ mod scale {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut executor = Executor::new(
             PathBuf::from("/tmp"),
-            TreeConfig { git_status: false, ..Default::default() },
+            TreeConfig {
+                git_status: false,
+                ..Default::default()
+            },
             Vec::new(),
             tx,
         );
@@ -1821,7 +2713,11 @@ mod scale {
         let flag = Arc::clone(&ran);
         tokio::spawn(async move { flag.store(true, Ordering::SeqCst) });
 
-        let text = source(if cfg!(debug_assertions) { 3_000 } else { 20_000 });
+        let text = source(if cfg!(debug_assertions) {
+            3_000
+        } else {
+            20_000
+        });
         executor
             .handle(Task::Reparse {
                 buffer: BufferId(1),
@@ -1839,17 +2735,25 @@ mod scale {
         rx.try_recv().expect("the parse still produced highlights");
     }
 
+    #[cfg(feature = "syntax")]
     #[tokio::test]
     async fn a_reparse_after_typing_costs_far_less_than_the_first_one() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut executor = Executor::new(
             PathBuf::from("/tmp"),
-            TreeConfig { git_status: false, ..Default::default() },
+            TreeConfig {
+                git_status: false,
+                ..Default::default()
+            },
             Vec::new(),
             tx,
         );
 
-        let text = source(if cfg!(debug_assertions) { 3_000 } else { 20_000 });
+        let text = source(if cfg!(debug_assertions) {
+            3_000
+        } else {
+            20_000
+        });
         // A window's worth plus the scroll margin, which is what the editor
         // asks for; highlighting the whole file would cost more than parsing
         // it and almost none of it would be drawn.
@@ -1886,5 +2790,188 @@ mod scale {
             "a reparse after typing was only {ratio:.1}x cheaper than the first; \
              the syntax tree is being thrown away between parses"
         );
+    }
+}
+
+#[cfg(feature = "terminal")]
+/// The shell to start when the configuration does not name one.
+fn default_shell() -> String {
+    if cfg!(windows) {
+        std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".to_string())
+    } else {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+    }
+}
+
+#[cfg(feature = "git")]
+/// What every diff is asked for.
+///
+/// The prefixes are forced rather than left to configuration: modern git
+/// writes `i/` and `w/` for a worktree diff when `diff.mnemonicPrefix` is on,
+/// and the patches built from these have to be predictable.
+const DIFF_ARGS: &[&str] = &[
+    "diff",
+    "--no-ext-diff",
+    "--no-color",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+];
+
+#[cfg(feature = "git")]
+/// The `--format` every log is asked for.
+const LOG_FORMAT_ARG: &str = "--format=%H%x1f%h%x1f%an%x1f%ar%x1f%D%x1f%s%x1e";
+
+#[cfg(feature = "git")]
+/// The arguments, a description, and anything to write to git's input.
+fn git_command(action: GitAction) -> Option<(Vec<String>, String, Option<String>)> {
+    let words = |args: &[&str]| args.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+    let with_paths = |args: &[&str], paths: Vec<PathBuf>| {
+        let mut out = words(args);
+        // `--` first: a path that looks like an option is still a path.
+        out.push("--".into());
+        out.extend(paths.iter().map(|p| p.to_string_lossy().into_owned()));
+        out
+    };
+    Some(match action {
+        GitAction::Stage(paths) => (with_paths(&["add", "--"], paths), "Stage".into(), None),
+        GitAction::Unstage(paths) => (
+            with_paths(&["restore", "--staged"], paths),
+            "Unstage".into(),
+            None,
+        ),
+        GitAction::StageAll => (words(&["add", "--all"]), "Stage everything".into(), None),
+        GitAction::UnstageAll => (
+            words(&["reset", "--quiet", "HEAD", "--"]),
+            "Unstage everything".into(),
+            None,
+        ),
+        GitAction::Discard(paths) => (
+            with_paths(&["checkout", "--"], paths),
+            "Discard".into(),
+            None,
+        ),
+        GitAction::DeleteUntracked(paths) => (
+            with_paths(&["clean", "-f", "--"], paths),
+            "Delete".into(),
+            None,
+        ),
+        GitAction::ApplyPatch {
+            patch,
+            arguments,
+            describe,
+        } => {
+            let mut args = words(&["apply"]);
+            args.extend(arguments);
+            args.push("-".into());
+            (args, describe, Some(patch))
+        }
+        GitAction::Commit {
+            message,
+            amend,
+            arguments,
+        } => {
+            let mut args = words(&["commit", "--file=-"]);
+            if amend {
+                args.push("--amend".into());
+            }
+            args.extend(arguments);
+            (args, "Commit".into(), Some(message))
+        }
+        GitAction::Push { arguments } => {
+            let mut args = words(&["push"]);
+            args.extend(arguments);
+            (args, "Push".into(), None)
+        }
+        GitAction::Pull { arguments } => {
+            let mut args = words(&["pull"]);
+            // `--ff-only` unless the menu asked to rebase, so a pull never
+            // makes a merge commit nobody asked for.
+            if !arguments.iter().any(|flag| flag == "--rebase") {
+                args.push("--ff-only".into());
+            }
+            args.extend(arguments);
+            (args, "Pull".into(), None)
+        }
+        GitAction::Fetch { arguments } => {
+            let mut args = words(&["fetch"]);
+            args.extend(arguments);
+            (args, "Fetch".into(), None)
+        }
+        GitAction::Checkout(name) => (
+            vec!["checkout".into(), name.clone()],
+            format!("Checkout {name}"),
+            None,
+        ),
+        GitAction::CreateBranch(name) => (
+            vec!["checkout".into(), "-b".into(), name.clone()],
+            format!("Create branch {name}"),
+            None,
+        ),
+        GitAction::Merge(name) => (
+            vec!["merge".into(), name.clone()],
+            format!("Merge {name}"),
+            None,
+        ),
+        GitAction::Stash { message, arguments } => {
+            let mut args = words(&["stash", "push"]);
+            args.extend(arguments);
+            if let Some(message) = message {
+                args.push("--message".into());
+                args.push(message);
+            }
+            (args, "Stash".into(), None)
+        }
+        GitAction::StashPop(name) => (
+            vec!["stash".into(), "pop".into(), name],
+            "Pop stash".into(),
+            None,
+        ),
+        GitAction::StashApply(name) => (
+            vec!["stash".into(), "apply".into(), name],
+            "Apply stash".into(),
+            None,
+        ),
+        GitAction::StashDrop(name) => (
+            vec!["stash".into(), "drop".into(), name],
+            "Drop stash".into(),
+            None,
+        ),
+        GitAction::Run {
+            arguments,
+            describe,
+        } => (arguments, describe, None),
+        // These answer with a buffer rather than with a line of output, and
+        // are handled before this. Reaching here means `git()` grew a variant
+        // and forgot one, so it says so instead of quietly running the wrong
+        // command — which is exactly the bug this arm used to hide.
+        GitAction::Refresh
+        | GitAction::Log { .. }
+        | GitAction::Diff { .. }
+        | GitAction::Show { .. } => return None,
+    })
+}
+
+#[cfg(feature = "git")]
+/// Runs git and returns its standard output as text, or nothing.
+async fn git_output(root: &Path, args: &[&str]) -> String {
+    String::from_utf8_lossy(&git_raw(root, args).await).into_owned()
+}
+
+#[cfg(feature = "git")]
+/// Runs git and returns its standard output as bytes.
+///
+/// A failure is emptiness rather than an error: half of these commands fail
+/// in the ordinary course of things — `@{upstream}` on a branch that has none
+/// — and reporting that as a problem would bury the ones that are.
+async fn git_raw(root: &Path, args: &[&str]) -> Vec<u8> {
+    let mut process = tokio::process::Command::new("git");
+    process
+        .args(args)
+        .current_dir(root)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    match process.output().await {
+        Ok(output) if output.status.success() => output.stdout,
+        _ => Vec::new(),
     }
 }

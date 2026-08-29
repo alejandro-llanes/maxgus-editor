@@ -9,10 +9,17 @@ use crate::position::Range;
 /// What an edit does at its anchor offset.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditKind {
-    Insert { text: String },
-    Delete { text: String },
+    Insert {
+        text: String,
+    },
+    Delete {
+        text: String,
+    },
     /// A delete immediately followed by an insert at the same offset.
-    Replace { removed: String, inserted: String },
+    Replace {
+        removed: String,
+        inserted: String,
+    },
 }
 
 /// A single reversible change to a buffer.
@@ -27,11 +34,19 @@ pub struct Edit {
 
 impl Edit {
     pub fn insert(at: usize, text: impl Into<String>, point_before: usize) -> Self {
-        Self { at, kind: EditKind::Insert { text: text.into() }, point_before }
+        Self {
+            at,
+            kind: EditKind::Insert { text: text.into() },
+            point_before,
+        }
     }
 
     pub fn delete(at: usize, text: impl Into<String>, point_before: usize) -> Self {
-        Self { at, kind: EditKind::Delete { text: text.into() }, point_before }
+        Self {
+            at,
+            kind: EditKind::Delete { text: text.into() },
+            point_before,
+        }
     }
 
     pub fn replace(
@@ -42,7 +57,10 @@ impl Edit {
     ) -> Self {
         Self {
             at,
-            kind: EditKind::Replace { removed: removed.into(), inserted: inserted.into() },
+            kind: EditKind::Replace {
+                removed: removed.into(),
+                inserted: inserted.into(),
+            },
             point_before,
         }
     }
@@ -53,11 +71,16 @@ impl Edit {
         let kind = match &self.kind {
             EditKind::Insert { text } => EditKind::Delete { text: text.clone() },
             EditKind::Delete { text } => EditKind::Insert { text: text.clone() },
-            EditKind::Replace { removed, inserted } => {
-                EditKind::Replace { removed: inserted.clone(), inserted: removed.clone() }
-            }
+            EditKind::Replace { removed, inserted } => EditKind::Replace {
+                removed: inserted.clone(),
+                inserted: removed.clone(),
+            },
         };
-        Edit { at: self.at, kind, point_before: self.point_before }
+        Edit {
+            at: self.at,
+            kind,
+            point_before: self.point_before,
+        }
     }
 
     /// Number of characters this edit removes.
@@ -111,7 +134,13 @@ mod tests {
     fn replace_inverts_by_swapping_sides() {
         let e = Edit::replace(1, "old", "brand new", 4);
         let inv = e.invert();
-        assert_eq!(inv.kind, EditKind::Replace { removed: "brand new".into(), inserted: "old".into() });
+        assert_eq!(
+            inv.kind,
+            EditKind::Replace {
+                removed: "brand new".into(),
+                inserted: "old".into()
+            }
+        );
         assert_eq!(e, inv.invert());
     }
 

@@ -89,8 +89,11 @@ mod tests {
             key_from_event(ev(CtCode::Char('x'), KeyModifiers::ALT)).unwrap(),
             Key::meta('x')
         );
-        let both = key_from_event(ev(CtCode::Char('s'), KeyModifiers::CONTROL | KeyModifiers::ALT))
-            .unwrap();
+        let both = key_from_event(ev(
+            CtCode::Char('s'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ))
+        .unwrap();
         assert_eq!(both.notation(), "C-M-s");
     }
 
@@ -112,8 +115,11 @@ mod tests {
 
     #[test]
     fn meta_survives_the_control_fold() {
-        let k = key_from_event(ev(CtCode::Char('m'), KeyModifiers::CONTROL | KeyModifiers::ALT))
-            .unwrap();
+        let k = key_from_event(ev(
+            CtCode::Char('m'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ))
+        .unwrap();
         assert_eq!(k.notation(), "M-RET");
     }
 
@@ -138,15 +144,21 @@ mod tests {
     #[test]
     fn navigation_and_function_keys_convert() {
         assert_eq!(
-            key_from_event(ev(CtCode::Up, KeyModifiers::NONE)).unwrap().notation(),
+            key_from_event(ev(CtCode::Up, KeyModifiers::NONE))
+                .unwrap()
+                .notation(),
             "<up>"
         );
         assert_eq!(
-            key_from_event(ev(CtCode::F(5), KeyModifiers::NONE)).unwrap().notation(),
+            key_from_event(ev(CtCode::F(5), KeyModifiers::NONE))
+                .unwrap()
+                .notation(),
             "<f5>"
         );
         assert_eq!(
-            key_from_event(ev(CtCode::PageUp, KeyModifiers::NONE)).unwrap().notation(),
+            key_from_event(ev(CtCode::PageUp, KeyModifiers::NONE))
+                .unwrap()
+                .notation(),
             "<prior>"
         );
     }

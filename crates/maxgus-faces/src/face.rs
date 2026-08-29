@@ -1,7 +1,7 @@
 //! A face: colours plus text attributes.
 
 use crate::color::{Color, ColorDepth};
-use crossterm::style::{Attribute, ContentStyle, Attributes as CtAttributes};
+use crossterm::style::{Attribute, Attributes as CtAttributes, ContentStyle};
 
 /// Text attributes. Each is tri-state: unset attributes are inherited rather
 /// than forced off, which is what lets `error` inherit from `default` and only
@@ -88,12 +88,18 @@ impl Face {
 
     /// A face with just a foreground colour, the common case in a theme.
     pub fn fg(color: Color) -> Face {
-        Face { foreground: Some(color), ..Default::default() }
+        Face {
+            foreground: Some(color),
+            ..Default::default()
+        }
     }
 
     /// A face with just a background colour.
     pub fn bg(color: Color) -> Face {
-        Face { background: Some(color), ..Default::default() }
+        Face {
+            background: Some(color),
+            ..Default::default()
+        }
     }
 
     pub fn with_fg(mut self, color: Color) -> Face {
@@ -199,7 +205,10 @@ mod tests {
 
     #[test]
     fn builders_compose() {
-        let f = Face::fg(Color::Indexed(1)).with_bg(Color::Indexed(0)).bold().underline();
+        let f = Face::fg(Color::Indexed(1))
+            .with_bg(Color::Indexed(0))
+            .bold()
+            .underline();
         assert_eq!(f.foreground, Some(Color::Indexed(1)));
         assert_eq!(f.background, Some(Color::Indexed(0)));
         assert_eq!(f.attributes.bold, Some(true));
@@ -210,19 +219,28 @@ mod tests {
     #[test]
     fn an_empty_face_is_recognised() {
         assert!(Face::new().is_empty());
-        assert!(!Face::fg(Color::Default).is_empty(), "an explicit default is still set");
+        assert!(
+            !Face::fg(Color::Default).is_empty(),
+            "an explicit default is still set"
+        );
         assert!(!Face::new().bold().is_empty());
     }
 
     #[test]
     fn inheritance_fills_only_unset_fields() {
-        let parent = Face::fg(Color::Rgb(1, 1, 1)).with_bg(Color::Rgb(2, 2, 2)).bold();
+        let parent = Face::fg(Color::Rgb(1, 1, 1))
+            .with_bg(Color::Rgb(2, 2, 2))
+            .bold();
         let mut child = Face::new().italic();
         child.inherit_from(&parent);
         assert_eq!(child.foreground, Some(Color::Rgb(1, 1, 1)));
         assert_eq!(child.background, Some(Color::Rgb(2, 2, 2)));
         assert_eq!(child.attributes.bold, Some(true), "taken from the parent");
-        assert_eq!(child.attributes.italic, Some(true), "the child's own value survives");
+        assert_eq!(
+            child.attributes.italic,
+            Some(true),
+            "the child's own value survives"
+        );
     }
 
     #[test]
@@ -232,16 +250,30 @@ mod tests {
         child.attributes.bold = Some(false);
         child.inherit_from(&parent);
         assert_eq!(child.foreground, Some(Color::Indexed(2)));
-        assert_eq!(child.attributes.bold, Some(false), "explicitly off stays off");
+        assert_eq!(
+            child.attributes.bold,
+            Some(false),
+            "explicitly off stays off"
+        );
     }
 
     #[test]
     fn overlay_lets_the_upper_face_win() {
-        let base = Face::fg(Color::Indexed(7)).with_bg(Color::Indexed(0)).bold();
+        let base = Face::fg(Color::Indexed(7))
+            .with_bg(Color::Indexed(0))
+            .bold();
         let region = Face::bg(Color::Indexed(8));
         let merged = base.merged(&region);
-        assert_eq!(merged.foreground, Some(Color::Indexed(7)), "syntax colour shows through");
-        assert_eq!(merged.background, Some(Color::Indexed(8)), "region background wins");
+        assert_eq!(
+            merged.foreground,
+            Some(Color::Indexed(7)),
+            "syntax colour shows through"
+        );
+        assert_eq!(
+            merged.background,
+            Some(Color::Indexed(8)),
+            "region background wins"
+        );
         assert_eq!(merged.attributes.bold, Some(true));
     }
 
@@ -285,7 +317,11 @@ mod tests {
         use crossterm::style::Attribute;
         let mut f = Face::new();
         f.attributes.bold = Some(false);
-        assert!(!f.to_style(ColorDepth::TrueColor).attributes.has(Attribute::Bold));
+        assert!(
+            !f.to_style(ColorDepth::TrueColor)
+                .attributes
+                .has(Attribute::Bold)
+        );
     }
 
     #[test]

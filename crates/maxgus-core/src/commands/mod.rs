@@ -7,14 +7,22 @@
 pub mod buffer;
 pub mod edit;
 pub mod file;
+#[cfg(feature = "git")]
+pub mod git;
 pub mod help;
+#[cfg(feature = "lsp")]
 pub mod lsp;
 pub mod minibuffer;
 pub mod misc;
 pub mod motion;
+pub mod panel;
 pub mod register;
 pub mod search;
+#[cfg(feature = "terminal")]
+pub mod terminal;
 pub mod text;
+#[cfg(feature = "git")]
+pub mod transient;
 pub mod tree;
 pub mod window;
 
@@ -30,12 +38,21 @@ pub fn standard_registry() -> Registry {
     buffer::register(&mut registry);
     file::register(&mut registry);
     search::register(&mut registry);
+    panel::register(&mut registry);
+    #[cfg(feature = "git")]
+    git::register(&mut registry);
+    #[cfg(feature = "terminal")]
+    terminal::register(&mut registry);
+    #[cfg(feature = "git")]
+    transient::register(&mut registry);
     tree::register(&mut registry);
     misc::register(&mut registry);
     help::register(&mut registry);
     register::register(&mut registry);
     text::register(&mut registry);
+    #[cfg(feature = "syntax")]
     text::register_syntax(&mut registry);
+    #[cfg(feature = "lsp")]
     lsp::register(&mut registry);
     registry
 }

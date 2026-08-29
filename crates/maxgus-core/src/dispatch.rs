@@ -18,8 +18,7 @@ use maxgus_keys::{Key, KeySequence, Lookup};
 pub const MAX_DEFERRED_CHAIN: usize = 8;
 
 /// Commands that build up a prefix argument, and so must not clear it.
-pub const PREFIX_COMMANDS: &[&str] =
-    &["universal-argument", "digit-argument", "negative-argument"];
+pub const PREFIX_COMMANDS: &[&str] = &["universal-argument", "digit-argument", "negative-argument"];
 
 /// Commands that append to the kill ring when run consecutively, which is what
 /// makes repeated `C-k` collect one entry rather than many.
@@ -69,7 +68,10 @@ pub struct Dispatcher {
 
 impl Dispatcher {
     pub fn new(registry: Registry) -> Dispatcher {
-        Dispatcher { registry, pending: KeySequence::empty() }
+        Dispatcher {
+            registry,
+            pending: KeySequence::empty(),
+        }
     }
 
     /// The half-typed sequence, for the echo area.
@@ -92,7 +94,9 @@ impl Dispatcher {
         }
         // Keys typed while recording go into the macro, except the ones that
         // end the recording — those are filtered when the macro is closed.
-        if !editor.replaying_macro && let Some(keys) = editor.recording_macro.as_mut() {
+        if !editor.replaying_macro
+            && let Some(keys) = editor.recording_macro.as_mut()
+        {
             keys.push(key);
         }
         self.pending.push(key);
@@ -101,7 +105,9 @@ impl Dispatcher {
         let sequence = self.pending.canonicalize_escape_prefix();
 
         match editor.keymaps.lookup(&sequence) {
-            Lookup::Prefix => Dispatch::Prefix { echo: self.pending.notation() },
+            Lookup::Prefix => Dispatch::Prefix {
+                echo: self.pending.notation(),
+            },
             Lookup::Undefined => {
                 let keys = self.pending.notation();
                 self.pending.clear();
@@ -128,7 +134,10 @@ impl Dispatcher {
     pub fn execute_with(&mut self, editor: &mut Editor, name: &str, args: Args) -> Dispatch {
         // A kill appends only when the previous command was also a kill.
         editor.kill_appending = KILL_COMMANDS.contains(&name)
-            && editor.last_command.as_deref().is_some_and(|last| KILL_COMMANDS.contains(&last));
+            && editor
+                .last_command
+                .as_deref()
+                .is_some_and(|last| KILL_COMMANDS.contains(&last));
         editor.this_command = Some(name.to_string());
 
         let outcome = self.registry.execute(editor, name, &args);
@@ -143,11 +152,16 @@ impl Dispatcher {
         editor.last_command = editor.this_command.take();
 
         let mut result = match outcome {
-            Ok(()) => Dispatch::Executed { command: name.to_string() },
+            Ok(()) => Dispatch::Executed {
+                command: name.to_string(),
+            },
             Err(error) => {
                 let message = error.to_string();
                 editor.error(message.clone());
-                Dispatch::Failed { command: name.to_string(), message }
+                Dispatch::Failed {
+                    command: name.to_string(),
+                    message,
+                }
             }
         };
 
@@ -155,7 +169,9 @@ impl Dispatcher {
         // re-enters whatever opened it. The chain is bounded so a command that
         // defers to itself cannot spin.
         for _ in 0..MAX_DEFERRED_CHAIN {
-            let Some((next, args)) = editor.deferred.take() else { return result };
+            let Some((next, args)) = editor.deferred.take() else {
+                return result;
+            };
             result = self.execute_with(editor, &next, args);
         }
         editor.deferred = None;
@@ -166,7 +182,9 @@ impl Dispatcher {
     /// Feeds a whole description such as `C-x C-f`, for tests and macros.
     pub fn handle_keys(&mut self, editor: &mut Editor, keys: &str) -> Dispatch {
         let sequence = KeySequence::parse(keys).expect("a well-formed key description");
-        let mut last = Dispatch::Prefix { echo: String::new() };
+        let mut last = Dispatch::Prefix {
+            echo: String::new(),
+        };
         for key in sequence.keys() {
             last = self.handle_key(editor, *key);
         }
@@ -233,12 +251,26 @@ mod tests {
             ("yank", note),
             ("execute-extended-command", note),
         ] {
-            r.register(Command { name, doc: "Test command.", handler, interactive: true });
+            r.register(Command {
+                name,
+                doc: "Test command.",
+                handler,
+                interactive: true,
+            });
         }
-        r.register(command!("self-insert-command", "Insert the key.", record_key));
+        r.register(command!(
+            "self-insert-command",
+            "Insert the key.",
+            record_key
+        ));
         r.register(command!("keyboard-quit", "Quit.", note));
         r.register(command!("explode", "Fail.", boom));
-        r.register(command!("universal-argument", "Prefix.", universal, non_interactive));
+        r.register(command!(
+            "universal-argument",
+            "Prefix.",
+            universal,
+            non_interactive
+        ));
         r.register(command!("digit-argument", "Digit.", digit, non_interactive));
         Dispatcher::new(r)
     }
@@ -247,7 +279,12 @@ mod tests {
     fn a_single_key_binding_runs_immediately() {
         let (mut d, mut e) = (dispatcher(), editor());
         let out = d.handle_keys(&mut e, "C-f");
-        assert_eq!(out, Dispatch::Executed { command: "forward-char".into() });
+        assert_eq!(
+            out,
+            Dispatch::Executed {
+                command: "forward-char".into()
+            }
+        );
         assert!(d.pending().is_empty());
     }
 
@@ -260,16 +297,29 @@ mod tests {
         assert_eq!(d.pending().notation(), "C-x");
 
         let out = d.handle_keys(&mut e, "C-f");
-        assert_eq!(out, Dispatch::Executed { command: "find-file".into() });
+        assert_eq!(
+            out,
+            Dispatch::Executed {
+                command: "find-file".into()
+            }
+        );
         assert!(d.pending().is_empty(), "the sequence completed");
     }
 
     #[test]
     fn the_echo_grows_as_a_long_sequence_is_typed() {
         let (mut d, mut e) = (dispatcher(), editor());
-        assert_eq!(d.handle_keys(&mut e, "C-x"), Dispatch::Prefix { echo: "C-x".into() });
+        assert_eq!(
+            d.handle_keys(&mut e, "C-x"),
+            Dispatch::Prefix { echo: "C-x".into() }
+        );
         // `C-x 4` is a prefix in the default map.
-        assert_eq!(d.handle_keys(&mut e, "4"), Dispatch::Prefix { echo: "C-x 4".into() });
+        assert_eq!(
+            d.handle_keys(&mut e, "4"),
+            Dispatch::Prefix {
+                echo: "C-x 4".into()
+            }
+        );
     }
 
     #[test]
@@ -277,7 +327,12 @@ mod tests {
         let (mut d, mut e) = (dispatcher(), editor());
         d.handle_keys(&mut e, "C-x");
         let out = d.handle_keys(&mut e, "C-z");
-        assert_eq!(out, Dispatch::Undefined { keys: "C-x C-z".into() });
+        assert_eq!(
+            out,
+            Dispatch::Undefined {
+                keys: "C-x C-z".into()
+            }
+        );
         assert!(d.pending().is_empty());
     }
 
@@ -285,8 +340,17 @@ mod tests {
     fn a_printable_key_falls_through_to_self_insert() {
         let (mut d, mut e) = (dispatcher(), editor());
         let out = d.handle_keys(&mut e, "q");
-        assert_eq!(out, Dispatch::Executed { command: "self-insert-command".into() });
-        assert_eq!(e.minibuffer.display(), "q", "the command saw which key it was");
+        assert_eq!(
+            out,
+            Dispatch::Executed {
+                command: "self-insert-command".into()
+            }
+        );
+        assert_eq!(
+            e.minibuffer.display(),
+            "q",
+            "the command saw which key it was"
+        );
     }
 
     #[test]
@@ -294,7 +358,12 @@ mod tests {
         let (mut d, mut e) = (dispatcher(), editor());
         d.handle_keys(&mut e, "ESC");
         let out = d.handle_keys(&mut e, "x");
-        assert_eq!(out, Dispatch::Executed { command: "execute-extended-command".into() });
+        assert_eq!(
+            out,
+            Dispatch::Executed {
+                command: "execute-extended-command".into()
+            }
+        );
     }
 
     #[test]
@@ -303,7 +372,10 @@ mod tests {
         let out = d.execute(&mut e, "explode", None);
         assert_eq!(
             out,
-            Dispatch::Failed { command: "explode".into(), message: "it broke".into() }
+            Dispatch::Failed {
+                command: "explode".into(),
+                message: "it broke".into()
+            }
         );
         assert_eq!(e.minibuffer.display(), "it broke");
         assert!(e.minibuffer.message_is_error());
@@ -321,7 +393,11 @@ mod tests {
     fn a_prefix_argument_reaches_the_command_and_is_then_cleared() {
         let (mut d, mut e) = (dispatcher(), editor());
         d.handle_keys(&mut e, "C-u");
-        assert_eq!(e.prefix, Prefix::Universal(1), "the argument survives its own command");
+        assert_eq!(
+            e.prefix,
+            Prefix::Universal(1),
+            "the argument survives its own command"
+        );
         d.handle_keys(&mut e, "C-f");
         assert_eq!(e.minibuffer.display(), "forward-char x4");
         assert_eq!(e.prefix, Prefix::None, "cleared after an ordinary command");
@@ -386,7 +462,12 @@ mod tests {
         d.reset();
         assert!(d.pending().is_empty());
         // The next key starts fresh.
-        assert_eq!(d.handle_keys(&mut e, "C-f"), Dispatch::Executed { command: "forward-char".into() });
+        assert_eq!(
+            d.handle_keys(&mut e, "C-f"),
+            Dispatch::Executed {
+                command: "forward-char".into()
+            }
+        );
     }
 
     #[test]
@@ -408,7 +489,11 @@ mod tests {
         );
 
         e.abort_prompt();
-        assert_eq!(d.handle_keys(&mut e, "C-f").command(), Some("forward-char"), "and back again");
+        assert_eq!(
+            d.handle_keys(&mut e, "C-f").command(),
+            Some("forward-char"),
+            "and back again"
+        );
     }
 
     #[test]
@@ -433,6 +518,9 @@ mod tests {
         assert_eq!(d.handle_keys(&mut e, "C-f").command(), Some("save-buffer"));
         assert!(e.remove_minor_map("test-mode"));
         assert_eq!(d.handle_keys(&mut e, "C-f").command(), Some("forward-char"));
-        assert!(!e.remove_minor_map("test-mode"), "removing twice is a no-op");
+        assert!(
+            !e.remove_minor_map("test-mode"),
+            "removing twice is a no-op"
+        );
     }
 }

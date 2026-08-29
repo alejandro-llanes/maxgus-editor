@@ -89,6 +89,9 @@ pub struct Completion {
     pub total: usize,
     /// Index into `candidates` when the user is cycling through them.
     pub selected: Option<usize>,
+    /// First candidate drawn: the list scrolls under a fixed box rather than
+    /// growing one, so a selection below the box brings the list up by a row.
+    pub top: usize,
     /// True once the candidate list should be shown.
     pub visible: bool,
     /// True once the user has moved the highlight themselves, which is what
@@ -114,7 +117,9 @@ impl Completion {
 
     /// The candidate currently selected while cycling.
     pub fn current(&self) -> Option<&str> {
-        self.selected.and_then(|i| self.candidates.get(i)).map(String::as_str)
+        self.selected
+            .and_then(|i| self.candidates.get(i))
+            .map(String::as_str)
     }
 
     fn clear(&mut self) {
@@ -394,8 +399,11 @@ impl Minibuffer {
     /// becomes visible instead — Emacs' behaviour of showing `*Completions*`
     /// only once completion has stopped making progress.
     pub fn complete(&mut self, candidates: &[String]) -> bool {
-        let matching: Vec<String> =
-            candidates.iter().filter(|c| c.starts_with(&self.input)).cloned().collect();
+        let matching: Vec<String> = candidates
+            .iter()
+            .filter(|c| c.starts_with(&self.input))
+            .cloned()
+            .collect();
 
         if matching.is_empty() {
             self.completion.clear();
@@ -416,6 +424,7 @@ impl Minibuffer {
             candidates: matching,
             selected: None,
             moved: false,
+            top: 0,
         };
         grew
     }
@@ -443,6 +452,10 @@ impl Minibuffer {
             visible: !matching.is_empty(),
             cycling: false,
             candidates: matching,
+            // Re-filtering makes a different list: the row a scrolled box was
+            // showing means nothing in it, and the selection is back at the
+            // top anyway.
+            top: 0,
         };
     }
 
@@ -465,6 +478,29 @@ impl Minibuffer {
         true
     }
 
+    /// Brings the selection into the `rows` the popup draws.
+    ///
+    /// A row at a time, from whichever edge it left: the list under the box
+    /// moves as little as it can, which is what makes an arrow key feel like
+    /// it moved one line rather than jumped.
+    pub fn scroll_completion(&mut self, rows: usize) {
+        let rows = rows.max(1);
+        let len = self.completion.len();
+        if len <= rows {
+            self.completion.top = 0;
+            return;
+        }
+        let selected = self.completion.selected.unwrap_or(0);
+        if selected < self.completion.top {
+            self.completion.top = selected;
+        } else if selected >= self.completion.top + rows {
+            self.completion.top = selected + 1 - rows;
+        }
+        // A list that shrank under a scrolled box would otherwise draw from
+        // past its own end.
+        self.completion.top = self.completion.top.min(len - rows);
+    }
+
     /// What `RET` should accept: the highlighted candidate, or the raw input
     /// when nothing is highlighted.
     pub fn chosen(&self) -> String {
@@ -473,8 +509,9 @@ impl Minibuffer {
         // their candidates, and an untouched prompt answers with nothing at
         // all, which is how a command that offers a default gets to use it.
         let queried = !self.input.is_empty();
-        let points_at_it =
-            self.active.is_some_and(|kind| kind.takes_the_candidate(queried));
+        let points_at_it = self
+            .active
+            .is_some_and(|kind| kind.takes_the_candidate(queried));
         if !self.completion.moved && !points_at_it {
             return self.input.clone();
         }
@@ -506,7 +543,11 @@ impl Minibuffer {
 
     /// True when the input exactly matches one candidate and no other.
     pub fn is_unique_match(&self, candidates: &[String]) -> bool {
-        candidates.iter().filter(|c| c.starts_with(&self.input)).count() == 1
+        candidates
+            .iter()
+            .filter(|c| c.starts_with(&self.input))
+            .count()
+            == 1
     }
 
     // ---- history -------------------------------------------------------
@@ -518,7 +559,9 @@ impl Minibuffer {
 
     /// `M-p`: walks back through history.
     pub fn history_previous(&mut self) -> bool {
-        let Some(kind) = self.active else { return false };
+        let Some(kind) = self.active else {
+            return false;
+        };
         let len = self.histories.get(&kind).map_or(0, Vec::len);
         if len == 0 {
             return false;
@@ -541,8 +584,12 @@ impl Minibuffer {
     /// `M-n`: walks forward, restoring the original input past the newest
     /// entry.
     pub fn history_next(&mut self) -> bool {
-        let Some(kind) = self.active else { return false };
-        let Some(index) = self.history_index else { return false };
+        let Some(kind) = self.active else {
+            return false;
+        };
+        let Some(index) = self.history_index else {
+            return false;
+        };
         if index == 0 {
             self.history_index = None;
             self.input = std::mem::take(&mut self.saved_input);
@@ -559,7 +606,9 @@ impl Minibuffer {
 
 /// The longest prefix every string in `items` shares.
 fn longest_common_prefix(items: &[String]) -> String {
-    let Some(first) = items.first() else { return String::new() };
+    let Some(first) = items.first() else {
+        return String::new();
+    };
     let mut prefix: Vec<char> = first.chars().collect();
     for item in &items[1..] {
         let shared = prefix
@@ -743,7 +792,10 @@ mod tests {
         m.abort();
         assert!(!m.is_active());
         assert_eq!(m.message(), Some("Quit"));
-        assert!(m.history(MinibufferKind::Command).is_empty(), "aborts are not recorded");
+        assert!(
+            m.history(MinibufferKind::Command).is_empty(),
+            "aborts are not recorded"
+        );
     }
 
     #[test]
@@ -754,7 +806,10 @@ mod tests {
             m.insert(command);
             m.accept();
         }
-        assert_eq!(m.history(MinibufferKind::Command), ["third", "second", "first"]);
+        assert_eq!(
+            m.history(MinibufferKind::Command),
+            ["third", "second", "first"]
+        );
     }
 
     #[test]
@@ -857,7 +912,11 @@ mod tests {
     fn completion_extends_to_the_common_prefix() {
         let mut m = prompting();
         m.insert("save");
-        assert!(m.complete(&candidates(&["save-buffer", "save-some-buffers", "switch-to-buffer"])));
+        assert!(m.complete(&candidates(&[
+            "save-buffer",
+            "save-some-buffers",
+            "switch-to-buffer"
+        ])));
         assert_eq!(m.input(), "save-", "as far as the two matches agree");
         assert_eq!(m.point(), 5);
         assert_eq!(m.completion().len(), 2);
@@ -938,7 +997,10 @@ mod tests {
         assert_eq!(longest_common_prefix(&candidates(&["abc", "abd"])), "ab");
         assert_eq!(longest_common_prefix(&candidates(&["abc", "xyz"])), "");
         assert_eq!(longest_common_prefix(&candidates(&["ab", "abc"])), "ab");
-        assert_eq!(longest_common_prefix(&candidates(&["héllo", "hérisson"])), "hé");
+        assert_eq!(
+            longest_common_prefix(&candidates(&["héllo", "hérisson"])),
+            "hé"
+        );
     }
 
     #[test]

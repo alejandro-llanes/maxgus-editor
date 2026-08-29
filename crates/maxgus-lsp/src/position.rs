@@ -58,7 +58,10 @@ pub struct LspPosition {
 }
 
 impl LspPosition {
-    pub const ZERO: LspPosition = LspPosition { line: 0, character: 0 };
+    pub const ZERO: LspPosition = LspPosition {
+        line: 0,
+        character: 0,
+    };
 
     pub fn new(line: u32, character: u32) -> LspPosition {
         LspPosition { line, character }
@@ -93,7 +96,10 @@ impl LspRange {
 
 /// Converts a character offset *within one line* into the LSP character field.
 pub fn character_of(line: &str, char_offset: usize, encoding: PositionEncoding) -> u32 {
-    line.chars().take(char_offset).map(|c| encoding.width_of(c)).sum::<usize>() as u32
+    line.chars()
+        .take(char_offset)
+        .map(|c| encoding.width_of(c))
+        .sum::<usize>() as u32
 }
 
 /// The inverse: converts an LSP character field into a character offset within
@@ -127,7 +133,10 @@ pub fn line_length(line: &str, encoding: PositionEncoding) -> u32 {
 /// Splits `text` into lines the way LSP counts them: on `\n`, with `\r`
 /// stripped, and with a trailing newline producing a final empty line.
 pub fn lines(text: &str) -> Vec<&str> {
-    let mut out: Vec<&str> = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
+    let mut out: Vec<&str> = text
+        .split('\n')
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .collect();
     if out.is_empty() {
         out.push("");
     }
@@ -142,7 +151,10 @@ pub fn lines(text: &str) -> Vec<&str> {
 pub fn byte_to_position(text: &str, byte: usize, encoding: PositionEncoding) -> LspPosition {
     let byte = byte.min(text.len());
     // Back off to a character boundary so the line scan cannot split one.
-    let byte = (0..=byte).rev().find(|b| text.is_char_boundary(*b)).unwrap_or(0);
+    let byte = (0..=byte)
+        .rev()
+        .find(|b| text.is_char_boundary(*b))
+        .unwrap_or(0);
     let before = &text[..byte];
     let line = before.bytes().filter(|b| *b == b'\n').count();
     let line_start = before.rfind('\n').map_or(0, |at| at + 1);
@@ -151,7 +163,11 @@ pub fn byte_to_position(text: &str, byte: usize, encoding: PositionEncoding) -> 
 }
 
 /// Converts a document-wide character offset into an LSP position.
-pub fn offset_to_position(text: &str, char_offset: usize, encoding: PositionEncoding) -> LspPosition {
+pub fn offset_to_position(
+    text: &str,
+    char_offset: usize,
+    encoding: PositionEncoding,
+) -> LspPosition {
     let mut consumed = 0usize;
     for (line_number, line) in lines(text).into_iter().enumerate() {
         let line_chars = line.chars().count();
@@ -192,16 +208,27 @@ mod tests {
 
     #[test]
     fn encodings_round_trip_through_their_wire_names() {
-        for e in [PositionEncoding::Utf8, PositionEncoding::Utf16, PositionEncoding::Utf32] {
+        for e in [
+            PositionEncoding::Utf8,
+            PositionEncoding::Utf16,
+            PositionEncoding::Utf32,
+        ] {
             assert_eq!(PositionEncoding::from_wire_name(e.wire_name()), e);
         }
-        assert_eq!(PositionEncoding::from_wire_name("nonsense"), PositionEncoding::Utf16);
+        assert_eq!(
+            PositionEncoding::from_wire_name("nonsense"),
+            PositionEncoding::Utf16
+        );
         assert_eq!(PositionEncoding::default(), PositionEncoding::Utf16);
     }
 
     #[test]
     fn ascii_is_the_same_in_every_encoding() {
-        for e in [PositionEncoding::Utf8, PositionEncoding::Utf16, PositionEncoding::Utf32] {
+        for e in [
+            PositionEncoding::Utf8,
+            PositionEncoding::Utf16,
+            PositionEncoding::Utf32,
+        ] {
             assert_eq!(character_of("hello", 3, e), 3);
             assert_eq!(char_offset_of("hello", 3, e), 3);
             assert_eq!(line_length("hello", e), 5);
@@ -240,10 +267,18 @@ mod tests {
 
     #[test]
     fn character_conversion_round_trips_in_every_encoding() {
-        for e in [PositionEncoding::Utf8, PositionEncoding::Utf16, PositionEncoding::Utf32] {
+        for e in [
+            PositionEncoding::Utf8,
+            PositionEncoding::Utf16,
+            PositionEncoding::Utf32,
+        ] {
             for offset in 0..=MIXED.chars().count() {
                 let character = character_of(MIXED, offset, e);
-                assert_eq!(char_offset_of(MIXED, character, e), offset, "{e:?} at {offset}");
+                assert_eq!(
+                    char_offset_of(MIXED, character, e),
+                    offset,
+                    "{e:?} at {offset}"
+                );
             }
         }
     }
@@ -263,8 +298,16 @@ mod tests {
     #[test]
     fn lines_are_split_the_way_lsp_counts_them() {
         assert_eq!(lines("a\nb\nc"), vec!["a", "b", "c"]);
-        assert_eq!(lines("a\nb\n"), vec!["a", "b", ""], "a trailing newline adds a line");
-        assert_eq!(lines("a\r\nb"), vec!["a", "b"], "carriage returns are stripped");
+        assert_eq!(
+            lines("a\nb\n"),
+            vec!["a", "b", ""],
+            "a trailing newline adds a line"
+        );
+        assert_eq!(
+            lines("a\r\nb"),
+            vec!["a", "b"],
+            "carriage returns are stripped"
+        );
         assert_eq!(lines(""), vec![""]);
     }
 
@@ -273,8 +316,16 @@ mod tests {
         let text = "one\ntwo\nthree";
         let e = PositionEncoding::Utf16;
         assert_eq!(offset_to_position(text, 0, e), LspPosition::new(0, 0));
-        assert_eq!(offset_to_position(text, 3, e), LspPosition::new(0, 3), "end of line 0");
-        assert_eq!(offset_to_position(text, 4, e), LspPosition::new(1, 0), "start of line 1");
+        assert_eq!(
+            offset_to_position(text, 3, e),
+            LspPosition::new(0, 3),
+            "end of line 0"
+        );
+        assert_eq!(
+            offset_to_position(text, 4, e),
+            LspPosition::new(1, 0),
+            "start of line 1"
+        );
         assert_eq!(offset_to_position(text, 9, e), LspPosition::new(2, 1));
     }
 
@@ -284,7 +335,11 @@ mod tests {
         let e = PositionEncoding::Utf16;
         for offset in 0..=text.chars().count() {
             let position = offset_to_position(text, offset, e);
-            assert_eq!(position_to_offset(text, position, e), offset, "offset {offset}");
+            assert_eq!(
+                position_to_offset(text, position, e),
+                offset,
+                "offset {offset}"
+            );
         }
     }
 
@@ -308,14 +363,21 @@ mod tests {
         assert_eq!(byte_to_position(text, 3, e), LspPosition::new(0, 3));
         assert_eq!(byte_to_position(text, 4, e), LspPosition::new(1, 0));
         assert_eq!(byte_to_position(text, 9, e), LspPosition::new(2, 1));
-        assert_eq!(byte_to_position(text, 999, e), LspPosition::new(2, 5), "clamps");
+        assert_eq!(
+            byte_to_position(text, 999, e),
+            LspPosition::new(2, 5),
+            "clamps"
+        );
     }
 
     #[test]
     fn byte_conversion_agrees_with_the_character_one() {
         let text = "ascii\né漢🎉 tail\nlast";
         let e = PositionEncoding::Utf16;
-        for (byte, _) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
+        for (byte, _) in text
+            .char_indices()
+            .chain(std::iter::once((text.len(), ' ')))
+        {
             let chars = text[..byte].chars().count();
             assert_eq!(
                 byte_to_position(text, byte, e),

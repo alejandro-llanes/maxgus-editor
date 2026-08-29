@@ -10,6 +10,6 @@ pub mod face;
 pub mod names;
 pub mod theme;
 
-pub use color::{Color, ColorDepth, ColorError};
+pub use color::{Color, ColorDepth, ColorError, rgb_to_ansi256, xterm_palette_rgb};
 pub use face::{Attributes, Face};
 pub use theme::{Theme, ThemeError};

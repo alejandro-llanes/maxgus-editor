@@ -16,23 +16,39 @@ pub struct Cell {
 
 impl Default for Cell {
     fn default() -> Cell {
-        Cell { ch: ' ', face: Face::default(), continuation: false }
+        Cell {
+            ch: ' ',
+            face: Face::default(),
+            continuation: false,
+        }
     }
 }
 
 impl Cell {
     pub fn new(ch: char, face: Face) -> Cell {
-        Cell { ch, face, continuation: false }
+        Cell {
+            ch,
+            face,
+            continuation: false,
+        }
     }
 
     /// A blank cell in `face`, which is what clearing paints.
     pub fn blank(face: Face) -> Cell {
-        Cell { ch: ' ', face, continuation: false }
+        Cell {
+            ch: ' ',
+            face,
+            continuation: false,
+        }
     }
 
     /// The width of this cell's character in terminal columns.
     pub fn width(&self) -> usize {
-        if self.continuation { 0 } else { char_width(self.ch) }
+        if self.continuation {
+            0
+        } else {
+            char_width(self.ch)
+        }
     }
 }
 
@@ -56,12 +72,18 @@ pub struct Surface {
 impl Surface {
     /// A surface of `size`, filled with blanks in the default face.
     pub fn new(size: Size) -> Surface {
-        Surface { size, cells: vec![Cell::default(); size.area()] }
+        Surface {
+            size,
+            cells: vec![Cell::default(); size.area()],
+        }
     }
 
     /// A surface filled with blanks in `face`.
     pub fn filled(size: Size, face: Face) -> Surface {
-        Surface { size, cells: vec![Cell::blank(face); size.area()] }
+        Surface {
+            size,
+            cells: vec![Cell::blank(face); size.area()],
+        }
     }
 
     pub fn size(&self) -> Size {
@@ -110,7 +132,15 @@ impl Surface {
                 return 1;
             }
             self.set(x, y, Cell::new(ch, face));
-            self.set(x + 1, y, Cell { ch: ' ', face, continuation: true });
+            self.set(
+                x + 1,
+                y,
+                Cell {
+                    ch: ' ',
+                    face,
+                    continuation: true,
+                },
+            );
             return 2;
         }
         if width == 0 {
@@ -143,7 +173,9 @@ impl Surface {
 
     /// Fills `rect` with blanks in `face`.
     pub fn clear_rect(&mut self, rect: Rect, face: Face) {
-        let Some(rect) = rect.intersect(&self.area()) else { return };
+        let Some(rect) = rect.intersect(&self.area()) else {
+            return;
+        };
         for (x, y) in rect.cells() {
             self.set(x, y, Cell::blank(face));
         }
@@ -361,6 +393,14 @@ mod tests {
     fn cell_width_accounts_for_continuations() {
         assert_eq!(Cell::new('a', face()).width(), 1);
         assert_eq!(Cell::new('漢', face()).width(), 2);
-        assert_eq!(Cell { ch: ' ', face: face(), continuation: true }.width(), 0);
+        assert_eq!(
+            Cell {
+                ch: ' ',
+                face: face(),
+                continuation: true
+            }
+            .width(),
+            0
+        );
     }
 }

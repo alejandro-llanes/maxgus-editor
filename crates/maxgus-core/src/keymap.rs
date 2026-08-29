@@ -48,9 +48,13 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("M-g g", "goto-line"),
     ("M-g M-g", "goto-line"),
     ("M-g c", "goto-char"),
+    #[cfg(feature = "lsp")]
     ("M-g n", "next-error"),
+    #[cfg(feature = "lsp")]
     ("M-g M-n", "next-error"),
+    #[cfg(feature = "lsp")]
     ("M-g p", "previous-error"),
+    #[cfg(feature = "lsp")]
     ("M-g M-p", "previous-error"),
     // ---- insertion and deletion ----
     ("RET", "newline"),
@@ -83,6 +87,7 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-M-@", "mark-sexp"),
     ("M-h", "mark-paragraph"),
     ("C-M-h", "mark-defun"),
+    #[cfg(feature = "syntax")]
     ("C-=", "expand-region"),
     // ---- transposition and case ----
     ("C-t", "transpose-chars"),
@@ -122,7 +127,6 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-x <left>", "previous-buffer"),
     ("C-x C-<right>", "next-buffer"),
     ("C-x C-<left>", "previous-buffer"),
-
     // Directional window movement. `C-x o` cycles in storage order, which
     // with a file tree open means guessing where you land; these say where to
     // go. Emacs puts windmove on `S-<arrow>` by default, but a terminal
@@ -178,21 +182,42 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-x )", "kmacro-end-macro"),
     ("C-x e", "kmacro-end-and-call-macro"),
     // ---- the file tree ----
+    #[cfg(feature = "git")]
+    ("C-x g", "magit-status"),
+    ("C-c e", "edit-configuration"),
+    ("C-c o", "open-externally"),
     ("C-x t t", "treefile-toggle"),
+    #[cfg(feature = "terminal")]
+    ("C-x t v", "terminal-toggle"),
+    #[cfg(feature = "terminal")]
+    ("C-x t s", "terminal-select"),
     ("C-x t 1", "treefile-select"),
+    ("C-x t 2", "panel-select-symbols"),
+    ("C-x t 3", "panel-select-buffers"),
     ("C-x t d", "treefile-select-directory"),
     // ---- language server ----
+    #[cfg(feature = "lsp")]
     ("M-.", "lsp-find-definition"),
     ("M-,", "pop-mark"),
+    #[cfg(feature = "lsp")]
     ("M-?", "lsp-find-references"),
+    #[cfg(feature = "lsp")]
     ("C-M-i", "completion-at-point"),
+    #[cfg(feature = "lsp")]
     ("C-c l d", "lsp-describe-thing-at-point"),
+    #[cfg(feature = "lsp")]
     ("C-c l r", "lsp-rename"),
+    #[cfg(feature = "lsp")]
     ("C-c l f", "lsp-format-buffer"),
+    #[cfg(feature = "lsp")]
     ("C-c l a", "lsp-code-action"),
+    #[cfg(feature = "lsp")]
     ("C-c l s", "lsp-workspace-symbol"),
+    #[cfg(feature = "lsp")]
     ("C-c l h", "lsp-signature-help"),
+    #[cfg(feature = "lsp")]
     ("C-c l o", "lsp-document-symbols"),
+    #[cfg(feature = "lsp")]
     ("C-c l R", "lsp-restart-server"),
     // ---- help ----
     ("C-h k", "describe-key"),
@@ -201,6 +226,7 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-h b", "describe-bindings"),
     ("C-h m", "describe-mode"),
     ("C-h w", "where-is"),
+    #[cfg(feature = "syntax")]
     ("C-h s", "describe-syntax-at-point"),
     ("C-h t", "help-with-tutorial"),
     ("<f1>", "describe-key"),
@@ -217,8 +243,9 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
 ];
 
 /// `M-0` through `M-9`, which start or extend a numeric prefix argument.
-pub const DIGIT_ARGUMENT_KEYS: [&str; 10] =
-    ["M-0", "M-1", "M-2", "M-3", "M-4", "M-5", "M-6", "M-7", "M-8", "M-9"];
+pub const DIGIT_ARGUMENT_KEYS: [&str; 10] = [
+    "M-0", "M-1", "M-2", "M-3", "M-4", "M-5", "M-6", "M-7", "M-8", "M-9",
+];
 
 /// Builds the global keymap, with `self-insert-command` as the fallback for
 /// any printable key that is not otherwise bound.
@@ -304,6 +331,251 @@ pub fn minibuffer_keymap() -> Result<Keymap> {
     Ok(map)
 }
 
+#[cfg(feature = "terminal")]
+/// The keys that are *not* sent to the shell.
+///
+/// Everything else is, by way of the map's default binding. The prefix is
+/// `C-c`, which is what vterm uses and what a shell uses least — and `C-c c`
+/// sends a real interrupt, so the one key the prefix takes away is given
+/// straight back.
+pub const TERMINAL_BINDINGS: &[(&str, &str)] = &[
+    ("C-c C-t", "terminal-copy-mode"),
+    ("C-c t", "terminal-new-tab"),
+    ("C-c n", "terminal-next-tab"),
+    ("C-c p", "terminal-previous-tab"),
+    ("C-c k", "terminal-close-tab"),
+    // The four keys the editor keeps, given straight back under the prefix.
+    ("C-c c", "terminal-send-control"),
+    ("C-c x", "terminal-send-control"),
+    ("C-c g", "terminal-send-control"),
+    ("C-c h", "terminal-send-control"),
+    ("C-c C-y", "terminal-paste"),
+    ("C-c C-v", "terminal-paste"),
+    ("C-c 1", "terminal-select-tab"),
+    ("C-c 2", "terminal-select-tab"),
+    ("C-c 3", "terminal-select-tab"),
+    ("C-c 4", "terminal-select-tab"),
+    ("C-c 5", "terminal-select-tab"),
+    ("C-c 6", "terminal-select-tab"),
+    ("C-c 7", "terminal-select-tab"),
+    ("C-c 8", "terminal-select-tab"),
+    ("C-c 9", "terminal-select-tab"),
+    // Scrolling back is worth having without leaving the shell, since it is
+    // the one thing a reader wants that typing cannot give.
+    ("S-<prior>", "terminal-scroll-up"),
+    ("S-<next>", "terminal-scroll-down"),
+];
+
+#[cfg(feature = "terminal")]
+/// Reading mode: keys move a cursor over the output instead of reaching the
+/// shell, so a selection can be made without a mouse.
+pub const TERMINAL_COPY_BINDINGS: &[(&str, &str)] = &[
+    ("C-g", "terminal-copy-mode-quit"),
+    ("q", "terminal-copy-mode-quit"),
+    ("C-c C-t", "terminal-copy-mode-quit"),
+    ("C-SPC", "terminal-set-mark"),
+    ("C-x SPC", "terminal-set-block-mark"),
+    ("V", "terminal-set-line-mark"),
+    ("M-w", "terminal-copy"),
+    ("w", "terminal-copy"),
+    ("n", "terminal-next-line"),
+    ("p", "terminal-previous-line"),
+    ("C-n", "terminal-next-line"),
+    ("C-p", "terminal-previous-line"),
+    ("C-f", "terminal-forward-char"),
+    ("C-b", "terminal-backward-char"),
+    ("<down>", "terminal-next-line"),
+    ("<up>", "terminal-previous-line"),
+    ("<right>", "terminal-forward-char"),
+    ("<left>", "terminal-backward-char"),
+    ("C-a", "terminal-beginning-of-line"),
+    ("C-e", "terminal-end-of-line"),
+    ("<home>", "terminal-beginning-of-line"),
+    ("<end>", "terminal-end-of-line"),
+    ("<prior>", "terminal-scroll-up"),
+    ("<next>", "terminal-scroll-down"),
+    ("M-<", "terminal-goto-first"),
+    ("M->", "terminal-goto-last"),
+];
+
+#[cfg(feature = "terminal")]
+/// The map for typing at a shell: a few commands, and everything else sent.
+pub fn terminal_keymap() -> Result<Keymap> {
+    let mut map = Keymap::new(crate::commands::terminal::TERMINAL_MODE);
+    for (keys, command) in TERMINAL_BINDINGS {
+        map.define_str(keys, *command)?;
+    }
+    // The reason a terminal is a terminal: an unbound key is not an error, it
+    // is a keystroke, and it belongs to the program running inside.
+    map.set_default_binding(Some("terminal-send-key".to_string()));
+    // Except these four, which stay the editor's or there would be no way to
+    // leave the terminal, ask for help, run a command, or stop what is
+    // happening. `C-c x`, `C-c g` and `C-c h` send them for real.
+    let keep: Vec<maxgus_keys::Key> = ["C-x", "M-x", "C-h", "C-g"]
+        .iter()
+        .filter_map(|k| maxgus_keys::KeySequence::parse(k).ok())
+        .filter_map(|sequence| sequence.keys().first().copied())
+        .collect();
+    map.set_default_catches_all(&keep);
+    Ok(map)
+}
+
+#[cfg(feature = "terminal")]
+/// The map for reading a terminal's output.
+pub fn terminal_copy_keymap() -> Result<Keymap> {
+    let mut map = Keymap::new(crate::commands::terminal::TERMINAL_COPY_MODE);
+    for (keys, command) in TERMINAL_COPY_BINDINGS {
+        map.define_str(keys, *command)?;
+    }
+    Ok(map)
+}
+
+#[cfg(feature = "git")]
+/// Magit's own keymap.
+///
+/// The single letters are *menus*, not prefixes: `c` shows what committing
+/// can mean here and what is switched on, and the second key chooses. That is
+/// how magit is used, and it is why magit is usable without being memorised.
+pub const MAGIT_BINDINGS: &[(&str, &str)] = &[
+    // ---- moving ----
+    // `n` and `p` move by section, skipping the lines inside a hunk; the
+    // ordinary motion keys still move by line.
+    ("n", "magit-next-section"),
+    ("p", "magit-previous-section"),
+    ("M-n", "magit-next-sibling"),
+    ("M-p", "magit-previous-sibling"),
+    ("^", "magit-parent-section"),
+    ("C-n", "next-line"),
+    ("C-p", "previous-line"),
+    ("<down>", "next-line"),
+    ("<up>", "previous-line"),
+    ("M-<", "beginning-of-buffer"),
+    ("M->", "end-of-buffer"),
+    ("SPC", "scroll-up-command"),
+    ("DEL", "scroll-down-command"),
+    // ---- folding ----
+    ("TAB", "magit-toggle"),
+    ("S-TAB", "magit-toggle-all"),
+    ("RET", "magit-visit"),
+    // ---- the index, which is what the status view is for ----
+    ("s", "magit-stage"),
+    ("S", "magit-stage-all"),
+    ("u", "magit-unstage"),
+    ("U", "magit-unstage-all"),
+    ("k", "magit-discard"),
+    // ---- the menus ----
+    ("?", "magit-dispatch"),
+    ("h", "magit-dispatch"),
+    ("c", "magit-commit-menu"),
+    ("d", "magit-diff-menu"),
+    ("l", "magit-log-menu"),
+    ("b", "magit-branch-menu"),
+    ("m", "magit-merge-menu"),
+    ("r", "magit-rebase-menu"),
+    ("X", "magit-reset-menu"),
+    ("z", "magit-stash-menu"),
+    ("t", "magit-tag-menu"),
+    ("P", "magit-push-menu"),
+    ("F", "magit-pull-menu"),
+    ("f", "magit-fetch-menu"),
+    ("M", "magit-remote-menu"),
+    ("A", "magit-cherry-pick-menu"),
+    ("V", "magit-revert-menu"),
+    // ---- the other views ----
+    ("y", "magit-show-refs"),
+    ("$", "magit-process-buffer"),
+    ("!", "magit-run"),
+    ("i", "magit-gitignore"),
+    // ---- the view itself ----
+    ("g", "magit-refresh"),
+    ("q", "magit-quit"),
+];
+
+#[cfg(feature = "git")]
+/// Writing a commit message: the editor's own keys, plus two.
+pub const COMMIT_BINDINGS: &[(&str, &str)] = &[
+    ("C-c C-c", "magit-commit-finish"),
+    ("C-c C-k", "magit-commit-cancel"),
+];
+
+#[cfg(feature = "git")]
+pub fn magit_keymap() -> Result<Keymap> {
+    let mut map = Keymap::new(crate::commands::git::GIT_MODE);
+    for (keys, command) in MAGIT_BINDINGS {
+        map.define_str(keys, *command)?;
+    }
+    Ok(map)
+}
+
+#[cfg(feature = "git")]
+pub fn commit_keymap() -> Result<Keymap> {
+    let mut map = Keymap::new(crate::commands::git::COMMIT_MODE);
+    for (keys, command) in COMMIT_BINDINGS {
+        map.define_str(keys, *command)?;
+    }
+    Ok(map)
+}
+
+#[cfg(feature = "git")]
+/// The map a menu takes the keyboard with.
+///
+/// Every key, with no exceptions: a menu that let some keys through would be
+/// competing with whatever they mean underneath, and `C-g` is handled by the
+/// dispatch itself so there is always a way out.
+pub fn transient_keymap() -> Result<Keymap> {
+    let mut map = Keymap::new(crate::commands::transient::TRANSIENT_MODE);
+    map.set_default_binding(Some("transient-dispatch".to_string()));
+    map.set_default_catches_all(&[]);
+    Ok(map)
+}
+
+/// The symbol outline's keys.
+///
+/// A short map: the outline is read and jumped from, so it needs moving,
+/// folding and going, and nothing else.
+pub const SYMBOLS_BINDINGS: &[(&str, &str)] = &[
+    ("n", "next-line"),
+    ("p", "previous-line"),
+    ("TAB", "panel-toggle-symbol"),
+    ("<left>", "panel-collapse-symbol"),
+    ("<right>", "panel-expand-symbol"),
+    ("RET", "panel-goto-symbol"),
+    ("g", "panel-refresh-symbols"),
+    ("q", "panel-quit"),
+    ("t r", "panel-toggle-tree-section"),
+    ("t s", "panel-toggle-symbols-section"),
+    ("t b", "panel-toggle-buffers-section"),
+];
+
+/// The buffer list's keys.
+pub const BUFFERS_BINDINGS: &[(&str, &str)] = &[
+    ("n", "next-line"),
+    ("p", "previous-line"),
+    ("RET", "panel-switch-to-buffer"),
+    ("k", "panel-kill-buffer"),
+    ("d", "panel-kill-buffer"),
+    ("q", "panel-quit"),
+    ("t r", "panel-toggle-tree-section"),
+    ("t s", "panel-toggle-symbols-section"),
+    ("t b", "panel-toggle-buffers-section"),
+];
+
+pub fn symbols_keymap() -> Result<Keymap> {
+    let mut map = Keymap::new(crate::commands::tree::SYMBOLS_MODE);
+    for (keys, command) in SYMBOLS_BINDINGS {
+        map.define_str(keys, *command)?;
+    }
+    Ok(map)
+}
+
+pub fn buffers_keymap() -> Result<Keymap> {
+    let mut map = Keymap::new(crate::commands::tree::BUFFERS_MODE);
+    for (keys, command) in BUFFERS_BINDINGS {
+        map.define_str(keys, *command)?;
+    }
+    Ok(map)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,7 +609,11 @@ mod tests {
         keys.sort_unstable();
         let before = keys.len();
         keys.dedup();
-        assert_eq!(keys.len(), before, "a key sequence appears twice in the table");
+        assert_eq!(
+            keys.len(),
+            before,
+            "a key sequence appears twice in the table"
+        );
     }
 
     #[test]
@@ -389,16 +665,30 @@ mod tests {
         assert!(map.lookup(&seq("C-x 4")).is_prefix());
         assert!(map.lookup(&seq("C-x n")).is_prefix());
         assert!(map.lookup(&seq("C-x t")).is_prefix());
-        assert_eq!(map.lookup(&seq("C-x r j")).command(), Some("jump-to-register"));
+        assert_eq!(
+            map.lookup(&seq("C-x r j")).command(),
+            Some("jump-to-register")
+        );
     }
 
     #[test]
     fn every_multi_key_prefix_resolves() {
         let map = global_keymap().unwrap();
-        for prefix in
-            ["C-x", "C-h", "C-c", "M-g", "M-s", "C-c l", "C-x r", "C-x 4", "C-x t", "C-x RET"]
-        {
-            assert!(map.lookup(&seq(prefix)).is_prefix(), "`{prefix}` should be a prefix");
+        // `C-c l` is the language server's prefix: a build without one has no
+        // reason to reserve it, and nothing to put under it.
+        #[cfg(feature = "lsp")]
+        let prefixes = [
+            "C-x", "C-h", "C-c", "M-g", "M-s", "C-c l", "C-x r", "C-x 4", "C-x t", "C-x RET",
+        ];
+        #[cfg(not(feature = "lsp"))]
+        let prefixes = [
+            "C-x", "C-h", "C-c", "M-g", "M-s", "C-x r", "C-x 4", "C-x t", "C-x RET",
+        ];
+        for prefix in prefixes {
+            assert!(
+                map.lookup(&seq(prefix)).is_prefix(),
+                "`{prefix}` should be a prefix"
+            );
         }
     }
 
@@ -406,10 +696,17 @@ mod tests {
     fn digit_arguments_are_bound_for_every_digit() {
         let map = global_keymap().unwrap();
         for keys in DIGIT_ARGUMENT_KEYS {
-            assert_eq!(map.lookup(&seq(keys)).command(), Some("digit-argument"), "`{keys}`");
+            assert_eq!(
+                map.lookup(&seq(keys)).command(),
+                Some("digit-argument"),
+                "`{keys}`"
+            );
         }
         assert_eq!(map.lookup(&seq("M--")).command(), Some("negative-argument"));
-        assert_eq!(map.lookup(&seq("C-u")).command(), Some("universal-argument"));
+        assert_eq!(
+            map.lookup(&seq("C-u")).command(),
+            Some("universal-argument")
+        );
     }
 
     #[test]
@@ -493,15 +790,27 @@ mod tests {
         // rewrites it, and the result must find the same binding.
         let rewritten = seq("ESC x").canonicalize_escape_prefix();
         assert_eq!(rewritten.notation(), "M-x");
-        assert_eq!(map.lookup(&rewritten).command(), Some("execute-extended-command"));
+        assert_eq!(
+            map.lookup(&rewritten).command(),
+            Some("execute-extended-command")
+        );
     }
 
     #[test]
     fn the_isearch_map_shadows_printing_characters() {
         let map = isearch_keymap().unwrap();
-        assert_eq!(map.lookup(&seq("a")).command(), Some("isearch-printing-char"));
-        assert_eq!(map.lookup(&seq("C-s")).command(), Some("isearch-repeat-forward"));
-        assert_eq!(map.lookup(&seq("C-r")).command(), Some("isearch-repeat-backward"));
+        assert_eq!(
+            map.lookup(&seq("a")).command(),
+            Some("isearch-printing-char")
+        );
+        assert_eq!(
+            map.lookup(&seq("C-s")).command(),
+            Some("isearch-repeat-forward")
+        );
+        assert_eq!(
+            map.lookup(&seq("C-r")).command(),
+            Some("isearch-repeat-backward")
+        );
         assert_eq!(map.lookup(&seq("C-g")).command(), Some("isearch-abort"));
         assert_eq!(map.lookup(&seq("RET")).command(), Some("isearch-exit"));
     }
@@ -509,11 +818,26 @@ mod tests {
     #[test]
     fn the_minibuffer_map_shadows_printing_characters() {
         let map = minibuffer_keymap().unwrap();
-        assert_eq!(map.lookup(&seq("a")).command(), Some("minibuffer-self-insert"));
-        assert_eq!(map.lookup(&seq("TAB")).command(), Some("minibuffer-complete"));
-        assert_eq!(map.lookup(&seq("RET")).command(), Some("minibuffer-complete-and-exit"));
-        assert_eq!(map.lookup(&seq("C-g")).command(), Some("minibuffer-keyboard-quit"));
-        assert_eq!(map.lookup(&seq("M-p")).command(), Some("minibuffer-previous-history"));
+        assert_eq!(
+            map.lookup(&seq("a")).command(),
+            Some("minibuffer-self-insert")
+        );
+        assert_eq!(
+            map.lookup(&seq("TAB")).command(),
+            Some("minibuffer-complete")
+        );
+        assert_eq!(
+            map.lookup(&seq("RET")).command(),
+            Some("minibuffer-complete-and-exit")
+        );
+        assert_eq!(
+            map.lookup(&seq("C-g")).command(),
+            Some("minibuffer-keyboard-quit")
+        );
+        assert_eq!(
+            map.lookup(&seq("M-p")).command(),
+            Some("minibuffer-previous-history")
+        );
     }
 
     #[test]
@@ -545,6 +869,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn a_binding_written_with_a_control_alias_reaches_the_same_command() {
         let map = global_keymap().unwrap();
@@ -559,8 +884,14 @@ mod tests {
             "the spelling a terminal actually delivers"
         );
         // Likewise TAB and `C-i`.
-        assert_eq!(map.lookup(&seq("TAB")).command(), Some("indent-for-tab-command"));
-        assert_eq!(map.lookup(&seq("C-i")).command(), Some("indent-for-tab-command"));
+        assert_eq!(
+            map.lookup(&seq("TAB")).command(),
+            Some("indent-for-tab-command")
+        );
+        assert_eq!(
+            map.lookup(&seq("C-i")).command(),
+            Some("indent-for-tab-command")
+        );
         // And RET and `C-m`.
         assert_eq!(map.lookup(&seq("RET")).command(), Some("newline"));
         assert_eq!(map.lookup(&seq("C-m")).command(), Some("newline"));
@@ -570,7 +901,11 @@ mod tests {
     fn command_names_use_the_conventional_spelling() {
         // Emacs command names are lowercase words joined by hyphens; anything
         // else is a typo waiting to be discovered at run time.
-        for (keys, command) in GLOBAL_BINDINGS.iter().chain(ISEARCH_BINDINGS).chain(MINIBUFFER_BINDINGS) {
+        for (keys, command) in GLOBAL_BINDINGS
+            .iter()
+            .chain(ISEARCH_BINDINGS)
+            .chain(MINIBUFFER_BINDINGS)
+        {
             assert!(
                 command.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
                 "`{keys}` runs `{command}`, which is not a conventional command name"
@@ -586,8 +921,19 @@ mod tests {
         user.define_str("C-c p", "my-project-command").unwrap();
         map.merge(&user);
         assert_eq!(map.lookup(&seq("C-x C-f")).command(), Some("my-find-file"));
-        assert_eq!(map.lookup(&seq("C-c p")).command(), Some("my-project-command"));
-        assert_eq!(map.lookup(&seq("C-x C-s")).command(), Some("save-buffer"), "untouched");
-        assert_eq!(map.lookup(&seq("q")).command(), Some("self-insert-command"), "fallback kept");
+        assert_eq!(
+            map.lookup(&seq("C-c p")).command(),
+            Some("my-project-command")
+        );
+        assert_eq!(
+            map.lookup(&seq("C-x C-s")).command(),
+            Some("save-buffer"),
+            "untouched"
+        );
+        assert_eq!(
+            map.lookup(&seq("q")).command(),
+            Some("self-insert-command"),
+            "fallback kept"
+        );
     }
 }

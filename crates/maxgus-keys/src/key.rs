@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 
 /// Modifier bits. Emacs' hyper and super are accepted so bindings copied from
 /// an Emacs config parse, even though terminals rarely deliver them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 pub struct Modifiers(u8);
 
 impl Modifiers {
@@ -321,7 +323,9 @@ mod tests {
 
     #[test]
     fn named_keys_round_trip() {
-        for name in ["RET", "TAB", "DEL", "ESC", "<f5>", "<up>", "<prior>", "<delete>"] {
+        for name in [
+            "RET", "TAB", "DEL", "ESC", "<f5>", "<up>", "<prior>", "<delete>",
+        ] {
             let k = Key::parse(name).unwrap();
             assert_eq!(k.notation(), name, "`{name}` should round-trip");
         }
@@ -330,7 +334,10 @@ mod tests {
     #[test]
     fn alternative_key_spellings_are_accepted() {
         assert_eq!(Key::parse("<return>").unwrap(), Key::plain(KeyCode::Enter));
-        assert_eq!(Key::parse("<backspace>").unwrap(), Key::plain(KeyCode::Backspace));
+        assert_eq!(
+            Key::parse("<backspace>").unwrap(),
+            Key::plain(KeyCode::Backspace)
+        );
         assert_eq!(Key::parse("<pageup>").unwrap(), Key::plain(KeyCode::PageUp));
         assert_eq!(Key::parse("<space>").unwrap(), Key::char(' '));
     }
@@ -356,7 +363,10 @@ mod tests {
         assert_eq!(Key::parse("C-m").unwrap(), Key::plain(KeyCode::Enter));
         assert_eq!(Key::parse("C-[").unwrap(), Key::plain(KeyCode::Escape));
         assert_eq!(Key::parse("C-?").unwrap(), Key::plain(KeyCode::Backspace));
-        assert_eq!(Key::parse("C-@").unwrap(), Key::new(KeyCode::Char(' '), Modifiers::CONTROL));
+        assert_eq!(
+            Key::parse("C-@").unwrap(),
+            Key::new(KeyCode::Char(' '), Modifiers::CONTROL)
+        );
     }
 
     #[test]
@@ -377,7 +387,10 @@ mod tests {
     #[test]
     fn malformed_descriptions_are_rejected() {
         assert_eq!(Key::parse(""), Err(KeyError::Empty));
-        assert_eq!(Key::parse("C-"), Err(KeyError::DanglingModifier("C-".into())));
+        assert_eq!(
+            Key::parse("C-"),
+            Err(KeyError::DanglingModifier("C-".into()))
+        );
         assert!(matches!(Key::parse("<nope>"), Err(KeyError::UnknownKey(_))));
         assert!(matches!(Key::parse("<f300>"), Err(KeyError::UnknownKey(_))));
     }
@@ -398,7 +411,11 @@ mod tests {
         let m = Modifiers::CONTROL | Modifiers::META;
         assert!(m.contains(Modifiers::CONTROL));
         assert!(!m.contains(Modifiers::SHIFT));
-        assert!(m.remove(Modifiers::CONTROL).remove(Modifiers::META).is_empty());
+        assert!(
+            m.remove(Modifiers::CONTROL)
+                .remove(Modifiers::META)
+                .is_empty()
+        );
         assert_eq!(m.notation(), "C-M-");
     }
 }

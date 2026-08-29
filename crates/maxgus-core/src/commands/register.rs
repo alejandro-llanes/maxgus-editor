@@ -10,20 +10,58 @@ use maxgus_text::{Range, Register};
 /// Registers the register commands.
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
-        command!("point-to-register", "Record point in a register.", point_to_register),
-        command!("jump-to-register", "Go to the position in a register.", jump_to_register),
-        command!("copy-to-register", "Copy the region into a register.", copy_to_register),
-        command!("insert-register", "Insert a register's contents.", insert_register),
-        command!("number-to-register", "Store a number in a register.", number_to_register),
-        command!("increment-register", "Add to the number in a register.", increment_register),
-        command!("copy-rectangle-to-register", "Copy a rectangle into a register.", copy_rectangle),
-        command!("list-registers", "Show what every register holds.", list_registers),
+        command!(
+            "point-to-register",
+            "Record point in a register.",
+            point_to_register
+        ),
+        command!(
+            "jump-to-register",
+            "Go to the position in a register.",
+            jump_to_register
+        ),
+        command!(
+            "copy-to-register",
+            "Copy the region into a register.",
+            copy_to_register
+        ),
+        command!(
+            "insert-register",
+            "Insert a register's contents.",
+            insert_register
+        ),
+        command!(
+            "number-to-register",
+            "Store a number in a register.",
+            number_to_register
+        ),
+        command!(
+            "increment-register",
+            "Add to the number in a register.",
+            increment_register
+        ),
+        command!(
+            "copy-rectangle-to-register",
+            "Copy a rectangle into a register.",
+            copy_rectangle
+        ),
+        command!(
+            "list-registers",
+            "Show what every register holds.",
+            list_registers
+        ),
     ]);
 }
 
 /// Every register command takes a one-character name; this asks for it.
 fn ask_for_register(editor: &mut Editor, command: &str, verb: &str) {
-    editor.prompt_for(command, MinibufferKind::Char, format!("{verb} to register: "), "", Vec::new());
+    editor.prompt_for(
+        command,
+        MinibufferKind::Char,
+        format!("{verb} to register: "),
+        "",
+        Vec::new(),
+    );
 }
 
 /// The register name from an answered prompt.
@@ -44,9 +82,20 @@ fn point_to_register(editor: &mut Editor, args: &Args) -> Result<()> {
     let (buffer, position, offset) = {
         let buffer = editor.current_buffer();
         let offset = buffer.point();
-        (buffer.name().to_string(), buffer.position_of(offset), offset)
+        (
+            buffer.name().to_string(),
+            buffer.position_of(offset),
+            offset,
+        )
     };
-    editor.registers.set(key, Register::Position { buffer, position, offset });
+    editor.registers.set(
+        key,
+        Register::Position {
+            buffer,
+            position,
+            offset,
+        },
+    );
     editor.message(format!("Point saved in register {key}"));
     Ok(())
 }
@@ -58,10 +107,14 @@ fn jump_to_register(editor: &mut Editor, args: &Args) -> Result<()> {
     }
     let key = register_name(args)?;
     let Some(Register::Position { buffer, offset, .. }) = editor.registers.get(key).cloned() else {
-        return Err(crate::CoreError::Message(format!("Register {key} holds no position")));
+        return Err(crate::CoreError::Message(format!(
+            "Register {key} holds no position"
+        )));
     };
     let Some(id) = editor.buffers.find_by_name(&buffer) else {
-        return Err(crate::CoreError::Message(format!("Buffer `{buffer}` is gone")));
+        return Err(crate::CoreError::Message(format!(
+            "Buffer `{buffer}` is gone"
+        )));
     };
     editor.switch_to_buffer(id)?;
     // The old position goes on the mark ring, so the jump can be undone.
@@ -115,7 +168,11 @@ fn number_to_register(editor: &mut Editor, args: &Args) -> Result<()> {
     }
     let key = register_name(args)?;
     // The prefix argument is the number, defaulting to zero as in Emacs.
-    let value = if args.prefix.is_present() { args.prefix.count() as i64 } else { 0 };
+    let value = if args.prefix.is_present() {
+        args.prefix.count() as i64
+    } else {
+        0
+    };
     editor.registers.set(key, Register::Number(value));
     editor.message(format!("Register {key} now holds {value}"));
     Ok(())
@@ -127,7 +184,11 @@ fn increment_register(editor: &mut Editor, args: &Args) -> Result<()> {
         return Ok(());
     }
     let key = register_name(args)?;
-    let by = if args.prefix.is_present() { args.prefix.count() as i64 } else { 1 };
+    let by = if args.prefix.is_present() {
+        args.prefix.count() as i64
+    } else {
+        1
+    };
     let value = editor.registers.increment(key, by)?;
     editor.message(format!("Register {key} now holds {value}"));
     Ok(())
@@ -206,7 +267,10 @@ mod tests {
 
     fn run(d: &mut Dispatcher, e: &mut Editor, command: &str) {
         let out = d.execute(e, command, None);
-        assert!(!matches!(out, Dispatch::Failed { .. }), "`{command}` failed: {out:?}");
+        assert!(
+            !matches!(out, Dispatch::Failed { .. }),
+            "`{command}` failed: {out:?}"
+        );
     }
 
     fn fails(d: &mut Dispatcher, e: &mut Editor, command: &str) -> String {
@@ -219,7 +283,10 @@ mod tests {
     /// Runs a register command and answers its one-character prompt.
     fn run_with_register(d: &mut Dispatcher, e: &mut Editor, command: &str, key: &str) {
         d.execute(e, command, None);
-        assert!(e.minibuffer.is_active(), "`{command}` should have asked for a register");
+        assert!(
+            e.minibuffer.is_active(),
+            "`{command}` should have asked for a register"
+        );
         d.handle_keys(e, key);
     }
 
@@ -251,7 +318,11 @@ mod tests {
         e.with_current_buffer(|b| b.set_point(0));
         run_with_register(&mut d, &mut e, "jump-to-register", "a");
         assert_eq!(e.windows.current().point, 6);
-        assert_eq!(e.current_buffer().mark(), Some(0), "the old position was marked");
+        assert_eq!(
+            e.current_buffer().mark(),
+            Some(0),
+            "the old position was marked"
+        );
     }
 
     #[test]
@@ -281,12 +352,20 @@ mod tests {
         mark_region(&mut e, 0, 5);
         run_with_register(&mut d, &mut e, "copy-to-register", "t");
         assert!(e.minibuffer.display().contains("Copied 5 characters"));
-        assert_eq!(e.current_buffer().text(), "hello world", "the text stayed put");
+        assert_eq!(
+            e.current_buffer().text(),
+            "hello world",
+            "the text stayed put"
+        );
 
         e.with_current_buffer(|b| b.set_point(11));
         run_with_register(&mut d, &mut e, "insert-register", "t");
         assert_eq!(e.current_buffer().text(), "hello worldhello");
-        assert_eq!(e.current_buffer().mark(), Some(11), "the insertion start was marked");
+        assert_eq!(
+            e.current_buffer().mark(),
+            Some(11),
+            "the insertion start was marked"
+        );
     }
 
     #[test]
@@ -364,7 +443,11 @@ mod tests {
             b.set_point(end);
         });
         run_with_register(&mut d, &mut e, "insert-register", "r");
-        assert!(e.current_buffer().text().ends_with("cd\nij\nop"), "got `{}`", e.current_buffer().text());
+        assert!(
+            e.current_buffer().text().ends_with("cd\nij\nop"),
+            "got `{}`",
+            e.current_buffer().text()
+        );
     }
 
     #[test]

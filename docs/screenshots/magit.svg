@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1019" height="568" viewBox="0 0 1019 568" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="14" role="img" aria-label="maxgus">
+<rect width="1019" height="568" rx="10" fill="#1d1f21"/>
+<rect x="47.6" y="86.0" width="92.4" height="18" fill="#1f2b1f"/>
+<rect x="954.8" y="140.0" width="16.8" height="18" fill="#1f2b1f"/>
+<rect x="980.0" y="140.0" width="16.8" height="18" fill="#2e1f1f"/>
+<rect x="14.0" y="158.0" width="991.2" height="18" fill="#373b41"/>
+<rect x="14.0" y="212.0" width="991.2" height="18" fill="#2e1f1f"/>
+<rect x="14.0" y="230.0" width="991.2" height="18" fill="#1f2b1f"/>
+<rect x="14.0" y="248.0" width="991.2" height="18" fill="#1f2b1f"/>
+<rect x="14.0" y="266.0" width="991.2" height="18" fill="#1f2b1f"/>
+<rect x="954.8" y="356.0" width="16.8" height="18" fill="#1f2b1f"/>
+<rect x="980.0" y="356.0" width="16.8" height="18" fill="#2e1f1f"/>
+<rect x="14.0" y="518.0" width="991.2" height="18" fill="#282a2e"/>
+<text x="14.0" y="27.3" fill="#969896" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">Head:</text>
+<text x="89.6" y="27.3" fill="#8abeb7" font-weight="bold" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">main</text>
+<text x="123.2" y="27.3" fill="#c5c8c6" textLength="882.0" lengthAdjust="spacing" xml:space="preserve"> Count the tests correctly                                                                               </text>
+<text x="14.0" y="45.3" fill="#969896" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">Merge:</text>
+<text x="89.6" y="45.3" fill="#8abeb7" font-weight="bold" textLength="92.4" lengthAdjust="spacing" xml:space="preserve">origin/main</text>
+<text x="182.0" y="45.3" fill="#c5c8c6" textLength="823.2" lengthAdjust="spacing" xml:space="preserve"> 2 ahead                                                                                          </text>
+<text x="14.0" y="81.3" fill="#969896" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">▾</text>
+<text x="30.8" y="81.3" fill="#f0c674" font-weight="bold" textLength="126.0" lengthAdjust="spacing" xml:space="preserve">Untracked files</text>
+<text x="156.8" y="81.3" fill="#969896" textLength="33.6" lengthAdjust="spacing" xml:space="preserve"> (1)</text>
+<text x="47.6" y="99.3" fill="#b5bd68" textLength="92.4" lengthAdjust="spacing" xml:space="preserve">new file   </text>
+<text x="140.0" y="99.3" fill="#c5c8c6" font-weight="bold" textLength="218.4" lengthAdjust="spacing" xml:space="preserve">docs/screenshots/magit.svg</text>
+<text x="14.0" y="135.3" fill="#969896" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">▾</text>
+<text x="30.8" y="135.3" fill="#f0c674" font-weight="bold" textLength="134.4" lengthAdjust="spacing" xml:space="preserve">Unstaged changes</text>
+<text x="165.2" y="135.3" fill="#969896" textLength="33.6" lengthAdjust="spacing" xml:space="preserve"> (1)</text>
+<text x="30.8" y="153.3" fill="#969896" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">▾</text>
+<text x="47.6" y="153.3" fill="#969896" textLength="92.4" lengthAdjust="spacing" xml:space="preserve">modified   </text>
+<text x="140.0" y="153.3" fill="#c5c8c6" font-weight="bold" textLength="268.8" lengthAdjust="spacing" xml:space="preserve">crates/maxgus-core/src/render.rs</text>
+<text x="954.8" y="153.3" fill="#b5bd68" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">+3</text>
+<text x="980.0" y="153.3" fill="#cc6666" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">−1</text>
+<text x="14.0" y="171.3" fill="#969896" textLength="991.2" lengthAdjust="spacing" xml:space="preserve">    @@ -412,7 +412,9 @@ fn draw_git_row                                                                               </text>
+<text x="47.6" y="189.3" fill="#969896" textLength="294.0" lengthAdjust="spacing" xml:space="preserve">         Row::Section(section) =&gt; {</text>
+<text x="47.6" y="207.3" fill="#969896" textLength="504.0" lengthAdjust="spacing" xml:space="preserve">             let folded = editor.git.is_collapsed(*section);</text>
+<text x="14.0" y="225.3" fill="#cc6666" textLength="991.2" lengthAdjust="spacing" xml:space="preserve">    -            let arrow = if folded { '&gt;' } else { 'v' };                                                          </text>
+<text x="14.0" y="243.3" fill="#b5bd68" textLength="991.2" lengthAdjust="spacing" xml:space="preserve">    +            // A triangle rather than a caret: it reads as a fold at a                                           </text>
+<text x="14.0" y="261.3" fill="#b5bd68" textLength="991.2" lengthAdjust="spacing" xml:space="preserve">    +            // glance, which a punctuation mark does not.                                                        </text>
+<text x="14.0" y="279.3" fill="#b5bd68" textLength="991.2" lengthAdjust="spacing" xml:space="preserve">    +            let arrow = if folded { TRIANGLE_RIGHT } else { TRIANGLE_DOWN };                                     </text>
+<text x="47.6" y="297.3" fill="#969896" textLength="520.8" lengthAdjust="spacing" xml:space="preserve">             surface.set_char(x, area.y, arrow, face(SHADOW));</text>
+<text x="47.6" y="315.3" fill="#969896" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">         }</text>
+<text x="14.0" y="351.3" fill="#969896" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">▾</text>
+<text x="30.8" y="351.3" fill="#f0c674" font-weight="bold" textLength="117.6" lengthAdjust="spacing" xml:space="preserve">Staged changes</text>
+<text x="148.4" y="351.3" fill="#969896" textLength="33.6" lengthAdjust="spacing" xml:space="preserve"> (1)</text>
+<text x="30.8" y="369.3" fill="#969896" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">▸</text>
+<text x="47.6" y="369.3" fill="#969896" textLength="92.4" lengthAdjust="spacing" xml:space="preserve">modified   </text>
+<text x="140.0" y="369.3" fill="#c5c8c6" font-weight="bold" textLength="75.6" lengthAdjust="spacing" xml:space="preserve">README.md</text>
+<text x="954.8" y="369.3" fill="#b5bd68" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">+1</text>
+<text x="980.0" y="369.3" fill="#cc6666" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">−1</text>
+<text x="14.0" y="405.3" fill="#969896" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">▾</text>
+<text x="30.8" y="405.3" fill="#f0c674" font-weight="bold" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">Stashes</text>
+<text x="89.6" y="405.3" fill="#969896" textLength="33.6" lengthAdjust="spacing" xml:space="preserve"> (1)</text>
+<text x="30.8" y="423.3" fill="#de935f" textLength="75.6" lengthAdjust="spacing" xml:space="preserve">stash@{0}</text>
+<text x="106.4" y="423.3" fill="#c5c8c6" textLength="898.8" lengthAdjust="spacing" xml:space="preserve"> WIP on main: the terminal                                                                                 </text>
+<text x="14.0" y="459.3" fill="#969896" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">▾</text>
+<text x="30.8" y="459.3" fill="#f0c674" font-weight="bold" textLength="168.0" lengthAdjust="spacing" xml:space="preserve">Unpushed to upstream</text>
+<text x="198.8" y="459.3" fill="#969896" textLength="33.6" lengthAdjust="spacing" xml:space="preserve"> (2)</text>
+<text x="30.8" y="477.3" fill="#de935f" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">a1b2c3d</text>
+<text x="89.6" y="477.3" fill="#c5c8c6" textLength="915.6" lengthAdjust="spacing" xml:space="preserve"> Draw the status view                                                                                        </text>
+<text x="30.8" y="495.3" fill="#de935f" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">e4f5a6b</text>
+<text x="89.6" y="495.3" fill="#c5c8c6" textLength="915.6" lengthAdjust="spacing" xml:space="preserve"> Read a diff into hunks                                                                                      </text>
+<text x="14.0" y="531.3" fill="#de935f" font-weight="bold" textLength="33.6" lengthAdjust="spacing" xml:space="preserve"> %% </text>
+<text x="47.6" y="531.3" fill="#969896" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">879 </text>
+<text x="81.2" y="531.3" fill="#81a2be" font-weight="bold" textLength="109.2" lengthAdjust="spacing" xml:space="preserve">magit: status</text>
+<text x="190.4" y="531.3" fill="#969896" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">  9:0  Top</text>
+<text x="828.8" y="531.3" fill="#b5bd68" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">  main</text>
+<text x="879.2" y="531.3" fill="#c5c8c6" textLength="126.0" lengthAdjust="spacing" xml:space="preserve">  Fundamental  </text>
+</svg>

@@ -73,7 +73,11 @@ impl Isearch {
     pub fn prompt(&self) -> String {
         let failing = if self.failing { "failing " } else { "" };
         let wrapped = if self.wrapped { "wrapped " } else { "" };
-        let regexp = if self.kind == SearchKind::Regexp { " regexp" } else { "" };
+        let regexp = if self.kind == SearchKind::Regexp {
+            " regexp"
+        } else {
+            ""
+        };
         let direction = match self.direction {
             SearchDirection::Forward => "I-search",
             SearchDirection::Backward => "I-search backward",
@@ -100,23 +104,102 @@ pub const OCCUR_NAME: &str = "*Occur*";
 /// Registers the search commands.
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
-        command!("isearch-forward", "Search incrementally forward.", isearch_forward),
-        command!("isearch-backward", "Search incrementally backward.", isearch_backward),
-        command!("isearch-forward-regexp", "Search incrementally forward for a regexp.", isearch_forward_regexp),
-        command!("isearch-backward-regexp", "Search incrementally backward for a regexp.", isearch_backward_regexp),
-        command!("isearch-printing-char", "Add the typed character to the search string.", printing_char, non_interactive),
-        command!("isearch-repeat-forward", "Move to the next match.", repeat_forward, non_interactive),
-        command!("isearch-repeat-backward", "Move to the previous match.", repeat_backward, non_interactive),
-        command!("isearch-exit", "Finish the search, leaving point at the match.", isearch_exit, non_interactive),
-        command!("isearch-abort", "Abandon the search and go back where it started.", isearch_abort, non_interactive),
-        command!("isearch-delete-char", "Undo the last character of the search string.", delete_char, non_interactive),
-        command!("isearch-yank-word", "Add the next word to the search string.", yank_word, non_interactive),
-        command!("isearch-yank-line", "Add the rest of the line to the search string.", yank_line, non_interactive),
-        command!("isearch-yank-char", "Add the next character to the search string.", yank_char, non_interactive),
-        command!("isearch-yank-kill", "Add the most recent kill to the search string.", yank_kill, non_interactive),
-        command!("query-replace", "Replace occurrences, asking about each.", query_replace),
-        command!("query-replace-regexp", "Replace regexp matches, asking about each.", query_replace_regexp),
-        command!("query-replace-answer", "Answer the query-replace prompt.", query_replace_answer, non_interactive),
+        command!(
+            "isearch-forward",
+            "Search incrementally forward.",
+            isearch_forward
+        ),
+        command!(
+            "isearch-backward",
+            "Search incrementally backward.",
+            isearch_backward
+        ),
+        command!(
+            "isearch-forward-regexp",
+            "Search incrementally forward for a regexp.",
+            isearch_forward_regexp
+        ),
+        command!(
+            "isearch-backward-regexp",
+            "Search incrementally backward for a regexp.",
+            isearch_backward_regexp
+        ),
+        command!(
+            "isearch-printing-char",
+            "Add the typed character to the search string.",
+            printing_char,
+            non_interactive
+        ),
+        command!(
+            "isearch-repeat-forward",
+            "Move to the next match.",
+            repeat_forward,
+            non_interactive
+        ),
+        command!(
+            "isearch-repeat-backward",
+            "Move to the previous match.",
+            repeat_backward,
+            non_interactive
+        ),
+        command!(
+            "isearch-exit",
+            "Finish the search, leaving point at the match.",
+            isearch_exit,
+            non_interactive
+        ),
+        command!(
+            "isearch-abort",
+            "Abandon the search and go back where it started.",
+            isearch_abort,
+            non_interactive
+        ),
+        command!(
+            "isearch-delete-char",
+            "Undo the last character of the search string.",
+            delete_char,
+            non_interactive
+        ),
+        command!(
+            "isearch-yank-word",
+            "Add the next word to the search string.",
+            yank_word,
+            non_interactive
+        ),
+        command!(
+            "isearch-yank-line",
+            "Add the rest of the line to the search string.",
+            yank_line,
+            non_interactive
+        ),
+        command!(
+            "isearch-yank-char",
+            "Add the next character to the search string.",
+            yank_char,
+            non_interactive
+        ),
+        command!(
+            "isearch-yank-kill",
+            "Add the most recent kill to the search string.",
+            yank_kill,
+            non_interactive
+        ),
+        command!(
+            "query-replace",
+            "Replace occurrences, asking about each.",
+            query_replace
+        ),
+        command!(
+            "query-replace-regexp",
+            "Replace regexp matches, asking about each.",
+            query_replace_regexp
+        ),
+        command!(
+            "query-replace-answer",
+            "Answer the query-replace prompt.",
+            query_replace_answer,
+            non_interactive
+        ),
         command!("occur", "List every line matching a regexp.", occur),
     ]);
 }
@@ -162,7 +245,9 @@ fn isearch_backward_regexp(editor: &mut Editor, _: &Args) -> Result<()> {
 /// repeating does; false when it should re-examine from the same place, as
 /// extending the query does.
 fn search_from(editor: &mut Editor, from: usize, advance: bool) -> Result<()> {
-    let Some(state) = editor.isearch.as_ref() else { return Ok(()) };
+    let Some(state) = editor.isearch.as_ref() else {
+        return Ok(());
+    };
     if state.query.is_empty() {
         return Ok(());
     }
@@ -203,9 +288,7 @@ fn search_from(editor: &mut Editor, from: usize, advance: bool) -> Result<()> {
             (SearchDirection::Backward, true) => query.search_backward_in(text, rope, start),
             // Growing the query: the match extends rightward from where it
             // already starts, so the limit applies to its start.
-            (SearchDirection::Backward, false) => {
-                query.search_backward_from_in(text, rope, start)
-            }
+            (SearchDirection::Backward, false) => query.search_backward_from_in(text, rope, start),
         }
     };
     // Only wrap when a straight search found nothing, so the indicator is
@@ -255,7 +338,9 @@ fn push_history(editor: &mut Editor) {
 }
 
 fn printing_char(editor: &mut Editor, args: &Args) -> Result<()> {
-    let Some(c) = args.key.and_then(|k| k.as_char()) else { return Ok(()) };
+    let Some(c) = args.key.and_then(|k| k.as_char()) else {
+        return Ok(());
+    };
     push_history(editor);
     let from = match editor.isearch.as_mut() {
         Some(state) => {
@@ -304,11 +389,17 @@ fn regex_escape(text: &str) -> String {
 }
 
 fn repeat(editor: &mut Editor, direction: SearchDirection) -> Result<()> {
-    let Some(state) = editor.isearch.as_mut() else { return Ok(()) };
+    let Some(state) = editor.isearch.as_mut() else {
+        return Ok(());
+    };
     state.direction = direction;
     // `C-s` with an empty search string recalls the last one, as Emacs does.
     if state.query.is_empty() {
-        let previous = editor.minibuffer.history(MinibufferKind::Search).first().cloned();
+        let previous = editor
+            .minibuffer
+            .history(MinibufferKind::Search)
+            .first()
+            .cloned();
         if let Some(previous) = previous {
             editor.isearch.as_mut().expect("checked above").query = previous;
             let from = editor.current_buffer().point();
@@ -338,7 +429,9 @@ fn finish(editor: &mut Editor) -> Option<Isearch> {
 }
 
 fn isearch_exit(editor: &mut Editor, _: &Args) -> Result<()> {
-    let Some(state) = finish(editor) else { return Ok(()) };
+    let Some(state) = finish(editor) else {
+        return Ok(());
+    };
     // The starting position goes on the mark ring, so `C-u C-SPC` comes back.
     let origin = state.origin;
     editor.with_current_buffer(|b| b.push_mark(origin));
@@ -355,7 +448,9 @@ fn isearch_exit(editor: &mut Editor, _: &Args) -> Result<()> {
 }
 
 fn isearch_abort(editor: &mut Editor, _: &Args) -> Result<()> {
-    let Some(state) = finish(editor) else { return Ok(()) };
+    let Some(state) = finish(editor) else {
+        return Ok(());
+    };
     editor.with_current_buffer(|b| b.set_point(state.origin));
     editor.follow_point();
     editor.message("Quit");
@@ -389,7 +484,10 @@ fn delete_char(editor: &mut Editor, _: &Args) -> Result<()> {
 }
 
 /// The text after point that a yank command would take.
-fn text_after_point(editor: &Editor, extent: impl Fn(&maxgus_text::Buffer, usize) -> usize) -> String {
+fn text_after_point(
+    editor: &Editor,
+    extent: impl Fn(&maxgus_text::Buffer, usize) -> usize,
+) -> String {
     let buffer = editor.current_buffer();
     let from = buffer.point();
     let to = extent(buffer, from);
@@ -428,8 +526,18 @@ fn begin_replace(editor: &mut Editor, args: &Args, kind: SearchKind) -> Result<(
         SearchKind::Regexp => "query-replace-regexp",
     };
     let Some(input) = args.input.clone() else {
-        let verb = if kind == SearchKind::Regexp { "Query replace regexp" } else { "Query replace" };
-        editor.prompt_for(command, MinibufferKind::Search, format!("{verb}: "), "", Vec::new());
+        let verb = if kind == SearchKind::Regexp {
+            "Query replace regexp"
+        } else {
+            "Query replace"
+        };
+        editor.prompt_for(
+            command,
+            MinibufferKind::Search,
+            format!("{verb}: "),
+            "",
+            Vec::new(),
+        );
         return Ok(());
     };
 
@@ -478,7 +586,9 @@ fn query_replace_regexp(editor: &mut Editor, args: &Args) -> Result<()> {
 ///
 /// `from_current` is true when the search should resume after a replacement.
 fn advance_replace(editor: &mut Editor, _from_current: bool) -> Result<()> {
-    let Some(state) = editor.query_replace.as_ref() else { return Ok(()) };
+    let Some(state) = editor.query_replace.as_ref() else {
+        return Ok(());
+    };
     let (query, replace_all) = (state.query.clone(), state.replace_all);
     let rope = editor.current_buffer().rope().clone();
     let from = editor.current_buffer().point();
@@ -509,7 +619,9 @@ fn advance_replace(editor: &mut Editor, _from_current: bool) -> Result<()> {
 
 /// Replaces one match and leaves point after the replacement.
 fn apply_replacement(editor: &mut Editor, found: &Match) -> Result<()> {
-    let Some(state) = editor.query_replace.as_ref() else { return Ok(()) };
+    let Some(state) = editor.query_replace.as_ref() else {
+        return Ok(());
+    };
     let text = state.query.expand_replacement(&state.replacement, found);
     let range = found.range;
     editor.with_current_buffer(|b| b.replace(range, &text))?;
@@ -535,7 +647,11 @@ fn query_replace_answer(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(answer) = args.input.as_ref().and_then(|s| s.chars().next()) else {
         return finish_replace(editor);
     };
-    let Some(found) = editor.query_replace.as_ref().and_then(|s| s.current.clone()) else {
+    let Some(found) = editor
+        .query_replace
+        .as_ref()
+        .and_then(|s| s.current.clone())
+    else {
         return finish_replace(editor);
     };
 
@@ -583,19 +699,33 @@ fn query_replace_answer(editor: &mut Editor, args: &Args) -> Result<()> {
 
 fn occur(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(pattern) = args.input.clone() else {
-        editor.prompt_for("occur", MinibufferKind::Search, "List lines matching regexp: ", "", Vec::new());
+        editor.prompt_for(
+            "occur",
+            MinibufferKind::Search,
+            "List lines matching regexp: ",
+            "",
+            Vec::new(),
+        );
         return Ok(());
     };
     if pattern.is_empty() {
         return Err(crate::CoreError::Message("Nothing to search for".into()));
     }
-    let query = SearchQuery::new(&pattern, SearchKind::Regexp, editor.settings.case_fold_search)
-        .map_err(|e| crate::CoreError::Message(format!("Invalid regexp: {e}")))?;
+    let query = SearchQuery::new(
+        &pattern,
+        SearchKind::Regexp,
+        editor.settings.case_fold_search,
+    )
+    .map_err(|e| crate::CoreError::Message(format!("Invalid regexp: {e}")))?;
 
     let (listing, count) = {
         let buffer = editor.current_buffer();
         let matches = query.find_all(buffer.rope());
-        let mut listing = format!("{} matches for `{pattern}` in {}:\n", matches.len(), buffer.name());
+        let mut listing = format!(
+            "{} matches for `{pattern}` in {}:\n",
+            matches.len(),
+            buffer.name()
+        );
         // One entry per matching line, not per match, as `occur` reports it.
         let mut last_line = None;
         let mut lines = 0usize;
@@ -618,7 +748,11 @@ fn occur(editor: &mut Editor, args: &Args) -> Result<()> {
         }
         None => editor.buffers.create_with_text(OCCUR_NAME, &listing),
     };
-    editor.buffers.get_mut(id).expect("just created").set_read_only(true);
+    editor
+        .buffers
+        .get_mut(id)
+        .expect("just created")
+        .set_read_only(true);
     editor.switch_to_buffer(id)?;
     editor.message(format!("{count} matching line(s)"));
     Ok(())
@@ -675,9 +809,15 @@ mod tests {
         let mut registry = Registry::new();
         register(&mut registry);
         for (keys, command) in crate::keymap::ISEARCH_BINDINGS {
-            assert!(registry.contains(command), "`{keys}` runs unregistered `{command}`");
+            assert!(
+                registry.contains(command),
+                "`{keys}` runs unregistered `{command}`"
+            );
         }
-        assert!(registry.contains("isearch-printing-char"), "the fallback binding");
+        assert!(
+            registry.contains("isearch-printing-char"),
+            "the fallback binding"
+        );
     }
 
     #[test]
@@ -696,7 +836,11 @@ mod tests {
         let (mut d, mut e) = setup("alpha beta");
         d.execute(&mut e, "isearch-forward", None);
         typed(&mut d, &mut e, "b");
-        assert_eq!(e.current_buffer().text(), "alpha beta", "nothing was inserted");
+        assert_eq!(
+            e.current_buffer().text(),
+            "alpha beta",
+            "nothing was inserted"
+        );
     }
 
     #[test]
@@ -735,7 +879,10 @@ mod tests {
 
         d.handle_keys(&mut e, "DEL");
         assert_eq!(e.isearch.as_ref().unwrap().query, "bet");
-        assert!(!e.isearch.as_ref().unwrap().failing, "back to a matching state");
+        assert!(
+            !e.isearch.as_ref().unwrap().failing,
+            "back to a matching state"
+        );
         assert_eq!(point(&e), 9);
     }
 
@@ -779,7 +926,10 @@ mod tests {
     fn the_global_map_comes_back_once_the_search_ends() {
         let (mut d, mut e) = setup("alpha");
         d.execute(&mut e, "isearch-forward", None);
-        assert_eq!(d.handle_keys(&mut e, "a").command(), Some("isearch-printing-char"));
+        assert_eq!(
+            d.handle_keys(&mut e, "a").command(),
+            Some("isearch-printing-char")
+        );
         d.handle_keys(&mut e, "RET");
         assert_eq!(d.handle_keys(&mut e, "C-f").command(), Some("forward-char"));
     }
@@ -830,7 +980,11 @@ mod tests {
         let (mut d, mut e) = setup("Alpha alpha");
         d.execute(&mut e, "isearch-forward", None);
         typed(&mut d, &mut e, "a l p h a");
-        assert_eq!(e.isearch.as_ref().unwrap().current, Some(Range::new(0, 5)), "matched `Alpha`");
+        assert_eq!(
+            e.isearch.as_ref().unwrap().current,
+            Some(Range::new(0, 5)),
+            "matched `Alpha`"
+        );
 
         d.handle_keys(&mut e, "C-g");
         e.with_current_buffer(|b| b.set_point(0));
@@ -865,11 +1019,17 @@ mod tests {
     #[test]
     fn yanking_into_a_regexp_search_escapes_the_text() {
         // `C-y` yanks the rest of the line, so the line is the whole pattern.
-        let (mut d, mut e) = setup("a.c
-abc");
+        let (mut d, mut e) = setup(
+            "a.c
+abc",
+        );
         d.execute(&mut e, "isearch-forward-regexp", None);
         d.handle_keys(&mut e, "C-y");
-        assert_eq!(e.isearch.as_ref().unwrap().query, r"a\.c", "the dot is literal");
+        assert_eq!(
+            e.isearch.as_ref().unwrap().query,
+            r"a\.c",
+            "the dot is literal"
+        );
         assert_eq!(regex_escape("a+b*c"), r"a\+b\*c");
     }
 
@@ -963,7 +1123,13 @@ abc");
     #[test]
     fn query_replace_regexp_expands_capture_groups() {
         let (mut d, mut e) = setup("key = value\nother = thing\n");
-        start_replace(&mut d, &mut e, "query-replace-regexp", r"(\w+) = (\w+)", r"\2: \1");
+        start_replace(
+            &mut d,
+            &mut e,
+            "query-replace-regexp",
+            r"(\w+) = (\w+)",
+            r"\2: \1",
+        );
         d.handle_keys(&mut e, "!");
         assert_eq!(e.current_buffer().text(), "value: key\nthing: other\n");
     }
@@ -986,7 +1152,11 @@ abc");
         e.with_current_buffer(|b| b.set_point(2));
         start_replace(&mut d, &mut e, "query-replace", "a", "b");
         d.handle_keys(&mut e, "!");
-        assert_eq!(e.current_buffer().text(), "a b b", "the first was behind point");
+        assert_eq!(
+            e.current_buffer().text(),
+            "a b b",
+            "the first was behind point"
+        );
     }
 
     // ---- occur ----
@@ -1023,7 +1193,10 @@ abc");
         e.switch_to_buffer(back).unwrap();
         d.execute(&mut e, "occur", None);
         answer(&mut d, &mut e, "beta");
-        assert_eq!(e.buffers.iter().filter(|b| b.name() == OCCUR_NAME).count(), 1);
+        assert_eq!(
+            e.buffers.iter().filter(|b| b.name() == OCCUR_NAME).count(),
+            1
+        );
     }
 
     #[test]

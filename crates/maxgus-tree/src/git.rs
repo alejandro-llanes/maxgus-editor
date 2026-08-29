@@ -85,7 +85,9 @@ pub fn parse_porcelain(root: &Path, output: &str) -> HashMap<PathBuf, GitStatus>
             continue;
         }
         let (code, rest) = line.split_at(2);
-        let Some(status) = GitStatus::from_porcelain(code) else { continue };
+        let Some(status) = GitStatus::from_porcelain(code) else {
+            continue;
+        };
         let path = rest.trim_start();
         // For a rename, decorate the destination.
         let path = path.rsplit(" -> ").next().unwrap_or(path);
@@ -116,13 +118,19 @@ pub async fn git_status(root: &Path, include_ignored: bool) -> HashMap<PathBuf, 
     }
     // Never let a hung git block the editor's event loop.
     command.kill_on_drop(true);
-    let Ok(output) = command.output().await else { return HashMap::new() };
+    let Ok(output) = command.output().await else {
+        return HashMap::new();
+    };
     if !output.status.success() {
         return HashMap::new();
     }
-    let Ok(text) = String::from_utf8(output.stdout) else { return HashMap::new() };
+    let Ok(text) = String::from_utf8(output.stdout) else {
+        return HashMap::new();
+    };
     // Resolve the true repository root so paths line up.
-    let repo_root = repository_root(root).await.unwrap_or_else(|| root.to_path_buf());
+    let repo_root = repository_root(root)
+        .await
+        .unwrap_or_else(|| root.to_path_buf());
     parse_porcelain(&repo_root, &text)
 }
 
@@ -132,7 +140,12 @@ pub async fn git_status(root: &Path, include_ignored: bool) -> HashMap<PathBuf, 
 /// one, so it is reported as none rather than shown as a branch called HEAD.
 pub async fn branch(path: &Path) -> Option<String> {
     let mut command = tokio::process::Command::new("git");
-    command.arg("-C").arg(path).arg("rev-parse").arg("--abbrev-ref").arg("HEAD");
+    command
+        .arg("-C")
+        .arg(path)
+        .arg("rev-parse")
+        .arg("--abbrev-ref")
+        .arg("HEAD");
     // Never let a hung git block the editor.
     command.kill_on_drop(true);
     let output = command.output().await.ok()?;
@@ -147,7 +160,12 @@ pub async fn branch(path: &Path) -> Option<String> {
 /// The repository root containing `path`, if any.
 pub async fn repository_root(path: &Path) -> Option<PathBuf> {
     let mut command = tokio::process::Command::new("git");
-    command.arg("-C").arg(path).arg("rev-parse").arg("--show-toplevel").kill_on_drop(true);
+    command
+        .arg("-C")
+        .arg(path)
+        .arg("rev-parse")
+        .arg("--show-toplevel")
+        .kill_on_drop(true);
     let output = command.output().await.ok()?;
     if !output.status.success() {
         return None;
@@ -170,7 +188,11 @@ mod tests {
         assert_eq!(GitStatus::from_porcelain("A "), Some(GitStatus::Added));
         assert_eq!(GitStatus::from_porcelain(" D"), Some(GitStatus::Deleted));
         assert_eq!(GitStatus::from_porcelain("R "), Some(GitStatus::Renamed));
-        assert_eq!(GitStatus::from_porcelain("  "), None, "a clean file has no status");
+        assert_eq!(
+            GitStatus::from_porcelain("  "),
+            None,
+            "a clean file has no status"
+        );
     }
 
     #[test]
@@ -199,7 +221,11 @@ mod tests {
         let before = indicators.len();
         indicators.sort_unstable();
         indicators.dedup();
-        assert_eq!(indicators.len(), before, "indicators must be distinguishable");
+        assert_eq!(
+            indicators.len(),
+            before,
+            "indicators must be distinguishable"
+        );
         for s in all {
             assert!(s.face().starts_with("tree-git-"));
         }
@@ -208,7 +234,11 @@ mod tests {
     #[test]
     fn a_directory_rolls_up_the_most_important_status() {
         assert_eq!(
-            GitStatus::rollup([GitStatus::Ignored, GitStatus::Modified, GitStatus::Untracked]),
+            GitStatus::rollup([
+                GitStatus::Ignored,
+                GitStatus::Modified,
+                GitStatus::Untracked
+            ]),
             Some(GitStatus::Modified)
         );
         assert_eq!(
@@ -223,23 +253,38 @@ mod tests {
         let root = Path::new("/repo");
         let out = " M src/main.rs\n?? notes.txt\nA  src/new.rs\n";
         let map = parse_porcelain(root, out);
-        assert_eq!(map.get(Path::new("/repo/src/main.rs")), Some(&GitStatus::Modified));
-        assert_eq!(map.get(Path::new("/repo/notes.txt")), Some(&GitStatus::Untracked));
-        assert_eq!(map.get(Path::new("/repo/src/new.rs")), Some(&GitStatus::Added));
+        assert_eq!(
+            map.get(Path::new("/repo/src/main.rs")),
+            Some(&GitStatus::Modified)
+        );
+        assert_eq!(
+            map.get(Path::new("/repo/notes.txt")),
+            Some(&GitStatus::Untracked)
+        );
+        assert_eq!(
+            map.get(Path::new("/repo/src/new.rs")),
+            Some(&GitStatus::Added)
+        );
         assert_eq!(map.len(), 3);
     }
 
     #[test]
     fn renames_decorate_the_destination() {
         let map = parse_porcelain(Path::new("/repo"), "R  old.rs -> new.rs\n");
-        assert_eq!(map.get(Path::new("/repo/new.rs")), Some(&GitStatus::Renamed));
+        assert_eq!(
+            map.get(Path::new("/repo/new.rs")),
+            Some(&GitStatus::Renamed)
+        );
         assert!(!map.contains_key(Path::new("/repo/old.rs")));
     }
 
     #[test]
     fn quoted_paths_are_unquoted() {
         let map = parse_porcelain(Path::new("/repo"), "?? \"with space.txt\"\n");
-        assert_eq!(map.get(Path::new("/repo/with space.txt")), Some(&GitStatus::Untracked));
+        assert_eq!(
+            map.get(Path::new("/repo/with space.txt")),
+            Some(&GitStatus::Untracked)
+        );
     }
 
     #[test]

@@ -6,9 +6,117 @@
 //! queues one, the event loop runs it on tokio, and the answer comes back as a
 //! [`TaskResult`] that the editor applies. Nothing blocks redisplay.
 
+#[cfg(feature = "lsp")]
 use maxgus_lsp::{LspPosition, LspRange};
 use maxgus_text::BufferId;
 use std::path::PathBuf;
+
+#[cfg(feature = "git")]
+/// What to ask git to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GitAction {
+    /// Read everything the status view shows.
+    Refresh,
+    Stage(Vec<PathBuf>),
+    Unstage(Vec<PathBuf>),
+    StageAll,
+    UnstageAll,
+    /// Throws the working-tree change away. The one irreversible action here.
+    Discard(Vec<PathBuf>),
+    /// Deletes an untracked file, which `git checkout` will not do.
+    DeleteUntracked(Vec<PathBuf>),
+    /// Feeds a patch to `git apply`, which is how one hunk is staged,
+    /// unstaged or discarded.
+    ApplyPatch {
+        patch: String,
+        arguments: Vec<String>,
+        describe: String,
+    },
+    /// The switches come from the menu, so `--signoff` and the rest need no
+    /// variant of their own here.
+    Commit {
+        message: String,
+        amend: bool,
+        arguments: Vec<String>,
+    },
+    Push {
+        arguments: Vec<String>,
+    },
+    Pull {
+        arguments: Vec<String>,
+    },
+    Fetch {
+        arguments: Vec<String>,
+    },
+    Checkout(String),
+    CreateBranch(String),
+    Merge(String),
+    Stash {
+        message: Option<String>,
+        arguments: Vec<String>,
+    },
+    StashPop(String),
+    StashApply(String),
+    StashDrop(String),
+    /// Runs any git command, for the keys that are a thin wrapper over one.
+    Run {
+        arguments: Vec<String>,
+        describe: String,
+    },
+    /// Reads a log into its own buffer.
+    Log {
+        arguments: Vec<String>,
+        title: String,
+    },
+    /// Reads a diff into its own buffer.
+    Diff {
+        arguments: Vec<String>,
+        title: String,
+    },
+    /// Reads one commit: its header, its message and its diff.
+    Show {
+        revision: String,
+    },
+}
+
+#[cfg(feature = "git")]
+/// Everything the status view needs, read in one pass.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct GitSnapshot {
+    /// The top of the working tree, as git resolves it. Asked for rather than
+    /// walked up to by hand: git knows about worktrees, submodules and a
+    /// `.git` that is a file, and a walk looking for a directory does not.
+    pub root: PathBuf,
+    pub status: maxgus_git::Status,
+    pub unstaged: Vec<maxgus_git::FileDiff>,
+    pub staged: Vec<maxgus_git::FileDiff>,
+    pub stashes: Vec<maxgus_git::Stash>,
+    pub unpushed: Vec<maxgus_git::Commit>,
+    pub unpulled: Vec<maxgus_git::Commit>,
+    pub recent: Vec<maxgus_git::Commit>,
+    pub head_subject: String,
+    /// Short names for the checkout and merge prompts.
+    pub branches: Vec<String>,
+    /// Every reference, with what kind it is, for the references view.
+    pub references: Vec<maxgus_git::Reference>,
+}
+
+#[cfg(feature = "terminal")]
+/// Which terminal a task or an answer is about.
+///
+/// Its own type rather than an index: tabs are opened and closed in any order,
+/// and an answer arriving for a terminal that has since been closed must be
+/// recognisable as such rather than landing on whoever now holds that
+/// position in the list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TerminalId(pub u64);
+
+#[cfg(feature = "terminal")]
+impl std::fmt::Display for TerminalId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 /// What a write insists is true of the file before it goes ahead.
 ///
@@ -31,9 +139,19 @@ pub enum WriteGuard {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Task {
     /// Read a file, creating or reverting a buffer with its contents.
-    ReadFile { path: PathBuf, reverting: Option<BufferId>, other_window: bool },
+    ReadFile {
+        path: PathBuf,
+        reverting: Option<BufferId>,
+        other_window: bool,
+    },
     /// Write `contents` to `path`, then mark `buffer` saved.
-    WriteFile { path: PathBuf, contents: String, buffer: BufferId, backup: bool, guard: WriteGuard },
+    WriteFile {
+        path: PathBuf,
+        contents: String,
+        buffer: BufferId,
+        backup: bool,
+        guard: WriteGuard,
+    },
     /// List a directory, for `find-file` completion.
     ListDirectory { path: PathBuf },
     /// Act on the file tree. The tree itself lives in the event loop, where
@@ -43,34 +161,95 @@ pub enum Task {
     /// it alone.
     PersistTheme { path: PathBuf, theme: String },
     /// Ask git which branch the project is on, for the mode line.
+    #[cfg(feature = "git")]
     GitBranch { root: PathBuf },
     /// Start a language server for `language`.
+    #[cfg(feature = "lsp")]
     StartLanguageServer { language: String },
     /// Stop the server for `language`.
+    #[cfg(feature = "lsp")]
     StopLanguageServer { language: String },
     /// Tell the server a document opened.
-    LspDidOpen { language: String, uri: String, version: i64, text: String },
+    #[cfg(feature = "lsp")]
+    LspDidOpen {
+        language: String,
+        uri: String,
+        version: i64,
+        text: String,
+    },
     /// Tell the server a document changed.
-    LspDidChange { language: String, uri: String, version: i64, text: String },
+    #[cfg(feature = "lsp")]
+    LspDidChange {
+        language: String,
+        uri: String,
+        version: i64,
+        text: String,
+    },
     /// Tell the server a document was saved.
+    #[cfg(feature = "lsp")]
     LspDidSave { language: String, uri: String },
     /// Tell the server a document closed.
+    #[cfg(feature = "lsp")]
     LspDidClose { language: String, uri: String },
     /// Ask the server a question. The answer comes back as
     /// [`TaskResult::LspResponse`] tagged with the same [`LspQuery`].
-    LspRequest { language: String, uri: String, query: LspQuery },
+    #[cfg(feature = "lsp")]
+    LspRequest {
+        language: String,
+        uri: String,
+        query: LspQuery,
+    },
     /// The answer to a request the *server* made of us.
     ///
     /// The protocol requires every server request to be answered; a server
     /// that asked to apply an edit blocks until it hears back.
-    LspRespond { language: String, id: maxgus_lsp::RequestId, applied: bool },
+    #[cfg(feature = "lsp")]
+    LspRespond {
+        language: String,
+        id: maxgus_lsp::RequestId,
+        applied: bool,
+    },
     /// Run a shell command and collect its output.
-    Shell { command: String, directory: PathBuf, insert_at: Option<(BufferId, usize)> },
+    Shell {
+        command: String,
+        directory: PathBuf,
+        insert_at: Option<(BufferId, usize)>,
+    },
+    /// Starts a shell on a pseudo-terminal of the given size.
+    #[cfg(feature = "terminal")]
+    TerminalOpen {
+        terminal: TerminalId,
+        shell: Option<String>,
+        directory: PathBuf,
+        rows: u16,
+        columns: u16,
+    },
+    /// Sends keystrokes, a paste, or a reply the program asked for.
+    #[cfg(feature = "terminal")]
+    TerminalInput {
+        terminal: TerminalId,
+        bytes: Vec<u8>,
+    },
+    /// Tells the program the window changed size. Without this, `vim` and
+    /// friends go on drawing to the shape they started with.
+    #[cfg(feature = "terminal")]
+    TerminalResize {
+        terminal: TerminalId,
+        rows: u16,
+        columns: u16,
+    },
+    /// Ends the shell and closes the pseudo-terminal.
+    #[cfg(feature = "terminal")]
+    TerminalClose { terminal: TerminalId },
+    /// Something to do with git, in the repository the editor is in.
+    #[cfg(feature = "git")]
+    Git { root: PathBuf, action: GitAction },
     /// Re-parse a buffer and highlight `range`.
     ///
     /// Only the region the user can see — plus a margin for scrolling — is
     /// queried. Highlighting a whole large file costs far more than parsing
     /// it, and almost all of the answer would never be drawn.
+    #[cfg(feature = "syntax")]
     Reparse {
         buffer: BufferId,
         language: String,
@@ -104,13 +283,26 @@ pub enum TreeAction {
     ToggleDirectoriesFirst,
     /// Show or hide the git status column.
     ToggleGitStatus,
-    CreateFile { parent: PathBuf, name: String },
-    CreateDirectory { parent: PathBuf, name: String },
+    CreateFile {
+        parent: PathBuf,
+        name: String,
+    },
+    CreateDirectory {
+        parent: PathBuf,
+        name: String,
+    },
     Delete(PathBuf),
-    Rename { path: PathBuf, name: String },
-    Move { path: PathBuf, destination: PathBuf },
+    Rename {
+        path: PathBuf,
+        name: String,
+    },
+    Move {
+        path: PathBuf,
+        destination: PathBuf,
+    },
 }
 
+#[cfg(feature = "lsp")]
 /// A language-server question, kept as a small enum so the answer can be
 /// routed back to whatever asked it.
 #[derive(Debug, Clone, PartialEq)]
@@ -120,15 +312,31 @@ pub enum LspQuery {
     Hover(LspPosition),
     Completion(LspPosition),
     SignatureHelp(LspPosition),
-    Rename { position: LspPosition, new_name: String },
-    Format { tab_size: usize, insert_spaces: bool },
+    Rename {
+        position: LspPosition,
+        new_name: String,
+    },
+    Format {
+        tab_size: usize,
+        insert_spaces: bool,
+    },
     /// The range, and the diagnostics inside it: a server offers a quick fix
     /// for a diagnostic it is shown, not for a bare position.
-    CodeAction { range: LspRange, diagnostics: Vec<maxgus_lsp::Diagnostic> },
-    DocumentSymbols,
+    CodeAction {
+        range: LspRange,
+        diagnostics: Vec<maxgus_lsp::Diagnostic>,
+    },
+    /// `for_panel` is who asked. Two requests can be in flight at once —
+    /// the panel refreshing itself and a person running the command — and
+    /// the answers are told apart by what was asked, not by editor state a
+    /// first answer would already have cleared.
+    DocumentSymbols {
+        for_panel: bool,
+    },
     WorkspaceSymbols(String),
 }
 
+#[cfg(feature = "lsp")]
 impl LspQuery {
     /// The name shown while the request is in flight.
     pub fn description(&self) -> &'static str {
@@ -141,7 +349,7 @@ impl LspQuery {
             LspQuery::Rename { .. } => "renaming",
             LspQuery::Format { .. } => "formatting",
             LspQuery::CodeAction { .. } => "code actions",
-            LspQuery::DocumentSymbols => "document symbols",
+            LspQuery::DocumentSymbols { .. } => "document symbols",
             LspQuery::WorkspaceSymbols(_) => "workspace symbols",
         }
     }
@@ -179,24 +387,117 @@ pub enum TaskResult {
     },
     /// Nothing was written, because the file was not what the write insisted
     /// it would be. [`WriteGuard`] says which expectation failed.
-    WriteRefused { path: PathBuf, buffer: BufferId, because: WriteGuard },
-    DirectoryListed { path: PathBuf, entries: Vec<String> },
+    WriteRefused {
+        path: PathBuf,
+        buffer: BufferId,
+        because: WriteGuard,
+    },
+    DirectoryListed {
+        path: PathBuf,
+        entries: Vec<String>,
+    },
     /// The theme was written into the configuration file.
-    ThemePersisted { path: PathBuf, theme: String },
+    ThemePersisted {
+        path: PathBuf,
+        theme: String,
+    },
     /// The branch the project is on, or none when it is not a repository.
-    GitBranch { branch: Option<String> },
+    #[cfg(feature = "git")]
+    GitBranch {
+        branch: Option<String>,
+    },
     /// A new snapshot of the file tree.
-    TreeUpdated { nodes: Vec<maxgus_tree::VisibleNode>, select: Option<PathBuf>, show_hidden: bool },
-    LanguageServerStarted { language: String },
-    LanguageServerStopped { language: String },
-    LspResponse { language: String, uri: String, query: LspQuery, result: serde_json::Value },
-    Diagnostics { uri: String, diagnostics: Vec<maxgus_lsp::Diagnostic> },
+    TreeUpdated {
+        nodes: Vec<maxgus_tree::VisibleNode>,
+        select: Option<PathBuf>,
+        show_hidden: bool,
+    },
+    /// The encoding is the one the server negotiated at `initialize`, and it
+    /// is carried here because nothing else ever learns it: addressing a
+    /// UTF-8 server in UTF-16 puts every position in a line with non-ASCII
+    /// text at the wrong column.
+    #[cfg(feature = "lsp")]
+    LanguageServerStarted {
+        language: String,
+        encoding: maxgus_lsp::PositionEncoding,
+    },
+    #[cfg(feature = "lsp")]
+    LanguageServerStopped {
+        language: String,
+    },
+    #[cfg(feature = "lsp")]
+    LspResponse {
+        language: String,
+        uri: String,
+        query: LspQuery,
+        result: serde_json::Value,
+    },
+    #[cfg(feature = "lsp")]
+    Diagnostics {
+        uri: String,
+        diagnostics: Vec<maxgus_lsp::Diagnostic>,
+    },
     /// `workspace/applyEdit`: the server wants to change the text itself.
     ///
     /// Carries the request id, because the answer has to say whether the edit
     /// went in and the server is waiting for it.
-    LspApplyEdit { language: String, id: maxgus_lsp::RequestId, edit: serde_json::Value },
-    ShellOutput { command: String, output: String, status: i32, insert_at: Option<(BufferId, usize)> },
+    #[cfg(feature = "lsp")]
+    LspApplyEdit {
+        language: String,
+        id: maxgus_lsp::RequestId,
+        edit: serde_json::Value,
+    },
+    ShellOutput {
+        command: String,
+        output: String,
+        status: i32,
+        insert_at: Option<(BufferId, usize)>,
+    },
+    /// Everything the status view shows, read in one go.
+    ///
+    /// One result rather than eight, because a status assembled from answers
+    /// arriving separately shows a diff that disagrees with the status it is
+    /// listed under — which is exactly the moment a user stages the wrong
+    /// thing.
+    #[cfg(feature = "git")]
+    GitRefreshed(Box<GitSnapshot>),
+    /// A git command finished. The output is shown, since git says useful
+    /// things on the way past, and the whole command line is kept so the
+    /// process buffer can show what was actually run.
+    #[cfg(feature = "git")]
+    GitDone {
+        action: String,
+        command: String,
+        output: String,
+    },
+    /// A log, for its own buffer.
+    #[cfg(feature = "git")]
+    GitLog {
+        title: String,
+        commits: Vec<maxgus_git::Commit>,
+    },
+    /// A diff or one commit, for its own buffer.
+    #[cfg(feature = "git")]
+    GitDiff {
+        title: String,
+        /// Lines above the diff: a commit's author, date and message.
+        preamble: Vec<String>,
+        files: Vec<maxgus_git::FileDiff>,
+    },
+    /// Bytes a terminal's program wrote.
+    #[cfg(feature = "terminal")]
+    TerminalOutput {
+        terminal: TerminalId,
+        bytes: Vec<u8>,
+    },
+    /// The program ended. The tab says so rather than vanishing, so that a
+    /// command which failed on the way out can still be read.
+    #[cfg(feature = "terminal")]
+    TerminalExited {
+        terminal: TerminalId,
+        status: i32,
+    },
+    #[cfg(feature = "syntax")]
     Reparsed {
         buffer: BufferId,
         revision: u64,
@@ -205,7 +506,10 @@ pub enum TaskResult {
         highlights: Vec<maxgus_syntax::Highlight>,
     },
     /// Something went wrong. `context` names what was being attempted.
-    Failed { context: String, message: String },
+    Failed {
+        context: String,
+        message: String,
+    },
 }
 
 impl TaskResult {
@@ -221,15 +525,26 @@ impl TaskResult {
             TaskResult::FileWritten { path, bytes, .. } => {
                 Some(format!("Wrote {} ({bytes} bytes)", path.display()))
             }
-            TaskResult::LanguageServerStarted { language } => {
+            #[cfg(feature = "lsp")]
+            TaskResult::LanguageServerStarted { language, .. } => {
                 Some(format!("Language server for {language} started"))
             }
+            #[cfg(feature = "lsp")]
             TaskResult::LanguageServerStopped { language } => {
                 Some(format!("Language server for {language} stopped"))
             }
-            TaskResult::ShellOutput { status, command, .. } if *status != 0 => {
-                Some(format!("`{command}` exited with status {status}"))
+            #[cfg(feature = "git")]
+            TaskResult::GitDone { action, output, .. } => Some(match output.trim() {
+                "" => format!("{action} done"),
+                said => format!("{action}: {}", said.lines().next().unwrap_or(said)),
+            }),
+            #[cfg(feature = "terminal")]
+            TaskResult::TerminalExited { status, .. } if *status != 0 => {
+                Some(format!("Terminal exited with status {status}"))
             }
+            TaskResult::ShellOutput {
+                status, command, ..
+            } if *status != 0 => Some(format!("`{command}` exited with status {status}")),
             TaskResult::Failed { context, message } => Some(format!("{context}: {message}")),
             _ => None,
         }
@@ -278,6 +593,7 @@ impl TaskQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(any(feature = "lsp", feature = "syntax"))]
     use serde_json::json;
 
     fn path() -> PathBuf {
@@ -317,9 +633,16 @@ mod tests {
 
     #[test]
     fn results_report_whether_they_failed() {
-        let ok = TaskResult::TreeUpdated { nodes: Vec::new(), select: None, show_hidden: false };
+        let ok = TaskResult::TreeUpdated {
+            nodes: Vec::new(),
+            select: None,
+            show_hidden: false,
+        };
         assert!(!ok.is_error());
-        let bad = TaskResult::Failed { context: "find-file".into(), message: "no such file".into() };
+        let bad = TaskResult::Failed {
+            context: "find-file".into(),
+            message: "no such file".into(),
+        };
         assert!(bad.is_error());
         assert_eq!(bad.message().unwrap(), "find-file: no such file");
     }
@@ -337,15 +660,25 @@ mod tests {
         };
         assert_eq!(read.message().unwrap(), "Read /tmp/a.rs");
 
-        let written =
-            TaskResult::FileWritten { path: path(), buffer: BufferId(1), bytes: 120, disk_time: None };
+        let written = TaskResult::FileWritten {
+            path: path(),
+            buffer: BufferId(1),
+            bytes: 120,
+            disk_time: None,
+        };
         assert_eq!(written.message().unwrap(), "Wrote /tmp/a.rs (120 bytes)");
     }
 
+    #[cfg(all(feature = "lsp", feature = "syntax"))]
     #[test]
     fn quiet_results_say_nothing() {
         assert_eq!(
-            TaskResult::TreeUpdated { nodes: Vec::new(), select: None, show_hidden: false }.message(),
+            TaskResult::TreeUpdated {
+                nodes: Vec::new(),
+                select: None,
+                show_hidden: false
+            }
+            .message(),
             None
         );
         assert_eq!(
@@ -361,7 +694,7 @@ mod tests {
         let response = TaskResult::LspResponse {
             language: "rust".into(),
             uri: "file:///a.rs".into(),
-            query: LspQuery::DocumentSymbols,
+            query: LspQuery::DocumentSymbols { for_panel: false },
             result: json!([]),
         };
         assert_eq!(response.message(), None);
@@ -386,18 +719,29 @@ mod tests {
         assert_eq!(ok.message(), None, "a successful command says nothing");
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn language_server_lifecycle_results_are_announced() {
         assert_eq!(
-            TaskResult::LanguageServerStarted { language: "rust".into() }.message().unwrap(),
+            TaskResult::LanguageServerStarted {
+                language: "rust".into(),
+                encoding: maxgus_lsp::PositionEncoding::Utf16,
+            }
+            .message()
+            .unwrap(),
             "Language server for rust started"
         );
         assert_eq!(
-            TaskResult::LanguageServerStopped { language: "rust".into() }.message().unwrap(),
+            TaskResult::LanguageServerStopped {
+                language: "rust".into()
+            }
+            .message()
+            .unwrap(),
             "Language server for rust stopped"
         );
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn every_query_kind_describes_itself() {
         let queries = [
@@ -406,27 +750,48 @@ mod tests {
             LspQuery::Hover(LspPosition::ZERO),
             LspQuery::Completion(LspPosition::ZERO),
             LspQuery::SignatureHelp(LspPosition::ZERO),
-            LspQuery::Rename { position: LspPosition::ZERO, new_name: "x".into() },
-            LspQuery::Format { tab_size: 4, insert_spaces: true },
-            LspQuery::CodeAction { range: LspRange::empty(LspPosition::ZERO), diagnostics: Vec::new() },
-            LspQuery::DocumentSymbols,
+            LspQuery::Rename {
+                position: LspPosition::ZERO,
+                new_name: "x".into(),
+            },
+            LspQuery::Format {
+                tab_size: 4,
+                insert_spaces: true,
+            },
+            LspQuery::CodeAction {
+                range: LspRange::empty(LspPosition::ZERO),
+                diagnostics: Vec::new(),
+            },
+            LspQuery::DocumentSymbols { for_panel: false },
             LspQuery::WorkspaceSymbols("q".into()),
         ];
         let mut descriptions: Vec<&str> = queries.iter().map(LspQuery::description).collect();
         let before = descriptions.len();
         descriptions.sort_unstable();
         descriptions.dedup();
-        assert_eq!(descriptions.len(), before, "descriptions must be distinguishable");
+        assert_eq!(
+            descriptions.len(),
+            before,
+            "descriptions must be distinguishable"
+        );
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn only_the_navigating_queries_push_the_mark() {
         assert!(LspQuery::Definition(LspPosition::ZERO).jumps());
         assert!(LspQuery::References(LspPosition::ZERO).jumps());
         assert!(!LspQuery::Hover(LspPosition::ZERO).jumps());
-        assert!(!LspQuery::Format { tab_size: 4, insert_spaces: true }.jumps());
+        assert!(
+            !LspQuery::Format {
+                tab_size: 4,
+                insert_spaces: true
+            }
+            .jumps()
+        );
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn a_response_carries_enough_context_to_be_routed_back() {
         let result = TaskResult::LspResponse {
@@ -435,7 +800,9 @@ mod tests {
             query: LspQuery::Hover(LspPosition::new(3, 4)),
             result: json!({"contents": "docs"}),
         };
-        let TaskResult::LspResponse { query, uri, .. } = result else { panic!() };
+        let TaskResult::LspResponse { query, uri, .. } = result else {
+            panic!()
+        };
         assert_eq!(uri, "file:///a.rs");
         assert_eq!(query, LspQuery::Hover(LspPosition::new(3, 4)));
     }

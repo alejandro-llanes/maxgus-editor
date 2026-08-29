@@ -50,11 +50,25 @@ pub struct Keymap {
     /// Command run for any otherwise-unbound key, as `self-insert-command` is
     /// in the global map.
     default_binding: Option<String>,
+    /// True when the default binding catches *every* unbound key rather than
+    /// only the ones that insert a character. A terminal needs this: `C-a`
+    /// and `<up>` belong to the program running inside it, not to the editor.
+    default_catches_all: bool,
+    /// Keys the catch-all does not take, which therefore fall through to the
+    /// maps below. Without them a terminal would swallow `C-x` and there
+    /// would be no way out of it.
+    default_exceptions: std::collections::BTreeSet<Key>,
 }
 
 impl Keymap {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), entries: BTreeMap::new(), default_binding: None }
+        Self {
+            name: name.into(),
+            entries: BTreeMap::new(),
+            default_binding: None,
+            default_catches_all: false,
+            default_exceptions: std::collections::BTreeSet::new(),
+        }
     }
 
     pub fn name(&self) -> &str {
@@ -62,6 +76,16 @@ impl Keymap {
     }
 
     /// Sets the fallback command for keys with no explicit binding.
+    /// Makes the default binding catch every unbound key except `except`.
+    ///
+    /// For a terminal, where an unbound key is not an error but a keystroke.
+    /// The exceptions are the way back out: without them the editor's own
+    /// prefix would be swallowed along with everything else.
+    pub fn set_default_catches_all(&mut self, except: &[Key]) {
+        self.default_catches_all = true;
+        self.default_exceptions = except.iter().copied().collect();
+    }
+
     pub fn set_default_binding(&mut self, command: Option<String>) {
         self.default_binding = command;
     }
@@ -94,7 +118,11 @@ impl Keymap {
             return Ok(());
         }
         let child_name = format!("{} {}", self.name, head.notation());
-        match self.entries.entry(*head).or_insert_with(|| Entry::Prefix(Keymap::new(child_name))) {
+        match self
+            .entries
+            .entry(*head)
+            .or_insert_with(|| Entry::Prefix(Keymap::new(child_name)))
+        {
             Entry::Prefix(map) => map.define_keys(rest, command, full),
             Entry::Command(existing) => {
                 Err(KeyError::PrefixConflict(full.notation(), existing.clone()))
@@ -146,10 +174,15 @@ impl Keymap {
             // The default binding stands in for `self-insert-command`, so it
             // only catches keys that actually insert a character: a function
             // or navigation key with no binding is undefined, not self-insert.
-            None => match (&self.default_binding, rest.is_empty() && head.is_self_inserting()) {
-                (Some(c), true) => Lookup::Command(c.clone()),
-                _ => Lookup::Undefined,
-            },
+            None => {
+                let catches = rest.is_empty()
+                    && (head.is_self_inserting()
+                        || (self.default_catches_all && !self.default_exceptions.contains(head)));
+                match (&self.default_binding, catches) {
+                    (Some(c), true) => Lookup::Command(c.clone()),
+                    _ => Lookup::Undefined,
+                }
+            }
         }
     }
 
@@ -210,7 +243,11 @@ pub struct KeymapSet {
 
 impl KeymapSet {
     pub fn new(global: Keymap) -> Self {
-        Self { global, major: None, minor: Vec::new() }
+        Self {
+            global,
+            major: None,
+            minor: Vec::new(),
+        }
     }
 
     pub fn set_major(&mut self, map: Option<Keymap>) {
@@ -230,7 +267,10 @@ impl KeymapSet {
     }
 
     fn maps(&self) -> impl Iterator<Item = &Keymap> {
-        self.minor.iter().chain(self.major.iter()).chain(std::iter::once(&self.global))
+        self.minor
+            .iter()
+            .chain(self.major.iter())
+            .chain(std::iter::once(&self.global))
     }
 
     /// Looks the sequence up across the whole stack. A command found in a
@@ -252,7 +292,11 @@ impl KeymapSet {
                 Lookup::Undefined => {}
             }
         }
-        if prefix_seen { Lookup::Prefix } else { Lookup::Undefined }
+        if prefix_seen {
+            Lookup::Prefix
+        } else {
+            Lookup::Undefined
+        }
     }
 
     /// All bindings across the stack, higher-precedence ones shadowing lower.
@@ -294,8 +338,14 @@ mod tests {
     #[test]
     fn complete_sequences_resolve_to_commands() {
         let m = sample_map();
-        assert_eq!(m.lookup(&seq("C-x C-f")), Lookup::Command("find-file".into()));
-        assert_eq!(m.lookup(&seq("C-a")), Lookup::Command("move-beginning-of-line".into()));
+        assert_eq!(
+            m.lookup(&seq("C-x C-f")),
+            Lookup::Command("find-file".into())
+        );
+        assert_eq!(
+            m.lookup(&seq("C-a")),
+            Lookup::Command("move-beginning-of-line".into())
+        );
     }
 
     #[test]
@@ -369,7 +419,10 @@ mod tests {
         m.set_default_binding(Some("self-insert-command".into()));
         m.define_str("C-a", "move-beginning-of-line").unwrap();
         assert_eq!(m.lookup(&seq("q")).command(), Some("self-insert-command"));
-        assert_eq!(m.lookup(&seq("C-a")).command(), Some("move-beginning-of-line"));
+        assert_eq!(
+            m.lookup(&seq("C-a")).command(),
+            Some("move-beginning-of-line")
+        );
     }
 
     #[test]
@@ -403,8 +456,11 @@ mod tests {
     fn where_is_finds_every_binding_of_a_command() {
         let mut m = sample_map();
         m.define_str("<home>", "move-beginning-of-line").unwrap();
-        let mut found: Vec<String> =
-            m.where_is("move-beginning-of-line").iter().map(|s| s.notation()).collect();
+        let mut found: Vec<String> = m
+            .where_is("move-beginning-of-line")
+            .iter()
+            .map(|s| s.notation())
+            .collect();
         found.sort();
         assert_eq!(found, vec!["<home>", "C-a"]);
         assert!(m.where_is("nonexistent-command").is_empty());
@@ -419,7 +475,11 @@ mod tests {
         base.merge(&user);
         assert_eq!(base.lookup(&seq("C-x C-f")).command(), Some("my-find-file"));
         assert_eq!(base.lookup(&seq("C-x C-b")).command(), Some("ibuffer"));
-        assert_eq!(base.lookup(&seq("C-x C-s")).command(), Some("save-buffer"), "untouched");
+        assert_eq!(
+            base.lookup(&seq("C-x C-s")).command(),
+            Some("save-buffer"),
+            "untouched"
+        );
     }
 
     #[test]
@@ -428,12 +488,18 @@ mod tests {
         let mut major = Keymap::new("rust-mode");
         major.define_str("C-a", "rust-beginning-of-line").unwrap();
         set.set_major(Some(major));
-        assert_eq!(set.lookup(&seq("C-a")).command(), Some("rust-beginning-of-line"));
+        assert_eq!(
+            set.lookup(&seq("C-a")).command(),
+            Some("rust-beginning-of-line")
+        );
 
         let mut minor = Keymap::new("flycheck-mode");
         minor.define_str("C-a", "flycheck-first-error").unwrap();
         set.push_minor(minor);
-        assert_eq!(set.lookup(&seq("C-a")).command(), Some("flycheck-first-error"));
+        assert_eq!(
+            set.lookup(&seq("C-a")).command(),
+            Some("flycheck-first-error")
+        );
     }
 
     #[test]
@@ -455,7 +521,10 @@ mod tests {
         minor.define_str("C-a", "temp-command").unwrap();
         set.push_minor(minor);
         assert!(set.remove_minor("temp"));
-        assert_eq!(set.lookup(&seq("C-a")).command(), Some("move-beginning-of-line"));
+        assert_eq!(
+            set.lookup(&seq("C-a")).command(),
+            Some("move-beginning-of-line")
+        );
         assert!(!set.remove_minor("temp"), "removing twice is a no-op");
     }
 
@@ -474,13 +543,19 @@ mod tests {
         minor.define_str("C-a C-b", "deep").unwrap();
         set.push_minor(minor);
 
-        assert!(set.lookup(&seq("C-a")).is_prefix(), "`C-a` should be waiting for more");
+        assert!(
+            set.lookup(&seq("C-a")).is_prefix(),
+            "`C-a` should be waiting for more"
+        );
         assert_eq!(set.lookup(&seq("C-a C-b")).command(), Some("deep"));
 
         // And the global binding comes back when the map holding the prefix
         // goes away.
         assert!(set.remove_minor("minor"));
-        assert_eq!(set.lookup(&seq("C-a")).command(), Some("move-beginning-of-line"));
+        assert_eq!(
+            set.lookup(&seq("C-a")).command(),
+            Some("move-beginning-of-line")
+        );
     }
 
     #[test]
@@ -490,7 +565,10 @@ mod tests {
         let mut minor = Keymap::new("minor");
         minor.define_str("C-x C-z", "deep").unwrap();
         set.push_minor(minor);
-        assert_eq!(set.lookup(&seq("C-a")).command(), Some("move-beginning-of-line"));
+        assert_eq!(
+            set.lookup(&seq("C-a")).command(),
+            Some("move-beginning-of-line")
+        );
     }
 
     #[test]

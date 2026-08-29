@@ -28,17 +28,32 @@ pub struct Args {
 
 impl Args {
     pub fn new(prefix: Prefix, key: Option<Key>) -> Args {
-        Args { prefix, key, read_char: None, input: None }
+        Args {
+            prefix,
+            key,
+            read_char: None,
+            input: None,
+        }
     }
 
     /// The same arguments, carrying the character a command asked for.
     pub fn with_read_char(prefix: Prefix, key: Key) -> Args {
-        Args { prefix, key: Some(key), read_char: Some(key), input: None }
+        Args {
+            prefix,
+            key: Some(key),
+            read_char: Some(key),
+            input: None,
+        }
     }
 
     /// The same arguments, carrying the text a prompt collected.
     pub fn with_input(prefix: Prefix, input: String) -> Args {
-        Args { prefix, key: None, read_char: None, input: Some(input) }
+        Args {
+            prefix,
+            key: None,
+            read_char: None,
+            input: Some(input),
+        }
     }
 
     /// A repeat count of at least one.
@@ -133,7 +148,10 @@ impl Registry {
 
     /// Interactive names starting with `prefix`, for completion.
     pub fn complete(&self, prefix: &str) -> Vec<String> {
-        self.interactive_names().into_iter().filter(|n| n.starts_with(prefix)).collect()
+        self.interactive_names()
+            .into_iter()
+            .filter(|n| n.starts_with(prefix))
+            .collect()
     }
 
     /// Runs `name`, reporting an unknown command the way Emacs does.
@@ -206,9 +224,18 @@ mod tests {
     fn registry() -> Registry {
         let mut r = Registry::new();
         r.register(command!("do-nothing", "Do nothing at all.", noop));
-        r.register(command!("shout", "Say how many times.\nA second line.", shout));
+        r.register(command!(
+            "shout",
+            "Say how many times.\nA second line.",
+            shout
+        ));
         r.register(command!("fail", "Always fail.", failing));
-        r.register(command!("universal-argument", "Prefix.", noop, non_interactive));
+        r.register(command!(
+            "universal-argument",
+            "Prefix.",
+            noop,
+            non_interactive
+        ));
         r
     }
 
@@ -224,7 +251,9 @@ mod tests {
     fn an_unknown_command_is_reported_by_name() {
         let r = registry();
         let mut e = editor();
-        let err = r.execute(&mut e, "no-such-command", &Args::default()).unwrap_err();
+        let err = r
+            .execute(&mut e, "no-such-command", &Args::default())
+            .unwrap_err();
         assert!(err.to_string().contains("no-such-command"), "got `{err}`");
     }
 
@@ -240,7 +269,8 @@ mod tests {
     fn a_command_sees_its_prefix_argument() {
         let r = registry();
         let mut e = editor();
-        r.execute(&mut e, "shout", &Args::new(Prefix::Numeric(7), None)).unwrap();
+        r.execute(&mut e, "shout", &Args::new(Prefix::Numeric(7), None))
+            .unwrap();
         assert_eq!(e.minibuffer.display(), "ran 7 times");
     }
 
@@ -275,7 +305,8 @@ mod tests {
         let r = registry();
         assert!(r.names().contains(&"universal-argument".to_string()));
         assert!(
-            !r.interactive_names().contains(&"universal-argument".to_string()),
+            !r.interactive_names()
+                .contains(&"universal-argument".to_string()),
             "prefix commands are not offered by M-x"
         );
     }
@@ -307,10 +338,7 @@ mod tests {
     #[test]
     fn commands_can_be_registered_in_bulk() {
         let mut r = Registry::new();
-        r.register_all(&[
-            command!("a", "A.", noop),
-            command!("b", "B.", noop),
-        ]);
+        r.register_all(&[command!("a", "A.", noop), command!("b", "B.", noop)]);
         assert_eq!(r.len(), 2);
         assert_eq!(r.iter().count(), 2);
     }

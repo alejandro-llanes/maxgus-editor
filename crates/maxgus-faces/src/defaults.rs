@@ -30,6 +30,10 @@ struct Palette {
     purple: Color,
     /// Foreground for text drawn on `surface`.
     surface_fg: Color,
+    /// Barely-there bands behind added and removed diff lines. A wall of
+    /// green and red text is much harder to read than banded rows are.
+    added_bg: Color,
+    removed_bg: Color,
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -55,6 +59,8 @@ const DARK: Palette = Palette {
     blue: rgb(0x81, 0xa2, 0xbe),
     purple: rgb(0xb2, 0x94, 0xbb),
     surface_fg: rgb(0xc5, 0xc8, 0xc6),
+    added_bg: rgb(0x1f, 0x2b, 0x1f),
+    removed_bg: rgb(0x2e, 0x1f, 0x1f),
 };
 
 /// Tomorrow.
@@ -72,6 +78,8 @@ const LIGHT: Palette = Palette {
     blue: rgb(0x42, 0x71, 0xae),
     purple: rgb(0x89, 0x59, 0xa8),
     surface_fg: rgb(0x4d, 0x4d, 0x4c),
+    added_bg: rgb(0xe8, 0xf3, 0xdd),
+    removed_bg: rgb(0xfa, 0xe6, 0xe6),
 };
 
 /// Terminal defaults: nothing but the sixteen ANSI colours, so the theme
@@ -90,6 +98,10 @@ const TERM: Palette = Palette {
     blue: idx(4),
     purple: idx(5),
     surface_fg: idx(15),
+    // The terminal theme keeps to the sixteen colours, and there is no dim
+    // green to be had among them: the foreground carries the meaning here.
+    added_bg: Color::Default,
+    removed_bg: Color::Default,
 };
 
 /// Builds a theme from a palette.
@@ -97,7 +109,14 @@ fn build(name: &str, p: &Palette) -> Theme {
     let mut t = Theme::new(name);
     let mut set = |face_name: &str, face: Face| t.set(face_name, face);
 
-    set(names::DEFAULT, Face { foreground: Some(p.fg), background: Some(p.bg), ..Default::default() });
+    set(
+        names::DEFAULT,
+        Face {
+            foreground: Some(p.fg),
+            background: Some(p.bg),
+            ..Default::default()
+        },
+    );
 
     // ---- interface ----
     set("cursor", Face::bg(p.fg).with_fg(p.bg));
@@ -124,6 +143,44 @@ fn build(name: &str, p: &Palette) -> Theme {
     set("fill-column-indicator", Face::fg(p.selection));
     set("completion-selected", Face::bg(p.selection).bold());
     set("completion-annotation", Face::fg(p.comment).italic());
+    // The panel's section bands. A heading has to read as furniture rather
+    // than as content, or the eye keeps mistaking it for a file.
+    // A terminal's own colours come from the program running in it; this is
+    // only what an unpainted cell falls back to.
+    // Magit's own face names, so a theme written for magit ports straight
+    // across. The diff faces carry a background as well as a foreground: a
+    // wall of green and red text is much harder to read than banded rows.
+    // The menus. A key has to stand out from its description or the menu is
+    // a wall of words rather than something to read a key off.
+    set("transient-key", Face::fg(p.aqua).bold());
+    set("transient-heading", Face::fg(p.yellow).bold());
+    set("transient-switch-on", Face::fg(p.green).bold());
+    set("transient-switch-off", Face::fg(p.comment));
+    set("magit-section-heading", Face::fg(p.yellow).bold());
+    set("magit-section-highlight", Face::bg(p.selection));
+    set("magit-diff-file-heading", Face::fg(p.fg).bold());
+    set(
+        "magit-diff-hunk-heading",
+        Face::fg(p.comment).with_bg(p.selection),
+    );
+    set("magit-diff-added", Face::fg(p.green).with_bg(p.added_bg));
+    set("magit-diff-removed", Face::fg(p.red).with_bg(p.removed_bg));
+    set("magit-diff-context", Face::fg(p.comment));
+    set("magit-hash", Face::fg(p.orange));
+    set("magit-branch-local", Face::fg(p.aqua).bold());
+    set("magit-branch-remote", Face::fg(p.green).bold());
+    set("magit-tag", Face::fg(p.yellow).bold());
+    set("terminal", Face::fg(p.fg));
+    set("terminal-tab", Face::fg(p.comment).with_bg(p.selection));
+    set(
+        "terminal-tab-selected",
+        Face::fg(p.bg).with_bg(p.blue).bold(),
+    );
+    set("terminal-exited", Face::fg(p.red).with_bg(p.selection));
+    set("panel-header", Face::fg(p.blue).with_bg(p.selection).bold());
+    set("panel-note", Face::fg(p.comment).italic());
+    set("panel-current-buffer", Face::fg(p.yellow).bold());
+    set("symbol-detail", Face::fg(p.comment));
     set("completion-border", Face::fg(p.selection));
     set("completion-key", Face::fg(p.aqua));
     set("completion-count", Face::fg(p.orange).bold());
@@ -264,7 +321,9 @@ mod tests {
     #[test]
     fn every_theme_validates() {
         for theme in all() {
-            theme.validate().unwrap_or_else(|e| panic!("theme `{}`: {e}", theme.name()));
+            theme
+                .validate()
+                .unwrap_or_else(|e| panic!("theme `{}`: {e}", theme.name()));
         }
     }
 
@@ -349,8 +408,18 @@ mod tests {
         for theme in all() {
             let cursor = theme.resolve("cursor");
             let default = theme.resolve("default");
-            assert_eq!(cursor.foreground, default.background, "theme `{}`", theme.name());
-            assert_eq!(cursor.background, default.foreground, "theme `{}`", theme.name());
+            assert_eq!(
+                cursor.foreground,
+                default.background,
+                "theme `{}`",
+                theme.name()
+            );
+            assert_eq!(
+                cursor.background,
+                default.foreground,
+                "theme `{}`",
+                theme.name()
+            );
         }
     }
 }

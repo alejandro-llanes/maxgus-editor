@@ -12,8 +12,10 @@ workspace = true
 maxgus-config = { version = "0.1.0", path = "../maxgus-config" }
 maxgus-faces = { version = "0.1.0", path = "../maxgus-faces" }
 maxgus-keys = { version = "0.1.0", path = "../maxgus-keys" }
-maxgus-lsp = { version = "0.1.0", path = "../maxgus-lsp" }
-maxgus-syntax = { version = "0.1.0", path = "../maxgus-syntax" }
+maxgus-lsp = { version = "0.1.0", path = "../maxgus-lsp", optional = true }
+maxgus-syntax = { version = "0.1.0", path = "../maxgus-syntax", optional = true }
+maxgus-git = { version = "0.1.0", path = "../maxgus-git", optional = true }
+maxgus-term = { version = "0.1.0", path = "../maxgus-term", optional = true }
 maxgus-text = { version = "0.1.0", path = "../maxgus-text" }
 maxgus-tree = { version = "0.1.0", path = "../maxgus-tree" }
 maxgus-tui = { version = "0.1.0", path = "../maxgus-tui" }
@@ -22,3 +24,19 @@ serde_json = "1.0.151"
 thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["full"] }
 tracing = "0.1.44"
+
+[features]
+default = ["full"]
+
+# Everything the editor can do.
+full = ["syntax", "lsp", "git", "terminal"]
+
+# Tree-sitter highlighting. The grammars are C, and are most of what a build
+# spends its time on — which is what makes leaving them out worth a feature.
+syntax = ["dep:maxgus-syntax"]
+# A language-server client: diagnostics, completion, the symbol outline.
+lsp = ["dep:maxgus-lsp"]
+# The magit clone.
+git = ["dep:maxgus-git"]
+# The terminal panel along the bottom.
+terminal = ["dep:maxgus-term"]

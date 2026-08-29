@@ -16,14 +16,52 @@ pub const SHELL_OUTPUT_NAME: &str = "*Shell Command Output*";
 /// Registers the miscellaneous commands.
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
-        command!("universal-argument", "Begin a prefix argument.", universal_argument, non_interactive),
-        command!("digit-argument", "Add a digit to the prefix argument.", digit_argument, non_interactive),
-        command!("negative-argument", "Make the prefix argument negative.", negative_argument, non_interactive),
-        command!("execute-extended-command", "Run a command by name.", execute_extended_command),
-        command!("keyboard-escape-quit", "Abandon whatever is in progress.", escape_quit, non_interactive),
+        command!(
+            "universal-argument",
+            "Begin a prefix argument.",
+            universal_argument,
+            non_interactive
+        ),
+        command!(
+            "digit-argument",
+            "Add a digit to the prefix argument.",
+            digit_argument,
+            non_interactive
+        ),
+        command!(
+            "negative-argument",
+            "Make the prefix argument negative.",
+            negative_argument,
+            non_interactive
+        ),
+        command!(
+            "execute-extended-command",
+            "Run a command by name.",
+            execute_extended_command
+        ),
+        command!(
+            "keyboard-escape-quit",
+            "Abandon whatever is in progress.",
+            escape_quit,
+            non_interactive
+        ),
         command!("suspend-maxgus", "Suspend the editor.", suspend),
+        command!(
+            "startup-time",
+            "Report how long the editor took to start.",
+            startup_time
+        ),
+        command!(
+            "edit-configuration",
+            "Open the configuration file.",
+            edit_configuration
+        ),
         command!("load-theme", "Switch to another theme.", load_theme),
-        command!("visit-theme", "Try each theme in turn and keep one.", visit_theme),
+        command!(
+            "visit-theme",
+            "Try each theme in turn and keep one.",
+            visit_theme
+        ),
         command!(
             "visit-theme-keep",
             "Answer whether a visited theme should be written to the config file.",
@@ -31,11 +69,31 @@ pub fn register(registry: &mut Registry) {
             non_interactive
         ),
         command!("repeat", "Run the last command again.", repeat),
-        command!("kmacro-start-macro", "Begin recording a keyboard macro.", start_macro),
-        command!("kmacro-end-macro", "Stop recording a keyboard macro.", end_macro),
-        command!("kmacro-end-and-call-macro", "Stop recording, or replay the last macro.", end_and_call_macro),
-        command!("shell-command", "Run a shell command and show its output.", shell_command),
-        command!("shell-command-on-region", "Pass the region through a shell command.", shell_command_on_region),
+        command!(
+            "kmacro-start-macro",
+            "Begin recording a keyboard macro.",
+            start_macro
+        ),
+        command!(
+            "kmacro-end-macro",
+            "Stop recording a keyboard macro.",
+            end_macro
+        ),
+        command!(
+            "kmacro-end-and-call-macro",
+            "Stop recording, or replay the last macro.",
+            end_and_call_macro
+        ),
+        command!(
+            "shell-command",
+            "Run a shell command and show its output.",
+            shell_command
+        ),
+        command!(
+            "shell-command-on-region",
+            "Pass the region through a shell command.",
+            shell_command_on_region
+        ),
     ]);
 }
 
@@ -94,7 +152,9 @@ fn execute_extended_command(editor: &mut Editor, args: &Args) -> Result<()> {
         return Err(crate::CoreError::Message("No command given".into()));
     }
     if !editor.command_names.contains(&name) {
-        return Err(crate::CoreError::Message(format!("No command named `{name}`")));
+        return Err(crate::CoreError::Message(format!(
+            "No command named `{name}`"
+        )));
     }
     editor.deferred = Some((name, Args::new(args.prefix, None)));
     Ok(())
@@ -120,6 +180,45 @@ fn escape_quit(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.with_current_buffer(|b| b.deactivate_mark());
     editor.message("Quit");
     Ok(())
+}
+
+/// `C-c e`: opens the configuration file, creating it if it is not there.
+///
+/// Creating it matters: the usual reason to reach for this key is that there
+/// is no configuration yet, and being told the file does not exist is not
+/// what anybody wanted from it.
+/// `M-x startup-time`, which is `emacs-init-time` by another name.
+fn startup_time(editor: &mut Editor, _: &Args) -> Result<()> {
+    match editor.startup_time {
+        Some(elapsed) => {
+            let text = format!("maxgus started in {}", crate::human_duration(elapsed));
+            editor.message(text);
+            Ok(())
+        }
+        // A session that was never started by the binary — a test, or an
+        // embedding — has nothing to report and should say so.
+        None => Err(crate::CoreError::Message(
+            "The startup time is not known".into(),
+        )),
+    }
+}
+
+fn edit_configuration(editor: &mut Editor, _: &Args) -> Result<()> {
+    let path = editor
+        .config_path
+        .clone()
+        .ok_or_else(|| crate::CoreError::Message("There is no configuration file".into()))?;
+    match editor.buffers.find_by_path(&path) {
+        Some(id) => editor.switch_to_buffer(id),
+        None => {
+            editor.spawn(crate::task::Task::ReadFile {
+                path,
+                reverting: None,
+                other_window: false,
+            });
+            Ok(())
+        }
+    }
 }
 
 fn suspend(editor: &mut Editor, _: &Args) -> Result<()> {
@@ -193,7 +292,9 @@ fn visit_theme(editor: &mut Editor, args: &Args) -> Result<()> {
 
 /// The answer to that question.
 fn visit_theme_keep(editor: &mut Editor, args: &Args) -> Result<()> {
-    let Some(answer) = args.input.clone() else { return Ok(()) };
+    let Some(answer) = args.input.clone() else {
+        return Ok(());
+    };
     let name = editor.settings.theme.clone();
     if !answer.eq_ignore_ascii_case("yes") && !answer.eq_ignore_ascii_case("y") {
         editor.message(format!("Theme {name}, this session only"));
@@ -238,7 +339,9 @@ fn load_theme(editor: &mut Editor, args: &Args) -> Result<()> {
 
 fn start_macro(editor: &mut Editor, _: &Args) -> Result<()> {
     if editor.recording_macro.is_some() {
-        return Err(crate::CoreError::Message("Already recording a keyboard macro".into()));
+        return Err(crate::CoreError::Message(
+            "Already recording a keyboard macro".into(),
+        ));
     }
     editor.recording_macro = Some(Vec::new());
     editor.message("Defining keyboard macro...");
@@ -248,7 +351,9 @@ fn start_macro(editor: &mut Editor, _: &Args) -> Result<()> {
 /// Stops recording, dropping the keys that ended the recording.
 fn finish_recording(editor: &mut Editor, trailing: usize) -> Result<usize> {
     let Some(mut keys) = editor.recording_macro.take() else {
-        return Err(crate::CoreError::Message("Not defining a keyboard macro".into()));
+        return Err(crate::CoreError::Message(
+            "Not defining a keyboard macro".into(),
+        ));
     };
     // The keys that invoked the stopping command are not part of the macro.
     keys.truncate(keys.len().saturating_sub(trailing));
@@ -270,7 +375,9 @@ fn end_and_call_macro(editor: &mut Editor, args: &Args) -> Result<()> {
         finish_recording(editor, 2)?;
     }
     if editor.last_macro.is_empty() {
-        return Err(crate::CoreError::Message("No keyboard macro defined".into()));
+        return Err(crate::CoreError::Message(
+            "No keyboard macro defined".into(),
+        ));
     }
     // The loop replays it; doing so here would need the dispatcher, which the
     // command does not have.
@@ -282,7 +389,13 @@ fn end_and_call_macro(editor: &mut Editor, args: &Args) -> Result<()> {
 
 fn shell_command(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(command) = args.input.clone() else {
-        editor.prompt_for("shell-command", MinibufferKind::Shell, "Shell command: ", "", Vec::new());
+        editor.prompt_for(
+            "shell-command",
+            MinibufferKind::Shell,
+            "Shell command: ",
+            "",
+            Vec::new(),
+        );
         return Ok(());
     };
     if command.trim().is_empty() {
@@ -294,7 +407,11 @@ fn shell_command(editor: &mut Editor, args: &Args) -> Result<()> {
         .prefix
         .is_present()
         .then(|| (editor.current_buffer_id(), editor.current_buffer().point()));
-    editor.spawn(Task::Shell { command, directory, insert_at });
+    editor.spawn(Task::Shell {
+        command,
+        directory,
+        insert_at,
+    });
     Ok(())
 }
 
@@ -318,16 +435,11 @@ fn shell_command_on_region(editor: &mut Editor, args: &Args) -> Result<()> {
     let text = editor.current_buffer().slice(range);
     let directory = editor.default_directory();
     editor.spawn(Task::Shell {
-        command: format!("printf %s {} | {command}", shell_quote(&text)),
+        command: format!("printf %s {} | {command}", crate::shell_quote(&text)),
         directory,
         insert_at: None,
     });
     Ok(())
-}
-
-/// Wraps `text` in single quotes for a shell, escaping any it contains.
-pub fn shell_quote(text: &str) -> String {
-    format!("'{}'", text.replace('\'', r"'\''"))
 }
 
 /// Puts shell output into its own buffer, as `M-!` does.
@@ -346,7 +458,11 @@ pub fn show_shell_output(editor: &mut Editor, command: &str, output: &str) -> Re
         }
         None => editor.buffers.create_with_text(SHELL_OUTPUT_NAME, &text),
     };
-    editor.buffers.get_mut(id).expect("just created").set_read_only(true);
+    editor
+        .buffers
+        .get_mut(id)
+        .expect("just created")
+        .set_read_only(true);
     editor.switch_to_buffer(id)
 }
 
@@ -383,7 +499,10 @@ mod tests {
 
     fn run(d: &mut Dispatcher, e: &mut Editor, command: &str) {
         let out = d.execute(e, command, None);
-        assert!(!matches!(out, Dispatch::Failed { .. }), "`{command}` failed: {out:?}");
+        assert!(
+            !matches!(out, Dispatch::Failed { .. }),
+            "`{command}` failed: {out:?}"
+        );
     }
 
     fn fails(d: &mut Dispatcher, e: &mut Editor, command: &str) -> String {
@@ -406,12 +525,21 @@ mod tests {
     fn every_global_binding_resolves_to_a_registered_command() {
         let registry = crate::commands::standard_registry();
         for (keys, command) in crate::keymap::GLOBAL_BINDINGS {
-            assert!(registry.contains(command), "`{keys}` runs unregistered `{command}`");
+            assert!(
+                registry.contains(command),
+                "`{keys}` runs unregistered `{command}`"
+            );
         }
         for keys in crate::keymap::DIGIT_ARGUMENT_KEYS {
-            assert!(registry.contains("digit-argument"), "`{keys}` has nothing to run");
+            assert!(
+                registry.contains("digit-argument"),
+                "`{keys}` has nothing to run"
+            );
         }
-        assert!(registry.contains("self-insert-command"), "the fallback binding");
+        assert!(
+            registry.contains("self-insert-command"),
+            "the fallback binding"
+        );
     }
 
     #[test]
@@ -499,7 +627,10 @@ mod tests {
             e.minibuffer.insert_char(c);
         }
         let out = d.handle_keys(&mut e, "RET");
-        assert!(matches!(out, Dispatch::Failed { .. }), "it is not offered by M-x");
+        assert!(
+            matches!(out, Dispatch::Failed { .. }),
+            "it is not offered by M-x"
+        );
     }
 
     #[test]
@@ -537,7 +668,10 @@ mod tests {
     fn load_theme_offers_every_theme_and_starts_on_the_current_one() {
         let (mut d, mut e) = setup("");
         run(&mut d, &mut e, "load-theme");
-        assert_eq!(e.completion_candidates, maxgus_faces::defaults::BUILTIN_THEMES);
+        assert_eq!(
+            e.completion_candidates,
+            maxgus_faces::defaults::BUILTIN_THEMES
+        );
         // Nothing to erase before a name can be typed.
         assert_eq!(e.minibuffer.input(), "");
         assert!(e.minibuffer.prompt().contains("default maxgus-dark"));
@@ -551,7 +685,11 @@ mod tests {
         answer(&mut d, &mut e, "maxgus-light");
 
         assert_eq!(e.theme.name(), "maxgus-light");
-        assert_ne!(e.theme.resolve("default"), before, "a light theme draws differently");
+        assert_ne!(
+            e.theme.resolve("default"),
+            before,
+            "a light theme draws differently"
+        );
         // `describe-settings` reads the name back out of the settings.
         assert_eq!(e.settings.theme, "maxgus-light");
     }
@@ -739,7 +877,14 @@ mod tests {
         e.tasks.drain();
         answer(&mut d, &mut e, "ls -l");
 
-        let Task::Shell { command, directory, insert_at } = &e.tasks.peek()[0] else { panic!() };
+        let Task::Shell {
+            command,
+            directory,
+            insert_at,
+        } = &e.tasks.peek()[0]
+        else {
+            panic!()
+        };
         assert_eq!(command, "ls -l");
         assert_eq!(directory, std::path::Path::new("/project"));
         assert!(insert_at.is_none());
@@ -751,7 +896,9 @@ mod tests {
         e.prefix = Prefix::Universal(1);
         d.execute(&mut e, "shell-command", None);
         answer(&mut d, &mut e, "date");
-        let Task::Shell { insert_at, .. } = &e.tasks.peek()[0] else { panic!() };
+        let Task::Shell { insert_at, .. } = &e.tasks.peek()[0] else {
+            panic!()
+        };
         assert!(insert_at.is_some());
     }
 
@@ -765,7 +912,9 @@ mod tests {
         d.execute(&mut e, "shell-command-on-region", None);
         e.tasks.drain();
         answer(&mut d, &mut e, "sort");
-        let Task::Shell { command, .. } = &e.tasks.peek()[0] else { panic!() };
+        let Task::Shell { command, .. } = &e.tasks.peek()[0] else {
+            panic!()
+        };
         assert!(command.contains("| sort"), "got `{command}`");
         assert!(command.contains("beta"), "got `{command}`");
     }
@@ -778,8 +927,8 @@ mod tests {
 
     #[test]
     fn shell_quoting_survives_an_apostrophe() {
-        assert_eq!(shell_quote("plain"), "'plain'");
-        assert_eq!(shell_quote("it's"), r"'it'\''s'");
+        assert_eq!(crate::shell_quote("plain"), "'plain'");
+        assert_eq!(crate::shell_quote("it's"), r"'it'\''s'");
     }
 
     #[test]
@@ -800,7 +949,13 @@ mod tests {
         let (_d, mut e) = setup("");
         show_shell_output(&mut e, "a", "1\n2\n").unwrap();
         show_shell_output(&mut e, "b", "3\n4\n").unwrap();
-        assert_eq!(e.buffers.iter().filter(|b| b.name() == SHELL_OUTPUT_NAME).count(), 1);
+        assert_eq!(
+            e.buffers
+                .iter()
+                .filter(|b| b.name() == SHELL_OUTPUT_NAME)
+                .count(),
+            1
+        );
     }
 
     #[test]

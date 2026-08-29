@@ -35,16 +35,27 @@ impl Highlighter {
         let mut parser = Parser::new();
         parser
             .set_language(&lang.language)
-            .map_err(|source| SyntaxError::Language { language: language.to_string(), source })?;
-        let query = Query::new(&lang.language, lang.highlights).map_err(|source| {
-            SyntaxError::Query { language: language.to_string(), source: Box::new(source) }
-        })?;
+            .map_err(|source| SyntaxError::Language {
+                language: language.to_string(),
+                source,
+            })?;
+        let query =
+            Query::new(&lang.language, lang.highlights).map_err(|source| SyntaxError::Query {
+                language: language.to_string(),
+                source: Box::new(source),
+            })?;
         let capture_faces = query
             .capture_names()
             .iter()
             .map(|name| maxgus_faces::names::face_for_capture(name))
             .collect();
-        Ok(Highlighter { language: lang, parser, query, tree: None, capture_faces })
+        Ok(Highlighter {
+            language: lang,
+            parser,
+            query,
+            tree: None,
+            capture_faces,
+        })
     }
 
     pub fn language(&self) -> &str {
@@ -77,7 +88,9 @@ impl Highlighter {
     /// Tells the tree about an edit. `old_text` is the buffer contents *before*
     /// the edit, needed to compute the row/column of the edited region.
     pub fn edit(&mut self, edit: InputEdit, old_text: &str, new_text: &str) {
-        let Some(tree) = self.tree.as_mut() else { return };
+        let Some(tree) = self.tree.as_mut() else {
+            return;
+        };
         tree.edit(&tree_sitter::InputEdit {
             start_byte: edit.start_byte,
             old_end_byte: edit.old_end_byte,
@@ -98,12 +111,10 @@ impl Highlighter {
     ///
     /// Spans are clipped to the range, so a construct that starts off-screen
     /// still colours its visible tail.
-    pub fn highlights_in(
-        &self,
-        text: &str,
-        byte_range: std::ops::Range<usize>,
-    ) -> Vec<Highlight> {
-        let Some(tree) = self.tree.as_ref() else { return Vec::new() };
+    pub fn highlights_in(&self, text: &str, byte_range: std::ops::Range<usize>) -> Vec<Highlight> {
+        let Some(tree) = self.tree.as_ref() else {
+            return Vec::new();
+        };
         let start = byte_range.start.min(text.len());
         let end = byte_range.end.min(text.len());
         if start >= end {
@@ -142,7 +153,9 @@ impl Highlighter {
     /// `expand-region` grows through.
     pub fn node_range_at(&self, byte: usize) -> Option<(usize, usize)> {
         let tree = self.tree.as_ref()?;
-        let node = tree.root_node().named_descendant_for_byte_range(byte, byte)?;
+        let node = tree
+            .root_node()
+            .named_descendant_for_byte_range(byte, byte)?;
         Some((node.start_byte(), node.end_byte()))
     }
 
@@ -154,7 +167,9 @@ impl Highlighter {
     /// outwards one construct at a time, which is what `expand-region` does.
     pub fn enclosing_node_range(&self, range: std::ops::Range<usize>) -> Option<(usize, usize)> {
         let tree = self.tree.as_ref()?;
-        let mut node = tree.root_node().named_descendant_for_byte_range(range.start, range.end)?;
+        let mut node = tree
+            .root_node()
+            .named_descendant_for_byte_range(range.start, range.end)?;
         while node.start_byte() == range.start && node.end_byte() == range.end {
             node = node.parent()?;
         }
@@ -163,7 +178,9 @@ impl Highlighter {
 
     /// True when the tree contains a parse error, so the mode line can say so.
     pub fn has_error(&self) -> bool {
-        self.tree.as_ref().is_some_and(|t| t.root_node().has_error())
+        self.tree
+            .as_ref()
+            .is_some_and(|t| t.root_node().has_error())
     }
 
     /// An s-expression rendering of the tree, for debugging a grammar.
@@ -194,7 +211,9 @@ mod tests {
 
     /// The faces covering `needle`'s first occurrence in `text`.
     fn face_of(h: &Highlighter, text: &str, needle: &str) -> Vec<&'static str> {
-        let at = text.find(needle).unwrap_or_else(|| panic!("`{needle}` not in the source"));
+        let at = text
+            .find(needle)
+            .unwrap_or_else(|| panic!("`{needle}` not in the source"));
         let range = at..at + needle.len();
         h.highlights(text)
             .into_iter()
@@ -205,7 +224,10 @@ mod tests {
 
     #[test]
     fn an_unknown_language_is_an_error() {
-        assert!(matches!(Highlighter::new("cobol"), Err(SyntaxError::UnknownLanguage(_))));
+        assert!(matches!(
+            Highlighter::new("cobol"),
+            Err(SyntaxError::UnknownLanguage(_))
+        ));
     }
 
     #[test]
@@ -239,7 +261,12 @@ mod tests {
         let spans = h.highlights(src);
         assert!(!spans.is_empty());
         for pair in spans.windows(2) {
-            assert!(pair[0].end <= pair[1].start, "{:?} then {:?}", pair[0], pair[1]);
+            assert!(
+                pair[0].end <= pair[1].start,
+                "{:?} then {:?}",
+                pair[0],
+                pair[1]
+            );
         }
         assert!(spans.last().unwrap().end <= src.len());
     }
@@ -360,11 +387,19 @@ mod tests {
         // Asking again from that exact range must not answer with it again.
         let (start, end) = h.enclosing_node_range(start..end).unwrap();
         assert!(&src[start..end] != "x", "it did not grow");
-        assert!(src[start..end].contains("x = 1"), "got `{}`", &src[start..end]);
+        assert!(
+            src[start..end].contains("x = 1"),
+            "got `{}`",
+            &src[start..end]
+        );
 
         // And it keeps growing until it runs out.
         let (start, end) = h.enclosing_node_range(start..end).unwrap();
-        assert!(src[start..end].contains("let x = 1"), "got `{}`", &src[start..end]);
+        assert!(
+            src[start..end].contains("let x = 1"),
+            "got `{}`",
+            &src[start..end]
+        );
     }
 
     #[test]
@@ -414,7 +449,10 @@ mod tests {
                 }
             }
         }
-        assert!(missing.is_empty(), "captures that would paint nothing: {missing:?}");
+        assert!(
+            missing.is_empty(),
+            "captures that would paint nothing: {missing:?}"
+        );
     }
 
     #[test]
@@ -463,7 +501,10 @@ mod tests {
             let mut h = Highlighter::new(lang).unwrap_or_else(|e| panic!("`{lang}`: {e}"));
             h.parse(src).unwrap();
             assert!(!h.has_error(), "`{lang}` failed to parse its own sample");
-            assert!(!h.highlights(src).is_empty(), "`{lang}` produced no highlights");
+            assert!(
+                !h.highlights(src).is_empty(),
+                "`{lang}` produced no highlights"
+            );
         }
         assert_eq!(samples.len(), languages::supported_languages().len());
     }
@@ -475,7 +516,11 @@ mod tests {
         let spans = h.highlights(src);
         // Every boundary must sit on a character boundary, or slicing panics.
         for s in &spans {
-            assert!(src.is_char_boundary(s.start), "{} is not a boundary", s.start);
+            assert!(
+                src.is_char_boundary(s.start),
+                "{} is not a boundary",
+                s.start
+            );
             assert!(src.is_char_boundary(s.end), "{} is not a boundary", s.end);
         }
         assert!(face_of(&h, src, "héllo").contains(&"font-lock-comment"));
@@ -495,7 +540,11 @@ mod tests {
         assert_eq!(point_at("abc", 2), Point::new(0, 2));
         assert_eq!(point_at("ab\ncd", 3), Point::new(1, 0));
         assert_eq!(point_at("ab\ncd", 5), Point::new(1, 2));
-        assert_eq!(point_at("ab\ncd", 99), Point::new(1, 2), "clamps to the end");
+        assert_eq!(
+            point_at("ab\ncd", 99),
+            Point::new(1, 2),
+            "clamps to the end"
+        );
         // Columns are byte offsets, so a multibyte char counts as its length.
         assert_eq!(point_at("ä\nx", 3), Point::new(1, 0));
     }

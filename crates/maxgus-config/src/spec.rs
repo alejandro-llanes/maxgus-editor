@@ -5,7 +5,7 @@
 //! and `maxgus-lsp` uses [`LspSpec`] to launch servers. Keeping them here means
 //! the parser has no dependency on any of those crates.
 
-use maxgus_keys::{Keymap, KeySequence};
+use maxgus_keys::{KeySequence, Keymap};
 
 /// One `keymap "name" { … }` block.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -19,7 +19,10 @@ pub struct KeymapSpec {
 
 impl KeymapSpec {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), ..Default::default() }
+        Self {
+            name: name.into(),
+            ..Default::default()
+        }
     }
 
     /// Builds a keymap from this spec. Conflicting bindings — one sequence
@@ -69,7 +72,10 @@ pub struct FaceSpec {
 
 impl FaceSpec {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), ..Default::default() }
+        Self {
+            name: name.into(),
+            ..Default::default()
+        }
     }
 
     /// True when the spec sets nothing at all.
@@ -94,7 +100,17 @@ impl FaceSpec {
                 }
             )*};
         }
-        take!(foreground, background, bold, italic, underline, reverse, dim, strikethrough, inherit);
+        take!(
+            foreground,
+            background,
+            bold,
+            italic,
+            underline,
+            reverse,
+            dim,
+            strikethrough,
+            inherit
+        );
     }
 }
 
@@ -112,7 +128,11 @@ pub struct ThemeSpec {
 
 impl ThemeSpec {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), faces: Vec::new(), base: None }
+        Self {
+            name: name.into(),
+            faces: Vec::new(),
+            base: None,
+        }
     }
 
     pub fn face(&self, name: &str) -> Option<&FaceSpec> {
@@ -179,7 +199,9 @@ impl Default for TreeConfig {
     fn default() -> Self {
         Self {
             show_hidden: false,
-            ignore: ["target", "node_modules", ".git"].map(String::from).to_vec(),
+            ignore: ["target", "node_modules", ".git"]
+                .map(String::from)
+                .to_vec(),
             width: 32,
             follow: true,
             directories_first: true,
@@ -245,7 +267,11 @@ mod tests {
         };
         base.overlay(&over);
         assert_eq!(base.foreground.as_deref(), Some("#cccccc"));
-        assert_eq!(base.background.as_deref(), Some("#000000"), "not overridden");
+        assert_eq!(
+            base.background.as_deref(),
+            Some("#000000"),
+            "not overridden"
+        );
         assert_eq!(base.bold, Some(true));
         assert_eq!(base.italic, Some(true));
     }
@@ -255,13 +281,20 @@ mod tests {
         assert!(FaceSpec::new("x").is_empty());
         let mut f = FaceSpec::new("x");
         f.bold = Some(false);
-        assert!(!f.is_empty(), "setting bold=false is still setting something");
+        assert!(
+            !f.is_empty(),
+            "setting bold=false is still setting something"
+        );
     }
 
     #[test]
     fn merging_themes_overlays_matching_faces_and_appends_new_ones() {
         let mut base = ThemeSpec::new("dark");
-        base.faces.push(FaceSpec { name: "default".into(), bold: Some(true), ..Default::default() });
+        base.faces.push(FaceSpec {
+            name: "default".into(),
+            bold: Some(true),
+            ..Default::default()
+        });
 
         let mut over = ThemeSpec::new("dark");
         over.faces.push(FaceSpec {

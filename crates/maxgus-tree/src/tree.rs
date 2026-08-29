@@ -52,7 +52,10 @@ impl VisibleNode {
     /// git indicator.
     pub fn render(&self) -> String {
         let indent = "  ".repeat(self.depth);
-        let git = self.git.map(|g| format!(" {}", g.indicator())).unwrap_or_default();
+        let git = self
+            .git
+            .map(|g| format!(" {}", g.indicator()))
+            .unwrap_or_default();
         format!("{indent}{}{}{git}", self.arrow(), self.name)
     }
 }
@@ -74,7 +77,10 @@ impl FileTree {
         let root = root.into();
         let meta = tokio::fs::metadata(&root)
             .await
-            .map_err(|source| TreeError::Io { path: root.clone(), source })?;
+            .map_err(|source| TreeError::Io {
+                path: root.clone(),
+                source,
+            })?;
         if !meta.is_dir() {
             return Err(TreeError::NotADirectory(root));
         }
@@ -143,19 +149,23 @@ impl FileTree {
     async fn read_dir(&self, path: &Path) -> Result<Vec<Node>> {
         let mut entries = tokio::fs::read_dir(path)
             .await
-            .map_err(|source| TreeError::Io { path: path.to_path_buf(), source })?;
+            .map_err(|source| TreeError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?;
         let mut nodes = Vec::new();
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|source| TreeError::Io { path: path.to_path_buf(), source })?
-        {
+        while let Some(entry) = entries.next_entry().await.map_err(|source| TreeError::Io {
+            path: path.to_path_buf(),
+            source,
+        })? {
             let name = entry.file_name().to_string_lossy().into_owned();
             if self.is_filtered(&name) {
                 continue;
             }
             // `file_type` does not follow links, which is what we want here.
-            let Ok(file_type) = entry.file_type().await else { continue };
+            let Ok(file_type) = entry.file_type().await else {
+                continue;
+            };
             let child_path = entry.path();
             let kind = if file_type.is_symlink() {
                 NodeKind::Symlink
@@ -167,15 +177,20 @@ impl FileTree {
             let mut node = Node::new(child_path.clone(), kind);
             if kind == NodeKind::Symlink {
                 // Resolve just enough to know whether the link is expandable.
-                node.target_is_dir =
-                    tokio::fs::metadata(&child_path).await.is_ok_and(|m| m.is_dir());
+                node.target_is_dir = tokio::fs::metadata(&child_path)
+                    .await
+                    .is_ok_and(|m| m.is_dir());
             }
             node.git = self.git.get(&child_path).copied();
             nodes.push(node);
         }
         let directories_first = self.config.directories_first;
         nodes.sort_by_key(|n| {
-            let group = if directories_first && n.is_expandable() { 0 } else { 1 };
+            let group = if directories_first && n.is_expandable() {
+                0
+            } else {
+                1
+            };
             (group, n.name.to_lowercase())
         });
         Ok(nodes)
@@ -227,7 +242,9 @@ impl FileTree {
                     queue.push(child.path.clone());
                 }
             }
-            let Some(node) = self.root.find_mut(&path) else { continue };
+            let Some(node) = self.root.find_mut(&path) else {
+                continue;
+            };
             node.children = children;
             node.loaded = true;
             node.expanded = true;
@@ -290,7 +307,9 @@ impl FileTree {
         };
         if needs_read {
             let children = self.read_dir(path).await?;
-            let Some(node) = self.root.find_mut(path) else { return Ok(()) };
+            let Some(node) = self.root.find_mut(path) else {
+                return Ok(());
+            };
             node.children = children;
             node.loaded = true;
         }
@@ -317,7 +336,9 @@ impl FileTree {
     /// `treemacs-TAB-action`: expands a collapsed directory, collapses an
     /// expanded one. Returns true when something changed.
     pub async fn toggle(&mut self, path: &Path) -> Result<bool> {
-        let Some(node) = self.root.find(path) else { return Ok(false) };
+        let Some(node) = self.root.find(path) else {
+            return Ok(false);
+        };
         if !node.is_expandable() {
             return Ok(false);
         }
@@ -342,7 +363,9 @@ impl FileTree {
         let mut queue = vec![path.to_path_buf()];
         while let Some(current) = queue.pop() {
             self.expand(&current).await?;
-            let Some(node) = self.root.find(&current) else { continue };
+            let Some(node) = self.root.find(&current) else {
+                continue;
+            };
             for child in &node.children {
                 if child.is_expandable() {
                     queue.push(child.path.clone());
@@ -389,7 +412,9 @@ impl FileTree {
 
     /// `treemacs-next-neighbour`: the next sibling at the same depth.
     pub fn next_neighbour(&mut self) -> bool {
-        let Some(depth) = self.visible.get(self.cursor).map(|n| n.depth) else { return false };
+        let Some(depth) = self.visible.get(self.cursor).map(|n| n.depth) else {
+            return false;
+        };
         for i in (self.cursor + 1)..self.visible.len() {
             match self.visible[i].depth.cmp(&depth) {
                 std::cmp::Ordering::Equal => {
@@ -406,7 +431,9 @@ impl FileTree {
 
     /// `treemacs-previous-neighbour`.
     pub fn previous_neighbour(&mut self) -> bool {
-        let Some(depth) = self.visible.get(self.cursor).map(|n| n.depth) else { return false };
+        let Some(depth) = self.visible.get(self.cursor).map(|n| n.depth) else {
+            return false;
+        };
         for i in (0..self.cursor).rev() {
             match self.visible[i].depth.cmp(&depth) {
                 std::cmp::Ordering::Equal => {
@@ -422,7 +449,9 @@ impl FileTree {
 
     /// `treemacs-goto-parent-node`.
     pub fn goto_parent(&mut self) -> bool {
-        let Some(depth) = self.visible.get(self.cursor).map(|n| n.depth) else { return false };
+        let Some(depth) = self.visible.get(self.cursor).map(|n| n.depth) else {
+            return false;
+        };
         if depth == 0 {
             return false;
         }
@@ -440,7 +469,9 @@ impl FileTree {
         if !self.goto_parent() {
             return false;
         }
-        let Some(path) = self.selected_path().map(Path::to_path_buf) else { return false };
+        let Some(path) = self.selected_path().map(Path::to_path_buf) else {
+            return false;
+        };
         self.collapse(&path);
         self.goto_path(&path);
         true
@@ -466,7 +497,9 @@ impl FileTree {
         }
         // Expand each ancestor from the root down.
         let mut current = self.root.path.clone();
-        let Ok(relative) = path.strip_prefix(&self.root.path) else { return Ok(false) };
+        let Ok(relative) = path.strip_prefix(&self.root.path) else {
+            return Ok(false);
+        };
         for component in relative.components() {
             self.expand(&current).await?;
             current = current.join(component);
@@ -505,7 +538,10 @@ impl FileTree {
         }
         tokio::fs::write(&path, b"")
             .await
-            .map_err(|source| TreeError::Io { path: path.clone(), source })?;
+            .map_err(|source| TreeError::Io {
+                path: path.clone(),
+                source,
+            })?;
         self.refresh().await?;
         self.goto_path(&path);
         Ok(path)
@@ -521,7 +557,10 @@ impl FileTree {
         }
         tokio::fs::create_dir(&path)
             .await
-            .map_err(|source| TreeError::Io { path: path.clone(), source })?;
+            .map_err(|source| TreeError::Io {
+                path: path.clone(),
+                source,
+            })?;
         self.refresh().await?;
         self.goto_path(&path);
         Ok(path)
@@ -540,7 +579,10 @@ impl FileTree {
         } else {
             tokio::fs::remove_file(&path).await
         };
-        result.map_err(|source| TreeError::Io { path: path.clone(), source })?;
+        result.map_err(|source| TreeError::Io {
+            path: path.clone(),
+            source,
+        })?;
         self.refresh().await?;
         Ok(path)
     }
@@ -548,7 +590,10 @@ impl FileTree {
     /// `treemacs-rename-file`.
     pub async fn rename_selected(&mut self, new_name: &str) -> Result<PathBuf> {
         Self::validate_name(new_name)?;
-        let old = self.selected_path().map(Path::to_path_buf).ok_or(TreeError::NoSelection)?;
+        let old = self
+            .selected_path()
+            .map(Path::to_path_buf)
+            .ok_or(TreeError::NoSelection)?;
         if old == self.root.path {
             return Err(TreeError::NoSelection);
         }
@@ -559,7 +604,10 @@ impl FileTree {
         }
         tokio::fs::rename(&old, &new)
             .await
-            .map_err(|source| TreeError::Io { path: old.clone(), source })?;
+            .map_err(|source| TreeError::Io {
+                path: old.clone(),
+                source,
+            })?;
         self.refresh().await?;
         self.goto_path(&new);
         Ok(new)
@@ -567,7 +615,10 @@ impl FileTree {
 
     /// `treemacs-move-file`: moves the selection into `destination`.
     pub async fn move_selected(&mut self, destination: &Path) -> Result<PathBuf> {
-        let old = self.selected_path().map(Path::to_path_buf).ok_or(TreeError::NoSelection)?;
+        let old = self
+            .selected_path()
+            .map(Path::to_path_buf)
+            .ok_or(TreeError::NoSelection)?;
         if old == self.root.path {
             return Err(TreeError::NoSelection);
         }
@@ -578,7 +629,10 @@ impl FileTree {
         }
         tokio::fs::rename(&old, &new)
             .await
-            .map_err(|source| TreeError::Io { path: old.clone(), source })?;
+            .map_err(|source| TreeError::Io {
+                path: old.clone(),
+                source,
+            })?;
         self.refresh().await?;
         self.goto_path(&new);
         Ok(new)
@@ -608,16 +662,32 @@ mod tests {
         async fn new(tag: &str) -> Fixture {
             let dir = std::env::temp_dir().join(format!("maxgus-tree-{tag}"));
             tokio::fs::remove_dir_all(&dir).await.ok();
-            tokio::fs::create_dir_all(dir.join("src/inner")).await.unwrap();
+            tokio::fs::create_dir_all(dir.join("src/inner"))
+                .await
+                .unwrap();
             tokio::fs::create_dir_all(dir.join("target")).await.unwrap();
-            tokio::fs::create_dir_all(dir.join(".hidden")).await.unwrap();
-            tokio::fs::write(dir.join("Cargo.toml"), "[package]").await.unwrap();
-            tokio::fs::write(dir.join("README.md"), "# hi").await.unwrap();
-            tokio::fs::write(dir.join(".gitignore"), "target").await.unwrap();
-            tokio::fs::write(dir.join("src/main.rs"), "fn main() {}").await.unwrap();
+            tokio::fs::create_dir_all(dir.join(".hidden"))
+                .await
+                .unwrap();
+            tokio::fs::write(dir.join("Cargo.toml"), "[package]")
+                .await
+                .unwrap();
+            tokio::fs::write(dir.join("README.md"), "# hi")
+                .await
+                .unwrap();
+            tokio::fs::write(dir.join(".gitignore"), "target")
+                .await
+                .unwrap();
+            tokio::fs::write(dir.join("src/main.rs"), "fn main() {}")
+                .await
+                .unwrap();
             tokio::fs::write(dir.join("src/lib.rs"), "").await.unwrap();
-            tokio::fs::write(dir.join("src/inner/deep.rs"), "").await.unwrap();
-            tokio::fs::write(dir.join("target/artifact"), "").await.unwrap();
+            tokio::fs::write(dir.join("src/inner/deep.rs"), "")
+                .await
+                .unwrap();
+            tokio::fs::write(dir.join("target/artifact"), "")
+                .await
+                .unwrap();
             Fixture(dir)
         }
 
@@ -634,7 +704,10 @@ mod tests {
 
     /// Git is off in tests so they do not depend on the ambient repository.
     fn config() -> TreeConfig {
-        TreeConfig { git_status: false, ..Default::default() }
+        TreeConfig {
+            git_status: false,
+            ..Default::default()
+        }
     }
 
     async fn open(f: &Fixture) -> FileTree {
@@ -650,7 +723,15 @@ mod tests {
         let f = Fixture::new("open").await;
         let tree = open(&f).await;
         // `target` and dotfiles are filtered by the default config.
-        assert_eq!(names(&tree), vec![f.path().file_name().unwrap().to_str().unwrap(), "src", "Cargo.toml", "README.md"]);
+        assert_eq!(
+            names(&tree),
+            vec![
+                f.path().file_name().unwrap().to_str().unwrap(),
+                "src",
+                "Cargo.toml",
+                "README.md"
+            ]
+        );
         assert_eq!(tree.cursor(), 0);
         assert!(tree.selected().unwrap().is_root);
     }
@@ -658,13 +739,17 @@ mod tests {
     #[tokio::test]
     async fn opening_a_file_instead_of_a_directory_is_an_error() {
         let f = Fixture::new("notdir").await;
-        let err = FileTree::open(f.path().join("README.md"), config()).await.unwrap_err();
+        let err = FileTree::open(f.path().join("README.md"), config())
+            .await
+            .unwrap_err();
         assert!(matches!(err, TreeError::NotADirectory(_)));
     }
 
     #[tokio::test]
     async fn opening_a_missing_directory_is_an_error() {
-        let err = FileTree::open("/nonexistent-maxgus-tree-path", config()).await.unwrap_err();
+        let err = FileTree::open("/nonexistent-maxgus-tree-path", config())
+            .await
+            .unwrap_err();
         assert!(matches!(err, TreeError::Io { .. }));
     }
 
@@ -693,7 +778,10 @@ mod tests {
         tree.toggle_show_hidden().await.unwrap();
         assert!(names(&tree).contains(&".gitignore"));
         assert!(names(&tree).contains(&".hidden"));
-        assert!(!names(&tree).contains(&"target"), "the ignore list still applies");
+        assert!(
+            !names(&tree).contains(&"target"),
+            "the ignore list still applies"
+        );
         tree.toggle_show_hidden().await.unwrap();
         assert!(!names(&tree).contains(&".gitignore"));
     }
@@ -784,7 +872,11 @@ mod tests {
         // Depth 1: src, Cargo.toml, README.md.
         assert!(tree.goto_path(&f.path().join("src")));
         assert!(tree.next_neighbour());
-        assert_eq!(tree.selected().unwrap().name, "Cargo.toml", "skips src's children");
+        assert_eq!(
+            tree.selected().unwrap().name,
+            "Cargo.toml",
+            "skips src's children"
+        );
         assert!(tree.next_neighbour());
         assert_eq!(tree.selected().unwrap().name, "README.md");
         assert!(!tree.next_neighbour(), "no sibling after the last one");
@@ -890,7 +982,11 @@ mod tests {
         let mut tree = open(&f).await;
         tree.goto_path(&f.path().join("README.md"));
         tree.delete_selected().await.unwrap();
-        assert!(!tokio::fs::try_exists(f.path().join("README.md")).await.unwrap());
+        assert!(
+            !tokio::fs::try_exists(f.path().join("README.md"))
+                .await
+                .unwrap()
+        );
         assert!(!names(&tree).contains(&"README.md"));
 
         tree.goto_path(&f.path().join("src"));
@@ -903,8 +999,14 @@ mod tests {
         let f = Fixture::new("rootops").await;
         let mut tree = open(&f).await;
         tree.goto_first();
-        assert!(matches!(tree.delete_selected().await, Err(TreeError::NoSelection)));
-        assert!(matches!(tree.rename_selected("x").await, Err(TreeError::NoSelection)));
+        assert!(matches!(
+            tree.delete_selected().await,
+            Err(TreeError::NoSelection)
+        ));
+        assert!(matches!(
+            tree.rename_selected("x").await,
+            Err(TreeError::NoSelection)
+        ));
     }
 
     #[tokio::test]
@@ -915,7 +1017,11 @@ mod tests {
         let new = tree.rename_selected("GUIDE.md").await.unwrap();
         assert_eq!(new, f.path().join("GUIDE.md"));
         assert_eq!(tree.selected_path().unwrap(), new);
-        assert!(!tokio::fs::try_exists(f.path().join("README.md")).await.unwrap());
+        assert!(
+            !tokio::fs::try_exists(f.path().join("README.md"))
+                .await
+                .unwrap()
+        );
         // Renaming onto an existing name is refused.
         assert!(matches!(
             tree.rename_selected("Cargo.toml").await,
@@ -950,7 +1056,9 @@ mod tests {
     async fn refreshing_picks_up_changes_made_outside_the_editor() {
         let f = Fixture::new("refresh").await;
         let mut tree = open(&f).await;
-        tokio::fs::write(f.path().join("EXTERNAL.md"), "").await.unwrap();
+        tokio::fs::write(f.path().join("EXTERNAL.md"), "")
+            .await
+            .unwrap();
         assert!(!names(&tree).contains(&"EXTERNAL.md"));
         tree.refresh().await.unwrap();
         assert!(names(&tree).contains(&"EXTERNAL.md"));

@@ -22,14 +22,14 @@ themes you rewrite in a config file&nbsp; ·&nbsp; a treemacs-style file tree&nb
 <img alt="" src="https://img.shields.io/badge/windows-333?style=flat-square&logo=windows&logoColor=white">
 <img alt="" src="https://img.shields.io/badge/freebsd-333?style=flat-square&logo=freebsd&logoColor=white">
 <img alt="Unsafe" src="https://img.shields.io/badge/unsafe-forbidden-4c9a2a?style=flat-square">
-<img alt="Tests" src="https://img.shields.io/badge/tests-1436-4c9a2a?style=flat-square">
+<img alt="Tests" src="https://img.shields.io/badge/tests-1650-4c9a2a?style=flat-square">
 </p>
 
-<sub><b>No Lisp interpreter. No plugin runtime.</b> ~37,000 lines · ten crates · one binary.</sub>
+<sub><b>No Lisp interpreter. No plugin runtime.</b> ~53,000 lines · twelve crates · one binary.</sub>
 
 <br><br>
 
-<img src="docs/screenshots/maxgus-dark.svg" alt="maxgus editing its own source, with the file tree open beside it" width="100%">
+<img src="docs/screenshots/maxgus-dark.svg" alt="maxgus editing its own source, with the side panel open beside it" width="100%">
 
 </div>
 
@@ -90,10 +90,16 @@ $ ./target/release/maxgus
 
 ### Emacs keys, and they behave like Emacs
 
-246 bindings across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes, driving
-**234 commands**. Prefix arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and
-the mark ring, the kill ring with `M-y`, registers, keyboard macros, rectangles,
-narrowing, incremental and regexp search, `query-replace`, `occur`.
+**332 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
+the panel, tree, magit and terminal maps, driving **375 commands**. Prefix
+arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
+ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
+incremental and regexp search, `query-replace`, `occur`.
+
+It says how long it took to start, the way `emacs-init-time` does — after the
+files named on the command line have finished reporting themselves, so it is
+the last thing said rather than the first thing overwritten. `M-x startup-time`
+asks again later.
 
 Not a lookalike: `C-k` at the end of a line takes the newline, the first `TAB`
 grows to the common prefix and only the second shows the list, `M-a` never
@@ -113,6 +119,12 @@ Matching is **fuzzy**: `sbf` finds `save-buffer`, `stb` finds
 `<up>` and `<down>` walk the list, `<prior>` and `<next>` move a page at a
 time, and `RET` runs whatever is highlighted. `C-n` and `C-p` do the same as
 the arrows for anyone who would rather not leave the home row.
+
+The list **scrolls under the box** a row at a time as the highlight passes the
+bottom or the top, and **wraps round** at both ends — the row after the last
+is the first. The box takes three fifths of the frame, so the buffer stays
+readable beside it and the documentation column still has room to say
+something.
 
 `C-x b` gets the same popup for buffers, annotated with the file each one is
 visiting. `TAB` still completes to the common prefix first, then cycles.
@@ -139,12 +151,16 @@ your text and be told whether it worked.
 
 ### A mode line worth looking at
 
-State, buffer, position, branch and diagnostics, each in its own colour rather
-than run together in punctuation:
+What is being edited on the left — state, size, the path within the project,
+position — and what the editor knows *about* it on the right, where it can be
+glanced at rather than read past:
 
 ```
-  main.rs   12:4  34%    main   2   1
+ --  1.2k  maxgus/src/fuzzy.rs  25:37  Top          2  1    main   rust
 ```
+
+A narrow window drops the right-hand group rather than overlapping the two:
+the file being edited is what has to survive.
 
 Nerd Font glyphs throughout, in the tree as well, chosen by file type — Rust,
 Python, JSON, an image, an archive. `set nerd-font-icons=#false` turns them off
@@ -186,13 +202,126 @@ runs the real redisplay over a real buffer and writes out each cell in the
 colour its face resolved to. Nerd Font glyphs are the one thing switched off
 for them, so they render in a browser without the font installed.</sub>
 
-### A file tree modelled on treemacs
+### A side panel: files, symbols, buffers
 
-`C-x t t` opens it. **59 bindings and 44 commands** from treemacs' own keymap:
+`C-x t t` opens a column of **three windows** down the left — the file tree,
+the symbols in the buffer you are editing, and the buffers you have open. Real
+windows, not sections of one buffer: each keeps its own point, scrolls on its
+own, has its own mode line and its own keymap.
+
+<img src="docs/screenshots/maxgus-dark.svg" alt="The side panel: the file tree, the symbol outline and the buffer list, each its own window down the left of the frame, beside the file being edited" width="100%">
+
+The **symbol outline** comes from the language server and is scoped to the
+buffer being edited — switch buffers and it follows. Symbols nest and fold,
+`RET` goes to one, and the kind is named beside it. With no server running for
+the buffer, the section is not empty: it is **absent**, heading and all.
+
+The **buffer list** marks the one you are editing with a bar and dots the ones
+with unsaved changes. `RET` shows a buffer, `k` kills it.
+
+Any section can be switched off — `set panel-symbols=#false`, or `t r`, `t s`
+and `t b` inside the panel. The last one standing refuses to go, since an
+empty panel is a column of nothing.
+
+Because they are windows, **nothing about moving around them is special**:
+`C-<up>` and `C-<down>` walk up and down the column and out of it at either
+end, `C-<right>` returns to the file, `C-x o` cycles, `C-x t 1`/`2`/`3` jump
+straight to the tree, the outline and the buffer list. `set
+panel-at-startup=#true` and the column is there when maxgus opens; give the
+outline and the list the height you want with `panel-symbols-height` and
+`panel-buffers-height`, and the tree takes whatever is left.
+
+The tree keeps **47 bindings and 41 commands** from treemacs' own keymap:
 `n`/`p`, `M-n`/`M-p`, `u`, `TAB`, `RET`, `o v`/`o h`/`o r`/`o x`, `P` to peek,
 `c f`/`c d` to create, `R`, `d`, `m`, `!`, `y a`/`y r`/`y p`/`y f` to copy
 paths, `t h`/`t w`/`t f`/`t g`/`t d` to toggle, `g r` to refresh. Git status
 in the gutter, follow mode, `?` for help.
+
+### Git, the way magit does it
+
+`C-x g` — or `M-x magit`, as in Emacs — opens the whole state of the
+repository in one buffer that folds:
+
+<img src="docs/screenshots/magit.svg" alt="The git status view: head and upstream lines, untracked files, unstaged changes with a hunk expanded showing coloured diff lines, staged changes, stashes and unpushed commits" width="100%">
+
+Magit's arrangement, for magit's reason — **a commit is assembled by looking
+at the change, not by remembering it**. Every key acts on the row point is on:
+`s` stages a file when point is on a file, **one hunk** when point is on a
+hunk, and the whole section when point is on the heading. `u` unstages the
+same way, `k` discards, `TAB` folds whatever is under the cursor. `n` and `p`
+move by *section*, `M-n`/`M-p` by sibling, `^` out to the parent.
+
+**`?` shows what git can do here**, and every prefix opens a menu of its own:
+
+<img src="docs/screenshots/magit-menu.svg" alt="The dispatch menu: a bordered popup across the bottom of the frame listing every prefix in four groups — Inspect, Manipulate, Transfer and Apply — with the key for each" width="100%">
+
+These are magit's transients, and they are why magit is usable without being
+memorised: `P` shows what pushing means here *and whether
+`--force-with-lease` is on* before it happens, rather than requiring the whole
+of `git push` to be held in the head. Switches toggle with `-f`, `-u` and the
+rest, stay lit while the menu is up, and are handed to the command that runs.
+A menu takes every key while it is showing, so nothing underneath is quietly
+competing with it, and `C-g` backs out one level at a time.
+
+**Six buffers, as magit has them:**
+
+| | |
+|---|---|
+| **status** `C-x g` | Everything at once, folding |
+| **diff** `d` | Unstaged, staged, worktree, or a range |
+| **revision** `RET` on a commit | Author, date, message and the full diff |
+| **log** `l` | Commits with their refs, `RET` to open one |
+| **refs** `y` | Branches, remotes and tags; `RET` checks one out |
+| **process** `$` | Every git command run, and what it said |
+
+Staging a hunk works the way magit's does: a patch containing that hunk alone,
+handed to `git apply --cached`. `maxgus-git` builds it, and its tests build a
+repository, take git's own diff, write the patch and hand it back to git — a
+patch that is merely plausible is a patch that loses work.
+
+Magit's keys, key for key: `c` commit, `b` branch, `m` merge, `r` rebase, `z`
+stash, `t` tag, `X` reset, `A` cherry-pick, `V` revert, `f` fetch, `F` pull,
+`P` push, `M` remote, `!` run git, `i` ignore, `g` refresh, `q` close. A commit
+message is written in a buffer with the editor's own keys and finished with
+`C-c C-c`, because a commit message is prose.
+
+`q` **kills** the view rather than burying it — magit's buffers are working
+views, and buried they collect in `C-x b` to be killed by hand later. What
+comes up is where the view was opened from: a commit goes back to its log, the
+log to the status, the status to the file you were editing. `C-u q` buries
+instead, for a diff worth keeping open.
+
+Discarding is the one thing here that cannot be undone, so it asks first —
+and says exactly what it is about to lose.
+
+### A terminal along the bottom, with tabs
+
+`C-x t v` opens it. Every tab is a real shell on a real pseudo-terminal, and
+the tab names itself after whatever the program running in it calls itself:
+
+<img src="docs/screenshots/terminal.svg" alt="The terminal panel: two tabs along the bottom of the frame, one running cargo test with coloured output, the other htop" width="100%">
+
+The emulator is written here — a grid with scrollback, twenty-four-bit colour,
+scrolling regions, insert and delete, the alternate screen (so `vim` takes the
+terminal and gives it back untouched), bracketed paste, and window titles.
+
+**Keys go to the shell, not the editor.** `C-a` is readline's, `<up>` walks the
+shell's history, and the arrows change spelling when the program asks them to.
+`C-c` is the prefix for everything else: `C-c t` a new tab, `C-c n`/`C-c p`
+between them, `C-c 1`…`C-c 9` straight to one, `C-c k` to close, `C-c C-y` to
+paste.
+
+Four keys stay the editor's — `C-x`, `M-x`, `C-h` and `C-g` — so a terminal can
+never trap you in it. Each is given straight back: `C-c x`, `C-c c`, `C-c g`
+and `C-c h` send the real thing.
+
+**`C-c C-t` reads instead of typing.** Keys stop reaching the shell and move a
+cursor over the output instead, so `C-SPC` marks and `M-w` copies to the kill
+ring — character-wise, whole lines with `V`, or a rectangle with `C-x SPC` for
+pulling one column out of a table. A line the terminal wrapped comes back as
+one line, because it was one line when it was written.
+
+`set shell="/bin/fish"` if `$SHELL` is not what you want.
 
 ### Asynchronous, and it means it
 
@@ -250,13 +379,18 @@ first.
 | `M-q` | Fill the paragraph |
 | `M-h` `C-M-h` | Mark the paragraph, the definition |
 | `C-x z` | Repeat the last command |
-| `C-x t t` | Toggle the file tree |
+| `C-x t t` | Toggle the side panel |
+| `C-x t 1` / `2` / `3` | Select the tree, the outline, the buffer list |
+| `C-x t v` | Toggle the terminal panel |
+| `C-x g` | Git status |
 | `M-.` `M-,` | Go to definition, come back |
 | `C-c l r` | Rename through the language server |
 | `C-c l f` | Format the buffer |
 | `C-h b` | Every binding |
 | `C-h t` | The tutorial |
 | `C-h v` | A setting's current value |
+| `C-c e` | Edit the configuration file |
+| `C-c o` | Open this file with the desktop's own viewer |
 
 Inside the tree, treemacs' own keys apply: `n` and `p` to move, `u` for the
 parent, `TAB` to fold, `RET` to open, `c f` and `c d` to create, `R` to rename,
@@ -264,9 +398,62 @@ parent, `TAB` to fold, `RET` to open, `c f` and `c d` to create, `R` to rename,
 
 ---
 
+## Building it: three sizes
+
+The editor is one thing; the language server, the grammars, magit and the
+terminal are four more. A build takes as many of them as it wants:
+
+| Feature | What it builds | Binary |
+|---|---|---|
+| `minimal` | The editor and the treefile. No grammars, no protocol, no subprocess. | **4.3M** |
+| `full` *(default)* | Everything above, plus tree-sitter, the language-server client, magit and the terminal panel. | **9.7M** |
+| `gui` | Everything in `full`, and a window drawn by the GPU. | — |
+
+```sh
+cargo build --release                                        # full
+cargo build --release --no-default-features --features minimal
+cargo build --release --features gui
+```
+
+The tree-sitter grammars are C, and they are most of what a full build spends
+its time on — which is what makes leaving them out worth a feature rather than
+a `cfg` nobody would use. The subsystems can also be taken one at a time:
+`--features git,terminal` is a build with magit and a shell and nothing else
+added. Every combination is built by a test, so none of them rots.
+
+## A window, as well as a terminal
+
+`--features gui` adds a second front end. It is the *same* editor — the same
+commands, the same keymaps, the same redisplay — drawn into a window by wgpu
+rather than into a terminal by escape sequences:
+
+```sh
+maxgus --gui src/main.rs
+```
+
+What the window has that a terminal cannot:
+
+- **Smooth scrolling.** A terminal scrolls by whole lines because it cannot
+  draw half of one. The window keeps a pixel offset and eases towards it, so a
+  wheel notch slides three lines instead of jumping them.
+- **The mouse.** Click to put point where you clicked, drag to select, middle
+  button to paste, wheel to scroll. A click in another window selects it.
+- **The system clipboard**, rather than a terminal's guess at one.
+- **Any font on the system**, at any size: `set gui-font` and
+  `set gui-font-size`. Bold and italic are separate faces where the system has
+  them and fall back to the regular one where it does not, so an emphasised
+  word is never an invisible one.
+
+`C-c o` (`M-x open-externally`) hands the file being edited to whatever the
+desktop opens it with — an image viewer for an image, a reader for a PDF —
+using `xdg-open`, `open` or `start` as the platform requires. It works from
+the terminal front end too.
+
 ## Configuring it
 
-`~/.config/maxgus/config.kdl`, in [KDL](https://kdl.dev):
+`~/.config/maxgus/config.kdl`, in [KDL](https://kdl.dev). **`C-c e`** opens
+that file — creating it if this is the first time — so the editor is edited
+from inside itself:
 
 ```kdl
 set tab-width=4 theme="maxgus-dark" line-numbers=#true
@@ -309,7 +496,7 @@ accepts.
 
 ## Layout
 
-Ten crates, `unsafe_code = "forbid"` across all of them.
+Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 | Crate | What it holds |
 |---|---|
@@ -320,13 +507,15 @@ Ten crates, `unsafe_code = "forbid"` across all of them.
 | `maxgus-syntax` | Tree-sitter grammars and incremental highlighting |
 | `maxgus-lsp` | JSON-RPC framing, position encoding, the client |
 | `maxgus-tree` | File tree model, git status, the treemacs keymap |
+| `maxgus-git` | Reading git: status, diffs, logs, and the patches that stage a hunk |
+| `maxgus-term` | Terminal emulator: grid, escape sequences, selection, key encoding |
 | `maxgus-tui` | Cell grid, frame diffing, terminal setup, job control |
 | `maxgus-core` | Buffers, windows, minibuffer, commands, dispatch, redisplay |
 | `maxgus` | The event loop and the task executor |
 
 ## Testing
 
-**1436 tests.** Unit tests beside the code; session tests that press real keys
+**1727 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

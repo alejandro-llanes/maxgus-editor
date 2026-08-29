@@ -54,8 +54,9 @@ impl Session {
     }
 
     fn spawn(directory: &std::path::Path, arguments: &[&str], own_group: bool) -> Session {
-        let pty = rustix::pty::openpt(rustix::pty::OpenptFlags::RDWR | rustix::pty::OpenptFlags::NOCTTY)
-            .expect("a pseudo-terminal");
+        let pty =
+            rustix::pty::openpt(rustix::pty::OpenptFlags::RDWR | rustix::pty::OpenptFlags::NOCTTY)
+                .expect("a pseudo-terminal");
         rustix::pty::grantpt(&pty).expect("grant");
         rustix::pty::unlockpt(&pty).expect("unlock");
         let name = rustix::pty::ptsname(&pty, Vec::new()).expect("the terminal's name");
@@ -74,7 +75,11 @@ impl Session {
         .expect("a window size");
 
         let open = |path: &PathBuf| {
-            std::fs::OpenOptions::new().read(true).write(true).open(path).expect("the terminal")
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path)
+                .expect("the terminal")
         };
         let mut command = Command::new(env!("CARGO_BIN_EXE_maxgus"));
         command
@@ -97,8 +102,11 @@ impl Session {
         // Reads must not block, or settling would wait for output that is not
         // coming.
         rustix::io::ioctl_fionbio(&pty, true).expect("non-blocking reads");
-        let mut session =
-            Session { child, controller: std::fs::File::from(pty), output: Vec::new() };
+        let mut session = Session {
+            child,
+            controller: std::fs::File::from(pty),
+            output: Vec::new(),
+        };
         session.settle();
         session
     }
@@ -119,7 +127,9 @@ impl Session {
 
     /// Sends keystrokes and waits for the redraw.
     fn send(&mut self, keys: &[u8]) -> &mut Session {
-        self.controller.write_all(keys).expect("the editor is listening");
+        self.controller
+            .write_all(keys)
+            .expect("the editor is listening");
         self.controller.flush().ok();
         self.settle();
         self
@@ -177,7 +187,9 @@ impl Session {
 
     /// True when the editor has written `needle` to the terminal at any point.
     fn wrote(&self, needle: &str) -> bool {
-        self.output.windows(needle.len()).any(|window| window == needle.as_bytes())
+        self.output
+            .windows(needle.len())
+            .any(|window| window == needle.as_bytes())
     }
 
     /// Where the cursor sits after everything the editor has drawn.
@@ -208,13 +220,11 @@ impl Session {
         self.screen().iter().any(|line| line.contains(needle))
     }
 
-
     /// True when the mode line reports unsaved changes, whichever way it is
     /// drawing that today.
     fn says_modified(&mut self) -> bool {
         self.mode_line().contains(maxgus_core::icons::MODIFIED) || self.mode_line().contains("**")
     }
-
 
     fn says_read_only(&mut self) -> bool {
         self.mode_line().contains(maxgus_core::icons::READ_ONLY) || self.mode_line().contains("%%")
@@ -243,7 +253,11 @@ impl Fixture {
         std::fs::remove_dir_all(&directory).ok();
         std::fs::create_dir_all(directory.join("src")).expect("a fixture directory");
         std::fs::write(directory.join("hello.txt"), "first line\nsecond line\n").unwrap();
-        std::fs::write(directory.join("src/main.rs"), "fn main() {\n    let x = 1;\n}\n").unwrap();
+        std::fs::write(
+            directory.join("src/main.rs"),
+            "fn main() {\n    let x = 1;\n}\n",
+        )
+        .unwrap();
         Fixture(directory)
     }
 
@@ -305,7 +319,9 @@ impl Screen {
 
     /// Consumes one escape sequence, acting on the few that move or erase.
     fn escape(&mut self, chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
-        let Some(introducer) = chars.next() else { return };
+        let Some(introducer) = chars.next() else {
+            return;
+        };
         if introducer != '[' {
             // A two-character escape: charset selection and the like.
             return;
@@ -320,8 +336,10 @@ impl Screen {
             parameters.push(c);
         }
         let Some(final_byte) = final_byte else { return };
-        let values: Vec<usize> =
-            parameters.split(';').filter_map(|p| p.parse().ok()).collect();
+        let values: Vec<usize> = parameters
+            .split(';')
+            .filter_map(|p| p.parse().ok())
+            .collect();
         match final_byte {
             // Cursor position.
             'H' => {
@@ -363,9 +381,17 @@ fn the_editor_starts_draws_a_file_and_leaves_cleanly() {
     let fixture = Fixture::new("open");
     let mut session = Session::start(fixture.path(), &["-Q", "hello.txt"]);
 
-    assert!(session.shows("first line"), "the file was not drawn:\n{:#?}", session.screen());
+    assert!(
+        session.shows("first line"),
+        "the file was not drawn:\n{:#?}",
+        session.screen()
+    );
     assert!(session.shows("second line"));
-    assert!(session.mode_line().contains("hello.txt"), "got `{}`", session.mode_line());
+    assert!(
+        session.mode_line().contains("hello.txt"),
+        "got `{}`",
+        session.mode_line()
+    );
 
     assert_eq!(session.quit(), 0, "the editor left with an error");
 }
@@ -378,7 +404,10 @@ fn a_file_named_on_the_command_line_is_open_before_any_key_is_pressed() {
     let session = Session::start(fixture.path(), &["-Q", "src/main.rs"]);
     assert!(session.shows("fn main()"), "got:\n{:#?}", session.screen());
     assert!(session.mode_line().contains("main.rs"));
-    assert!(session.mode_line().contains("rust"), "the language was recognised");
+    assert!(
+        session.mode_line().contains("rust"),
+        "the language was recognised"
+    );
 }
 
 #[test]
@@ -387,8 +416,16 @@ fn typing_and_saving_writes_the_file() {
     let mut session = Session::start(fixture.path(), &["-Q", "typed.txt"]);
 
     session.send(b"hello from a test");
-    assert!(session.shows("hello from a test"), "got:\n{:#?}", session.screen());
-    assert!(session.says_modified(), "the buffer reads as modified: `{}`", session.mode_line());
+    assert!(
+        session.shows("hello from a test"),
+        "got:\n{:#?}",
+        session.screen()
+    );
+    assert!(
+        session.says_modified(),
+        "the buffer reads as modified: `{}`",
+        session.mode_line()
+    );
 
     // `C-x C-s`.
     session.send(b"\x18\x13");
@@ -406,11 +443,19 @@ fn find_file_opens_a_file_typed_at_the_prompt() {
 
     // `C-x C-f`, clear the offered directory with `C-k`, type a name, `RET`.
     session.send(b"\x18\x06");
-    assert!(session.shows("Find file:"), "no prompt:\n{:#?}", session.screen());
+    assert!(
+        session.shows("Find file:"),
+        "no prompt:\n{:#?}",
+        session.screen()
+    );
     session.send(b"\x0b");
     session.send(b"hello.txt\r");
 
-    assert!(session.shows("first line"), "the file did not open:\n{:#?}", session.screen());
+    assert!(
+        session.shows("first line"),
+        "the file did not open:\n{:#?}",
+        session.screen()
+    );
     assert_eq!(session.quit(), 0);
 }
 
@@ -421,7 +466,11 @@ fn the_tutorial_opens_from_its_key() {
 
     // `C-h t`.
     session.send(b"\x08t");
-    assert!(session.shows("a short guide"), "got:\n{:#?}", session.screen());
+    assert!(
+        session.shows("a short guide"),
+        "got:\n{:#?}",
+        session.screen()
+    );
     assert!(session.shows("C-x C-c"), "the guide says how to leave");
     assert!(session.mode_line().contains("*Help*"));
 }
@@ -491,7 +540,10 @@ fn starting_without_a_terminal_fails_with_an_explanation() {
         .stdin(Stdio::null())
         .output()
         .expect("the binary runs");
-    assert!(!output.status.success(), "it should refuse rather than misbehave");
+    assert!(
+        !output.status.success(),
+        "it should refuse rather than misbehave"
+    );
     let text = String::from_utf8_lossy(&output.stderr);
     assert!(text.contains("terminal"), "got `{text}`");
 }
@@ -541,6 +593,7 @@ fn wait_for(session: &mut Session, needle: &str, tries: usize) -> bool {
     false
 }
 
+#[cfg(feature = "lsp")]
 #[test]
 fn a_language_server_reports_diagnostics_and_follows_edits() {
     // The only test that exercises the whole language-server path against a
@@ -551,8 +604,7 @@ fn a_language_server_reports_diagnostics_and_follows_edits() {
         return;
     }
     let fixture = c_project("lsp");
-    let mut session =
-        Session::start(fixture.path(), &["--config", "config.kdl", "main.c"]);
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "main.c"]);
 
     // The mode line shows the counts behind their glyphs.
     let errors = maxgus_core::icons::ERROR.to_string();
@@ -602,9 +654,11 @@ fn hover_answers_from_a_real_language_server() {
         return;
     }
     let fixture = c_project("hover");
-    let mut session =
-        Session::start(fixture.path(), &["--config", "config.kdl", "main.c"]);
-    assert!(wait_for(&mut session, "main.c", 20), "the file never opened");
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "main.c"]);
+    assert!(
+        wait_for(&mut session, "main.c", 20),
+        "the file never opened"
+    );
 
     // Onto `unused` on line 4, then `C-c l d`.
     session.send(b"\x0e\x0e\x0e");
@@ -616,7 +670,11 @@ fn hover_answers_from_a_real_language_server() {
         "no description arrived:\n{:#?}",
         session.screen()
     );
-    assert!(session.shows("int"), "the type was not described:\n{:#?}", session.screen());
+    assert!(
+        session.shows("int"),
+        "the type was not described:\n{:#?}",
+        session.screen()
+    );
 }
 
 /// Writes a configuration file into `fixture` and returns its name.
@@ -640,7 +698,10 @@ fn a_half_typed_key_sequence_waits_before_being_shown() {
         session.screen()
     );
     let echo = session.screen().last().cloned().unwrap_or_default();
-    assert!(!echo.contains("C-x"), "the sequence was shown at once: `{echo}`");
+    assert!(
+        !echo.contains("C-x"),
+        "the sequence was shown at once: `{echo}`"
+    );
 }
 
 #[test]
@@ -665,8 +726,14 @@ fn the_cursor_blinks_when_the_configuration_asks_it_to() {
     session.settle();
     // `CSI 1 SP q` selects a blinking block; `CSI 2 SP q` a steady one.
     let written = String::from_utf8_lossy(&session.output).into_owned();
-    assert!(written.contains("\x1b[1 q"), "no blinking cursor was requested");
-    assert!(!written.contains("\x1b[2 q"), "a steady cursor was requested too");
+    assert!(
+        written.contains("\x1b[1 q"),
+        "no blinking cursor was requested"
+    );
+    assert!(
+        !written.contains("\x1b[2 q"),
+        "a steady cursor was requested too"
+    );
 }
 
 #[test]
@@ -676,7 +743,10 @@ fn the_cursor_is_steady_by_default() {
     let mut session = Session::start(fixture.path(), &["--config", config, "hello.txt"]);
     session.settle();
     let written = String::from_utf8_lossy(&session.output).into_owned();
-    assert!(written.contains("\x1b[2 q"), "no steady cursor was requested");
+    assert!(
+        written.contains("\x1b[2 q"),
+        "no steady cursor was requested"
+    );
 }
 
 #[test]
@@ -691,8 +761,7 @@ fn a_mode_keymap_from_the_configuration_applies_only_to_that_mode() {
     );
 
     // In a Rust buffer, `C-t` runs the mode's binding.
-    let mut session =
-        Session::start(fixture.path(), &["--config", config, "src/main.rs"]);
+    let mut session = Session::start(fixture.path(), &["--config", config, "src/main.rs"]);
     session.send(b"\x14");
     assert!(
         session.mode_line().contains("*Buffer List*"),
@@ -717,7 +786,11 @@ fn ctrl_z_stops_the_editor_and_it_draws_again_when_continued() {
     // the process really stops, and continuing it puts the screen back.
     let fixture = Fixture::new("suspend-job");
     let mut session = Session::start_in_its_own_job(fixture.path(), &["-Q", "hello.txt"]);
-    assert!(session.shows("first line"), "the file was not drawn:\n{:#?}", session.screen());
+    assert!(
+        session.shows("first line"),
+        "the file was not drawn:\n{:#?}",
+        session.screen()
+    );
 
     session.send(b"\x1a");
     session.wait_until_stopped();
@@ -749,7 +822,11 @@ fn ctrl_z_stops_the_editor_and_it_draws_again_when_continued() {
         redrawn[redrawn.len() - 2]
     );
 
-    assert_eq!(session.quit(), 0, "the editor still works after being continued");
+    assert_eq!(
+        session.quit(),
+        0,
+        "the editor still works after being continued"
+    );
 }
 
 #[test]
@@ -762,8 +839,16 @@ fn ctrl_z_says_so_when_nothing_could_bring_the_editor_back() {
     let mut session = Session::start(fixture.path(), &["-Q", "hello.txt"]);
 
     session.send(b"\x1a");
-    assert_ne!(session.state(), 'T', "the editor stopped with nothing able to continue it");
-    assert!(session.shows("No job control"), "got:\n{:#?}", session.screen());
+    assert_ne!(
+        session.state(),
+        'T',
+        "the editor stopped with nothing able to continue it"
+    );
+    assert!(
+        session.shows("No job control"),
+        "got:\n{:#?}",
+        session.screen()
+    );
     assert!(session.shows("first line"), "the buffer is still on screen");
 
     assert_eq!(session.quit(), 0);
@@ -780,15 +865,18 @@ fn a_theme_defined_only_in_the_configuration_can_be_loaded_at_runtime() {
         "theme \"midnight\" {\n    face \"region\" background=\"#001133\"\n}\n",
     )
     .unwrap();
-    let mut session =
-        Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
 
     // `M-x load-theme RET midnight RET`.
     session.send(b"\x1bx");
     session.send(b"load-theme\r");
     session.send(b"midnight\r");
 
-    assert!(session.shows("Theme midnight"), "got:\n{:#?}", session.screen());
+    assert!(
+        session.shows("Theme midnight"),
+        "got:\n{:#?}",
+        session.screen()
+    );
     assert_eq!(session.quit(), 0);
 }
 
@@ -802,8 +890,7 @@ fn a_misspelled_face_in_the_configuration_is_reported_with_a_suggestion() {
         "theme \"maxgus-dark\" {\n    face \"font-lock-coment\" fg=\"#ffffff\"\n}\n",
     )
     .unwrap();
-    let mut session =
-        Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
 
     assert!(
         session.shows("unknown face `font-lock-coment`"),
@@ -813,7 +900,11 @@ fn a_misspelled_face_in_the_configuration_is_reported_with_a_suggestion() {
     // The "did you mean" that follows is cut off by the width of the echo
     // area, so its wording is checked where it is produced, in
     // `maxgus_faces::names`, rather than off the screen here.
-    assert_eq!(session.quit(), 0, "a bad face never stops the editor starting");
+    assert_eq!(
+        session.quit(),
+        0,
+        "a bad face never stops the editor starting"
+    );
 }
 
 #[test]
@@ -824,11 +915,18 @@ fn a_face_that_exists_draws_no_complaint() {
         "theme \"maxgus-dark\" {\n    face \"font-lock-comment\" fg=\"#ffffff\"\n}\n",
     )
     .unwrap();
-    let mut session =
-        Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
 
-    assert!(!session.shows("unknown face"), "got:\n{:#?}", session.screen());
-    assert!(!session.shows("configuration problem"), "got:\n{:#?}", session.screen());
+    assert!(
+        !session.shows("unknown face"),
+        "got:\n{:#?}",
+        session.screen()
+    );
+    assert!(
+        !session.shows("configuration problem"),
+        "got:\n{:#?}",
+        session.screen()
+    );
     assert_eq!(session.quit(), 0);
 }
 
@@ -840,8 +938,7 @@ fn a_configuration_problem_survives_the_files_opening() {
     // filename, which is everyone.
     let fixture = Fixture::new("warning-order");
     std::fs::write(fixture.path().join("config.kdl"), "set tab-widht=4\n").unwrap();
-    let mut session =
-        Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
 
     assert!(
         session.shows("unknown setting `tab-widht`"),
@@ -856,9 +953,22 @@ fn a_configuration_problem_survives_the_files_opening() {
 fn an_ordinary_notice_still_shows_when_nothing_is_wrong() {
     // The other half: giving way to an error must not stop the notice being
     // shown when there is no error to give way to.
+    //
+    // The file is opened from inside the editor rather than named on the
+    // command line, so this is about the notice and not a race with the
+    // startup greeting, which owns the echo area for the first moment.
     let fixture = Fixture::new("notice");
-    let mut session = Session::start(fixture.path(), &["-Q", "hello.txt"]);
-    assert!(session.shows("hello.txt (3 lines)"), "got:\n{:#?}", session.screen());
+    let mut session = Session::start(fixture.path(), &["-Q"]);
+    assert!(
+        wait_for(&mut session, "maxgus started in", 60),
+        "no greeting"
+    );
+    session.send(b"\x18\x06hello.txt\r"); // C-x C-f hello.txt RET
+    assert!(
+        wait_for(&mut session, "hello.txt (3 lines)", 60),
+        "got:\n{:#?}",
+        session.screen()
+    );
     assert_eq!(session.quit(), 0);
 }
 
@@ -878,7 +988,11 @@ fn a_file_that_is_not_text_cannot_be_saved_over_its_own_bytes() {
         "the reason was not given:\n{:#?}",
         session.screen()
     );
-    assert!(session.says_read_only(), "read-only: `{}`", session.mode_line());
+    assert!(
+        session.says_read_only(),
+        "read-only: `{}`",
+        session.mode_line()
+    );
 
     // Typing and saving must both be refused rather than silently letting the
     // replacement characters reach the disk.
@@ -941,7 +1055,11 @@ fn a_file_changed_underneath_the_buffer_is_not_written_over() {
     // just refused.
     session.send(b"\x1bx");
     session.send(b"save-buffer-anyway\r");
-    assert!(session.shows("Wrote"), "the forced save did not happen:\n{:#?}", session.screen());
+    assert!(
+        session.shows("Wrote"),
+        "the forced save did not happen:\n{:#?}",
+        session.screen()
+    );
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "Xmine\n");
 
     assert_eq!(session.quit(), 0);
@@ -958,7 +1076,11 @@ fn saving_twice_over_with_nobody_else_touching_it_is_fine() {
     let mut session = Session::start(fixture.path(), &["-Q", "mine.txt"]);
     session.send(b"A");
     session.send(b"\x18\x13");
-    assert!(session.shows("Wrote"), "first save:\n{:#?}", session.screen());
+    assert!(
+        session.shows("Wrote"),
+        "first save:\n{:#?}",
+        session.screen()
+    );
 
     session.send(b"B");
     session.send(b"\x18\x13");
@@ -999,8 +1121,15 @@ fn write_file_does_not_destroy_a_file_it_was_merely_named_at() {
     // Overwriting on purpose still works.
     session.send(b"\x1bx");
     session.send(b"save-buffer-anyway\r");
-    assert!(session.shows("Wrote"), "the deliberate overwrite failed:\n{:#?}", session.screen());
-    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "first line\nsecond line\n");
+    assert!(
+        session.shows("Wrote"),
+        "the deliberate overwrite failed:\n{:#?}",
+        session.screen()
+    );
+    assert_eq!(
+        std::fs::read_to_string(&victim).unwrap(),
+        "first line\nsecond line\n"
+    );
 
     assert_eq!(session.quit(), 0);
 }
@@ -1032,7 +1161,11 @@ fn write_file_back_to_its_own_name_is_an_ordinary_save() {
     session.send(b"\x18\x17");
     session.send(b"hello.txt\r");
 
-    assert!(!session.shows("already exists"), "got:\n{:#?}", session.screen());
+    assert!(
+        !session.shows("already exists"),
+        "got:\n{:#?}",
+        session.screen()
+    );
     assert!(session.shows("Wrote"), "got:\n{:#?}", session.screen());
     assert_eq!(
         std::fs::read_to_string(fixture.path().join("hello.txt")).unwrap(),
@@ -1062,10 +1195,13 @@ fn a_theme_dropped_into_the_themes_directory_is_found_by_name() {
         "theme \"seaside\" base=\"maxgus-light\" {\n    face \"region\" bg=\"#cceeff\"\n}\n",
     )
     .unwrap();
-    std::fs::write(fixture.path().join("config.kdl"), "set theme=\"midnight\"\n").unwrap();
+    std::fs::write(
+        fixture.path().join("config.kdl"),
+        "set theme=\"midnight\"\n",
+    )
+    .unwrap();
 
-    let mut session =
-        Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
 
     assert!(
         !session.shows("configuration problem"),
@@ -1085,7 +1221,11 @@ fn a_theme_dropped_into_the_themes_directory_is_found_by_name() {
     // And the one `config.kdl` asked for is the one in use.
     session.send(b"\x08v"); // C-h v
     session.send(b"theme\r");
-    assert!(session.shows("midnight"), "the theme was not taken up:\n{:#?}", session.screen());
+    assert!(
+        session.shows("midnight"),
+        "the theme was not taken up:\n{:#?}",
+        session.screen()
+    );
     assert_eq!(session.quit(), 0);
 }
 
@@ -1099,10 +1239,13 @@ fn a_theme_file_is_offered_by_load_theme() {
         "theme \"seaside\" base=\"maxgus-light\" {\n    face \"region\" bg=\"#cceeff\"\n}\n",
     )
     .unwrap();
-    std::fs::write(fixture.path().join("config.kdl"), "set line-numbers=#true\n").unwrap();
+    std::fs::write(
+        fixture.path().join("config.kdl"),
+        "set line-numbers=#true\n",
+    )
+    .unwrap();
 
-    let mut session =
-        Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
 
     // `M-x load-theme` lists what is on offer as it opens.
     session.send(b"\x1bx");
@@ -1113,7 +1256,11 @@ fn a_theme_file_is_offered_by_load_theme() {
         session.screen()
     );
     session.send(b"seaside\r");
-    assert!(session.shows("Theme seaside"), "it would not load:\n{:#?}", session.screen());
+    assert!(
+        session.shows("Theme seaside"),
+        "it would not load:\n{:#?}",
+        session.screen()
+    );
     assert_eq!(session.quit(), 0);
 }
 
@@ -1128,8 +1275,7 @@ fn a_broken_theme_file_is_reported_and_does_not_stop_the_editor() {
     .unwrap();
     std::fs::write(fixture.path().join("config.kdl"), "set tab-width=4\n").unwrap();
 
-    let mut session =
-        Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
 
     assert!(
         session.shows("font-lock-coment"),
@@ -1152,7 +1298,10 @@ fn the_cursor_follows_the_selected_window_with_the_tree_open() {
     let mut session = Session::start(fixture.path(), &["-Q", "long.txt"]);
     session.send(b"\x18tt"); // C-x t t
     let in_code = session.cursor();
-    assert!(in_code.0 > 0, "the code window sits to the right of the tree: {in_code:?}");
+    assert!(
+        in_code.0 > 0,
+        "the code window sits to the right of the tree: {in_code:?}"
+    );
 
     // Moving in the code moves the cursor, and keeps moving.
     let mut seen = vec![in_code];
@@ -1161,19 +1310,31 @@ fn the_cursor_follows_the_selected_window_with_the_tree_open() {
         seen.push(session.cursor());
     }
     assert!(
-        seen.windows(2).all(|w| w[1].1 == w[0].1 + 1 && w[1].0 == w[0].0),
+        seen.windows(2)
+            .all(|w| w[1].1 == w[0].1 + 1 && w[1].0 == w[0].0),
         "the cursor did not walk down the code window: {seen:?}"
     );
 
     // Into the tree, where it moves too — and lands in the tree's column.
-    session.send(b"\x18o"); // C-x o
+    // `C-x t 1` rather than `C-x o`: the panel is a column of windows, and
+    // `C-x o` reaches whichever of them comes next.
+    session.send(b"\x18t1"); // C-x t 1
     let in_tree = session.cursor();
-    assert!(in_tree.0 < in_code.0, "C-x o did not put the cursor in the tree: {in_tree:?}");
+    assert!(
+        in_tree.0 < in_code.0,
+        "the cursor is not in the tree: {in_tree:?}"
+    );
     session.send(b"\x0e");
-    assert_eq!(session.cursor(), (in_tree.0, in_tree.1 + 1), "the tree cursor is stuck");
+    assert_eq!(
+        session.cursor(),
+        (in_tree.0, in_tree.1 + 1),
+        "the tree cursor is stuck"
+    );
 
     // And back, to where the code window was left rather than to its top.
-    session.send(b"\x18o");
+    // `C-<right>` leaves the column; `C-x o` would reach the next window in
+    // it, which is the outline or the buffer list.
+    session.send(b"\x1b[1;5C");
     assert_eq!(
         session.cursor(),
         *seen.last().expect("moves"),
@@ -1191,13 +1352,19 @@ fn control_arrows_move_the_cursor_between_the_tree_and_the_code() {
 
     session.send(b"\x1b[1;5D"); // C-<left>
     let in_tree = session.cursor();
-    assert!(in_tree.0 < in_code.0, "C-<left> did not reach the tree: {in_tree:?}");
+    assert!(
+        in_tree.0 < in_code.0,
+        "C-<left> did not reach the tree: {in_tree:?}"
+    );
 
     session.send(b"\x1b[1;5C"); // C-<right>
-    assert_eq!(session.cursor(), in_code, "C-<right> did not come back to the code");
+    assert_eq!(
+        session.cursor(),
+        in_code,
+        "C-<right> did not come back to the code"
+    );
     assert_eq!(session.quit(), 0);
 }
-
 
 #[test]
 fn arrows_navigate_a_file_opened_from_the_tree() {
@@ -1210,36 +1377,63 @@ fn arrows_navigate_a_file_opened_from_the_tree() {
     std::fs::write(fixture.path().join("long.txt"), &long).unwrap();
 
     let mut session = Session::start(fixture.path(), &["-Q", "hello.txt"]);
-    session.send(b"\x18tt");   // C-x t t
-    session.send(b"\x18o");    // C-x o : into the tree
-    // Walk down to `long.txt` and open it. Only one RET: after it the file
-    // window has the keyboard, so a further `n` would be typed into the file.
-    session.send(b"nnn");
+    session.send(b"\x18tt"); // C-x t t
+    session.send(b"\x18t1"); // C-x t 1 : into the tree
+    // Walk down to `long.txt` and open it. The number of steps is read off
+    // the screen rather than counted by hand: the panel draws from its first
+    // row, so a screen row is a panel row, and a heading appearing above the
+    // tree should not silently change which file this opens. Only one RET:
+    // after it the file window has the keyboard, so a further `n` would be
+    // typed into the file.
+    session.send(b"\x1b<"); // M-< : the top of the panel
+    let steps = session
+        .screen()
+        .iter()
+        .position(|line| line.contains("long.txt"))
+        .expect("long.txt in the panel");
+    for _ in 0..steps {
+        session.send(b"n");
+    }
     session.send(b"\r");
 
-    assert!(session.mode_line().contains("long.txt"), "got `{}`", session.mode_line());
+    assert!(
+        session.mode_line().contains("long.txt"),
+        "got `{}`",
+        session.mode_line()
+    );
     let opened = session.cursor();
 
     // The keys that were reported broken.
-    session.send(b"\x1b[B");   // <down>
+    session.send(b"\x1b[B"); // <down>
     let down = session.cursor();
-    assert_eq!(down, (opened.0, opened.1 + 1), "<down> did not move: {down:?}");
+    assert_eq!(
+        down,
+        (opened.0, opened.1 + 1),
+        "<down> did not move: {down:?}"
+    );
 
-    session.send(b"\x1b[C");   // <right>
-    assert_eq!(session.cursor(), (down.0 + 1, down.1), "<right> did not move");
+    session.send(b"\x1b[C"); // <right>
+    assert_eq!(
+        session.cursor(),
+        (down.0 + 1, down.1),
+        "<right> did not move"
+    );
 
-    session.send(b"\x1b[D");   // <left>
+    session.send(b"\x1b[D"); // <left>
     assert_eq!(session.cursor(), down, "<left> did not move");
 
-    session.send(b"\x1b[A");   // <up>
+    session.send(b"\x1b[A"); // <up>
     assert_eq!(session.cursor(), opened, "<up> did not move");
 
-    // And the keys that were reported working still do.
-    session.send(b"\x1b[6~");  // <next> / PgDn
+    // And the keys that were reported working still do. Read from the code
+    // window's own part of the row: the panel's bottom window has a mode
+    // line on the same row, and it legitimately says line one.
+    session.send(b"\x1b[6~"); // <next> / PgDn
+    let bar = session.mode_line();
+    let at = bar.find("long.txt").expect("the file's own mode line");
     assert!(
-        !session.mode_line().contains(" 1:0 "),
-        "PgDn stopped working: `{}`",
-        session.mode_line()
+        !bar[at..].contains(" 1:0 "),
+        "PgDn stopped working: `{bar}`"
     );
     assert_eq!(session.quit(), 0);
 }
@@ -1251,23 +1445,27 @@ fn the_trees_own_arrow_keys_still_work_inside_the_tree() {
     let fixture = Fixture::new("treearrows-own");
     let mut session = Session::start(fixture.path(), &["-Q", "hello.txt"]);
     session.send(b"\x18tt");
-    session.send(b"\x18o");    // into the tree
+    session.send(b"\x18o"); // into the tree
     let start = session.cursor();
 
     // Upwards, because follow mode has already put the cursor on the file
     // being edited — which is the last node here, so there is nothing below.
-    session.send(b"\x1b[A");   // <up>
+    session.send(b"\x1b[A"); // <up>
     let up = session.cursor();
     assert_eq!(up, (start.0, start.1 - 1), "the tree lost its arrows");
 
-    session.send(b"\x1b[B");   // <down>
+    session.send(b"\x1b[B"); // <down>
     assert_eq!(session.cursor(), start, "<down> did not come back");
 
     // `<right>` expands a directory rather than moving a character, which is
     // the tree's binding and not the global one.
-    session.send(b"\x1b[A");   // onto `src`
-    session.send(b"\x1b[C");   // <right>
-    assert!(session.shows("main.rs"), "<right> did not expand:\n{:#?}", session.screen());
+    session.send(b"\x1b[A"); // onto `src`
+    session.send(b"\x1b[C"); // <right>
+    assert!(
+        session.shows("main.rs"),
+        "<right> did not expand:\n{:#?}",
+        session.screen()
+    );
     assert_eq!(session.quit(), 0);
 }
 
@@ -1282,9 +1480,12 @@ fn a_treefile_mode_binding_adds_to_the_built_in_ones() {
     )
     .unwrap();
 
-    let mut session =
-        Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
-    assert!(!session.shows("configuration problem"), "got:\n{:#?}", session.screen());
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+    assert!(
+        !session.shows("configuration problem"),
+        "got:\n{:#?}",
+        session.screen()
+    );
 
     session.send(b"\x18tt");
     session.send(b"\x18o"); // into the tree
@@ -1307,23 +1508,33 @@ fn o_o_from_the_tree_opens_into_the_window_you_choose() {
     // inputs as attempts to edit in the treefile buffer".
     let fixture = Fixture::new("treeoo");
     let mut session = Session::start(fixture.path(), &["-Q", "hello.txt"]);
-    session.send(b"\x182");        // C-x 2 : split, so there is a choice to make
-    session.send(b"\x18tt");       // C-x t t
-    // `C-<left>`, not `C-x o`: with three windows the cycle reaches the other
-    // half of the split first, and the keys below would land in the file.
-    session.send(b"\x1b[1;5D");
-    assert!(session.mode_line().contains("treefile"), "not in the tree");
+    session.send(b"\x182"); // C-x 2 : split, so there is a choice to make
+    session.send(b"\x18tt"); // C-x t t
+    // `C-x t 1`, not `C-x o` or an arrow: the panel is a column of windows,
+    // and both of those reach whichever one happens to be adjacent.
+    session.send(b"\x18t1");
+    // In the column, which is what matters: the bottom mode line belongs to
+    // whichever panel window is lowest, not to the selected one.
+    assert!(
+        session.cursor().0 < 32,
+        "not in the panel: {:?}",
+        session.cursor()
+    );
 
-    session.send(b"nn");           // down to hello.txt
-    session.send(b"oo");           // o o : visit the node
+    session.send(b"nn"); // down to hello.txt
+    session.send(b"oo"); // o o : visit the node
 
     assert!(
         !session.shows("read-only"),
         "the keys were typed into the tree instead of being a binding:\n{:#?}",
         session.screen()
     );
+    // The mode line, not the echo area: the startup greeting owns that at
+    // startup, and the tree shows the file's name whether it is open or not.
     assert!(
-        session.shows("hello.txt (3 lines)"),
+        // The mode line writes it with its project in front; the tree shows
+        // a bare name, so the slash is what tells them apart.
+        wait_for(&mut session, "/hello.txt", 60),
         "`o o` did not open the file:\n{:#?}",
         session.screen()
     );
@@ -1338,15 +1549,31 @@ fn the_trees_other_two_key_bindings_work_too() {
     session.send(b"\x18tt");
     session.send(b"\x18o");
 
-    session.send(b"th");      // t h : show dotfiles
-    assert!(!session.shows("read-only"), "`t h` typed itself:\n{:#?}", session.screen());
+    session.send(b"th"); // t h : show dotfiles
+    assert!(
+        !session.shows("read-only"),
+        "`t h` typed itself:\n{:#?}",
+        session.screen()
+    );
 
-    session.send(b"gr");      // g r : refresh
-    assert!(!session.shows("read-only"), "`g r` typed itself:\n{:#?}", session.screen());
+    session.send(b"gr"); // g r : refresh
+    assert!(
+        !session.shows("read-only"),
+        "`g r` typed itself:\n{:#?}",
+        session.screen()
+    );
 
-    session.send(b"ya");      // y a : copy the absolute path
-    assert!(!session.shows("read-only"), "`y a` typed itself:\n{:#?}", session.screen());
-    assert!(session.shows("Copied"), "`y a` did not run:\n{:#?}", session.screen());
+    session.send(b"ya"); // y a : copy the absolute path
+    assert!(
+        !session.shows("read-only"),
+        "`y a` typed itself:\n{:#?}",
+        session.screen()
+    );
+    assert!(
+        session.shows("Copied"),
+        "`y a` did not run:\n{:#?}",
+        session.screen()
+    );
     assert_eq!(session.quit(), 0);
 }
 
@@ -1355,23 +1582,35 @@ fn the_cursor_sits_on_the_text_when_line_numbers_are_on() {
     // With the gutter three columns wide, the cursor was drawn at column 0
     // while the text it pointed at began at column 3.
     let fixture = Fixture::new("linenumbers");
-    std::fs::write(fixture.path().join("config.kdl"), "set line-numbers=#true\n").unwrap();
-    let mut session =
-        Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+    std::fs::write(
+        fixture.path().join("config.kdl"),
+        "set line-numbers=#true\n",
+    )
+    .unwrap();
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
 
     let start = session.cursor();
-    assert!(start.0 >= 2, "the cursor is sitting in the line-number column: {start:?}");
+    assert!(
+        start.0 >= 2,
+        "the cursor is sitting in the line-number column: {start:?}"
+    );
 
     // The character under the cursor is the first of the line, not a digit.
     let row = session.screen()[start.1].clone();
     let under = row.chars().nth(start.0).unwrap_or(' ');
-    assert_eq!(under, 'f', "the cursor is not on the text: row `{row}` at {start:?}");
+    assert_eq!(
+        under, 'f',
+        "the cursor is not on the text: row `{row}` at {start:?}"
+    );
 
     session.send(b"\x06"); // C-f
-    assert_eq!(session.cursor(), (start.0 + 1, start.1), "it lost the offset");
+    assert_eq!(
+        session.cursor(),
+        (start.0 + 1, start.1),
+        "it lost the offset"
+    );
     assert_eq!(session.quit(), 0);
 }
-
 
 #[test]
 fn visit_theme_previews_keeps_and_writes_the_choice() {
@@ -1385,8 +1624,7 @@ fn visit_theme_previews_keeps_and_writes_the_choice() {
     let config = fixture.path().join("config.kdl");
     std::fs::write(&config, "set tab-width=4\nset theme=\"maxgus-dark\"\n").unwrap();
 
-    let mut session =
-        Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
 
     session.send(b"\x1bx");
     session.send(b"visit-theme\r");
@@ -1404,7 +1642,11 @@ fn visit_theme_previews_keeps_and_writes_the_choice() {
     );
 
     session.send(b"yes\r");
-    assert!(session.shows("written to"), "it did not report the write:\n{:#?}", session.screen());
+    assert!(
+        session.shows("written to"),
+        "it did not report the write:\n{:#?}",
+        session.screen()
+    );
 
     let after = std::fs::read_to_string(&config).unwrap();
     assert_eq!(
@@ -1421,14 +1663,17 @@ fn visit_theme_can_keep_a_theme_without_touching_the_config() {
     let original = "set theme=\"maxgus-dark\"\n";
     std::fs::write(&config, original).unwrap();
 
-    let mut session =
-        Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
     session.send(b"\x1bx");
     session.send(b"visit-theme\r");
     session.send(b"maxgus-light\r");
     session.send(b"no\r");
 
-    assert!(session.shows("session only"), "got:\n{:#?}", session.screen());
+    assert!(
+        session.shows("session only"),
+        "got:\n{:#?}",
+        session.screen()
+    );
     assert_eq!(
         std::fs::read_to_string(&config).unwrap(),
         original,
@@ -1438,7 +1683,11 @@ fn visit_theme_can_keep_a_theme_without_touching_the_config() {
     // And the theme really is in use, not merely reported.
     session.send(b"\x08v");
     session.send(b"theme\r");
-    assert!(session.shows("maxgus-light"), "got:\n{:#?}", session.screen());
+    assert!(
+        session.shows("maxgus-light"),
+        "got:\n{:#?}",
+        session.screen()
+    );
     assert_eq!(session.quit(), 0);
 }
 
@@ -1456,9 +1705,43 @@ fn m_x_draws_a_popup_at_the_top_of_a_real_terminal() {
 
     session.send(b"\x1bx");
     let screen = session.screen();
-    assert!(screen[0].starts_with('\u{256d}'), "no popup border:\n{screen:#?}");
-    assert!(screen[1].contains("M-x"), "no prompt inside the popup:\n{screen:#?}");
-    assert_eq!(session.cursor().1, 1, "the cursor is not on the popup's prompt line");
+    // The box is centred across the frame, so its border is on the first row
+    // but not at its first column.
+    let column = |corner: char| {
+        screen[0]
+            .chars()
+            .position(|c| c == corner)
+            .unwrap_or_else(|| panic!("no `{corner}` on the top row:\n{screen:#?}"))
+    };
+    let left = column('\u{256d}');
+    // Lines come back with their trailing blanks trimmed, so the right margin
+    // is measured against the terminal's width rather than the line's.
+    let margin = COLUMNS as usize - 1 - column('\u{256e}');
+    assert!(
+        left.abs_diff(margin) <= 1,
+        "the popup is not centred: {left} to the left, {margin} to the right:\n{screen:#?}"
+    );
+    assert!(
+        screen[1].contains("M-x"),
+        "no prompt inside the popup:\n{screen:#?}"
+    );
+    assert_eq!(
+        session.cursor().1,
+        1,
+        "the cursor is not on the popup's prompt line"
+    );
+    // And on the prompt's column inside the box, which moved with it when the
+    // box was centred: a cursor left at the frame's edge sits on the buffer
+    // behind the popup, where nothing is being typed.
+    let prompt = screen[1]
+        .find("M-x")
+        .map(|byte| screen[1][..byte].chars().count())
+        .expect("the prompt on its line");
+    assert_eq!(
+        session.cursor().0,
+        prompt + "M-x ".chars().count(),
+        "the cursor is not where the typing goes:\n{screen:#?}"
+    );
 
     // `sbfr` is a prefix of nothing and a subsequence of `save-buffer`.
     session.send(b"sbfr");
@@ -1472,7 +1755,508 @@ fn m_x_draws_a_popup_at_the_top_of_a_real_terminal() {
     // they must not reach the buffer underneath.
     session.send(b"\x1b[B\x1b[B\x1b[6~\x1b[A\x1b[5~");
     session.send(b"\x07"); // C-g
-    assert!(!session.shows("M-x sbfr"), "the prompt is still up:\n{:#?}", session.screen());
-    assert_eq!(session.cursor().1, 1, "the arrows moved the buffer's cursor");
+    assert!(
+        !session.shows("M-x sbfr"),
+        "the prompt is still up:\n{:#?}",
+        session.screen()
+    );
+    assert_eq!(
+        session.cursor().1,
+        1,
+        "the arrows moved the buffer's cursor"
+    );
     assert_eq!(session.quit(), 0);
+}
+
+#[cfg(feature = "terminal")]
+#[test]
+fn a_real_shell_runs_in_the_terminal_panel() {
+    // Everything else about the terminal is tested against an emulator fed
+    // bytes. This is the only test that opens a pseudo-terminal, starts a
+    // real shell in it, types at it and reads what came back — which is the
+    // whole of the part that cannot be faked.
+    let fixture = Fixture::new("terminal");
+    let mut session = Session::start(fixture.path(), &["hello.txt"]);
+
+    session.send(b"\x18tv"); // C-x t v
+    assert!(
+        wait_for(&mut session, "1 ", 40),
+        "no tab bar appeared:\n{:#?}",
+        session.screen()
+    );
+
+    // `sh` reads a line and runs it. The marker is deliberately unlike
+    // anything the editor draws, so finding it means the shell echoed it.
+    session.send(b"echo maxgus-terminal-works\r");
+    assert!(
+        wait_for(&mut session, "maxgus-terminal-works", 60),
+        "the shell did not run the command:\n{:#?}",
+        session.screen()
+    );
+
+    // A second tab, and the bar naming both.
+    session.send(b"\x03t"); // C-c t
+    assert!(
+        wait_for(&mut session, " 2 ", 40),
+        "no second tab:\n{:#?}",
+        session.screen()
+    );
+
+    // And the editor's own prefix still works from inside it.
+    session.send(b"\x18tv");
+    assert_eq!(session.quit(), 0);
+}
+
+/// Runs git in a directory and returns its output.
+#[cfg(feature = "git")]
+fn git_in(directory: &std::path::Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(directory)
+        .output()
+        .unwrap_or_else(|e| panic!("git {args:?}: {e}"));
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn a_hunk_is_staged_through_the_running_editor() {
+    // The whole chain, with nothing faked: a real repository, the real
+    // binary, real keystrokes, and git's own index checked afterwards.
+    // Staging one hunk and leaving the other is the operation magit exists
+    // for, and the one where being wrong stages code nobody looked at.
+    let fixture = Fixture::new("magit");
+    let repo = fixture.path();
+    for args in [
+        vec!["init", "--initial-branch=main"],
+        vec!["config", "user.email", "test@example.invalid"],
+        vec!["config", "user.name", "Test"],
+    ] {
+        git_in(repo, &args);
+    }
+    let numbered: String = (1..=20).map(|n| format!("line {n}\n")).collect();
+    std::fs::write(repo.join("file.txt"), &numbered).unwrap();
+    git_in(repo, &["add", "."]);
+    git_in(repo, &["commit", "-m", "first"]);
+
+    // Two edits, far enough apart to be two hunks.
+    let edited = numbered
+        .replace("line 2\n", "LINE TWO\n")
+        .replace("line 18\n", "LINE EIGHTEEN\n");
+    std::fs::write(repo.join("file.txt"), &edited).unwrap();
+
+    let mut session = Session::start(repo, &["file.txt"]);
+    session.send(b"\x18g"); // C-x g
+    assert!(
+        wait_for(&mut session, "Unstaged changes", 60),
+        "no status view:\n{:#?}",
+        session.screen()
+    );
+    assert!(
+        session.shows("Head:"),
+        "no head line:\n{:#?}",
+        session.screen()
+    );
+
+    // To the unstaged section, down to the file, open it, down to the first
+    // hunk, and stage that one.
+    session.send(b"\x1bn"); // M-n
+    while !session
+        .screen()
+        .iter()
+        .any(|line| line.contains("Unstaged changes"))
+    {
+        session.send(b"\x1bn");
+    }
+    // `M-n` lands on the heading; `n` steps to the file under it.
+    session.send(b"n");
+    session.send(b"\t");
+    assert!(
+        wait_for(&mut session, "@@", 40),
+        "the file did not open:\n{:#?}",
+        session.screen()
+    );
+    session.send(b"n");
+    session.send(b"s");
+
+    // Give the staging and the refresh that follows it time to land.
+    assert!(
+        wait_for(&mut session, "Staged changes", 60),
+        "nothing was staged:\n{:#?}",
+        session.screen()
+    );
+
+    let staged = git_in(repo, &["diff", "--cached"]);
+    assert!(
+        staged.contains("LINE TWO"),
+        "the chosen hunk was not staged:\n{staged}"
+    );
+    assert!(
+        !staged.contains("LINE EIGHTEEN"),
+        "the whole file was staged instead of one hunk:\n{staged}"
+    );
+    let unstaged = git_in(repo, &["diff"]);
+    assert!(
+        unstaged.contains("LINE EIGHTEEN"),
+        "the other hunk was lost:\n{unstaged}"
+    );
+
+    assert_eq!(session.quit(), 0);
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn the_git_menus_are_driven_from_the_keyboard() {
+    // The menus are how magit is used, and a menu that does not take the
+    // keyboard is a menu that quietly does something else instead.
+    let fixture = Fixture::new("magit-menu");
+    let repo = fixture.path();
+    for args in [
+        vec!["init", "--initial-branch=main"],
+        vec!["config", "user.email", "test@example.invalid"],
+        vec!["config", "user.name", "Test"],
+    ] {
+        git_in(repo, &args);
+    }
+    std::fs::write(repo.join("file.txt"), "one\n").unwrap();
+    git_in(repo, &["add", "."]);
+    git_in(repo, &["commit", "-m", "first"]);
+    std::fs::write(repo.join("file.txt"), "two\n").unwrap();
+
+    let mut session = Session::start(repo, &["file.txt"]);
+    session.send(b"\x18g"); // C-x g
+    assert!(
+        wait_for(&mut session, "Unstaged changes", 60),
+        "no status view"
+    );
+
+    session.send(b"?");
+    assert!(
+        wait_for(&mut session, "Manipulate", 40),
+        "the menu did not open:\n{:#?}",
+        session.screen()
+    );
+
+    // Into the push menu, and turn a switch on.
+    session.send(b"P");
+    assert!(
+        wait_for(&mut session, "Force with lease", 40),
+        "the push menu did not open:\n{:#?}",
+        session.screen()
+    );
+    session.send(b"-f");
+    assert!(
+        session
+            .screen()
+            .iter()
+            .any(|line| line.contains("Force with lease") && line.contains('\u{2713}')),
+        "the switch is not marked as on:\n{:#?}",
+        session.screen()
+    );
+
+    // Back out, twice, and the menu is gone.
+    session.send(b"\x07\x07"); // C-g C-g
+    assert!(
+        !session
+            .screen()
+            .iter()
+            .any(|line| line.contains("Force with lease")),
+        "the menu would not close:\n{:#?}",
+        session.screen()
+    );
+    // And the status view is still there and still working.
+    assert!(session.shows("Unstaged changes"));
+    assert_eq!(session.quit(), 0);
+}
+
+#[cfg(feature = "git")]
+#[test]
+fn a_commit_is_shown_in_full_from_the_log() {
+    let fixture = Fixture::new("magit-log");
+    let repo = fixture.path();
+    for args in [
+        vec!["init", "--initial-branch=main"],
+        vec!["config", "user.email", "test@example.invalid"],
+        vec!["config", "user.name", "Test Person"],
+    ] {
+        git_in(repo, &args);
+    }
+    std::fs::write(repo.join("file.txt"), "one\n").unwrap();
+    git_in(repo, &["add", "."]);
+    git_in(repo, &["commit", "-m", "the first commit"]);
+    std::fs::write(repo.join("file.txt"), "one\ntwo\n").unwrap();
+    git_in(repo, &["commit", "-am", "the second commit"]);
+
+    let mut session = Session::start(repo, &["file.txt"]);
+    session.send(b"\x18g");
+    assert!(
+        wait_for(&mut session, "Recent commits", 60),
+        "no status view"
+    );
+
+    // `l l`: the log menu, then the current branch.
+    session.send(b"l");
+    assert!(
+        wait_for(&mut session, "Current branch", 40),
+        "no log menu:\n{:#?}",
+        session.screen()
+    );
+    session.send(b"l");
+    // Waited for by the buffer's own name in the mode line: the commit
+    // subject is already on screen in the status view's recent commits, so
+    // waiting for that would be satisfied before the log had arrived.
+    assert!(
+        wait_for(&mut session, "magit: log", 60),
+        "no log buffer:\n{:#?}",
+        session.screen()
+    );
+    assert!(
+        session.shows("the second commit"),
+        "the log is empty:\n{:#?}",
+        session.screen()
+    );
+
+    // `RET` on the newest commit shows it in full: who, when, and the diff.
+    session.send(b"\r");
+    assert!(
+        wait_for(&mut session, "magit: revision", 60),
+        "no revision buffer:\n{:#?}",
+        session.screen()
+    );
+    assert!(
+        session.shows("Author:"),
+        "no author line:\n{:#?}",
+        session.screen()
+    );
+    assert!(
+        session.shows("Test Person"),
+        "no author:\n{:#?}",
+        session.screen()
+    );
+    assert!(session.shows("the second commit"), "no message");
+    assert!(session.shows("+two"), "no diff:\n{:#?}", session.screen());
+
+    assert_eq!(session.quit(), 0);
+}
+
+#[test]
+fn the_panel_opens_at_startup_when_the_configuration_asks() {
+    // The one thing a unit test cannot check: whether the flag is read on
+    // the way up, before any key has been pressed.
+    let fixture = Fixture::new("panelstart");
+    std::fs::write(
+        fixture.path().join("config.kdl"),
+        "set panel-at-startup=#true\nset nerd-font-icons=#false\n",
+    )
+    .unwrap();
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+
+    assert!(
+        wait_for(&mut session, "*treefile*", 60),
+        "the panel did not open on its own:\n{:#?}",
+        session.screen()
+    );
+    assert!(
+        session.shows("*buffers*"),
+        "the buffer list is missing:\n{:#?}",
+        session.screen()
+    );
+    assert!(session.shows("hello.txt"), "the file is not shown");
+    assert_eq!(session.quit(), 0);
+}
+
+#[test]
+fn the_panels_windows_are_reached_with_the_ordinary_window_keys() {
+    // The whole point of making the panel three windows: `C-<up>` and
+    // `C-<down>` are window movement, with nothing special about the panel.
+    let fixture = Fixture::new("panelmove");
+    let mut session = Session::start(fixture.path(), &["-Q", "hello.txt"]);
+    session.send(b"\x18tt");
+    assert!(
+        wait_for(&mut session, "*buffers*", 60),
+        "no panel:\n{:#?}",
+        session.screen()
+    );
+
+    session.send(b"\x18t1"); // C-x t 1 : the tree
+    let in_tree = session.cursor();
+    assert!(in_tree.0 < 32, "not in the panel column: {in_tree:?}");
+
+    // Down into the buffer list, which is lower in the same column.
+    session.send(b"\x1b[1;5B"); // C-<down>
+    let in_list = session.cursor();
+    assert!(
+        in_list.1 > in_tree.1,
+        "C-<down> did not move down the column: {in_list:?}"
+    );
+    assert!(in_list.0 < 32, "it left the column: {in_list:?}");
+
+    // And back up.
+    session.send(b"\x1b[1;5A"); // C-<up>
+    assert_eq!(session.cursor(), in_tree, "C-<up> did not come back");
+    assert_eq!(session.quit(), 0);
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn the_outline_fills_from_a_real_server_without_disturbing_anything() {
+    // The panel and `M-x lsp-document-symbols` ask the same question of the
+    // server. Only a real one sends the answers that told the two apart
+    // wrongly: the panel refreshes itself more than once, and a second answer
+    // used to be read as a person asking, opening a listing over the file.
+    if !available("clangd") {
+        eprintln!("skipping: clangd is not installed");
+        return;
+    }
+    let fixture = c_project("panellsp");
+    std::fs::write(
+        fixture.path().join("config.kdl"),
+        "set idle-delay-ms=100\nset panel-at-startup=#true\nset nerd-font-icons=#false\n\
+         lsp \"c\" command=\"clangd\" {\n    root-markers \"compile_commands.json\"\n}\n",
+    )
+    .unwrap();
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "main.c"]);
+
+    assert!(
+        wait_for(&mut session, "*symbols*", 200),
+        "the outline window never appeared:\n{:#?}",
+        session.screen()
+    );
+    assert!(
+        wait_for(&mut session, "main", 100),
+        "the outline is empty:\n{:#?}",
+        session.screen()
+    );
+    // The three windows are all still there, in order, and the file with them.
+    for expected in ["*treefile*", "*symbols*", "*buffers*", "main.c"] {
+        assert!(
+            session.shows(expected),
+            "{expected} is gone:\n{:#?}",
+            session.screen()
+        );
+    }
+    assert!(
+        session.shows("#include <stdio.h>"),
+        "the file's text is not displayed:\n{:#?}",
+        session.screen()
+    );
+    // Nothing popped a listing over it.
+    assert!(
+        !session.shows("*xref*"),
+        "a listing opened:\n{:#?}",
+        session.screen()
+    );
+
+    // Switching buffers asks again; the second answer must behave like the
+    // first. `C-x b RET` goes to the previous buffer and back.
+    session.send(b"\x18b\r");
+    session.settle();
+    session.send(b"\x18b\r");
+    for _ in 0..40 {
+        session.settle();
+    }
+    assert!(
+        !session.shows("*xref*"),
+        "a later answer opened a listing:\n{:#?}",
+        session.screen()
+    );
+    assert!(
+        session.shows("#include <stdio.h>"),
+        "the file went away after a refresh:\n{:#?}",
+        session.screen()
+    );
+    assert_eq!(session.quit(), 0);
+}
+
+#[test]
+fn the_startup_time_is_reported_when_the_editor_opens() {
+    // The first thing the echo area says, and it has to be a real measurement
+    // rather than a fixed string.
+    let fixture = Fixture::new("startup");
+    let mut session = Session::start(fixture.path(), &["-Q", "hello.txt"]);
+    assert!(
+        wait_for(&mut session, "maxgus started in", 60),
+        "no startup time:\n{:#?}",
+        session.screen()
+    );
+    let line = session
+        .screen()
+        .into_iter()
+        .find(|l| l.contains("maxgus started in"))
+        .expect("the line");
+    let reported = line
+        .split("started in ")
+        .nth(1)
+        .expect("a duration")
+        .trim()
+        .to_string();
+    assert!(
+        reported.ends_with("ms") || reported.ends_with('s'),
+        "not a duration: `{reported}`"
+    );
+    let value: f64 = reported
+        .trim_end_matches("ms")
+        .trim_end_matches('s')
+        .parse()
+        .unwrap_or_else(|_| panic!("not a number: `{reported}`"));
+    assert!(value > 0.0, "it claims to have taken no time at all");
+
+    // And `M-x startup-time` says it again once the echo area has moved on.
+    session.send(b"\x0e");
+    session.settle();
+    session.send(b"\x1bxstartup-time\r");
+    assert!(
+        wait_for(&mut session, "maxgus started in", 60),
+        "`M-x startup-time` said nothing:\n{:#?}",
+        session.screen()
+    );
+    assert_eq!(session.quit(), 0);
+}
+
+/// Every feature combination has to build, not just the two the CI names.
+///
+/// Ignored by default because it is a build rather than a test — it takes
+/// minutes and needs the network the first time. `cargo test -- --ignored`
+/// runs it, and so does the release workflow.
+#[test]
+#[ignore]
+fn every_feature_combination_builds() {
+    let combinations: &[&[&str]] = &[
+        &[],
+        &["minimal"],
+        &["syntax"],
+        &["lsp"],
+        &["git"],
+        &["terminal"],
+        &["lsp", "git"],
+        &["syntax", "lsp"],
+        &["git", "terminal"],
+        &["full"],
+        &["gui"],
+    ];
+    for features in combinations {
+        let output = std::process::Command::new(env!("CARGO"))
+            .args(["build", "-q", "-p", "maxgus", "--no-default-features"])
+            .args(if features.is_empty() {
+                Vec::new()
+            } else {
+                vec!["--features".to_string(), features.join(",")]
+            })
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .expect("cargo runs");
+        let complaints = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "`--features {}` does not build:\n{complaints}",
+            features.join(",")
+        );
+        // A build that only compiles by accident of a warning is not a build
+        // anyone wants to ship.
+        assert!(
+            !complaints.contains("warning:"),
+            "`--features {}` builds with warnings:\n{complaints}",
+            features.join(",")
+        );
+    }
 }

@@ -14,7 +14,11 @@ use tokio::sync::mpsc;
 
 /// Command-line arguments.
 #[derive(Debug, Parser)]
-#[command(name = "maxgus", version, about = "A very small Emacs for the terminal")]
+#[command(
+    name = "maxgus",
+    version,
+    about = "A very small Emacs for the terminal"
+)]
 struct Arguments {
     /// Files to visit on startup.
     files: Vec<PathBuf>,
@@ -30,17 +34,29 @@ struct Arguments {
     /// Open the file tree rooted here, and take it as the project root.
     #[arg(long, value_name = "DIR")]
     directory: Option<PathBuf>,
+
+    /// Open a window rather than taking over the terminal.
+    #[cfg(feature = "gui")]
+    #[arg(long)]
+    gui: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Before anything else this process does, so what is reported is the time
+    // the editor took rather than the time it took to measure itself. The
+    // dynamic loader's work is already done by now and cannot be counted.
+    let started = std::time::Instant::now();
     let arguments = Arguments::parse();
 
     // Traces go to a file: stderr belongs to the editor's own display.
     if let Ok(path) = std::env::var("MAXGUS_LOG")
         && let Ok(file) = std::fs::File::create(&path)
     {
-        tracing_subscriber::fmt().with_writer(std::sync::Mutex::new(file)).with_ansi(false).init();
+        tracing_subscriber::fmt()
+            .with_writer(std::sync::Mutex::new(file))
+            .with_ansi(false)
+            .init();
     }
 
     let (config, mut warnings) = load_config(&arguments)?;
@@ -51,11 +67,25 @@ async fn main() -> Result<()> {
     warnings.extend(unknown_face_warnings(&config));
     let root = project_root(&arguments);
 
+    // In a window the frame is decided by the font and the window's size,
+    // which are not known until it opens; a nominal one gets the editor built.
+    #[cfg(feature = "gui")]
+    let windowed = arguments.gui;
+    #[cfg(not(feature = "gui"))]
+    let windowed = false;
+
     // The terminal is claimed before anything can panic inside it: the panic
     // hook is what puts the user's shell back if something goes wrong.
-    maxgus_tui::terminal::install_panic_hook();
-    let terminal = Terminal::new().context("this program needs a terminal")?;
-    let frame = Rect::from_size(terminal.size());
+    let terminal = if windowed {
+        None
+    } else {
+        maxgus_tui::terminal::install_panic_hook();
+        Some(Terminal::new().context("this program needs a terminal")?)
+    };
+    let frame = match &terminal {
+        Some(terminal) => Rect::from_size(terminal.size()),
+        None => Rect::from_size(maxgus_tui::Size::new(100, 30)),
+    };
 
     let theme = maxgus_core::build_theme(&config.themes, &config.settings.theme);
     let mut editor = Editor::new(config.settings.clone(), theme, frame);
@@ -69,7 +99,10 @@ async fn main() -> Result<()> {
 
     let registry = maxgus_core::standard_registry();
     editor.command_names = registry.interactive_names();
-    editor.command_docs = registry.iter().map(|c| (c.name.to_string(), c.doc.to_string())).collect();
+    editor.command_docs = registry
+        .iter()
+        .map(|c| (c.name.to_string(), c.doc.to_string()))
+        .collect();
     editor.tree_root = Some(root.clone());
     editor.tree_width = config.tree.width as u16;
     editor.tree_follow = config.tree.follow;
@@ -80,7 +113,11 @@ async fn main() -> Result<()> {
         editor.error(format!(
             "{} configuration problem(s): {}",
             warnings.len(),
-            warnings.iter().map(ToString::to_string).collect::<Vec<_>>().join("; ")
+            warnings
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; ")
         ));
     }
 
@@ -94,14 +131,118 @@ async fn main() -> Result<()> {
     if arguments.directory.is_some() {
         editor.spawn(maxgus_core::Task::Tree(maxgus_core::TreeAction::Refresh));
     }
+    #[cfg(feature = "git")]
     editor.spawn(maxgus_core::Task::GitBranch { root: root.clone() });
+
+    // The panel, when the configuration asks for it. Opened last so that the
+    // files named on the command line are already on their way and the panel
+    // lays out around the window they will land in.
+    if config.settings.panel_at_startup
+        && let Err(error) = maxgus_core::commands::tree::open(&mut editor, root.clone())
+    {
+        editor.error(error.to_string());
+    }
+
+    // Everything the editor needs to draw its first frame is in place, which
+    // is what a startup time means.
+    editor.set_startup_time(started.elapsed());
 
     let (task_tx, task_rx) = mpsc::unbounded_channel();
     let (result_tx, result_rx) = mpsc::unbounded_channel();
     let executor = tasks::Executor::new(root, config.tree.clone(), config.lsp.clone(), result_tx);
     tokio::spawn(executor.run(task_rx));
 
-    App::new(editor, Dispatcher::new(registry), terminal, task_tx, result_rx).run().await
+    #[cfg(feature = "gui")]
+    if windowed {
+        return gui::run(
+            editor,
+            Dispatcher::new(registry),
+            &config,
+            task_tx,
+            result_rx,
+        );
+    }
+
+    App::new(
+        editor,
+        Dispatcher::new(registry),
+        terminal.expect("a terminal, since this is not a window"),
+        task_tx,
+        result_rx,
+    )
+    .run()
+    .await
+}
+
+/// Starting the editor in a window rather than in the terminal.
+#[cfg(feature = "gui")]
+mod gui {
+    use anyhow::Result;
+    use maxgus_config::Config;
+    use maxgus_core::{Dispatcher, Editor, Task, TaskResult};
+    use maxgus_faces::Color;
+    use maxgus_gui::quads::Palette;
+    use tokio::sync::mpsc;
+
+    /// Hands the editor to the window, with two threads' worth of plumbing
+    /// between it and the executor: the window's loop is not async, and the
+    /// executor is.
+    pub fn run(
+        editor: Editor,
+        dispatcher: Dispatcher,
+        config: &Config,
+        tasks: mpsc::UnboundedSender<Task>,
+        mut results: mpsc::UnboundedReceiver<TaskResult>,
+    ) -> Result<()> {
+        // The window's loop takes tasks on a plain channel and forwards them
+        // to tokio's, and takes results back the same way.
+        let (task_tx, task_rx) = std::sync::mpsc::channel::<Task>();
+        std::thread::spawn(move || {
+            while let Ok(task) = task_rx.recv() {
+                if tasks.send(task).is_err() {
+                    return;
+                }
+            }
+        });
+        let (result_tx, result_rx) = std::sync::mpsc::channel::<TaskResult>();
+        std::thread::spawn(move || {
+            while let Some(result) = results.blocking_recv() {
+                if result_tx.send(result).is_err() {
+                    return;
+                }
+            }
+        });
+
+        let settings = maxgus_gui::Settings {
+            title: "maxgus".into(),
+            font: config.settings.gui_font.clone(),
+            font_size: config.settings.gui_font_size as f32,
+            palette: palette(&editor),
+        };
+        maxgus_gui::run(editor, dispatcher, settings, task_tx, result_rx)
+    }
+
+    /// The colours a terminal would have supplied: the theme's own default
+    /// face, and the sixteen it may name by index.
+    fn palette(editor: &Editor) -> Palette {
+        let default = editor.theme.resolve("default");
+        let rgb = |color: Option<Color>, fallback: [f32; 4]| match color {
+            Some(Color::Rgb(r, g, b)) => {
+                [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0]
+            }
+            _ => fallback,
+        };
+        let mut ansi = [[0.0, 0.0, 0.0, 1.0]; 16];
+        for (index, slot) in ansi.iter_mut().enumerate() {
+            let (r, g, b) = maxgus_faces::xterm_palette_rgb(index as u8);
+            *slot = [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0];
+        }
+        Palette {
+            foreground: rgb(default.foreground, [0.85, 0.87, 0.9, 1.0]),
+            background: rgb(default.background, [0.09, 0.10, 0.12, 1.0]),
+            ansi,
+        }
+    }
 }
 
 /// Reads the configuration, returning it and any complaints about it.
@@ -133,10 +274,7 @@ fn load_config(arguments: &Arguments) -> Result<(Config, Vec<maxgus_config::Warn
 /// A theme is then just a file you drop in: `set theme="nord"` finds it, and
 /// `M-x load-theme` offers it, with nothing else to write. Files are taken in
 /// name order so a repeated theme resolves the same way on every start.
-fn load_theme_directory(
-    config_path: &Path,
-    config: &mut Config,
-) -> Vec<maxgus_config::Warning> {
+fn load_theme_directory(config_path: &Path, config: &mut Config) -> Vec<maxgus_config::Warning> {
     let Some(dir) = config_path.parent().map(|p| p.join("themes")) else {
         return Vec::new();
     };
@@ -153,8 +291,14 @@ fn load_theme_directory(
 
     let mut warnings = Vec::new();
     for file in files {
-        let shown = file.file_name().unwrap_or(file.as_os_str()).to_string_lossy().into_owned();
-        let Ok(source) = std::fs::read_to_string(&file) else { continue };
+        let shown = file
+            .file_name()
+            .unwrap_or(file.as_os_str())
+            .to_string_lossy()
+            .into_owned();
+        let Ok(source) = std::fs::read_to_string(&file) else {
+            continue;
+        };
         match Config::parse(&source) {
             Ok(theme_config) => {
                 // A theme file that is not about themes is worth saying so
@@ -217,7 +361,9 @@ fn unknown_face_warnings(config: &Config) -> Vec<maxgus_config::Warning> {
         .iter()
         .flat_map(|theme| maxgus_faces::names::unknown_in(theme))
         .map(|(line, name, closest)| {
-            let hint = closest.map(|c| format!(", did you mean `{c}`?")).unwrap_or_default();
+            let hint = closest
+                .map(|c| format!(", did you mean `{c}`?"))
+                .unwrap_or_default();
             maxgus_config::Warning::new(line, format!("unknown face `{name}`{hint}"))
         })
         .collect()

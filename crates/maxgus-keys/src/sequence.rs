@@ -1,6 +1,9 @@
 //! Key sequences: a whole `C-x C-f`, not just one press.
 
-use crate::{Key, Result, key::{KeyCode, Modifiers}};
+use crate::{
+    Key, Result,
+    key::{KeyCode, Modifiers},
+};
 use serde::{Deserialize, Serialize};
 
 /// An ordered run of key presses.
@@ -18,7 +21,10 @@ impl KeySequence {
 
     /// Parses a whitespace-separated description such as `C-x C-f`.
     pub fn parse(text: &str) -> Result<KeySequence> {
-        text.split_whitespace().map(Key::parse).collect::<Result<Vec<_>>>().map(KeySequence)
+        text.split_whitespace()
+            .map(Key::parse)
+            .collect::<Result<Vec<_>>>()
+            .map(KeySequence)
     }
 
     pub fn keys(&self) -> &[Key] {
@@ -79,7 +85,11 @@ impl KeySequence {
 
     /// Emacs notation for the whole sequence.
     pub fn notation(&self) -> String {
-        self.0.iter().map(Key::notation).collect::<Vec<_>>().join(" ")
+        self.0
+            .iter()
+            .map(Key::notation)
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }
 
@@ -129,21 +139,29 @@ mod tests {
 
     #[test]
     fn escape_prefix_becomes_meta() {
-        let s = KeySequence::parse("ESC x").unwrap().canonicalize_escape_prefix();
+        let s = KeySequence::parse("ESC x")
+            .unwrap()
+            .canonicalize_escape_prefix();
         assert_eq!(s.notation(), "M-x");
-        let s = KeySequence::parse("ESC C-f").unwrap().canonicalize_escape_prefix();
+        let s = KeySequence::parse("ESC C-f")
+            .unwrap()
+            .canonicalize_escape_prefix();
         assert_eq!(s.notation(), "C-M-f");
     }
 
     #[test]
     fn a_trailing_escape_stays_literal() {
-        let s = KeySequence::parse("C-x ESC").unwrap().canonicalize_escape_prefix();
+        let s = KeySequence::parse("C-x ESC")
+            .unwrap()
+            .canonicalize_escape_prefix();
         assert_eq!(s.notation(), "C-x ESC");
     }
 
     #[test]
     fn escape_canonicalisation_leaves_other_keys_untouched() {
-        let s = KeySequence::parse("C-x C-f").unwrap().canonicalize_escape_prefix();
+        let s = KeySequence::parse("C-x C-f")
+            .unwrap()
+            .canonicalize_escape_prefix();
         assert_eq!(s.notation(), "C-x C-f");
     }
 

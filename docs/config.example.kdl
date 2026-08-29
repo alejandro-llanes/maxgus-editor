@@ -28,6 +28,26 @@ set blink-cursor=#false          // ask the terminal for a blinking block
 set echo-keystrokes-ms=1000      // pause before a half-typed C-x is echoed
 set nerd-font-icons=#true        // glyphs in the tree and mode line
 
+// The side panel is a column of three windows. Any of them can be
+// switched off; the symbol outline additionally hides itself when there
+// is no language server running to ask for one.
+set panel-tree=#true             // the file tree
+set panel-symbols=#true          // the symbols in the buffer being edited
+set panel-buffers=#true          // the list of open buffers
+set panel-at-startup=#false      // open it as soon as the editor starts
+set panel-symbols-height=12      // rows of its window; the tree takes the rest
+set panel-buffers-height=8
+
+// The terminal panel along the bottom. Unset, tabs start whatever
+// `$SHELL` says, which is a choice the user has already made once.
+set shell="/bin/bash"
+
+// The window, when maxgus was built with `--features gui` and started
+// with `--gui`. The terminal front end ignores both: what it draws with
+// is whatever the terminal is configured to use.
+set gui-font="JetBrainsMono Nerd Font"
+set gui-font-size=16
+
 // ---- key bindings ----
 //
 // The command names are the ones M-x offers and C-h b lists.

@@ -75,7 +75,12 @@ impl Window {
 
     /// The area the buffer text is drawn into.
     pub fn text_area(&self) -> Rect {
-        Rect::new(self.rect.x, self.rect.y, self.rect.width, self.rect.height.saturating_sub(1))
+        Rect::new(
+            self.rect.x,
+            self.rect.y,
+            self.rect.width,
+            self.rect.height.saturating_sub(1),
+        )
     }
 
     /// The single row the mode line occupies.
@@ -171,7 +176,11 @@ impl Window {
 #[derive(Debug, Clone, PartialEq)]
 enum Node {
     Leaf(WindowId),
-    Split { direction: Direction, first: Box<Node>, second: Box<Node> },
+    Split {
+        direction: Direction,
+        first: Box<Node>,
+        second: Box<Node>,
+    },
 }
 
 impl Node {
@@ -203,15 +212,16 @@ impl Node {
             }
             Node::Leaf(_) => false,
             Node::Split { first, second, .. } => {
-                first.replace_leaf(id, replacement.clone())
-                    || second.replace_leaf(id, replacement)
+                first.replace_leaf(id, replacement.clone()) || second.replace_leaf(id, replacement)
             }
         }
     }
 
     /// Removes the leaf for `id`, collapsing the split it belonged to.
     fn remove_leaf(&mut self, id: WindowId) -> bool {
-        let Node::Split { first, second, .. } = self else { return false };
+        let Node::Split { first, second, .. } = self else {
+            return false;
+        };
         if **first == Node::Leaf(id) {
             *self = (**second).clone();
             return true;
@@ -224,33 +234,63 @@ impl Node {
     }
 
     /// Assigns a rectangle to every leaf.
-    fn layout(&self, rect: Rect, fixed: &HashMap<WindowId, u16>, out: &mut HashMap<WindowId, Rect>) {
+    fn layout(
+        &self,
+        rect: Rect,
+        widths: &HashMap<WindowId, u16>,
+        heights: &HashMap<WindowId, u16>,
+        out: &mut HashMap<WindowId, Rect>,
+    ) {
         match self {
             Node::Leaf(id) => {
                 out.insert(*id, rect);
             }
-            Node::Split { direction, first, second } => match direction {
+            Node::Split {
+                direction,
+                first,
+                second,
+            } => match direction {
                 Direction::Horizontal => {
                     // A side window keeps its configured width; the rest is
-                    // divided evenly.
+                    // divided evenly. A *column* of side windows pins the
+                    // width on its topmost member, so the whole column is
+                    // measured by it.
                     let width = first
-                        .single_fixed(fixed)
+                        .single_fixed(widths)
+                        .or_else(|| first.first_leaf().and_then(|id| widths.get(&id).copied()))
                         .unwrap_or_else(|| rect.width.div_ceil(2))
                         .min(rect.width);
                     let (left, right) = rect.split_left(width);
-                    first.layout(left, fixed, out);
-                    second.layout(right, fixed, out);
+                    first.layout(left, widths, heights, out);
+                    second.layout(right, widths, heights, out);
                 }
                 Direction::Vertical => {
-                    let (top, bottom) = rect.split_top(rect.height.div_ceil(2));
-                    first.layout(top, fixed, out);
-                    second.layout(bottom, fixed, out);
+                    // A panel along the bottom keeps its configured height,
+                    // whichever side of the split it is on; everything else
+                    // splits evenly.
+                    let (top, bottom) =
+                        match (first.single_fixed(heights), second.single_fixed(heights)) {
+                            (_, Some(height)) => rect.split_bottom(height.min(rect.height)),
+                            (Some(height), _) => rect.split_top(height.min(rect.height)),
+                            _ => rect.split_top(rect.height.div_ceil(2)),
+                        };
+                    first.layout(top, widths, heights, out);
+                    second.layout(bottom, widths, heights, out);
                 }
             },
         }
     }
 
-    /// The fixed width of this node, when it is a single fixed-width leaf.
+    /// The first leaf in layout order, which for a side column is the window
+    /// whose fixed width stands for the whole column.
+    fn first_leaf(&self) -> Option<WindowId> {
+        match self {
+            Node::Leaf(id) => Some(*id),
+            Node::Split { first, .. } => first.first_leaf(),
+        }
+    }
+
+    /// The fixed size of this node, when it is a single fixed-size leaf.
     fn single_fixed(&self, fixed: &HashMap<WindowId, u16>) -> Option<u16> {
         match self {
             Node::Leaf(id) => fixed.get(id).copied(),
@@ -280,6 +320,9 @@ pub struct WindowTree {
     next_id: u64,
     /// Windows whose width the layout must not change, keyed by id.
     fixed_widths: HashMap<WindowId, u16>,
+    /// Windows whose height the layout must not change: the terminal panel
+    /// along the bottom, which should not halve the buffer above it.
+    fixed_heights: HashMap<WindowId, u16>,
     /// The area the whole tree was last laid out into.
     frame: Rect,
 }
@@ -296,6 +339,7 @@ impl WindowTree {
             current: id,
             next_id: 2,
             fixed_widths: HashMap::new(),
+            fixed_heights: HashMap::new(),
             frame,
         };
         tree.layout(frame);
@@ -307,11 +351,15 @@ impl WindowTree {
     }
 
     pub fn current(&self) -> &Window {
-        self.windows.get(&self.current).expect("the current window always exists")
+        self.windows
+            .get(&self.current)
+            .expect("the current window always exists")
     }
 
     pub fn current_mut(&mut self) -> &mut Window {
-        self.windows.get_mut(&self.current).expect("the current window always exists")
+        self.windows
+            .get_mut(&self.current)
+            .expect("the current window always exists")
     }
 
     pub fn get(&self, id: WindowId) -> Option<&Window> {
@@ -348,7 +396,9 @@ impl WindowTree {
 
     /// Every window, in layout order.
     pub fn iter(&self) -> impl Iterator<Item = &Window> {
-        self.ids().into_iter().filter_map(move |id| self.windows.get(&id))
+        self.ids()
+            .into_iter()
+            .filter_map(move |id| self.windows.get(&id))
     }
 
     /// `other-window`: selects the window `n` places along, wrapping.
@@ -404,14 +454,29 @@ impl WindowTree {
         self.windows.insert(id, window);
         self.fixed_widths.insert(id, width);
 
-        // The side window becomes the first child of a new root split, so it
-        // sits to the left of everything else.
-        let existing = std::mem::replace(&mut self.root, Node::Leaf(id));
-        self.root = Node::Split {
-            direction: Direction::Horizontal,
-            first: Box::new(Node::Leaf(id)),
-            second: Box::new(existing),
-        };
+        // The side window sits to the left of everything else — but above a
+        // bottom panel rather than beside it, so the terminal keeps the full
+        // width of the frame.
+        let bottom_panel = matches!(
+            &self.root,
+            Node::Split { direction: Direction::Vertical, second, .. }
+                if second.single_fixed(&self.fixed_heights).is_some()
+        );
+        if bottom_panel && let Node::Split { first, .. } = &mut self.root {
+            let above = std::mem::replace(&mut **first, Node::Leaf(id));
+            **first = Node::Split {
+                direction: Direction::Horizontal,
+                first: Box::new(Node::Leaf(id)),
+                second: Box::new(above),
+            };
+        } else {
+            let existing = std::mem::replace(&mut self.root, Node::Leaf(id));
+            self.root = Node::Split {
+                direction: Direction::Horizontal,
+                first: Box::new(Node::Leaf(id)),
+                second: Box::new(existing),
+            };
+        }
         self.layout(self.frame);
         id
     }
@@ -427,6 +492,7 @@ impl WindowTree {
         self.root.remove_leaf(id);
         self.windows.remove(&id);
         self.fixed_widths.remove(&id);
+        self.fixed_heights.remove(&id);
         if self.current == id {
             // Selection falls to the first remaining window in layout order.
             self.current = self.ids().first().copied().expect("one window remains");
@@ -440,6 +506,7 @@ impl WindowTree {
         let keep = self.current;
         self.windows.retain(|id, _| *id == keep);
         self.fixed_widths.retain(|id, _| *id == keep);
+        self.fixed_heights.retain(|id, _| *id == keep);
         self.root = Node::Leaf(keep);
         self.layout(self.frame);
     }
@@ -448,7 +515,8 @@ impl WindowTree {
     pub fn layout(&mut self, frame: Rect) {
         self.frame = frame;
         let mut rects = HashMap::new();
-        self.root.layout(frame, &self.fixed_widths, &mut rects);
+        self.root
+            .layout(frame, &self.fixed_widths, &self.fixed_heights, &mut rects);
         for (id, rect) in rects {
             if let Some(window) = self.windows.get_mut(&id) {
                 window.rect = rect;
@@ -467,6 +535,109 @@ impl WindowTree {
             self.fixed_widths.insert(id, width);
             self.layout(self.frame);
         }
+    }
+
+    /// Sets a bottom panel's height and re-lays out.
+    pub fn set_fixed_height(&mut self, id: WindowId, height: u16) {
+        if self.windows.contains_key(&id) {
+            self.fixed_heights.insert(id, height);
+            self.layout(self.frame);
+        }
+    }
+
+    /// Adds a column of stacked windows down the left, as the side panel uses.
+    ///
+    /// One window per entry, in order, each with the height it asks for; the
+    /// first entry takes whatever is left. Built as one call rather than by
+    /// adding them one at a time, because the shape has to come out as
+    ///
+    /// ```text
+    /// Vertical{ Vertical{ first, second(fixed) }, third(fixed) }
+    /// ```
+    ///
+    /// so that every fixed height is the *second* child of its split, which
+    /// is the only arrangement the layout can honour.
+    pub fn add_side_column(
+        &mut self,
+        entries: &[(BufferId, Option<u16>)],
+        width: u16,
+    ) -> Vec<WindowId> {
+        let mut ids = Vec::new();
+        let mut column: Option<Node> = None;
+        for (buffer, height) in entries {
+            let id = WindowId(self.next_id);
+            self.next_id += 1;
+            let mut window = Window::new(id, *buffer);
+            window.side = true;
+            self.windows.insert(id, window);
+            if let Some(height) = height {
+                self.fixed_heights.insert(id, *height);
+            }
+            ids.push(id);
+            column = Some(match column {
+                None => Node::Leaf(id),
+                Some(above) => Node::Split {
+                    direction: Direction::Vertical,
+                    first: Box::new(above),
+                    second: Box::new(Node::Leaf(id)),
+                },
+            });
+        }
+        let Some(column) = column else { return ids };
+        // The column is as wide as the panel; the width belongs to the whole
+        // of it, so it is pinned on the topmost window, which is the one the
+        // horizontal split measures.
+        if let Some(first) = ids.first() {
+            self.fixed_widths.insert(*first, width);
+        }
+
+        // Beside everything else, but above a bottom panel rather than
+        // beside it, so the terminal keeps the full width of the frame.
+        let bottom_panel = matches!(
+            &self.root,
+            Node::Split { direction: Direction::Vertical, second, .. }
+                if second.single_fixed(&self.fixed_heights).is_some()
+        );
+        if bottom_panel && let Node::Split { first, .. } = &mut self.root {
+            let beside = std::mem::replace(&mut **first, Node::Leaf(WindowId(0)));
+            **first = Node::Split {
+                direction: Direction::Horizontal,
+                first: Box::new(column),
+                second: Box::new(beside),
+            };
+        } else {
+            let existing = std::mem::replace(&mut self.root, Node::Leaf(WindowId(0)));
+            self.root = Node::Split {
+                direction: Direction::Horizontal,
+                first: Box::new(column),
+                second: Box::new(existing),
+            };
+        }
+        self.layout(self.frame);
+        ids
+    }
+
+    /// Adds a fixed-height panel across the bottom, as the terminal uses.
+    ///
+    /// It wraps the whole frame, so it spans the full width even when the
+    /// side panel is open — a terminal tucked into the corner beside the file
+    /// tree is not what anybody means by a terminal along the bottom.
+    pub fn add_bottom_window(&mut self, buffer: BufferId, height: u16) -> WindowId {
+        let id = WindowId(self.next_id);
+        self.next_id += 1;
+        let mut window = Window::new(id, buffer);
+        window.side = true;
+        self.windows.insert(id, window);
+        self.fixed_heights.insert(id, height);
+
+        let existing = std::mem::replace(&mut self.root, Node::Leaf(id));
+        self.root = Node::Split {
+            direction: Direction::Vertical,
+            first: Box::new(existing),
+            second: Box::new(Node::Leaf(id)),
+        };
+        self.layout(self.frame);
+        id
     }
 
     /// The window at terminal coordinates, if any.
@@ -495,7 +666,10 @@ impl WindowTree {
 
     /// Windows showing `buffer`, in layout order.
     pub fn showing(&self, buffer: BufferId) -> Vec<WindowId> {
-        self.iter().filter(|w| w.buffer == buffer).map(|w| w.id).collect()
+        self.iter()
+            .filter(|w| w.buffer == buffer)
+            .map(|w| w.id)
+            .collect()
     }
 
     /// Points every window showing `from` at `to`, as `kill-buffer` must so
@@ -585,9 +759,15 @@ mod tests {
     #[test]
     fn a_window_too_small_to_split_refuses() {
         let mut t = WindowTree::new(BufferId(1), Rect::new(0, 0, 80, 3));
-        assert!(matches!(t.split(Direction::Vertical), Err(crate::CoreError::TooSmallToSplit)));
+        assert!(matches!(
+            t.split(Direction::Vertical),
+            Err(crate::CoreError::TooSmallToSplit)
+        ));
         let mut t = WindowTree::new(BufferId(1), Rect::new(0, 0, 3, 24));
-        assert!(matches!(t.split(Direction::Horizontal), Err(crate::CoreError::TooSmallToSplit)));
+        assert!(matches!(
+            t.split(Direction::Horizontal),
+            Err(crate::CoreError::TooSmallToSplit)
+        ));
     }
 
     #[test]
@@ -641,14 +821,20 @@ mod tests {
     #[test]
     fn the_last_window_cannot_be_deleted() {
         let mut t = tree();
-        assert!(matches!(t.delete(WindowId(1)), Err(crate::CoreError::OnlyWindow)));
+        assert!(matches!(
+            t.delete(WindowId(1)),
+            Err(crate::CoreError::OnlyWindow)
+        ));
     }
 
     #[test]
     fn deleting_an_unknown_window_is_an_error() {
         let mut t = tree();
         t.split(Direction::Vertical).unwrap();
-        assert!(matches!(t.delete(WindowId(99)), Err(crate::CoreError::NoSuchWindow)));
+        assert!(matches!(
+            t.delete(WindowId(99)),
+            Err(crate::CoreError::NoSuchWindow)
+        ));
     }
 
     #[test]
@@ -720,7 +906,11 @@ mod tests {
 
         t.replace_buffer(BufferId(1), BufferId(3));
         assert_eq!(t.get(WindowId(1)).unwrap().buffer, BufferId(3));
-        assert_eq!(t.get(WindowId(1)).unwrap().point, 0, "point resets in the new buffer");
+        assert_eq!(
+            t.get(WindowId(1)).unwrap().point,
+            0,
+            "point resets in the new buffer"
+        );
     }
 
     #[test]
@@ -853,5 +1043,166 @@ mod tests {
         assert_eq!(w.left_column, 21, "column 100 is the rightmost of eighty");
         assert!(w.scroll_to_column(5));
         assert_eq!(w.left_column, 5);
+    }
+    #[test]
+    fn a_bottom_panel_takes_its_height_and_leaves_the_rest_above() {
+        let mut t = WindowTree::new(BufferId(1), Rect::new(0, 0, 80, 24));
+        let panel = t.add_bottom_window(BufferId(2), 8);
+
+        let panel_rect = t.get(panel).unwrap().rect;
+        assert_eq!(
+            panel_rect.height, 8,
+            "the panel is not the height it asked for"
+        );
+        assert_eq!(panel_rect.y, 16, "it is not at the bottom");
+        assert_eq!(panel_rect.width, 80, "it does not span the frame");
+
+        let above = t.ids().into_iter().find(|id| *id != panel).unwrap();
+        assert_eq!(
+            t.get(above).unwrap().rect.height,
+            16,
+            "the buffer was halved"
+        );
+    }
+
+    #[test]
+    fn a_bottom_panel_spans_the_frame_even_with_a_side_window_open() {
+        // A terminal tucked into the corner beside the file tree is not what
+        // anybody means by a terminal along the bottom. Both orders of
+        // opening have to end up the same way round.
+        for tree_first in [true, false] {
+            let mut t = WindowTree::new(BufferId(1), Rect::new(0, 0, 80, 24));
+            let (side, panel) = if tree_first {
+                let side = t.add_side_window(BufferId(2), 30);
+                (side, t.add_bottom_window(BufferId(3), 8))
+            } else {
+                let panel = t.add_bottom_window(BufferId(3), 8);
+                (t.add_side_window(BufferId(2), 30), panel)
+            };
+            let panel_rect = t.get(panel).unwrap().rect;
+            assert_eq!(
+                panel_rect.width, 80,
+                "tree_first={tree_first}: the panel was narrowed"
+            );
+            assert_eq!(panel_rect.y, 16, "tree_first={tree_first}");
+            let side_rect = t.get(side).unwrap().rect;
+            assert_eq!(
+                side_rect.width, 30,
+                "tree_first={tree_first}: the tree lost its width"
+            );
+            assert_eq!(
+                side_rect.height, 16,
+                "tree_first={tree_first}: the tree overlaps the panel"
+            );
+        }
+    }
+
+    #[test]
+    fn closing_the_bottom_panel_gives_the_height_back() {
+        let mut t = WindowTree::new(BufferId(1), Rect::new(0, 0, 80, 24));
+        let panel = t.add_bottom_window(BufferId(2), 8);
+        let above = t.ids().into_iter().find(|id| *id != panel).unwrap();
+        t.delete(panel).unwrap();
+        assert_eq!(t.get(above).unwrap().rect.height, 24);
+        assert!(t.is_consistent());
+    }
+
+    #[test]
+    fn a_bottom_panel_can_be_resized() {
+        let mut t = WindowTree::new(BufferId(1), Rect::new(0, 0, 80, 24));
+        let panel = t.add_bottom_window(BufferId(2), 8);
+        t.set_fixed_height(panel, 12);
+        assert_eq!(t.get(panel).unwrap().rect.height, 12);
+        assert_eq!(t.get(panel).unwrap().rect.y, 12);
+    }
+
+    #[test]
+    fn a_side_column_stacks_its_windows_down_the_left() {
+        let mut t = WindowTree::new(BufferId(1), Rect::new(0, 0, 80, 30));
+        let ids = t.add_side_column(
+            &[
+                (BufferId(2), None),
+                (BufferId(3), Some(8)),
+                (BufferId(4), Some(6)),
+            ],
+            30,
+        );
+        assert_eq!(ids.len(), 3);
+        let rect = |id: WindowId| t.get(id).unwrap().rect;
+
+        // All three are the column's width, stacked in order, filling it.
+        for id in &ids {
+            assert_eq!(
+                rect(*id).width,
+                30,
+                "a member of the column is not its width"
+            );
+            assert_eq!(rect(*id).x, 0);
+        }
+        assert_eq!(rect(ids[1]).height, 8, "the middle window lost its height");
+        assert_eq!(rect(ids[2]).height, 6, "the bottom window lost its height");
+        assert_eq!(
+            rect(ids[0]).height,
+            16,
+            "the top window did not take the rest"
+        );
+        assert_eq!(rect(ids[0]).y, 0);
+        assert_eq!(rect(ids[1]).y, 16);
+        assert_eq!(rect(ids[2]).y, 24);
+
+        // And the buffer beside them keeps the rest of the frame.
+        let beside = t.ids().into_iter().find(|id| !ids.contains(id)).unwrap();
+        assert_eq!(rect(beside).x, 30);
+        assert_eq!(rect(beside).width, 50);
+        assert_eq!(rect(beside).height, 30);
+        assert!(t.is_consistent());
+    }
+
+    #[test]
+    fn the_arrow_keys_reach_every_window_of_a_side_column() {
+        // The whole reason for making the panel three windows: moving between
+        // its parts is ordinary window movement.
+        let mut t = WindowTree::new(BufferId(1), Rect::new(0, 0, 80, 30));
+        let ids = t.add_side_column(
+            &[
+                (BufferId(2), None),
+                (BufferId(3), Some(8)),
+                (BufferId(4), Some(6)),
+            ],
+            30,
+        );
+        assert_eq!(t.neighbour(ids[0], Towards::Down), Some(ids[1]));
+        assert_eq!(t.neighbour(ids[1], Towards::Down), Some(ids[2]));
+        assert_eq!(t.neighbour(ids[2], Towards::Up), Some(ids[1]));
+        assert_eq!(t.neighbour(ids[1], Towards::Up), Some(ids[0]));
+        // And out of the column to the buffer beside it.
+        let beside = t.ids().into_iter().find(|id| !ids.contains(id)).unwrap();
+        assert_eq!(t.neighbour(ids[1], Towards::Right), Some(beside));
+        assert_eq!(t.neighbour(beside, Towards::Left), Some(ids[0]));
+    }
+
+    #[test]
+    fn a_side_column_of_one_behaves_like_a_side_window() {
+        let mut t = WindowTree::new(BufferId(1), Rect::new(0, 0, 80, 24));
+        let ids = t.add_side_column(&[(BufferId(2), None)], 32);
+        assert_eq!(t.get(ids[0]).unwrap().rect, Rect::new(0, 0, 32, 24));
+    }
+
+    #[test]
+    fn a_side_column_sits_above_the_bottom_panel() {
+        let mut t = WindowTree::new(BufferId(1), Rect::new(0, 0, 80, 30));
+        let panel = t.add_bottom_window(BufferId(5), 8);
+        let ids = t.add_side_column(&[(BufferId(2), None), (BufferId(3), Some(6))], 30);
+        assert_eq!(
+            t.get(panel).unwrap().rect.width,
+            80,
+            "the terminal was narrowed"
+        );
+        for id in &ids {
+            assert!(
+                t.get(*id).unwrap().rect.bottom() <= t.get(panel).unwrap().rect.y,
+                "the column overlaps the terminal"
+            );
+        }
     }
 }

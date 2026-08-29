@@ -35,7 +35,11 @@ impl Theme {
     pub fn new(name: impl Into<String>) -> Theme {
         let mut faces = HashMap::new();
         faces.insert(names::DEFAULT.to_string(), Face::default());
-        Theme { name: name.into(), faces, inherits: HashMap::new() }
+        Theme {
+            name: name.into(),
+            faces,
+            inherits: HashMap::new(),
+        }
     }
 
     pub fn name(&self) -> &str {
@@ -201,7 +205,12 @@ impl Theme {
 fn face_from_spec(spec: &FaceSpec) -> Result<(Face, Option<String>), ThemeError> {
     let color = |text: &Option<String>| -> Result<Option<Color>, ThemeError> {
         text.as_deref()
-            .map(|t| Color::parse(t).map_err(|e| ThemeError::BadColor { face: spec.name.clone(), source: e }))
+            .map(|t| {
+                Color::parse(t).map_err(|e| ThemeError::BadColor {
+                    face: spec.name.clone(),
+                    source: e,
+                })
+            })
             .transpose()
     };
     let face = Face {
@@ -249,7 +258,10 @@ mod tests {
     #[test]
     fn unset_fields_fall_through_to_default() {
         let mut t = Theme::new("t");
-        t.set("default", Face::fg(Color::Indexed(7)).with_bg(Color::Indexed(0)));
+        t.set(
+            "default",
+            Face::fg(Color::Indexed(7)).with_bg(Color::Indexed(0)),
+        );
         t.set("region", Face::bg(Color::Indexed(8)));
         let f = t.resolve("region");
         assert_eq!(f.background, Some(Color::Indexed(8)), "its own background");
@@ -260,7 +272,10 @@ mod tests {
     fn an_unknown_face_resolves_to_default() {
         let mut t = Theme::new("t");
         t.set("default", Face::fg(Color::Indexed(7)));
-        assert_eq!(t.resolve("never-heard-of-it").foreground, Some(Color::Indexed(7)));
+        assert_eq!(
+            t.resolve("never-heard-of-it").foreground,
+            Some(Color::Indexed(7))
+        );
         assert!(t.raw("never-heard-of-it").is_none());
     }
 
@@ -278,7 +293,11 @@ mod tests {
         assert_eq!(f.attributes.underline, Some(true), "its own");
         assert_eq!(f.attributes.italic, Some(true), "from middle");
         assert_eq!(f.attributes.bold, Some(true), "from base");
-        assert_eq!(f.foreground, Some(Color::Indexed(1)), "from base, not default");
+        assert_eq!(
+            f.foreground,
+            Some(Color::Indexed(1)),
+            "from base, not default"
+        );
     }
 
     #[test]
@@ -307,11 +326,18 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(t.name(), "test");
-        assert_eq!(t.resolve("default").foreground, Some(Color::Rgb(0xc5, 0xc8, 0xc6)));
+        assert_eq!(
+            t.resolve("default").foreground,
+            Some(Color::Rgb(0xc5, 0xc8, 0xc6))
+        );
         let err = t.resolve("error");
         assert_eq!(err.attributes.underline, Some(true));
         assert_eq!(err.attributes.bold, Some(true), "inherited");
-        assert_eq!(err.foreground, Some(Color::Rgb(0xb2, 0x94, 0xbb)), "inherited");
+        assert_eq!(
+            err.foreground,
+            Some(Color::Rgb(0xb2, 0x94, 0xbb)),
+            "inherited"
+        );
     }
 
     #[test]
@@ -332,30 +358,61 @@ mod tests {
             }
             "##,
         );
-        assert!(matches!(Theme::from_spec(&s), Err(ThemeError::InheritanceCycle(_))));
+        assert!(matches!(
+            Theme::from_spec(&s),
+            Err(ThemeError::InheritanceCycle(_))
+        ));
     }
 
     #[test]
     fn applying_a_spec_customises_without_erasing_the_rest() {
         let mut t = Theme::new("base");
-        t.set("default", Face::fg(Color::Indexed(7)).with_bg(Color::Indexed(0)));
+        t.set(
+            "default",
+            Face::fg(Color::Indexed(7)).with_bg(Color::Indexed(0)),
+        );
         t.set("font-lock-string", Face::fg(Color::Indexed(2)));
         t.set("font-lock-keyword", Face::fg(Color::Indexed(4)));
 
-        t.apply_spec(&spec(r##"theme "base" { face "font-lock-keyword" fg="#ff00ff" }"##)).unwrap();
+        t.apply_spec(&spec(
+            r##"theme "base" { face "font-lock-keyword" fg="#ff00ff" }"##,
+        ))
+        .unwrap();
 
-        assert_eq!(t.resolve("font-lock-keyword").foreground, Some(Color::Rgb(255, 0, 255)));
-        assert_eq!(t.resolve("font-lock-string").foreground, Some(Color::Indexed(2)), "untouched");
-        assert_eq!(t.resolve("default").background, Some(Color::Indexed(0)), "default survives");
+        assert_eq!(
+            t.resolve("font-lock-keyword").foreground,
+            Some(Color::Rgb(255, 0, 255))
+        );
+        assert_eq!(
+            t.resolve("font-lock-string").foreground,
+            Some(Color::Indexed(2)),
+            "untouched"
+        );
+        assert_eq!(
+            t.resolve("default").background,
+            Some(Color::Indexed(0)),
+            "default survives"
+        );
     }
 
     #[test]
     fn applying_a_spec_that_sets_default_does_override_it() {
         let mut t = Theme::new("base");
-        t.set("default", Face::fg(Color::Indexed(7)).with_bg(Color::Indexed(0)));
-        t.apply_spec(&spec(r##"theme "base" { face "default" bg="#101010" }"##)).unwrap();
-        assert_eq!(t.resolve("default").background, Some(Color::Rgb(0x10, 0x10, 0x10)));
-        assert_eq!(t.resolve("default").foreground, Some(Color::Indexed(7)), "fg untouched");
+        t.set(
+            "default",
+            Face::fg(Color::Indexed(7)).with_bg(Color::Indexed(0)),
+        );
+        t.apply_spec(&spec(r##"theme "base" { face "default" bg="#101010" }"##))
+            .unwrap();
+        assert_eq!(
+            t.resolve("default").background,
+            Some(Color::Rgb(0x10, 0x10, 0x10))
+        );
+        assert_eq!(
+            t.resolve("default").foreground,
+            Some(Color::Indexed(7)),
+            "fg untouched"
+        );
     }
 
     #[test]
@@ -375,7 +432,10 @@ mod tests {
     fn tree_sitter_captures_resolve_through_the_face_table() {
         let mut t = Theme::new("t");
         t.set("font-lock-keyword", Face::fg(Color::Indexed(5)));
-        assert_eq!(t.face_for_capture("keyword.function").foreground, Some(Color::Indexed(5)));
+        assert_eq!(
+            t.face_for_capture("keyword.function").foreground,
+            Some(Color::Indexed(5))
+        );
         assert_eq!(t.face_for_capture("nonsense"), t.default_face());
     }
 
@@ -386,13 +446,19 @@ mod tests {
         assert!(t.is_dark());
         t.set("default", Face::bg(Color::Rgb(0xff, 0xff, 0xff)));
         assert!(!t.is_dark());
-        assert!(!Theme::new("no-bg").is_dark(), "no background means not dark");
+        assert!(
+            !Theme::new("no-bg").is_dark(),
+            "no background means not dark"
+        );
     }
 
     #[test]
     fn an_overlay_face_contributes_only_what_it_sets() {
         let mut t = Theme::new("t");
-        t.set("default", Face::fg(Color::Indexed(7)).with_bg(Color::Indexed(0)));
+        t.set(
+            "default",
+            Face::fg(Color::Indexed(7)).with_bg(Color::Indexed(0)),
+        );
         t.set("region", Face::bg(Color::Indexed(8)));
 
         // Drawn as text, `region` picks up the default foreground.
@@ -405,7 +471,11 @@ mod tests {
 
         let mut syntax = Face::fg(Color::Indexed(5));
         syntax.overlay(&overlay);
-        assert_eq!(syntax.foreground, Some(Color::Indexed(5)), "the syntax colour survives");
+        assert_eq!(
+            syntax.foreground,
+            Some(Color::Indexed(5)),
+            "the syntax colour survives"
+        );
         assert_eq!(syntax.background, Some(Color::Indexed(8)));
     }
 
@@ -425,6 +495,9 @@ mod tests {
     fn resolving_for_a_depth_degrades_the_colours() {
         let mut t = Theme::new("t");
         t.set("x", Face::fg(Color::Rgb(255, 0, 0)));
-        assert_eq!(t.resolve_for("x", ColorDepth::Ansi16).foreground, Some(Color::Indexed(9)));
+        assert_eq!(
+            t.resolve_for("x", ColorDepth::Ansi16).foreground,
+            Some(Color::Indexed(9))
+        );
     }
 }

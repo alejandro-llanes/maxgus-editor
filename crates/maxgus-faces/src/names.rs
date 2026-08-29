@@ -31,6 +31,29 @@ pub const UI_FACES: &[&str] = &[
     "fill-column-indicator",
     "completion-selected",
     "completion-annotation",
+    "transient-key",
+    "transient-heading",
+    "transient-switch-on",
+    "transient-switch-off",
+    "magit-section-heading",
+    "magit-section-highlight",
+    "magit-diff-file-heading",
+    "magit-diff-hunk-heading",
+    "magit-diff-added",
+    "magit-diff-removed",
+    "magit-diff-context",
+    "magit-hash",
+    "magit-branch-local",
+    "magit-branch-remote",
+    "magit-tag",
+    "terminal",
+    "terminal-tab",
+    "terminal-tab-selected",
+    "terminal-exited",
+    "panel-header",
+    "panel-note",
+    "panel-current-buffer",
+    "symbol-detail",
     "completion-border",
     "completion-key",
     "completion-count",
@@ -61,8 +84,12 @@ pub const FONT_LOCK_FACES: &[&str] = &[
 ];
 
 /// Faces for language-server diagnostics.
-pub const DIAGNOSTIC_FACES: &[&str] =
-    &["diagnostic-error", "diagnostic-warning", "diagnostic-info", "diagnostic-hint"];
+pub const DIAGNOSTIC_FACES: &[&str] = &[
+    "diagnostic-error",
+    "diagnostic-warning",
+    "diagnostic-info",
+    "diagnostic-hint",
+];
 
 /// Faces for the file tree.
 pub const TREE_FACES: &[&str] = &[
@@ -109,9 +136,7 @@ pub fn closest(name: &str) -> Option<&'static str> {
 ///
 /// A misspelled face used to be accepted in silence and simply do nothing,
 /// while a misspelled *setting* got told about — this closes that gap.
-pub fn unknown_in(
-    spec: &maxgus_config::ThemeSpec,
-) -> Vec<(usize, String, Option<&'static str>)> {
+pub fn unknown_in(spec: &maxgus_config::ThemeSpec) -> Vec<(usize, String, Option<&'static str>)> {
     spec.faces
         .iter()
         .filter(|face| !is_known(&face.name))
@@ -159,7 +184,10 @@ fn exact_capture(capture: &str) -> Option<&'static str> {
         // `delimiter` is what the C grammar calls `.` and `;`, where every
         // other grammar here says `punctuation.delimiter`. Without it C was
         // the one language whose delimiters stayed uncoloured.
-        "punctuation" | "punctuation.bracket" | "punctuation.delimiter" | "punctuation.special"
+        "punctuation"
+        | "punctuation.bracket"
+        | "punctuation.delimiter"
+        | "punctuation.special"
         | "delimiter" => "font-lock-punctuation",
         "property" | "field" | "tag.attribute" => "font-lock-property",
         "preproc" | "preprocessor" | "define" => "font-lock-preprocessor",
@@ -192,16 +220,26 @@ mod tests {
             let source = std::fs::read_to_string(&path).expect("readable");
             let config = maxgus_config::Config::parse(&source)
                 .unwrap_or_else(|e| panic!("{name} is not valid KDL: {e}"));
-            assert!(config.warnings.is_empty(), "{name} warns: {:?}", config.warnings);
+            assert!(
+                config.warnings.is_empty(),
+                "{name} warns: {:?}",
+                config.warnings
+            );
 
-            let spec = config.themes.first().unwrap_or_else(|| panic!("{name} defines no theme"));
+            let spec = config
+                .themes
+                .first()
+                .unwrap_or_else(|| panic!("{name} defines no theme"));
             assert!(
                 spec.faces.len() > 40,
                 "{name} sets only {} faces; a whole theme is expected",
                 spec.faces.len()
             );
             let unknown = unknown_in(spec);
-            assert!(unknown.is_empty(), "{name} names faces that do not exist: {unknown:?}");
+            assert!(
+                unknown.is_empty(),
+                "{name} names faces that do not exist: {unknown:?}"
+            );
 
             // A drop-in theme names itself and says which built-in it starts
             // from, so it can be copied into `themes/` and chosen by name.
@@ -209,10 +247,9 @@ mod tests {
                 !crate::defaults::BUILTIN_THEMES.contains(&spec.name.as_str()),
                 "{name} is named after a built-in; a drop-in theme needs its own name"
             );
-            let base = spec
-                .base
-                .as_deref()
-                .unwrap_or_else(|| panic!("{name} sets no `base=`, so it has nothing to start from"));
+            let base = spec.base.as_deref().unwrap_or_else(|| {
+                panic!("{name} sets no `base=`, so it has nothing to start from")
+            });
             let mut theme = crate::defaults::builtin(base)
                 .unwrap_or_else(|| panic!("{name} starts from `{base}`, which is not built in"));
             theme
@@ -286,9 +323,15 @@ mod tests {
             .filter_map(|line| line.trim().strip_prefix("face \""))
             .filter_map(|rest| rest.split('"').next())
             .collect();
-        assert!(named.len() >= 8, "the example should show a good few faces, saw {named:?}");
+        assert!(
+            named.len() >= 8,
+            "the example should show a good few faces, saw {named:?}"
+        );
         for name in named {
-            assert!(is_known(name), "the example names `{name}`, which is not a face");
+            assert!(
+                is_known(name),
+                "the example names `{name}`, which is not a face"
+            );
         }
     }
 
@@ -320,15 +363,27 @@ mod tests {
 
     #[test]
     fn specific_captures_beat_their_prefix() {
-        assert_eq!(face_for_capture("function"), Some("font-lock-function-name"));
-        assert_eq!(face_for_capture("function.builtin"), Some("font-lock-builtin"));
+        assert_eq!(
+            face_for_capture("function"),
+            Some("font-lock-function-name")
+        );
+        assert_eq!(
+            face_for_capture("function.builtin"),
+            Some("font-lock-builtin")
+        );
         assert_eq!(face_for_capture("type.builtin"), Some("font-lock-builtin"));
     }
 
     #[test]
     fn unknown_suffixes_fall_back_to_the_prefix() {
-        assert_eq!(face_for_capture("keyword.function"), Some("font-lock-keyword"));
-        assert_eq!(face_for_capture("function.method.static"), Some("font-lock-function-name"));
+        assert_eq!(
+            face_for_capture("keyword.function"),
+            Some("font-lock-keyword")
+        );
+        assert_eq!(
+            face_for_capture("function.method.static"),
+            Some("font-lock-function-name")
+        );
         assert_eq!(
             face_for_capture("punctuation.bracket.unmatched"),
             Some("font-lock-punctuation")
@@ -345,9 +400,25 @@ mod tests {
     #[test]
     fn every_capture_target_is_a_known_face() {
         let captures = [
-            "keyword", "function", "function.builtin", "variable", "type", "constant", "string",
-            "string.escape", "number", "comment", "comment.documentation", "operator",
-            "punctuation", "property", "preproc", "label", "attribute", "error", "warning",
+            "keyword",
+            "function",
+            "function.builtin",
+            "variable",
+            "type",
+            "constant",
+            "string",
+            "string.escape",
+            "number",
+            "comment",
+            "comment.documentation",
+            "operator",
+            "punctuation",
+            "property",
+            "preproc",
+            "label",
+            "attribute",
+            "error",
+            "warning",
         ];
         for c in captures {
             let face = face_for_capture(c).unwrap_or_else(|| panic!("`{c}` has no face"));

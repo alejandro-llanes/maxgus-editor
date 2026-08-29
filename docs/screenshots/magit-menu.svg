@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1019" height="568" viewBox="0 0 1019 568" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="14" role="img" aria-label="maxgus">
+<rect width="1019" height="568" rx="10" fill="#1d1f21"/>
+<rect x="47.6" y="86.0" width="92.4" height="18" fill="#1f2b1f"/>
+<rect x="954.8" y="140.0" width="16.8" height="18" fill="#1f2b1f"/>
+<rect x="980.0" y="140.0" width="16.8" height="18" fill="#2e1f1f"/>
+<rect x="14.0" y="158.0" width="991.2" height="18" fill="#373b41"/>
+<rect x="14.0" y="212.0" width="991.2" height="18" fill="#2e1f1f"/>
+<rect x="14.0" y="230.0" width="991.2" height="18" fill="#1f2b1f"/>
+<rect x="14.0" y="248.0" width="991.2" height="18" fill="#1f2b1f"/>
+<text x="14.0" y="27.3" fill="#969896" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">Head:</text>
+<text x="89.6" y="27.3" fill="#8abeb7" font-weight="bold" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">main</text>
+<text x="123.2" y="27.3" fill="#c5c8c6" textLength="882.0" lengthAdjust="spacing" xml:space="preserve"> Count the tests correctly                                                                               </text>
+<text x="14.0" y="45.3" fill="#969896" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">Merge:</text>
+<text x="89.6" y="45.3" fill="#8abeb7" font-weight="bold" textLength="92.4" lengthAdjust="spacing" xml:space="preserve">origin/main</text>
+<text x="182.0" y="45.3" fill="#c5c8c6" textLength="823.2" lengthAdjust="spacing" xml:space="preserve"> 2 ahead                                                                                          </text>
+<text x="14.0" y="81.3" fill="#969896" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">▾</text>
+<text x="30.8" y="81.3" fill="#f0c674" font-weight="bold" textLength="126.0" lengthAdjust="spacing" xml:space="preserve">Untracked files</text>
+<text x="156.8" y="81.3" fill="#969896" textLength="33.6" lengthAdjust="spacing" xml:space="preserve"> (1)</text>
+<text x="47.6" y="99.3" fill="#b5bd68" textLength="92.4" lengthAdjust="spacing" xml:space="preserve">new file   </text>
+<text x="140.0" y="99.3" fill="#c5c8c6" font-weight="bold" textLength="218.4" lengthAdjust="spacing" xml:space="preserve">docs/screenshots/magit.svg</text>
+<text x="14.0" y="135.3" fill="#969896" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">▾</text>
+<text x="30.8" y="135.3" fill="#f0c674" font-weight="bold" textLength="134.4" lengthAdjust="spacing" xml:space="preserve">Unstaged changes</text>
+<text x="165.2" y="135.3" fill="#969896" textLength="33.6" lengthAdjust="spacing" xml:space="preserve"> (1)</text>
+<text x="30.8" y="153.3" fill="#969896" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">▾</text>
+<text x="47.6" y="153.3" fill="#969896" textLength="92.4" lengthAdjust="spacing" xml:space="preserve">modified   </text>
+<text x="140.0" y="153.3" fill="#c5c8c6" font-weight="bold" textLength="268.8" lengthAdjust="spacing" xml:space="preserve">crates/maxgus-core/src/render.rs</text>
+<text x="954.8" y="153.3" fill="#b5bd68" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">+3</text>
+<text x="980.0" y="153.3" fill="#cc6666" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">−1</text>
+<text x="14.0" y="171.3" fill="#969896" textLength="991.2" lengthAdjust="spacing" xml:space="preserve">    @@ -412,7 +412,9 @@ fn draw_git_row                                                                               </text>
+<text x="47.6" y="189.3" fill="#969896" textLength="294.0" lengthAdjust="spacing" xml:space="preserve">         Row::Section(section) =&gt; {</text>
+<text x="47.6" y="207.3" fill="#969896" textLength="504.0" lengthAdjust="spacing" xml:space="preserve">             let folded = editor.git.is_collapsed(*section);</text>
+<text x="14.0" y="225.3" fill="#cc6666" textLength="991.2" lengthAdjust="spacing" xml:space="preserve">    -            let arrow = if folded { '&gt;' } else { 'v' };                                                          </text>
+<text x="14.0" y="243.3" fill="#b5bd68" textLength="991.2" lengthAdjust="spacing" xml:space="preserve">    +            // A triangle rather than a caret: it reads as a fold at a                                           </text>
+<text x="14.0" y="261.3" fill="#b5bd68" textLength="991.2" lengthAdjust="spacing" xml:space="preserve">    +            // glance, which a punctuation mark does not.                                                        </text>
+<text x="14.0" y="279.3" fill="#373b41" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">╭─</text>
+<text x="30.8" y="279.3" fill="#f0c674" font-weight="bold" textLength="42.0" lengthAdjust="spacing" xml:space="preserve"> Git </text>
+<text x="72.8" y="279.3" fill="#373b41" textLength="932.4" lengthAdjust="spacing" xml:space="preserve">──────────────────────────────────────────────────────────────────────────────────────────────────────────────╮</text>
+<text x="14.0" y="297.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="297.3" fill="#f0c674" font-weight="bold" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">Inspect</text>
+<text x="518.0" y="297.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> A    </text>
+<text x="568.4" y="297.3" fill="#c5c8c6" textLength="92.4" lengthAdjust="spacing" xml:space="preserve">Cherry-pick</text>
+<text x="660.8" y="297.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="996.8" y="297.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="315.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="315.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> d    </text>
+<text x="72.8" y="315.3" fill="#c5c8c6" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">Diff</text>
+<text x="106.4" y="315.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="518.0" y="315.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> V    </text>
+<text x="568.4" y="315.3" fill="#c5c8c6" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">Revert</text>
+<text x="618.8" y="315.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="996.8" y="315.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="333.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="333.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> l    </text>
+<text x="72.8" y="333.3" fill="#c5c8c6" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">Log</text>
+<text x="98.0" y="333.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="518.0" y="333.3" fill="#f0c674" font-weight="bold" textLength="67.2" lengthAdjust="spacing" xml:space="preserve">Transfer</text>
+<text x="996.8" y="333.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="351.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="351.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> y    </text>
+<text x="72.8" y="351.3" fill="#c5c8c6" textLength="445.2" lengthAdjust="spacing" xml:space="preserve">Show refs                                            </text>
+<text x="518.0" y="351.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> f    </text>
+<text x="568.4" y="351.3" fill="#c5c8c6" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">Fetch</text>
+<text x="610.4" y="351.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="996.8" y="351.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="369.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="369.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> $    </text>
+<text x="72.8" y="369.3" fill="#c5c8c6" textLength="445.2" lengthAdjust="spacing" xml:space="preserve">Git output                                           </text>
+<text x="518.0" y="369.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> F    </text>
+<text x="568.4" y="369.3" fill="#c5c8c6" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">Pull</text>
+<text x="602.0" y="369.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="996.8" y="369.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="387.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="387.3" fill="#f0c674" font-weight="bold" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">Manipulate</text>
+<text x="518.0" y="387.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> P    </text>
+<text x="568.4" y="387.3" fill="#c5c8c6" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">Push</text>
+<text x="602.0" y="387.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="996.8" y="387.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="405.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="405.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> c    </text>
+<text x="72.8" y="405.3" fill="#c5c8c6" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">Commit</text>
+<text x="123.2" y="405.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="518.0" y="405.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> M    </text>
+<text x="568.4" y="405.3" fill="#c5c8c6" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">Remote</text>
+<text x="618.8" y="405.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="996.8" y="405.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="423.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="423.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> b    </text>
+<text x="72.8" y="423.3" fill="#c5c8c6" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">Branch</text>
+<text x="123.2" y="423.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="518.0" y="423.3" fill="#f0c674" font-weight="bold" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">Apply</text>
+<text x="996.8" y="423.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="441.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="441.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> m    </text>
+<text x="72.8" y="441.3" fill="#c5c8c6" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">Merge</text>
+<text x="114.8" y="441.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="518.0" y="441.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> s    </text>
+<text x="568.4" y="441.3" fill="#c5c8c6" textLength="428.4" lengthAdjust="spacing" xml:space="preserve">Stage                                              </text>
+<text x="996.8" y="441.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="459.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="459.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> r    </text>
+<text x="72.8" y="459.3" fill="#c5c8c6" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">Rebase</text>
+<text x="123.2" y="459.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="518.0" y="459.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> u    </text>
+<text x="568.4" y="459.3" fill="#c5c8c6" textLength="428.4" lengthAdjust="spacing" xml:space="preserve">Unstage                                            </text>
+<text x="996.8" y="459.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="477.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="477.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> z    </text>
+<text x="72.8" y="477.3" fill="#c5c8c6" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">Stash</text>
+<text x="114.8" y="477.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="518.0" y="477.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> k    </text>
+<text x="568.4" y="477.3" fill="#c5c8c6" textLength="428.4" lengthAdjust="spacing" xml:space="preserve">Discard                                            </text>
+<text x="996.8" y="477.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="495.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="495.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> t    </text>
+<text x="72.8" y="495.3" fill="#c5c8c6" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">Tag</text>
+<text x="98.0" y="495.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="518.0" y="495.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> !    </text>
+<text x="568.4" y="495.3" fill="#c5c8c6" textLength="428.4" lengthAdjust="spacing" xml:space="preserve">Run git                                            </text>
+<text x="996.8" y="495.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="513.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="513.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> X    </text>
+<text x="72.8" y="513.3" fill="#c5c8c6" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">Reset</text>
+<text x="114.8" y="513.3" fill="#b5bd68" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve"> ▸</text>
+<text x="518.0" y="513.3" fill="#8abeb7" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve"> i    </text>
+<text x="568.4" y="513.3" fill="#c5c8c6" textLength="428.4" lengthAdjust="spacing" xml:space="preserve">Ignore                                             </text>
+<text x="996.8" y="513.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="531.3" fill="#373b41" textLength="991.2" lengthAdjust="spacing" xml:space="preserve">╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</text>
+</svg>

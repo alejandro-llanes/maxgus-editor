@@ -37,7 +37,11 @@ impl Default for BufferList {
 impl BufferList {
     /// A list holding just `*scratch*`.
     pub fn new() -> BufferList {
-        let mut list = BufferList { buffers: BTreeMap::new(), order: Vec::new(), next_id: 1 };
+        let mut list = BufferList {
+            buffers: BTreeMap::new(),
+            order: Vec::new(),
+            next_id: 1,
+        };
         let id = list.allocate_id();
         let mut scratch = Buffer::from_str(id, SCRATCH_NAME, SCRATCH_MESSAGE);
         scratch.set_point(scratch.len_chars());
@@ -94,7 +98,10 @@ impl BufferList {
     /// Names of buffers a user would want offered by `C-x b`: internal ones,
     /// whose names begin with a space, are left out as Emacs leaves them out.
     pub fn visible_names(&self) -> Vec<String> {
-        self.iter().filter(|b| !b.name().starts_with(' ')).map(|b| b.name().to_string()).collect()
+        self.iter()
+            .filter(|b| !b.name().starts_with(' '))
+            .map(|b| b.name().to_string())
+            .collect()
     }
 
     pub fn find_by_name(&self, name: &str) -> Option<BufferId> {
@@ -145,9 +152,10 @@ impl BufferList {
             return base.to_string();
         }
         // Start at two: the first duplicate is `<2>`.
-        (2..).map(|n| format!("{base}<{n}>")).find(|name| self.find_by_name(name).is_none()).expect(
-            "the sequence is unbounded, so some name is always free",
-        )
+        (2..)
+            .map(|n| format!("{base}<{n}>"))
+            .find(|name| self.find_by_name(name).is_none())
+            .expect("the sequence is unbounded, so some name is always free")
     }
 
     /// Creates an empty buffer, uniquifying `name` if it is taken.
@@ -212,7 +220,10 @@ impl BufferList {
 
     /// Buffers with unsaved changes and a file to save them to.
     pub fn modified(&self) -> Vec<BufferId> {
-        self.iter().filter(|b| b.is_modified() && b.path().is_some()).map(|b| b.id).collect()
+        self.iter()
+            .filter(|b| b.is_modified() && b.path().is_some())
+            .map(|b| b.id)
+            .collect()
     }
 
     /// True when any buffer would lose work if the editor exited now.
@@ -231,7 +242,9 @@ impl BufferList {
         } else {
             self.unique_name(name)
         };
-        self.get_mut(id).expect("checked above").set_name(unique.clone());
+        self.get_mut(id)
+            .expect("checked above")
+            .set_name(unique.clone());
         Ok(unique)
     }
 }
@@ -245,7 +258,8 @@ mod tests {
     }
 
     fn scratch(list: &BufferList) -> BufferId {
-        list.find_by_name(SCRATCH_NAME).expect("scratch always exists")
+        list.find_by_name(SCRATCH_NAME)
+            .expect("scratch always exists")
     }
 
     #[test]
@@ -257,7 +271,11 @@ mod tests {
         assert_eq!(buffer.name(), SCRATCH_NAME);
         assert!(buffer.path().is_none());
         assert!(!buffer.is_modified(), "the greeting is not an unsaved edit");
-        assert_eq!(buffer.point(), buffer.len_chars(), "point starts after the greeting");
+        assert_eq!(
+            buffer.point(),
+            buffer.len_chars(),
+            "point starts after the greeting"
+        );
     }
 
     #[test]
@@ -302,7 +320,10 @@ mod tests {
     fn visiting_an_already_open_file_reuses_its_buffer() {
         let mut l = list();
         let first = l.visit_file("/a/main.rs", "original");
-        l.get_mut(first).unwrap().insert_at_point(" edited").unwrap();
+        l.get_mut(first)
+            .unwrap()
+            .insert_at_point(" edited")
+            .unwrap();
 
         let again = l.visit_file("/a/main.rs", "contents from disk");
         assert_eq!(again, first, "the same buffer is returned");
@@ -390,7 +411,10 @@ mod tests {
     #[test]
     fn the_last_buffer_cannot_be_killed() {
         let mut l = list();
-        assert!(matches!(l.kill(scratch(&l)), Err(crate::CoreError::LastBuffer)));
+        assert!(matches!(
+            l.kill(scratch(&l)),
+            Err(crate::CoreError::LastBuffer)
+        ));
         assert_eq!(l.len(), 1);
     }
 
@@ -398,7 +422,10 @@ mod tests {
     fn killing_an_unknown_buffer_is_an_error() {
         let mut l = list();
         l.create("a");
-        assert!(matches!(l.kill(BufferId(999)), Err(crate::CoreError::NoSuchBuffer)));
+        assert!(matches!(
+            l.kill(BufferId(999)),
+            Err(crate::CoreError::NoSuchBuffer)
+        ));
     }
 
     #[test]
@@ -438,7 +465,10 @@ mod tests {
     #[test]
     fn reverting_an_unknown_buffer_is_an_error() {
         let mut l = list();
-        assert!(matches!(l.revert(BufferId(999), ""), Err(crate::CoreError::NoSuchBuffer)));
+        assert!(matches!(
+            l.revert(BufferId(999), ""),
+            Err(crate::CoreError::NoSuchBuffer)
+        ));
     }
 
     #[test]
@@ -475,13 +505,20 @@ mod tests {
     fn renaming_a_buffer_to_its_own_name_is_a_no_op() {
         let mut l = list();
         let id = l.create("notes");
-        assert_eq!(l.rename(id, "notes").unwrap(), "notes", "no `<2>` against itself");
+        assert_eq!(
+            l.rename(id, "notes").unwrap(),
+            "notes",
+            "no `<2>` against itself"
+        );
     }
 
     #[test]
     fn renaming_an_unknown_buffer_is_an_error() {
         let mut l = list();
-        assert!(matches!(l.rename(BufferId(999), "x"), Err(crate::CoreError::NoSuchBuffer)));
+        assert!(matches!(
+            l.rename(BufferId(999), "x"),
+            Err(crate::CoreError::NoSuchBuffer)
+        ));
     }
 
     #[test]

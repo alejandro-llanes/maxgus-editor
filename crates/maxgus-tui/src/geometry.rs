@@ -32,7 +32,12 @@ pub struct Rect {
 
 impl Rect {
     pub fn new(x: u16, y: u16, width: u16, height: u16) -> Rect {
-        Rect { x, y, width, height }
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     /// The whole terminal.
@@ -176,7 +181,11 @@ mod tests {
         let b = Rect::new(5, 5, 10, 10);
         assert_eq!(a.intersect(&b), Some(Rect::new(5, 5, 5, 5)));
         assert_eq!(a.intersect(&Rect::new(20, 20, 5, 5)), None);
-        assert_eq!(a.intersect(&Rect::new(10, 0, 5, 5)), None, "touching is not overlapping");
+        assert_eq!(
+            a.intersect(&Rect::new(10, 0, 5, 5)),
+            None,
+            "touching is not overlapping"
+        );
     }
 
     #[test]
@@ -250,7 +259,10 @@ mod tests {
     #[test]
     fn cells_visits_every_position_row_by_row() {
         let r = Rect::new(1, 1, 2, 2);
-        assert_eq!(r.cells().collect::<Vec<_>>(), vec![(1, 1), (2, 1), (1, 2), (2, 2)]);
+        assert_eq!(
+            r.cells().collect::<Vec<_>>(),
+            vec![(1, 1), (2, 1), (1, 2), (2, 2)]
+        );
         assert_eq!(r.cells().count(), r.area());
         assert_eq!(Rect::new(0, 0, 0, 5).cells().count(), 0);
     }

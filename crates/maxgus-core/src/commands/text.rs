@@ -10,10 +10,26 @@ use maxgus_text::{Motion, Range};
 /// Registers the text commands.
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
-        command!("comment-dwim", "Comment or uncomment the region, or this line.", comment_dwim),
-        command!("comment-line", "Comment or uncomment this line.", comment_line),
-        command!("fill-paragraph", "Wrap the paragraph to the fill column.", fill_paragraph),
-        command!("fill-region", "Wrap the region to the fill column.", fill_region),
+        command!(
+            "comment-dwim",
+            "Comment or uncomment the region, or this line.",
+            comment_dwim
+        ),
+        command!(
+            "comment-line",
+            "Comment or uncomment this line.",
+            comment_line
+        ),
+        command!(
+            "fill-paragraph",
+            "Wrap the paragraph to the fill column.",
+            fill_paragraph
+        ),
+        command!(
+            "fill-region",
+            "Wrap the region to the fill column.",
+            fill_region
+        ),
     ]);
 }
 
@@ -42,7 +58,9 @@ fn target_lines(editor: &mut Editor) -> (usize, usize) {
         let last_offset = range.end.saturating_sub(1).max(range.start);
         (first, buffer.line_of(last_offset))
     } else {
-        let line = editor.current_buffer().line_of(editor.current_buffer().point());
+        let line = editor
+            .current_buffer()
+            .line_of(editor.current_buffer().point());
         (line, line)
     }
 }
@@ -58,7 +76,9 @@ fn toggle_comments(editor: &mut Editor, first: usize, last: usize) -> Result<()>
         let lines: Vec<String> = (first..=last).map(|l| buffer.line_text(l)).collect();
         let interesting: Vec<&String> = lines.iter().filter(|l| !l.trim().is_empty()).collect();
         let all = !interesting.is_empty()
-            && interesting.iter().all(|l| l.trim_start().starts_with(prefix));
+            && interesting
+                .iter()
+                .all(|l| l.trim_start().starts_with(prefix));
         // Comments go in at the shallowest indentation, so they line up.
         let indent = interesting
             .iter()
@@ -96,7 +116,9 @@ fn toggle_comments(editor: &mut Editor, first: usize, last: usize) -> Result<()>
 fn uncomment(text: &str, prefix: &str, suffix: &str) -> String {
     let indent = &text[..text.len() - text.trim_start().len()];
     let body = text.trim_start();
-    let Some(body) = body.strip_prefix(prefix) else { return text.to_string() };
+    let Some(body) = body.strip_prefix(prefix) else {
+        return text.to_string();
+    };
     // The space inserted when commenting is taken back out.
     let body = body.strip_prefix(' ').unwrap_or(body);
     let body = match suffix.is_empty() {
@@ -162,7 +184,11 @@ fn fill_lines(editor: &mut Editor, first: usize, last: usize) -> Result<()> {
         }
         let head = buffer.line_text(first);
         let indent = head[..head.len() - head.trim_start().len()].to_string();
-        (Range::new(start, end), indent, buffer.slice(Range::new(start, end)))
+        (
+            Range::new(start, end),
+            indent,
+            buffer.slice(Range::new(start, end)),
+        )
     };
     if text.trim().is_empty() {
         return Ok(());
@@ -206,7 +232,10 @@ fn fill_region(editor: &mut Editor, _: &Args) -> Result<()> {
     let range = editor.region()?;
     let (first, last) = {
         let buffer = editor.current_buffer();
-        (buffer.line_of(range.start), buffer.line_of(range.end.saturating_sub(1).max(range.start)))
+        (
+            buffer.line_of(range.start),
+            buffer.line_of(range.end.saturating_sub(1).max(range.start)),
+        )
     };
     fill_lines(editor, first, last)?;
     editor.with_current_buffer(|b| b.deactivate_mark());
@@ -230,12 +259,18 @@ mod tests {
         let id = editor.buffers.visit_file(format!("/project/{name}"), text);
         editor.switch_to_buffer(id).unwrap();
         editor.with_current_buffer(|b| b.set_point(0));
-        (Dispatcher::new(crate::commands::standard_registry()), editor)
+        (
+            Dispatcher::new(crate::commands::standard_registry()),
+            editor,
+        )
     }
 
     fn run(d: &mut Dispatcher, e: &mut Editor, command: &str) {
         let out = d.execute(e, command, None);
-        assert!(!matches!(out, Dispatch::Failed { .. }), "`{command}` failed: {out:?}");
+        assert!(
+            !matches!(out, Dispatch::Failed { .. }),
+            "`{command}` failed: {out:?}"
+        );
     }
 
     fn text(e: &Editor) -> String {
@@ -308,7 +343,11 @@ mod tests {
         let (mut d, mut e) = setup("main.rs", "// one\ntwo\n");
         mark_region(&mut e, 0, 10);
         run(&mut d, &mut e, "comment-dwim");
-        assert_eq!(text(&e), "// // one\n// two\n", "everything ends up commented");
+        assert_eq!(
+            text(&e),
+            "// // one\n// two\n",
+            "everything ends up commented"
+        );
     }
 
     #[test]
@@ -322,10 +361,26 @@ mod tests {
     #[test]
     fn uncommenting_takes_back_only_one_marker_and_its_space() {
         assert_eq!(uncomment("// text", "//", ""), "text");
-        assert_eq!(uncomment("//text", "//", ""), "text", "a marker with no space");
-        assert_eq!(uncomment("    // text", "//", ""), "    text", "indentation survives");
-        assert_eq!(uncomment("// // text", "//", ""), "// text", "one at a time");
-        assert_eq!(uncomment("plain", "//", ""), "plain", "nothing to take back");
+        assert_eq!(
+            uncomment("//text", "//", ""),
+            "text",
+            "a marker with no space"
+        );
+        assert_eq!(
+            uncomment("    // text", "//", ""),
+            "    text",
+            "indentation survives"
+        );
+        assert_eq!(
+            uncomment("// // text", "//", ""),
+            "// text",
+            "one at a time"
+        );
+        assert_eq!(
+            uncomment("plain", "//", ""),
+            "plain",
+            "nothing to take back"
+        );
     }
 
     #[test]
@@ -359,13 +414,21 @@ mod tests {
 
     #[test]
     fn filling_a_paragraph_stops_at_blank_lines() {
-        let (mut d, mut e) =
-            setup("notes.txt", "one two three four five six seven\n\nsecond paragraph\n");
+        let (mut d, mut e) = setup(
+            "notes.txt",
+            "one two three four five six seven\n\nsecond paragraph\n",
+        );
         e.settings.fill_column = 12;
         run(&mut d, &mut e, "fill-paragraph");
         let out = text(&e);
-        assert!(out.starts_with("one two\nthree four\nfive six\nseven\n"), "got `{out}`");
-        assert!(out.ends_with("second paragraph\n"), "the second paragraph was untouched");
+        assert!(
+            out.starts_with("one two\nthree four\nfive six\nseven\n"),
+            "got `{out}`"
+        );
+        assert!(
+            out.ends_with("second paragraph\n"),
+            "the second paragraph was untouched"
+        );
     }
 
     #[test]
@@ -406,21 +469,34 @@ mod tests {
     #[test]
     fn filling_a_region_needs_a_region() {
         let (mut d, mut e) = setup("notes.txt", "text\n");
-        assert!(matches!(d.execute(&mut e, "fill-region", None), Dispatch::Failed { .. }));
+        assert!(matches!(
+            d.execute(&mut e, "fill-region", None),
+            Dispatch::Failed { .. }
+        ));
     }
 }
 
 // ---- syntax ------------------------------------------------------------
 
 /// Registers the commands that read the syntax tree.
+#[cfg(feature = "syntax")]
 pub fn register_syntax(registry: &mut Registry) {
     registry.register_all(&[
-        command!("describe-syntax-at-point", "Say what the parser makes of the text at point.", describe_syntax),
-        command!("expand-region", "Extend the region to the enclosing syntactic unit.", expand_region),
+        command!(
+            "describe-syntax-at-point",
+            "Say what the parser makes of the text at point.",
+            describe_syntax
+        ),
+        command!(
+            "expand-region",
+            "Extend the region to the enclosing syntactic unit.",
+            expand_region
+        ),
     ]);
 }
 
 /// `C-h s`: reports the grammar's name for the construct under point.
+#[cfg(feature = "syntax")]
 fn describe_syntax(editor: &mut Editor, _: &Args) -> Result<()> {
     let (kind, span) = syntax_at_point(editor)?;
     let text = {
@@ -433,6 +509,7 @@ fn describe_syntax(editor: &mut Editor, _: &Args) -> Result<()> {
 }
 
 /// `C-=`: grows the region to the next enclosing node.
+#[cfg(feature = "syntax")]
 fn expand_region(editor: &mut Editor, _: &Args) -> Result<()> {
     let (_, span) = syntax_at_point(editor)?;
     editor.with_current_buffer(|buffer| {
@@ -448,6 +525,7 @@ fn expand_region(editor: &mut Editor, _: &Args) -> Result<()> {
 ///
 /// The tree lives in the executor, so this parses on demand. It is only for
 /// commands the user invokes deliberately, never for redisplay.
+#[cfg(feature = "syntax")]
 fn syntax_at_point(editor: &Editor) -> Result<(String, Range)> {
     let buffer = editor.current_buffer();
     let Some(language) = buffer.language() else {
@@ -479,9 +557,13 @@ fn syntax_at_point(editor: &Editor) -> Result<(String, Range)> {
         .node_kind_at(start)
         .unwrap_or("node")
         .to_string();
-    Ok((kind, Range::new(rope.byte_to_char(start), rope.byte_to_char(end))))
+    Ok((
+        kind,
+        Range::new(rope.byte_to_char(start), rope.byte_to_char(end)),
+    ))
 }
 
+#[cfg(feature = "syntax")]
 #[cfg(test)]
 mod syntax_tests {
     use super::*;
@@ -499,7 +581,10 @@ mod syntax_tests {
         let id = editor.buffers.visit_file(format!("/project/{name}"), text);
         editor.switch_to_buffer(id).unwrap();
         editor.with_current_buffer(|b| b.set_point(0));
-        (Dispatcher::new(crate::commands::standard_registry()), editor)
+        (
+            Dispatcher::new(crate::commands::standard_registry()),
+            editor,
+        )
     }
 
     #[test]
@@ -525,7 +610,10 @@ mod syntax_tests {
         // Again, and it takes in more.
         d.execute(&mut e, "expand-region", None);
         let second = e.region().expect("a region");
-        assert!(second.len() > first.len(), "{second:?} did not grow from {first:?}");
+        assert!(
+            second.len() > first.len(),
+            "{second:?} did not grow from {first:?}"
+        );
         assert!(e.current_buffer().slice(second).contains("let x = 1"));
     }
 

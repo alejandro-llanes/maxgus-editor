@@ -1,0 +1,36 @@
+[package]
+name = "maxgus-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "The desktop front end: a window, a GPU, and the editor drawn into it."
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+arboard = "3.6.1"
+bytemuck = { version = "1.24.0", features = ["derive"] }
+fontdb = "0.24.0"
+fontdue = "0.9.4"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+maxgus-core = { version = "0.1.0", path = "../maxgus-core", default-features = false }
+maxgus-faces = { version = "0.1.0", path = "../maxgus-faces" }
+maxgus-keys = { version = "0.1.0", path = "../maxgus-keys" }
+maxgus-tui = { version = "0.1.0", path = "../maxgus-tui" }
+pollster = "0.4.0"
+tracing = "0.1.44"
+wgpu = "30.0.1"
+winit = "0.30.13"
+
+[features]
+default = []
+# The subsystems the window draws for, matched to the editor's own.
+syntax = ["maxgus-core/syntax"]
+lsp = ["maxgus-core/lsp"]
+git = ["maxgus-core/git"]
+terminal = ["maxgus-core/terminal"]
+full = ["syntax", "lsp", "git", "terminal"]

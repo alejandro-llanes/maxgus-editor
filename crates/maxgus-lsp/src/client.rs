@@ -10,7 +10,9 @@ use crate::{
     LspError, Result,
     diagnostics::{Diagnostic, Severity},
     position::{LspPosition, LspRange, PositionEncoding},
-    protocol::{Decoded, Message, Notification, Request, RequestId, Response, ResponseError, decode},
+    protocol::{
+        Decoded, Message, Notification, Request, RequestId, Response, ResponseError, decode,
+    },
 };
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -52,7 +54,10 @@ impl SyncKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ServerEvent {
     /// `textDocument/publishDiagnostics`.
-    Diagnostics { uri: String, diagnostics: Vec<Diagnostic> },
+    Diagnostics {
+        uri: String,
+        diagnostics: Vec<Diagnostic>,
+    },
     /// `window/showMessage` or `window/logMessage`.
     Message { severity: Severity, text: String },
     /// A request from the server that the client did not answer itself.
@@ -84,14 +89,19 @@ pub struct Client {
 
 impl std::fmt::Debug for Client {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Client").field("next_id", &self.next_id).finish()
+        f.debug_struct("Client")
+            .field("next_id", &self.next_id)
+            .finish()
     }
 }
 
 impl Client {
     /// Connects over an arbitrary transport, returning the client and the
     /// stream of events the server produces.
-    pub fn connect<R, W>(reader: R, writer: W) -> (Arc<Client>, mpsc::UnboundedReceiver<ServerEvent>)
+    pub fn connect<R, W>(
+        reader: R,
+        writer: W,
+    ) -> (Arc<Client>, mpsc::UnboundedReceiver<ServerEvent>)
     where
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
@@ -133,7 +143,10 @@ impl Client {
             .stderr(std::process::Stdio::null())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|source| LspError::Spawn { command: command.to_string(), source })?;
+            .map_err(|source| LspError::Spawn {
+                command: command.to_string(),
+                source,
+            })?;
 
         let stdin = child.stdin.take().ok_or(LspError::ServerGone)?;
         let stdout = child.stdout.take().ok_or(LspError::ServerGone)?;
@@ -180,7 +193,10 @@ impl Client {
             return Err(LspError::ServerGone);
         }
         self.outgoing
-            .send(Message::Notification(Notification { method: method.to_string(), params }))
+            .send(Message::Notification(Notification {
+                method: method.to_string(),
+                params,
+            }))
             .map_err(|_| LspError::ServerGone)
     }
 
@@ -193,9 +209,11 @@ impl Client {
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id.clone(), tx);
 
-        let sent = self
-            .outgoing
-            .send(Message::Request(Request { id: id.clone(), method: method.to_string(), params }));
+        let sent = self.outgoing.send(Message::Request(Request {
+            id: id.clone(),
+            method: method.to_string(),
+            params,
+        }));
         if sent.is_err() {
             self.pending.lock().await.remove(&id);
             return Err(LspError::ServerGone);
@@ -218,7 +236,11 @@ impl Client {
             return Err(LspError::ServerGone);
         }
         self.outgoing
-            .send(Message::Response(Response { id: Some(id), result: Some(result), error: None }))
+            .send(Message::Response(Response {
+                id: Some(id),
+                result: Some(result),
+                error: None,
+            }))
             .map_err(|_| LspError::ServerGone)
     }
 
@@ -231,7 +253,11 @@ impl Client {
             .send(Message::Response(Response {
                 id: Some(id),
                 result: None,
-                error: Some(ResponseError { code, message: message.to_string(), data: None }),
+                error: Some(ResponseError {
+                    code,
+                    message: message.to_string(),
+                    data: None,
+                }),
             }))
             .map_err(|_| LspError::ServerGone)
     }
@@ -330,7 +356,10 @@ impl Client {
     }
 
     pub fn did_close(&self, uri: &str) -> Result<()> {
-        self.notify("textDocument/didClose", json!({ "textDocument": { "uri": uri } }))
+        self.notify(
+            "textDocument/didClose",
+            json!({ "textDocument": { "uri": uri } }),
+        )
     }
 
     // ---- language features ---------------------------------------------
@@ -340,11 +369,16 @@ impl Client {
     }
 
     pub async fn hover(&self, uri: &str, position: LspPosition) -> Result<Value> {
-        self.request("textDocument/hover", Self::document_position(uri, position)).await
+        self.request("textDocument/hover", Self::document_position(uri, position))
+            .await
     }
 
     pub async fn definition(&self, uri: &str, position: LspPosition) -> Result<Value> {
-        self.request("textDocument/definition", Self::document_position(uri, position)).await
+        self.request(
+            "textDocument/definition",
+            Self::document_position(uri, position),
+        )
+        .await
     }
 
     pub async fn references(&self, uri: &str, position: LspPosition) -> Result<Value> {
@@ -354,11 +388,19 @@ impl Client {
     }
 
     pub async fn completion(&self, uri: &str, position: LspPosition) -> Result<Value> {
-        self.request("textDocument/completion", Self::document_position(uri, position)).await
+        self.request(
+            "textDocument/completion",
+            Self::document_position(uri, position),
+        )
+        .await
     }
 
     pub async fn signature_help(&self, uri: &str, position: LspPosition) -> Result<Value> {
-        self.request("textDocument/signatureHelp", Self::document_position(uri, position)).await
+        self.request(
+            "textDocument/signatureHelp",
+            Self::document_position(uri, position),
+        )
+        .await
     }
 
     pub async fn rename(&self, uri: &str, position: LspPosition, new_name: &str) -> Result<Value> {
@@ -367,7 +409,12 @@ impl Client {
         self.request("textDocument/rename", params).await
     }
 
-    pub async fn formatting(&self, uri: &str, tab_size: usize, insert_spaces: bool) -> Result<Value> {
+    pub async fn formatting(
+        &self,
+        uri: &str,
+        tab_size: usize,
+        insert_spaces: bool,
+    ) -> Result<Value> {
         self.request(
             "textDocument/formatting",
             json!({
@@ -400,12 +447,16 @@ impl Client {
     }
 
     pub async fn document_symbols(&self, uri: &str) -> Result<Value> {
-        self.request("textDocument/documentSymbol", json!({ "textDocument": { "uri": uri } }))
-            .await
+        self.request(
+            "textDocument/documentSymbol",
+            json!({ "textDocument": { "uri": uri } }),
+        )
+        .await
     }
 
     pub async fn workspace_symbols(&self, query: &str) -> Result<Value> {
-        self.request("workspace/symbol", json!({ "query": query })).await
+        self.request("workspace/symbol", json!({ "query": query }))
+            .await
     }
 }
 
@@ -544,7 +595,10 @@ async fn route(
                 return;
             };
             let result = match response.error {
-                Some(e) => Err(LspError::ServerError { code: e.code, message: e.message }),
+                Some(e) => Err(LspError::ServerError {
+                    code: e.code,
+                    message: e.message,
+                }),
                 None => Ok(response.result.unwrap_or(Value::Null)),
             };
             let _ = sender.send(result);
@@ -636,7 +690,11 @@ mod tests {
                     return *message;
                 }
                 let mut chunk = [0u8; 4096];
-                let n = self.reader.read(&mut chunk).await.expect("pipe stayed open");
+                let n = self
+                    .reader
+                    .read(&mut chunk)
+                    .await
+                    .expect("pipe stayed open");
                 assert_ne!(n, 0, "the client closed the connection");
                 self.buffer.extend_from_slice(&chunk[..n]);
             }
@@ -663,32 +721,56 @@ mod tests {
         }
 
         async fn reply(&mut self, id: RequestId, result: Value) {
-            self.send(Message::Response(Response { id: Some(id), result: Some(result), error: None }))
-                .await;
+            self.send(Message::Response(Response {
+                id: Some(id),
+                result: Some(result),
+                error: None,
+            }))
+            .await;
         }
 
         async fn reply_error(&mut self, id: RequestId, code: i64, message: &str) {
             self.send(Message::Response(Response {
                 id: Some(id),
                 result: None,
-                error: Some(ResponseError { code, message: message.into(), data: None }),
+                error: Some(ResponseError {
+                    code,
+                    message: message.into(),
+                    data: None,
+                }),
             }))
             .await;
         }
 
         async fn notify(&mut self, method: &str, params: Value) {
-            self.send(Message::Notification(Notification { method: method.into(), params })).await;
+            self.send(Message::Notification(Notification {
+                method: method.into(),
+                params,
+            }))
+            .await;
         }
 
         /// Closes the pipe, as a crashed server would.
         fn hang_up(self) {}
     }
 
-    fn connected() -> (Arc<Client>, mpsc::UnboundedReceiver<ServerEvent>, MockServer) {
+    fn connected() -> (
+        Arc<Client>,
+        mpsc::UnboundedReceiver<ServerEvent>,
+        MockServer,
+    ) {
         let (client_reader, server_writer) = tokio::io::duplex(64 * 1024);
         let (server_reader, client_writer) = tokio::io::duplex(64 * 1024);
         let (client, events) = Client::connect(client_reader, client_writer);
-        (client, events, MockServer { reader: server_reader, writer: server_writer, buffer: Vec::new() })
+        (
+            client,
+            events,
+            MockServer {
+                reader: server_reader,
+                writer: server_writer,
+                buffer: Vec::new(),
+            },
+        )
     }
 
     #[tokio::test]
@@ -734,7 +816,9 @@ mod tests {
             tokio::spawn(async move { c.request("bad", Value::Null).await })
         };
         let request = server.expect_request("bad").await;
-        server.reply_error(request.id, -32601, "method not found").await;
+        server
+            .reply_error(request.id, -32601, "method not found")
+            .await;
         let err = task.await.unwrap().unwrap_err();
         assert!(matches!(err, LspError::ServerError { code: -32601, .. }));
         assert!(err.to_string().contains("method not found"));
@@ -759,7 +843,10 @@ mod tests {
         let (client, _events) = Client::connect(client_reader, client_writer);
         // Reach into the client to shorten the wait; the production default is
         // ten seconds, which no test should sit through.
-        let client = Arc::new(Client { timeout: Duration::from_millis(50), ..unwrap_arc(client) });
+        let client = Arc::new(Client {
+            timeout: Duration::from_millis(50),
+            ..unwrap_arc(client)
+        });
 
         let task = {
             let c = Arc::clone(&client);
@@ -811,7 +898,10 @@ mod tests {
         assert_eq!(client.encoding().await, PositionEncoding::Utf8);
         assert_eq!(client.sync_kind().await, SyncKind::Incremental);
         assert!(client.supports("hoverProvider").await);
-        assert!(client.supports("definitionProvider").await, "an options object counts");
+        assert!(
+            client.supports("definitionProvider").await,
+            "an options object counts"
+        );
         assert!(!client.supports("renameProvider").await, "explicitly false");
         assert!(!client.supports("codeLensProvider").await, "absent");
     }
@@ -824,9 +914,15 @@ mod tests {
             tokio::spawn(async move { c.initialize(Path::new("/tmp")).await })
         };
         let request = server.expect_request("initialize").await;
-        server.reply(request.id, json!({ "capabilities": {} })).await;
+        server
+            .reply(request.id, json!({ "capabilities": {} }))
+            .await;
         task.await.unwrap().unwrap();
-        assert_eq!(client.encoding().await, PositionEncoding::Utf16, "the protocol default");
+        assert_eq!(
+            client.encoding().await,
+            PositionEncoding::Utf16,
+            "the protocol default"
+        );
         assert_eq!(client.sync_kind().await, SyncKind::Full);
     }
 
@@ -884,7 +980,12 @@ mod tests {
     #[tokio::test]
     async fn server_messages_arrive_as_events() {
         let (_client, mut events, mut server) = connected();
-        server.notify("window/showMessage", json!({ "type": 2, "message": "heads up" })).await;
+        server
+            .notify(
+                "window/showMessage",
+                json!({ "type": 2, "message": "heads up" }),
+            )
+            .await;
         let ServerEvent::Message { severity, text } = events.recv().await.unwrap() else {
             panic!()
         };
@@ -896,7 +997,9 @@ mod tests {
     async fn an_unrecognised_notification_is_passed_through() {
         let (_client, mut events, mut server) = connected();
         server.notify("$/progress", json!({ "token": 1 })).await;
-        let ServerEvent::Notification(n) = events.recv().await.unwrap() else { panic!() };
+        let ServerEvent::Notification(n) = events.recv().await.unwrap() else {
+            panic!()
+        };
         assert_eq!(n.method, "$/progress");
     }
 
@@ -929,7 +1032,9 @@ mod tests {
                 params: json!({ "items": [{"section": "a"}, {"section": "b"}] }),
             }))
             .await;
-        let Message::Response(r) = server.recv().await else { panic!() };
+        let Message::Response(r) = server.recv().await else {
+            panic!()
+        };
         assert_eq!(r.result, Some(json!([null, null])));
     }
 
@@ -947,8 +1052,12 @@ mod tests {
             panic!("expected the request to be forwarded")
         };
         assert_eq!(request.method, "workspace/applyEdit");
-        client.respond(request.id, json!({ "applied": false })).unwrap();
-        let Message::Response(r) = server.recv().await else { panic!() };
+        client
+            .respond(request.id, json!({ "applied": false }))
+            .unwrap();
+        let Message::Response(r) = server.recv().await else {
+            panic!()
+        };
         assert_eq!(r.result, Some(json!({ "applied": false })));
     }
 
@@ -962,31 +1071,49 @@ mod tests {
                 params: Value::Null,
             }))
             .await;
-        let ServerEvent::Request(request) = events.recv().await.unwrap() else { panic!() };
-        client.respond_error(request.id, -32601, "not supported").unwrap();
-        let Message::Response(r) = server.recv().await else { panic!() };
+        let ServerEvent::Request(request) = events.recv().await.unwrap() else {
+            panic!()
+        };
+        client
+            .respond_error(request.id, -32601, "not supported")
+            .unwrap();
+        let Message::Response(r) = server.recv().await else {
+            panic!()
+        };
         assert_eq!(r.error.unwrap().code, -32601);
     }
 
     #[tokio::test]
     async fn document_lifecycle_notifications_carry_the_right_shape() {
         let (client, _events, mut server) = connected();
-        client.did_open("file:///a.rs", "rust", 1, "fn main() {}").unwrap();
+        client
+            .did_open("file:///a.rs", "rust", 1, "fn main() {}")
+            .unwrap();
         let n = server.expect_notification("textDocument/didOpen").await;
         assert_eq!(n.params["textDocument"]["languageId"], "rust");
         assert_eq!(n.params["textDocument"]["version"], 1);
         assert_eq!(n.params["textDocument"]["text"], "fn main() {}");
 
-        client.did_change_full("file:///a.rs", 2, "fn main() { }").unwrap();
+        client
+            .did_change_full("file:///a.rs", 2, "fn main() { }")
+            .unwrap();
         let n = server.expect_notification("textDocument/didChange").await;
         assert_eq!(n.params["textDocument"]["version"], 2);
         assert_eq!(n.params["contentChanges"][0]["text"], "fn main() { }");
-        assert!(n.params["contentChanges"][0].get("range").is_none(), "full sync sends no range");
+        assert!(
+            n.params["contentChanges"][0].get("range").is_none(),
+            "full sync sends no range"
+        );
 
         let range = LspRange::new(LspPosition::new(0, 3), LspPosition::new(0, 7));
-        client.did_change_incremental("file:///a.rs", 3, range, "new").unwrap();
+        client
+            .did_change_incremental("file:///a.rs", 3, range, "new")
+            .unwrap();
         let n = server.expect_notification("textDocument/didChange").await;
-        assert_eq!(n.params["contentChanges"][0]["range"]["start"]["character"], 3);
+        assert_eq!(
+            n.params["contentChanges"][0]["range"]["start"]["character"],
+            3
+        );
         assert_eq!(n.params["contentChanges"][0]["text"], "new");
 
         client.did_save("file:///a.rs", Some("saved")).unwrap();
@@ -1090,7 +1217,10 @@ mod tests {
             tokio::spawn(async move { c.code_action("file:///a.rs", range, &[diagnostic]).await })
         };
         let request = server.expect_request("textDocument/codeAction").await;
-        assert_eq!(request.params["context"]["diagnostics"][0]["message"], "unused");
+        assert_eq!(
+            request.params["context"]["diagnostics"][0]["message"],
+            "unused"
+        );
         assert_eq!(request.params["context"]["diagnostics"][0]["severity"], 2);
         server.reply(request.id, json!([])).await;
         task.await.unwrap().unwrap();
@@ -1122,7 +1252,10 @@ mod tests {
         server.hang_up();
         // Wait for the reader to notice.
         assert_eq!(events.recv().await, Some(ServerEvent::Exited));
-        assert!(matches!(client.request("anything", Value::Null).await, Err(LspError::ServerGone)));
+        assert!(matches!(
+            client.request("anything", Value::Null).await,
+            Err(LspError::ServerGone)
+        ));
     }
 
     #[tokio::test]
@@ -1146,7 +1279,10 @@ mod tests {
     fn uris_escape_the_characters_that_need_it() {
         let uri = path_to_uri(Path::new("/tmp/with space/a#b.rs"));
         assert!(!uri.contains(' '), "a raw space would break the URI: {uri}");
-        assert_eq!(uri_to_path(&uri).unwrap(), Path::new("/tmp/with space/a#b.rs"));
+        assert_eq!(
+            uri_to_path(&uri).unwrap(),
+            Path::new("/tmp/with space/a#b.rs")
+        );
     }
 
     #[test]
@@ -1157,22 +1293,41 @@ mod tests {
 
     #[test]
     fn sync_kinds_parse_from_both_capability_shapes() {
-        assert_eq!(document_sync_kind(&json!({"textDocumentSync": 0})), SyncKind::None);
-        assert_eq!(document_sync_kind(&json!({"textDocumentSync": 1})), SyncKind::Full);
-        assert_eq!(document_sync_kind(&json!({"textDocumentSync": 2})), SyncKind::Incremental);
+        assert_eq!(
+            document_sync_kind(&json!({"textDocumentSync": 0})),
+            SyncKind::None
+        );
+        assert_eq!(
+            document_sync_kind(&json!({"textDocumentSync": 1})),
+            SyncKind::Full
+        );
+        assert_eq!(
+            document_sync_kind(&json!({"textDocumentSync": 2})),
+            SyncKind::Incremental
+        );
         assert_eq!(
             document_sync_kind(&json!({"textDocumentSync": {"openClose": true, "change": 2}})),
             SyncKind::Incremental
         );
-        assert_eq!(document_sync_kind(&json!({})), SyncKind::Full, "unstated means full");
+        assert_eq!(
+            document_sync_kind(&json!({})),
+            SyncKind::Full,
+            "unstated means full"
+        );
     }
 
     #[test]
     fn the_advertised_capabilities_cover_the_features_we_call() {
         let caps = client_capabilities();
-        for feature in
-            ["hover", "completion", "definition", "references", "formatting", "rename", "codeAction"]
-        {
+        for feature in [
+            "hover",
+            "completion",
+            "definition",
+            "references",
+            "formatting",
+            "rename",
+            "codeAction",
+        ] {
             assert!(
                 caps["textDocument"].get(feature).is_some(),
                 "`{feature}` is called but not advertised"

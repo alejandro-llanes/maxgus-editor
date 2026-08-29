@@ -13,13 +13,37 @@ pub const HELP_BUFFER_NAME: &str = "*Help*";
 /// Registers the help commands.
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
-        command!("describe-key", "Say what a key sequence runs.", describe_key),
-        command!("describe-function", "Show a command's documentation.", describe_function),
-        command!("describe-variable", "Show a setting's value.", describe_variable),
-        command!("describe-bindings", "List every active key binding.", describe_bindings),
-        command!("describe-mode", "Describe the current buffer's mode.", describe_mode),
+        command!(
+            "describe-key",
+            "Say what a key sequence runs.",
+            describe_key
+        ),
+        command!(
+            "describe-function",
+            "Show a command's documentation.",
+            describe_function
+        ),
+        command!(
+            "describe-variable",
+            "Show a setting's value.",
+            describe_variable
+        ),
+        command!(
+            "describe-bindings",
+            "List every active key binding.",
+            describe_bindings
+        ),
+        command!(
+            "describe-mode",
+            "Describe the current buffer's mode.",
+            describe_mode
+        ),
         command!("where-is", "Say which keys run a command.", where_is),
-        command!("help-with-tutorial", "Show a short guide to the editor.", tutorial),
+        command!(
+            "help-with-tutorial",
+            "Show a short guide to the editor.",
+            tutorial
+        ),
     ]);
 }
 
@@ -32,14 +56,12 @@ pub fn show_help(editor: &mut Editor, text: &str) -> Result<()> {
         }
         None => editor.buffers.create_with_text(HELP_BUFFER_NAME, text),
     };
-    editor.buffers.get_mut(id).expect("just created").set_read_only(true);
-    let tree_window = editor.tree_window;
-    if editor.windows.current_id() == tree_window.unwrap_or(editor.windows.current_id())
-        && let Some(target) = editor.windows.ids().into_iter().find(|w| Some(*w) != tree_window)
-    {
-        editor.select_window(target);
-    }
-    editor.switch_to_buffer(id)
+    editor
+        .buffers
+        .get_mut(id)
+        .expect("just created")
+        .set_read_only(true);
+    editor.show_in_editing_window(id)
 }
 
 /// `C-h k`: reads a key sequence and reports what it runs.
@@ -58,7 +80,10 @@ fn describe_key(editor: &mut Editor, args: &Args) -> Result<()> {
                 .find(|(command, _)| *command == name)
                 .map(|(_, doc)| doc.clone())
                 .unwrap_or_else(|| "Undocumented.".to_string());
-            format!("{} runs the command `{name}`\n\n{documentation}\n", sequence.notation())
+            format!(
+                "{} runs the command `{name}`\n\n{documentation}\n",
+                sequence.notation()
+            )
         }
         // A prefix is answered rather than left hanging, so `C-h k C-x` says
         // something useful instead of waiting for a key that never comes.
@@ -85,10 +110,15 @@ fn describe_function(editor: &mut Editor, args: &Args) -> Result<()> {
         return Ok(());
     };
     let name = name.trim().to_string();
-    let Some((_, documentation)) =
-        editor.command_docs.iter().find(|(command, _)| *command == name).cloned()
+    let Some((_, documentation)) = editor
+        .command_docs
+        .iter()
+        .find(|(command, _)| *command == name)
+        .cloned()
     else {
-        return Err(crate::CoreError::Message(format!("No command named `{name}`")));
+        return Err(crate::CoreError::Message(format!(
+            "No command named `{name}`"
+        )));
     };
     let bindings = editor.keymaps.where_is(&name);
     let keys = if bindings.is_empty() {
@@ -96,7 +126,11 @@ fn describe_function(editor: &mut Editor, args: &Args) -> Result<()> {
     } else {
         format!(
             "It is bound to {}.",
-            bindings.iter().map(KeySequence::notation).collect::<Vec<_>>().join(", ")
+            bindings
+                .iter()
+                .map(KeySequence::notation)
+                .collect::<Vec<_>>()
+                .join(", ")
         )
     };
     show_help(editor, &format!("{name}\n\n{keys}\n\n{documentation}\n"))
@@ -104,8 +138,10 @@ fn describe_function(editor: &mut Editor, args: &Args) -> Result<()> {
 
 /// `C-h v`: reports the value of a setting.
 fn describe_variable(editor: &mut Editor, args: &Args) -> Result<()> {
-    let names: Vec<String> =
-        maxgus_config::settings::SETTING_NAMES.iter().map(|n| n.to_string()).collect();
+    let names: Vec<String> = maxgus_config::settings::SETTING_NAMES
+        .iter()
+        .map(|n| n.to_string())
+        .collect();
     let Some(name) = args.input.clone() else {
         editor.prompt_for(
             "describe-variable",
@@ -118,7 +154,9 @@ fn describe_variable(editor: &mut Editor, args: &Args) -> Result<()> {
     };
     let name = name.trim().to_string();
     let Some(value) = setting_value(editor, &name) else {
-        return Err(crate::CoreError::Message(format!("No variable named `{name}`")));
+        return Err(crate::CoreError::Message(format!(
+            "No variable named `{name}`"
+        )));
     };
     show_help(editor, &format!("{name}\n\nIts value is {value}.\n"))
 }
@@ -149,6 +187,15 @@ fn setting_value(editor: &Editor, name: &str) -> Option<String> {
         "blink-cursor" => s.blink_cursor.to_string(),
         "echo-keystrokes-ms" => s.echo_keystrokes_ms.to_string(),
         "nerd-font-icons" => s.nerd_font_icons.to_string(),
+        "panel-tree" => s.panel_tree.to_string(),
+        "panel-symbols" => s.panel_symbols.to_string(),
+        "panel-buffers" => s.panel_buffers.to_string(),
+        "panel-at-startup" => s.panel_at_startup.to_string(),
+        "panel-symbols-height" => s.panel_symbols_height.to_string(),
+        "panel-buffers-height" => s.panel_buffers_height.to_string(),
+        "gui-font" => s.gui_font.clone(),
+        "gui-font-size" => s.gui_font_size.to_string(),
+        "shell" => s.shell.clone().unwrap_or_else(|| "(from $SHELL)".into()),
         _ => return None,
     })
 }
@@ -169,18 +216,24 @@ fn describe_mode(editor: &mut Editor, _: &Args) -> Result<()> {
         (
             buffer.name().to_string(),
             buffer.language().unwrap_or("Fundamental").to_string(),
-            buffer.path().map(|p| p.display().to_string()).unwrap_or_else(|| "none".into()),
+            buffer
+                .path()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "none".into()),
             match buffer.line_ending() {
                 maxgus_text::LineEnding::Lf => "LF",
                 maxgus_text::LineEnding::Crlf => "CRLF",
             },
         )
     };
+    #[cfg(feature = "syntax")]
     let highlighting = if maxgus_syntax::is_supported(&mode) {
         "A tree-sitter grammar is available for this mode."
     } else {
         "No tree-sitter grammar is available for this mode."
     };
+    #[cfg(not(feature = "syntax"))]
+    let highlighting = "This build has no tree-sitter grammars in it.";
     let server = match editor.settings.lsp_enabled {
         true => "Language server support is on.",
         false => "Language server support is off.",
@@ -286,14 +339,19 @@ mod tests {
         );
         let registry = crate::commands::standard_registry();
         editor.command_names = registry.interactive_names();
-        editor.command_docs =
-            registry.iter().map(|c| (c.name.to_string(), c.doc.to_string())).collect();
+        editor.command_docs = registry
+            .iter()
+            .map(|c| (c.name.to_string(), c.doc.to_string()))
+            .collect();
         (Dispatcher::new(registry), editor)
     }
 
     fn run(d: &mut Dispatcher, e: &mut Editor, command: &str) {
         let out = d.execute(e, command, None);
-        assert!(!matches!(out, Dispatch::Failed { .. }), "`{command}` failed: {out:?}");
+        assert!(
+            !matches!(out, Dispatch::Failed { .. }),
+            "`{command}` failed: {out:?}"
+        );
     }
 
     fn answer(d: &mut Dispatcher, e: &mut Editor, text: &str) {
@@ -313,8 +371,14 @@ mod tests {
         d.handle_keys(&mut e, "C-f");
 
         let text = e.current_buffer().text();
-        assert!(text.contains("C-f runs the command `forward-char`"), "got `{text}`");
-        assert!(text.contains("Move point forward"), "the documentation, got `{text}`");
+        assert!(
+            text.contains("C-f runs the command `forward-char`"),
+            "got `{text}`"
+        );
+        assert!(
+            text.contains("Move point forward"),
+            "the documentation, got `{text}`"
+        );
     }
 
     #[test]
@@ -356,7 +420,10 @@ mod tests {
         for c in "no-such-command".chars() {
             e.minibuffer.insert_char(c);
         }
-        assert!(matches!(d.handle_keys(&mut e, "RET"), Dispatch::Failed { .. }));
+        assert!(matches!(
+            d.handle_keys(&mut e, "RET"),
+            Dispatch::Failed { .. }
+        ));
     }
 
     #[test]
@@ -395,6 +462,7 @@ mod tests {
         assert!(text.lines().count() > crate::keymap::GLOBAL_BINDINGS.len());
     }
 
+    #[cfg(feature = "syntax")]
     #[test]
     fn describe_mode_reports_what_the_buffer_is() {
         let (mut d, mut e) = setup();
@@ -404,9 +472,13 @@ mod tests {
         let text = e.current_buffer().text();
         assert!(text.contains("Major mode: rust"), "got `{text}`");
         assert!(text.contains("/project/main.rs"), "got `{text}`");
-        assert!(text.contains("A tree-sitter grammar is available"), "got `{text}`");
+        assert!(
+            text.contains("A tree-sitter grammar is available"),
+            "got `{text}`"
+        );
     }
 
+    #[cfg(feature = "syntax")]
     #[test]
     fn describe_mode_is_honest_about_a_mode_with_no_grammar() {
         let (mut d, mut e) = setup();
@@ -440,7 +512,10 @@ mod tests {
         run(&mut d, &mut e, "help-with-tutorial");
         let text = e.current_buffer().text();
         for essential in ["C-g", "C-x C-c", "C-x C-f", "C-x C-s", "M-x", "C-h k"] {
-            assert!(text.contains(essential), "the guide never mentions `{essential}`");
+            assert!(
+                text.contains(essential),
+                "the guide never mentions `{essential}`"
+            );
         }
     }
 
@@ -449,7 +524,13 @@ mod tests {
         let (mut d, mut e) = setup();
         run(&mut d, &mut e, "describe-bindings");
         run(&mut d, &mut e, "help-with-tutorial");
-        assert_eq!(e.buffers.iter().filter(|b| b.name() == HELP_BUFFER_NAME).count(), 1);
+        assert_eq!(
+            e.buffers
+                .iter()
+                .filter(|b| b.name() == HELP_BUFFER_NAME)
+                .count(),
+            1
+        );
         assert!(e.current_buffer().is_read_only());
     }
 }

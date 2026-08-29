@@ -61,7 +61,13 @@ pub struct Diagnostic {
 
 impl Diagnostic {
     pub fn new(range: LspRange, severity: Severity, message: impl Into<String>) -> Diagnostic {
-        Diagnostic { range, severity, message: message.into(), code: None, source: None }
+        Diagnostic {
+            range,
+            severity,
+            message: message.into(),
+            code: None,
+            source: None,
+        }
     }
 
     /// Parses one diagnostic from a server payload. Returns `None` when the
@@ -85,8 +91,17 @@ impl Diagnostic {
             serde_json::Value::Number(n) => Some(n.to_string()),
             _ => None,
         });
-        let source = object.get("source").and_then(|v| v.as_str()).map(str::to_string);
-        Some(Diagnostic { range, severity, message, code, source })
+        let source = object
+            .get("source")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        Some(Diagnostic {
+            range,
+            severity,
+            message,
+            code,
+            source,
+        })
     }
 
     /// The one-line form shown in the echo area.
@@ -128,7 +143,10 @@ impl DiagnosticSet {
         }
         // Sort by position, then by severity, so navigation is predictable.
         diagnostics.sort_by(|a, b| {
-            a.range.start.cmp(&b.range.start).then(a.severity.cmp(&b.severity))
+            a.range
+                .start
+                .cmp(&b.range.start)
+                .then(a.severity.cmp(&b.severity))
         });
         self.by_uri.insert(uri, diagnostics);
     }
@@ -171,7 +189,8 @@ impl DiagnosticSet {
             .filter(|d| {
                 // An empty range still matches the position it sits on.
                 let after_start = position >= d.range.start;
-                let before_end = position < d.range.end || d.range.is_empty() && position == d.range.start;
+                let before_end =
+                    position < d.range.end || d.range.is_empty() && position == d.range.start;
                 after_start && before_end
             })
             .collect();
@@ -186,7 +205,10 @@ impl DiagnosticSet {
 
     /// The last diagnostic strictly before `position`, for `previous-error`.
     pub fn previous_before(&self, uri: &str, position: LspPosition) -> Option<&Diagnostic> {
-        self.for_uri(uri).iter().rev().find(|d| d.range.start < position)
+        self.for_uri(uri)
+            .iter()
+            .rev()
+            .find(|d| d.range.start < position)
     }
 }
 
@@ -209,7 +231,11 @@ mod tests {
         assert_eq!(Severity::from_code(Some(2)), Severity::Warning);
         assert_eq!(Severity::from_code(Some(3)), Severity::Information);
         assert_eq!(Severity::from_code(Some(4)), Severity::Hint);
-        assert_eq!(Severity::from_code(None), Severity::Error, "unlabelled is worst case");
+        assert_eq!(
+            Severity::from_code(None),
+            Severity::Error,
+            "unlabelled is worst case"
+        );
         assert_eq!(Severity::from_code(Some(99)), Severity::Error);
     }
 
@@ -221,7 +247,12 @@ mod tests {
 
     #[test]
     fn each_severity_has_a_distinct_face_and_letter() {
-        let all = [Severity::Error, Severity::Warning, Severity::Information, Severity::Hint];
+        let all = [
+            Severity::Error,
+            Severity::Warning,
+            Severity::Information,
+            Severity::Hint,
+        ];
         let mut letters: Vec<char> = all.iter().map(|s| s.letter()).collect();
         letters.sort_unstable();
         letters.dedup();
@@ -298,7 +329,10 @@ mod tests {
         let mut set = DiagnosticSet::new();
         set.replace("file:///a.rs", vec![at(0, 0, 1, Severity::Error)]);
         assert_eq!(set.for_uri("file:///a.rs").len(), 1);
-        set.replace("file:///a.rs", vec![at(1, 0, 1, Severity::Warning), at(2, 0, 1, Severity::Hint)]);
+        set.replace(
+            "file:///a.rs",
+            vec![at(1, 0, 1, Severity::Warning), at(2, 0, 1, Severity::Hint)],
+        );
         assert_eq!(set.for_uri("file:///a.rs").len(), 2);
         assert_eq!(set.total(), 2);
     }
@@ -317,9 +351,17 @@ mod tests {
         let mut set = DiagnosticSet::new();
         set.replace(
             "u",
-            vec![at(5, 0, 1, Severity::Error), at(1, 0, 1, Severity::Error), at(3, 0, 1, Severity::Error)],
+            vec![
+                at(5, 0, 1, Severity::Error),
+                at(1, 0, 1, Severity::Error),
+                at(3, 0, 1, Severity::Error),
+            ],
         );
-        let lines: Vec<u32> = set.for_uri("u").iter().map(|d| d.range.start.line).collect();
+        let lines: Vec<u32> = set
+            .for_uri("u")
+            .iter()
+            .map(|d| d.range.start.line)
+            .collect();
         assert_eq!(lines, vec![1, 3, 5]);
     }
 
@@ -327,7 +369,10 @@ mod tests {
     fn documents_are_kept_separate() {
         let mut set = DiagnosticSet::new();
         set.replace("a", vec![at(0, 0, 1, Severity::Error)]);
-        set.replace("b", vec![at(0, 0, 1, Severity::Warning), at(1, 0, 1, Severity::Hint)]);
+        set.replace(
+            "b",
+            vec![at(0, 0, 1, Severity::Warning), at(1, 0, 1, Severity::Hint)],
+        );
         assert_eq!(set.for_uri("a").len(), 1);
         assert_eq!(set.for_uri("b").len(), 2);
         assert_eq!(set.total(), 3);
@@ -363,7 +408,13 @@ mod tests {
     #[test]
     fn lookup_at_a_position_finds_covering_diagnostics() {
         let mut set = DiagnosticSet::new();
-        set.replace("u", vec![at(2, 4, 9, Severity::Warning), at(2, 0, 20, Severity::Error)]);
+        set.replace(
+            "u",
+            vec![
+                at(2, 4, 9, Severity::Warning),
+                at(2, 0, 20, Severity::Error),
+            ],
+        );
         let found = set.at("u", LspPosition::new(2, 5));
         assert_eq!(found.len(), 2);
         assert_eq!(found[0].severity, Severity::Error, "most severe first");
@@ -391,12 +442,37 @@ mod tests {
         let mut set = DiagnosticSet::new();
         set.replace(
             "u",
-            vec![at(1, 0, 1, Severity::Error), at(5, 0, 1, Severity::Error), at(9, 0, 1, Severity::Error)],
+            vec![
+                at(1, 0, 1, Severity::Error),
+                at(5, 0, 1, Severity::Error),
+                at(9, 0, 1, Severity::Error),
+            ],
         );
-        assert_eq!(set.next_after("u", LspPosition::new(0, 0)).unwrap().range.start.line, 1);
-        assert_eq!(set.next_after("u", LspPosition::new(1, 0)).unwrap().range.start.line, 5);
+        assert_eq!(
+            set.next_after("u", LspPosition::new(0, 0))
+                .unwrap()
+                .range
+                .start
+                .line,
+            1
+        );
+        assert_eq!(
+            set.next_after("u", LspPosition::new(1, 0))
+                .unwrap()
+                .range
+                .start
+                .line,
+            5
+        );
         assert!(set.next_after("u", LspPosition::new(9, 0)).is_none());
-        assert_eq!(set.previous_before("u", LspPosition::new(9, 0)).unwrap().range.start.line, 5);
+        assert_eq!(
+            set.previous_before("u", LspPosition::new(9, 0))
+                .unwrap()
+                .range
+                .start
+                .line,
+            5
+        );
         assert!(set.previous_before("u", LspPosition::new(1, 0)).is_none());
     }
 }

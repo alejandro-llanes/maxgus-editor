@@ -57,7 +57,18 @@ pub const TREEMACS_BINDINGS: &[(&str, &str)] = &[
     ("w", "treefile-set-width"),
     ("<", "treefile-decrease-width"),
     (">", "treefile-increase-width"),
+    // ---- the panel's other sections ----
+    // `TAB` and `RET` are not here: they stay bound to the treemacs commands,
+    // which ask what kind of row point is on and hand over. One `TAB` that
+    // folds a heading, opens a directory, expands a symbol or visits a file
+    // is what makes the three sections read as one panel.
+    // The other two sections are windows of their own, so the ordinary
+    // window keys — `C-<up>`, `C-<down>`, `C-x o` — reach them.
+    ("t r", "panel-toggle-tree-section"),
+    ("t s", "panel-toggle-symbols-section"),
+    ("t b", "panel-toggle-buffers-section"),
     // ---- refresh and exit ----
+    ("g s", "panel-refresh-symbols"),
     ("g r", "treefile-refresh"),
     ("g g", "treefile-goto-first"),
     ("s", "treefile-resort"),
@@ -106,7 +117,10 @@ mod tests {
     fn the_multi_key_prefixes_are_live() {
         let map = treemacs_keymap().unwrap();
         for prefix in ["o", "c", "y", "t"] {
-            assert!(map.lookup(&seq(prefix)).is_prefix(), "`{prefix}` should be a prefix");
+            assert!(
+                map.lookup(&seq(prefix)).is_prefix(),
+                "`{prefix}` should be a prefix"
+            );
         }
     }
 
@@ -125,10 +139,13 @@ mod tests {
 
     #[test]
     fn every_command_name_is_namespaced() {
+        // The map covers the whole side panel: the tree's own commands and
+        // the ones for the sections stacked with it. Anything else here would
+        // be a global command bound by accident, which is what this catches.
         for (keys, command) in TREEMACS_BINDINGS {
             assert!(
-                command.starts_with("treefile-"),
-                "`{keys}` runs `{command}`, which is outside the tree namespace"
+                command.starts_with("treefile-") || command.starts_with("panel-"),
+                "`{keys}` runs `{command}`, which is outside the panel's namespaces"
             );
         }
     }
@@ -159,8 +176,11 @@ mod tests {
     #[test]
     fn where_is_finds_every_binding_of_a_command() {
         let map = treemacs_keymap().unwrap();
-        let mut found: Vec<String> =
-            map.where_is("treefile-next-line").iter().map(|s| s.notation()).collect();
+        let mut found: Vec<String> = map
+            .where_is("treefile-next-line")
+            .iter()
+            .map(|s| s.notation())
+            .collect();
         found.sort();
         assert_eq!(found, vec!["<down>", "n"]);
         assert_eq!(map.where_is("treefile-refresh").len(), 1);

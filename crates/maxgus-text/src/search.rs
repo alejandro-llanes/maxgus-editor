@@ -58,7 +58,12 @@ impl SearchQuery {
             .case_insensitive(case_fold)
             .multi_line(true)
             .build()?;
-        Ok(Self { regex, pattern: pattern.to_string(), kind, case_fold })
+        Ok(Self {
+            regex,
+            pattern: pattern.to_string(),
+            kind,
+            case_fold,
+        })
     }
 
     pub fn pattern(&self) -> &str {
@@ -80,8 +85,14 @@ impl SearchQuery {
     fn to_match(&self, rope: &Rope, caps: regex::Captures<'_>) -> Match {
         let whole = caps.get(0).expect("group 0 always participates");
         Match {
-            range: Range::new(rope.byte_to_char(whole.start()), rope.byte_to_char(whole.end())),
-            captures: caps.iter().map(|g| g.map(|m| m.as_str().to_string())).collect(),
+            range: Range::new(
+                rope.byte_to_char(whole.start()),
+                rope.byte_to_char(whole.end()),
+            ),
+            captures: caps
+                .iter()
+                .map(|g| g.map(|m| m.as_str().to_string()))
+                .collect(),
         }
     }
 
@@ -103,7 +114,9 @@ impl SearchQuery {
             return None;
         }
         let start = rope.char_to_byte(from.min(rope.len_chars()));
-        self.regex.captures_at(text, start).map(|c| self.to_match(rope, c))
+        self.regex
+            .captures_at(text, start)
+            .map(|c| self.to_match(rope, c))
     }
 
     /// Last match that ends at or before `from`.
@@ -173,14 +186,19 @@ impl SearchQuery {
             return Vec::new();
         }
         let text = rope.to_string();
-        self.regex.captures_iter(&text).map(|c| self.to_match(rope, c)).collect()
+        self.regex
+            .captures_iter(&text)
+            .map(|c| self.to_match(rope, c))
+            .collect()
     }
 
     /// Every match inside `range`, used to highlight hits on screen.
     pub fn find_in_range(&self, rope: &Rope, range: Range) -> Vec<Match> {
         self.find_all(rope)
             .into_iter()
-            .filter(|m| m.range.overlaps(&range) || (m.range.is_empty() && range.contains(m.range.start)))
+            .filter(|m| {
+                m.range.overlaps(&range) || (m.range.is_empty() && range.contains(m.range.start))
+            })
             .collect()
     }
 
@@ -277,8 +295,14 @@ mod tests {
         // The match at 11 ends at 16, past the limit, so the end-anchored
         // search skips it while the start-anchored one finds it.
         assert_eq!(q.search_backward(&r, 11).unwrap().range, Range::new(0, 5));
-        assert_eq!(q.search_backward_from(&r, 11).unwrap().range, Range::new(11, 16));
-        assert_eq!(q.search_backward_from(&r, 0).unwrap().range, Range::new(0, 5));
+        assert_eq!(
+            q.search_backward_from(&r, 11).unwrap().range,
+            Range::new(11, 16)
+        );
+        assert_eq!(
+            q.search_backward_from(&r, 0).unwrap().range,
+            Range::new(0, 5)
+        );
         assert!(literal("zzz").search_backward_from(&r, 16).is_none());
     }
 
@@ -288,8 +312,14 @@ mod tests {
         let text = r.to_string();
         let q = literal("alpha");
         for from in 0..=r.len_chars() {
-            assert_eq!(q.search_forward(&r, from), q.search_forward_in(&text, &r, from));
-            assert_eq!(q.search_backward(&r, from), q.search_backward_in(&text, &r, from));
+            assert_eq!(
+                q.search_forward(&r, from),
+                q.search_forward_in(&text, &r, from)
+            );
+            assert_eq!(
+                q.search_backward(&r, from),
+                q.search_backward_in(&text, &r, from)
+            );
             assert_eq!(
                 q.search_backward_from(&r, from),
                 q.search_backward_from_in(&text, &r, from)

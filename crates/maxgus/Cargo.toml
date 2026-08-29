@@ -18,14 +18,18 @@ clap = { version = "4.6.6", features = ["derive"] }
 directories = "6.0.0"
 futures-util = "0.3.34"
 maxgus-config = { version = "0.1.0", path = "../maxgus-config" }
-maxgus-core = { version = "0.1.0", path = "../maxgus-core" }
+maxgus-core = { version = "0.1.0", path = "../maxgus-core", default-features = false }
 maxgus-faces = { version = "0.1.0", path = "../maxgus-faces" }
 maxgus-keys = { version = "0.1.0", path = "../maxgus-keys" }
-maxgus-lsp = { version = "0.1.0", path = "../maxgus-lsp" }
-maxgus-syntax = { version = "0.1.0", path = "../maxgus-syntax" }
+maxgus-lsp = { version = "0.1.0", path = "../maxgus-lsp", optional = true }
+maxgus-syntax = { version = "0.1.0", path = "../maxgus-syntax", optional = true }
 maxgus-text = { version = "0.1.0", path = "../maxgus-text" }
 maxgus-tree = { version = "0.1.0", path = "../maxgus-tree" }
+maxgus-git = { version = "0.1.0", path = "../maxgus-git", optional = true }
+maxgus-term = { version = "0.1.0", path = "../maxgus-term", optional = true }
 maxgus-tui = { version = "0.1.0", path = "../maxgus-tui" }
+maxgus-gui = { version = "0.1.0", path = "../maxgus-gui", default-features = false, optional = true }
+portable-pty = { version = "0.9.0", optional = true }
 serde_json = "1.0.151"
 tokio = { version = "1.53.1", features = ["full"] }
 tracing = "0.1.44"
@@ -33,3 +37,28 @@ tracing-subscriber = "0.3.23"
 
 [dev-dependencies]
 rustix = { version = "1.1.4", features = ["pty", "termios", "process", "stdio"] }
+
+[[example]]
+name = "screenshot"
+required-features = ["full"]
+
+[features]
+default = ["full"]
+
+# The editor and the treefile, and nothing that needs a subprocess, a grammar
+# or a protocol. Builds in a fraction of the time and makes a much smaller
+# binary — the tree-sitter grammars alone are most of both.
+minimal = []
+
+# Everything: tree-sitter highlighting, the language-server client, magit and
+# the terminal panel.
+full = ["syntax", "lsp", "git", "terminal"]
+
+# One subsystem at a time, for a build that wants some of them.
+syntax = ["maxgus-core/syntax", "dep:maxgus-syntax"]
+lsp = ["maxgus-core/lsp", "dep:maxgus-lsp"]
+git = ["maxgus-core/git", "dep:maxgus-git"]
+terminal = ["maxgus-core/terminal", "dep:maxgus-term", "dep:portable-pty"]
+
+# Everything in `full`, drawn in a window by the GPU as well as in a terminal.
+gui = ["full", "dep:maxgus-gui", "maxgus-gui/full"]

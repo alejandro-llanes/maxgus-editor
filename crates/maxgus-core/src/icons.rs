@@ -13,19 +13,25 @@ use std::path::Path;
 
 /// The glyph for a file, chosen by name first and extension second.
 pub fn for_file(path: &Path) -> char {
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
     if let Some(glyph) = for_file_name(name) {
         return glyph;
     }
-    let extension =
-        path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     for_extension(&extension)
 }
 
 /// Files recognised by their whole name rather than an extension.
 fn for_file_name(name: &str) -> Option<char> {
     Some(match name {
-        "Cargo.toml" | "Cargo.lock" => '\u{e7a8}',       // rust
+        "Cargo.toml" | "Cargo.lock" => '\u{e7a8}', // rust
         "Makefile" | "makefile" | "GNUmakefile" => '\u{e779}',
         "Dockerfile" | "docker-compose.yml" => '\u{e7b0}',
         ".gitignore" | ".gitattributes" | ".gitmodules" => '\u{e702}',
@@ -87,6 +93,33 @@ fn for_extension(extension: &str) -> char {
 }
 
 /// A file nothing more specific is known about.
+/// The glyph for an LSP `SymbolKind`, 1 to 26.
+///
+/// The outline is read by shape before it is read by name, so a function and
+/// a field should not look alike even when their names do.
+pub fn for_symbol(kind: u8) -> char {
+    match kind {
+        2..=4 => '\u{f487}',        // module, namespace, package
+        5 | 11 | 23 => '\u{f0e8}',  // class, interface, struct
+        6 | 9 => '\u{f6a6}',        // method, constructor
+        7 | 8 => '\u{f30b}',        // property, field
+        10 | 22 | 24 => '\u{f0e7}', // enum, enum member, event
+        12 => '\u{f0295}',          // function
+        13 => '\u{f0b07}',          // variable
+        14 => '\u{f8ff}',           // constant
+        15 => '\u{f77e}',           // string
+        16 => '\u{f89f}',           // number
+        17 => '\u{f6a9}',           // boolean
+        18 => '\u{f0169}',          // array
+        19 => '\u{f0233}',          // object
+        20 => '\u{f80a}',           // key
+        21 => '\u{f6be}',           // null
+        25 => '\u{f04d6}',          // operator
+        26 => '\u{f0866}',          // type parameter
+        _ => '\u{f4a5}',
+    }
+}
+
 pub const FILE: char = '\u{f4a5}';
 /// A directory, closed and open.
 pub const DIRECTORY: char = '\u{f4d4}';
@@ -136,7 +169,10 @@ mod tests {
 
     #[test]
     fn extensions_are_matched_whatever_their_case() {
-        assert_eq!(for_file(Path::new("/p/README.MD")), for_file(Path::new("/p/notes.md")));
+        assert_eq!(
+            for_file(Path::new("/p/README.MD")),
+            for_file(Path::new("/p/notes.md"))
+        );
     }
 
     #[test]
@@ -150,8 +186,17 @@ mod tests {
         // A glyph outside the Nerd Font range would be a typo that draws as
         // something unrelated rather than as a missing-glyph box.
         let all = [
-            FILE, DIRECTORY, DIRECTORY_OPEN, SYMLINK, MODIFIED, SAVED, READ_ONLY,
-            BRANCH, ERROR, WARNING, POSITION,
+            FILE,
+            DIRECTORY,
+            DIRECTORY_OPEN,
+            SYMLINK,
+            MODIFIED,
+            SAVED,
+            READ_ONLY,
+            BRANCH,
+            ERROR,
+            WARNING,
+            POSITION,
         ];
         for glyph in all {
             let c = glyph as u32;

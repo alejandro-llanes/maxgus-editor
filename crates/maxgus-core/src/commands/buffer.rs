@@ -14,16 +14,48 @@ pub const BUFFER_LIST_NAME: &str = "*Buffer List*";
 /// Registers the buffer commands.
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
-        command!("switch-to-buffer", "Display another buffer in this window.", switch_to_buffer),
-        command!("switch-to-buffer-other-window", "Display another buffer in a new window.", switch_other_window),
+        command!(
+            "switch-to-buffer",
+            "Display another buffer in this window.",
+            switch_to_buffer
+        ),
+        command!(
+            "switch-to-buffer-other-window",
+            "Display another buffer in a new window.",
+            switch_other_window
+        ),
         command!("kill-buffer", "Kill a buffer.", kill_buffer),
         command!("list-buffers", "Show a list of every buffer.", list_buffers),
-        command!("next-buffer", "Display the next buffer in the list.", next_buffer),
-        command!("previous-buffer", "Display the previous buffer in the list.", previous_buffer),
-        command!("read-only-mode", "Toggle whether this buffer can be edited.", read_only_mode),
-        command!("rename-buffer", "Give this buffer another name.", rename_buffer),
-        command!("narrow-to-region", "Restrict editing to the region.", narrow_to_region),
-        command!("narrow-to-defun", "Restrict editing to the enclosing definition.", narrow_to_defun),
+        command!(
+            "next-buffer",
+            "Display the next buffer in the list.",
+            next_buffer
+        ),
+        command!(
+            "previous-buffer",
+            "Display the previous buffer in the list.",
+            previous_buffer
+        ),
+        command!(
+            "read-only-mode",
+            "Toggle whether this buffer can be edited.",
+            read_only_mode
+        ),
+        command!(
+            "rename-buffer",
+            "Give this buffer another name.",
+            rename_buffer
+        ),
+        command!(
+            "narrow-to-region",
+            "Restrict editing to the region.",
+            narrow_to_region
+        ),
+        command!(
+            "narrow-to-defun",
+            "Restrict editing to the enclosing definition.",
+            narrow_to_defun
+        ),
         command!("widen", "Remove any restriction on editing.", widen),
     ]);
 }
@@ -72,7 +104,11 @@ fn switch_to_buffer(editor: &mut Editor, args: &Args) -> Result<()> {
 
 fn switch_other_window(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(name) = args.input.clone() else {
-        prompt_for_buffer(editor, "switch-to-buffer-other-window", "Switch to buffer in other window");
+        prompt_for_buffer(
+            editor,
+            "switch-to-buffer-other-window",
+            "Switch to buffer in other window",
+        );
         return Ok(());
     };
     let id = resolve_buffer(editor, &name);
@@ -111,7 +147,12 @@ fn kill_buffer(editor: &mut Editor, args: &Args) -> Result<()> {
         .get(id)
         .is_some_and(|b| b.is_modified() && b.path().is_some());
     if unsaved && !args.prefix.is_present() {
-        let name = editor.buffers.get(id).expect("checked above").name().to_string();
+        let name = editor
+            .buffers
+            .get(id)
+            .expect("checked above")
+            .name()
+            .to_string();
         return Err(crate::CoreError::Message(format!(
             "Buffer `{name}` has unsaved changes; C-u C-x k kills it anyway"
         )));
@@ -138,7 +179,10 @@ fn list_buffers(editor: &mut Editor, _: &Args) -> Result<()> {
             buffer.name(),
             buffer.len_chars(),
             buffer.language().unwrap_or("Fundamental"),
-            buffer.path().map(|p| p.display().to_string()).unwrap_or_default(),
+            buffer
+                .path()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
         ));
     }
 
@@ -150,14 +194,22 @@ fn list_buffers(editor: &mut Editor, _: &Args) -> Result<()> {
         }
         None => editor.buffers.create_with_text(BUFFER_LIST_NAME, &listing),
     };
-    editor.buffers.get_mut(id).expect("just created").set_read_only(true);
+    editor
+        .buffers
+        .get_mut(id)
+        .expect("just created")
+        .set_read_only(true);
     editor.switch_to_buffer(id)
 }
 
 fn step_buffer(editor: &mut Editor, forward: bool, count: usize) -> Result<()> {
     let mut id = editor.current_buffer_id();
     for _ in 0..count {
-        let next = if forward { editor.buffers.next(id) } else { editor.buffers.previous(id) };
+        let next = if forward {
+            editor.buffers.next(id)
+        } else {
+            editor.buffers.previous(id)
+        };
         match next {
             Some(next) => id = next,
             None => return Err(crate::CoreError::Message("No other buffer".into())),
@@ -194,18 +246,30 @@ fn read_only_mode(editor: &mut Editor, args: &Args) -> Result<()> {
         b.set_read_only(next);
         next
     });
-    editor.message(if now { "Buffer is read-only" } else { "Buffer is writable" });
+    editor.message(if now {
+        "Buffer is read-only"
+    } else {
+        "Buffer is writable"
+    });
     Ok(())
 }
 
 fn rename_buffer(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(name) = args.input.clone() else {
         let current = editor.current_buffer().name().to_string();
-        editor.prompt_for("rename-buffer", MinibufferKind::Text, "Rename buffer to: ", &current, Vec::new());
+        editor.prompt_for(
+            "rename-buffer",
+            MinibufferKind::Text,
+            "Rename buffer to: ",
+            &current,
+            Vec::new(),
+        );
         return Ok(());
     };
     if name.is_empty() {
-        return Err(crate::CoreError::Message("Buffer name cannot be empty".into()));
+        return Err(crate::CoreError::Message(
+            "Buffer name cannot be empty".into(),
+        ));
     }
     let id = editor.current_buffer_id();
     let actual = editor.buffers.rename(id, &name)?;
@@ -235,7 +299,9 @@ fn narrow_to_defun(editor: &mut Editor, _: &Args) -> Result<()> {
         Range::new(start, end.max(start))
     };
     if range.is_empty() {
-        return Err(crate::CoreError::Message("No definition around point".into()));
+        return Err(crate::CoreError::Message(
+            "No definition around point".into(),
+        ));
     }
     editor.with_current_buffer(|b| b.narrow(range));
     editor.follow_point();
@@ -280,7 +346,10 @@ mod tests {
 
     fn run(d: &mut Dispatcher, e: &mut Editor, command: &str) {
         let out = d.execute(e, command, None);
-        assert!(!matches!(out, Dispatch::Failed { .. }), "`{command}` failed: {out:?}");
+        assert!(
+            !matches!(out, Dispatch::Failed { .. }),
+            "`{command}` failed: {out:?}"
+        );
     }
 
     fn fails(d: &mut Dispatcher, e: &mut Editor, command: &str) -> String {
@@ -304,7 +373,13 @@ mod tests {
     fn every_buffer_binding_is_registered() {
         let mut registry = Registry::new();
         register(&mut registry);
-        for name in ["switch-to-buffer", "kill-buffer", "list-buffers", "read-only-mode", "widen"] {
+        for name in [
+            "switch-to-buffer",
+            "kill-buffer",
+            "list-buffers",
+            "read-only-mode",
+            "widen",
+        ] {
             assert!(registry.contains(name), "`{name}` is missing");
         }
     }
@@ -326,7 +401,11 @@ mod tests {
         e.switch_to_buffer(scratch).unwrap();
 
         d.execute(&mut e, "switch-to-buffer", None);
-        assert!(e.minibuffer.prompt().contains("default notes"), "got `{}`", e.minibuffer.prompt());
+        assert!(
+            e.minibuffer.prompt().contains("default notes"),
+            "got `{}`",
+            e.minibuffer.prompt()
+        );
 
         // An empty answer takes the default.
         d.handle_keys(&mut e, "RET");
@@ -440,7 +519,10 @@ mod tests {
         run(&mut d, &mut e, "list-buffers");
         run(&mut d, &mut e, "list-buffers");
         assert_eq!(
-            e.buffers.iter().filter(|b| b.name() == BUFFER_LIST_NAME).count(),
+            e.buffers
+                .iter()
+                .filter(|b| b.name() == BUFFER_LIST_NAME)
+                .count(),
             1,
             "no `*Buffer List*<2>`"
         );
@@ -469,7 +551,11 @@ mod tests {
         let after_one = e.current_buffer_id();
         run(&mut d, &mut e, "next-buffer");
         assert_ne!(e.current_buffer_id(), after_one);
-        assert_eq!(e.buffers.ids(), order_before.as_slice(), "the order is untouched");
+        assert_eq!(
+            e.buffers.ids(),
+            order_before.as_slice(),
+            "the order is untouched"
+        );
 
         run(&mut d, &mut e, "previous-buffer");
         assert_eq!(e.current_buffer_id(), after_one);
@@ -501,7 +587,11 @@ mod tests {
         e.switch_to_buffer(id).unwrap();
 
         d.execute(&mut e, "rename-buffer", None);
-        assert_eq!(e.minibuffer.input(), "original", "pre-filled with the current name");
+        assert_eq!(
+            e.minibuffer.input(),
+            "original",
+            "pre-filled with the current name"
+        );
         e.minibuffer.kill_whole();
         for c in "taken".chars() {
             e.minibuffer.insert_char(c);

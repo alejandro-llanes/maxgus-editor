@@ -13,23 +13,108 @@ use crate::{
 /// Registers the minibuffer commands.
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
-        command!("minibuffer-self-insert", "Insert the typed character into the prompt.", self_insert, non_interactive),
-        command!("minibuffer-complete-and-exit", "Accept what has been typed.", complete_and_exit, non_interactive),
-        command!("minibuffer-keyboard-quit", "Abandon the prompt.", keyboard_quit, non_interactive),
-        command!("minibuffer-complete", "Complete what has been typed.", complete, non_interactive),
-        command!("minibuffer-complete-backward", "Cycle completions backwards.", complete_backward, non_interactive),
-        command!("minibuffer-complete-word", "Complete, or insert a space.", complete_word, non_interactive),
-        command!("minibuffer-delete-backward-char", "Delete the character before point.", delete_backward, non_interactive),
-        command!("minibuffer-delete-char", "Delete the character after point.", delete_forward, non_interactive),
-        command!("minibuffer-beginning-of-line", "Move to the start of the prompt.", beginning_of_line, non_interactive),
-        command!("minibuffer-end-of-line", "Move to the end of the prompt.", end_of_line, non_interactive),
-        command!("minibuffer-forward-char", "Move forward one character.", forward_char, non_interactive),
-        command!("minibuffer-backward-char", "Move backward one character.", backward_char, non_interactive),
-        command!("minibuffer-kill-line", "Kill to the end of the prompt.", kill_line, non_interactive),
-        command!("minibuffer-backward-kill-word", "Kill the word before point.", backward_kill_word, non_interactive),
-        command!("minibuffer-previous-history", "Recall the previous entry.", previous_history, non_interactive),
-        command!("minibuffer-next-history", "Recall the next entry.", next_history, non_interactive),
-        command!("minibuffer-yank", "Insert the most recent kill.", yank, non_interactive),
+        command!(
+            "minibuffer-self-insert",
+            "Insert the typed character into the prompt.",
+            self_insert,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-complete-and-exit",
+            "Accept what has been typed.",
+            complete_and_exit,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-keyboard-quit",
+            "Abandon the prompt.",
+            keyboard_quit,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-complete",
+            "Complete what has been typed.",
+            complete,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-complete-backward",
+            "Cycle completions backwards.",
+            complete_backward,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-complete-word",
+            "Complete, or insert a space.",
+            complete_word,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-delete-backward-char",
+            "Delete the character before point.",
+            delete_backward,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-delete-char",
+            "Delete the character after point.",
+            delete_forward,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-beginning-of-line",
+            "Move to the start of the prompt.",
+            beginning_of_line,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-end-of-line",
+            "Move to the end of the prompt.",
+            end_of_line,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-forward-char",
+            "Move forward one character.",
+            forward_char,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-backward-char",
+            "Move backward one character.",
+            backward_char,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-kill-line",
+            "Kill to the end of the prompt.",
+            kill_line,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-backward-kill-word",
+            "Kill the word before point.",
+            backward_kill_word,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-previous-history",
+            "Recall the previous entry.",
+            previous_history,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-next-history",
+            "Recall the next entry.",
+            next_history,
+            non_interactive
+        ),
+        command!(
+            "minibuffer-yank",
+            "Insert the most recent kill.",
+            yank,
+            non_interactive
+        ),
         command!(
             "minibuffer-next-candidate",
             "Move down the candidate list, or forward through the history.",
@@ -93,7 +178,7 @@ fn page(editor: &Editor) -> isize {
 /// The arrows walk the candidate list when there is one, and the history when
 /// there is not — so they stay useful in a prompt that does not complete.
 fn move_candidate(editor: &mut Editor, delta: isize) -> Result<()> {
-    if editor.minibuffer.completion().visible && editor.minibuffer.move_selection(delta) {
+    if editor.minibuffer.completion().visible && editor.move_completion_selection(delta) {
         return Ok(());
     }
     match delta > 0 {
@@ -140,6 +225,7 @@ fn complete(editor: &mut Editor, _: &Args) -> Result<()> {
     // opens — must not turn this first TAB into a cycle.
     if editor.minibuffer.completion().cycling {
         editor.minibuffer.cycle_completion(true);
+        editor.follow_completion_selection();
         return Ok(());
     }
     if !editor.minibuffer.complete(&candidates) && editor.minibuffer.completion().is_empty() {
@@ -150,6 +236,7 @@ fn complete(editor: &mut Editor, _: &Args) -> Result<()> {
 
 fn complete_backward(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.minibuffer.cycle_completion(false);
+    editor.follow_completion_selection();
     Ok(())
 }
 
@@ -262,7 +349,11 @@ mod tests {
                     MinibufferKind::Command,
                     "Echo: ",
                     "",
-                    vec!["save-buffer".into(), "save-some-buffers".into(), "find-file".into()],
+                    vec![
+                        "save-buffer".into(),
+                        "save-some-buffers".into(),
+                        "find-file".into(),
+                    ],
                 );
                 Ok(())
             }
@@ -288,9 +379,15 @@ mod tests {
         let mut registry = Registry::new();
         register(&mut registry);
         for (keys, command) in crate::keymap::MINIBUFFER_BINDINGS {
-            assert!(registry.contains(command), "`{keys}` runs unregistered `{command}`");
+            assert!(
+                registry.contains(command),
+                "`{keys}` runs unregistered `{command}`"
+            );
         }
-        assert!(registry.contains("minibuffer-self-insert"), "the fallback binding");
+        assert!(
+            registry.contains("minibuffer-self-insert"),
+            "the fallback binding"
+        );
     }
 
     #[test]
@@ -335,7 +432,10 @@ mod tests {
     fn the_global_map_returns_once_the_prompt_closes() {
         let (mut d, mut e) = setup();
         d.execute(&mut e, "echo-input", None);
-        assert_eq!(d.handle_keys(&mut e, "C-f").command(), Some("minibuffer-forward-char"));
+        assert_eq!(
+            d.handle_keys(&mut e, "C-f").command(),
+            Some("minibuffer-forward-char")
+        );
         d.handle_keys(&mut e, "RET");
         assert_eq!(d.handle_keys(&mut e, "C-f").command(), Some("forward-char"));
     }
@@ -387,7 +487,13 @@ mod tests {
     fn word_deletion_works_on_the_prompt() {
         let (mut d, mut e) = setup();
         // A file prompt, where SPC inserts a space rather than completing.
-        e.prompt_for("echo-input", MinibufferKind::File, "Find file: ", "", Vec::new());
+        e.prompt_for(
+            "echo-input",
+            MinibufferKind::File,
+            "Find file: ",
+            "",
+            Vec::new(),
+        );
         for key in ["a", "b", "SPC", "c", "d"] {
             d.handle_keys(&mut e, key);
         }
@@ -404,7 +510,11 @@ mod tests {
             d.handle_keys(&mut e, key);
         }
         d.handle_keys(&mut e, "TAB");
-        assert_eq!(e.minibuffer.input(), "save-", "the common prefix of two matches");
+        assert_eq!(
+            e.minibuffer.input(),
+            "save-",
+            "the common prefix of two matches"
+        );
     }
 
     #[test]
@@ -475,7 +585,13 @@ mod tests {
         assert_eq!(e.minibuffer.input(), "save-", "SPC completed");
 
         e.abort_prompt();
-        e.prompt_for("echo-input", MinibufferKind::File, "Find file: ", "", Vec::new());
+        e.prompt_for(
+            "echo-input",
+            MinibufferKind::File,
+            "Find file: ",
+            "",
+            Vec::new(),
+        );
         d.handle_keys(&mut e, "a");
         d.handle_keys(&mut e, "SPC");
         assert_eq!(e.minibuffer.input(), "a ", "file names may contain spaces");
@@ -484,7 +600,13 @@ mod tests {
     #[test]
     fn a_single_key_prompt_answers_on_the_first_character() {
         let (mut d, mut e) = setup();
-        e.prompt_for("echo-input", MinibufferKind::Char, "Register: ", "", Vec::new());
+        e.prompt_for(
+            "echo-input",
+            MinibufferKind::Char,
+            "Register: ",
+            "",
+            Vec::new(),
+        );
         d.handle_keys(&mut e, "a");
         assert!(!e.minibuffer.is_active(), "no RET needed");
         assert_eq!(e.minibuffer.display(), "got `a` x1");
@@ -503,7 +625,13 @@ mod tests {
     #[test]
     fn a_prompt_can_start_pre_filled() {
         let (mut d, mut e) = setup();
-        e.prompt_for("echo-input", MinibufferKind::File, "Find file: ", "/tmp/", Vec::new());
+        e.prompt_for(
+            "echo-input",
+            MinibufferKind::File,
+            "Find file: ",
+            "/tmp/",
+            Vec::new(),
+        );
         assert_eq!(e.minibuffer.input(), "/tmp/");
         d.handle_keys(&mut e, "a");
         d.handle_keys(&mut e, "RET");

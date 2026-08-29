@@ -1,87 +1,115 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1019" height="568" viewBox="0 0 1019 568" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="14" role="img" aria-label="maxgus">
 <rect width="1019" height="568" rx="10" fill="#1d1f21"/>
-<rect x="22.4" y="50.0" width="974.4" height="18" fill="#373b41"/>
+<rect x="224.0" y="50.0" width="571.2" height="18" fill="#373b41"/>
+<rect x="14.0" y="104.0" width="201.6" height="18" fill="#373b41"/>
+<rect x="14.0" y="266.0" width="201.6" height="18" fill="#282a2e"/>
+<rect x="14.0" y="284.0" width="201.6" height="18" fill="#373b41"/>
+<rect x="14.0" y="392.0" width="268.8" height="18" fill="#282a2e"/>
+<rect x="14.0" y="410.0" width="268.8" height="18" fill="#373b41"/>
 <rect x="14.0" y="518.0" width="991.2" height="18" fill="#282a2e"/>
-<text x="14.0" y="27.3" fill="#373b41" textLength="991.2" lengthAdjust="spacing" xml:space="preserve">╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮</text>
-<text x="14.0" y="45.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="22.4" y="45.3" fill="#de935f" font-weight="bold" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">1/11 </text>
-<text x="64.4" y="45.3" fill="#81a2be" font-weight="bold" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">M-x </text>
-<text x="98.0" y="45.3" fill="#c5c8c6" textLength="898.8" lengthAdjust="spacing" xml:space="preserve">sbf                                                                                                        </text>
-<text x="996.8" y="45.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="14.0" y="63.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="22.4" y="63.3" fill="#c5c8c6" font-weight="bold" textLength="974.4" lengthAdjust="spacing" xml:space="preserve">save-buffer                   C-x C-s    Save this buffer to its file.                                              </text>
-<text x="996.8" y="63.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="14.0" y="81.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="22.4" y="81.3" fill="#c5c8c6" textLength="344.4" lengthAdjust="spacing" xml:space="preserve">save-buffer-anyway                       </text>
-<text x="366.8" y="81.3" fill="#969896" font-style="italic" textLength="352.8" lengthAdjust="spacing" xml:space="preserve">Save over a file that has changed on disk.</text>
-<text x="996.8" y="81.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="14.0" y="99.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="22.4" y="99.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">set-buffer-file-coding-system </text>
-<text x="274.4" y="99.3" fill="#8abeb7" textLength="75.6" lengthAdjust="spacing" xml:space="preserve">C-x RET f</text>
-<text x="366.8" y="99.3" fill="#969896" font-style="italic" textLength="420.0" lengthAdjust="spacing" xml:space="preserve">Choose the line endings this buffer is saved with.</text>
-<text x="996.8" y="99.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="14.0" y="117.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="22.4" y="117.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">save-buffers-kill-terminal    </text>
-<text x="274.4" y="117.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-x C-c</text>
-<text x="366.8" y="117.3" fill="#969896" font-style="italic" textLength="218.4" lengthAdjust="spacing" xml:space="preserve">Save and leave the editor.</text>
-<text x="996.8" y="117.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="14.0" y="135.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="22.4" y="135.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">save-some-buffers             </text>
-<text x="274.4" y="135.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">C-x s</text>
-<text x="366.8" y="135.3" fill="#969896" font-style="italic" textLength="327.6" lengthAdjust="spacing" xml:space="preserve">Save every buffer with unsaved changes.</text>
-<text x="996.8" y="135.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="14.0" y="153.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="22.4" y="153.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">switch-to-buffer              </text>
-<text x="274.4" y="153.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">C-x b</text>
-<text x="366.8" y="153.3" fill="#969896" font-style="italic" textLength="319.2" lengthAdjust="spacing" xml:space="preserve">Display another buffer in this window.</text>
-<text x="996.8" y="153.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="14.0" y="171.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="22.4" y="171.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">switch-to-buffer-other-window </text>
-<text x="274.4" y="171.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-x 4 b</text>
-<text x="366.8" y="171.3" fill="#969896" font-style="italic" textLength="327.6" lengthAdjust="spacing" xml:space="preserve">Display another buffer in a new window.</text>
-<text x="996.8" y="171.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="14.0" y="189.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="22.4" y="189.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">list-buffers                  </text>
-<text x="274.4" y="189.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-x C-b</text>
-<text x="366.8" y="189.3" fill="#969896" font-style="italic" textLength="235.2" lengthAdjust="spacing" xml:space="preserve">Show a list of every buffer.</text>
-<text x="996.8" y="189.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="14.0" y="207.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="22.4" y="207.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">describe-function             </text>
-<text x="274.4" y="207.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">C-h f</text>
-<text x="366.8" y="207.3" fill="#969896" font-style="italic" textLength="260.4" lengthAdjust="spacing" xml:space="preserve">Show a command's documentation.</text>
-<text x="996.8" y="207.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="14.0" y="225.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="22.4" y="225.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">previous-buffer               </text>
-<text x="274.4" y="225.3" fill="#8abeb7" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">C-x &lt;left&gt;</text>
-<text x="366.8" y="225.3" fill="#969896" font-style="italic" textLength="336.0" lengthAdjust="spacing" xml:space="preserve">Display the previous buffer in the list.</text>
-<text x="996.8" y="225.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="14.0" y="243.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="22.4" y="243.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">lsp-format-buffer             </text>
-<text x="274.4" y="243.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-c l f</text>
-<text x="366.8" y="243.3" fill="#969896" font-style="italic" textLength="176.4" lengthAdjust="spacing" xml:space="preserve">Reformat this buffer.</text>
-<text x="996.8" y="243.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="14.0" y="261.3" fill="#373b41" textLength="991.2" lengthAdjust="spacing" xml:space="preserve">╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</text>
-<text x="81.2" y="279.3" fill="#c5c8c6" textLength="201.6" lengthAdjust="spacing" xml:space="preserve">nord.kdl                </text>
-<text x="282.8" y="279.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">15 </text>
-<text x="341.6" y="279.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">let</text>
-<text x="375.2" y="279.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">mut</text>
-<text x="400.4" y="279.3" fill="#c5c8c6" textLength="75.6" lengthAdjust="spacing" xml:space="preserve"> score = </text>
-<text x="476.0" y="279.3" fill="#de935f" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">0</text>
-<text x="484.4" y="279.3" fill="#c5c8c6" textLength="520.8" lengthAdjust="spacing" xml:space="preserve">;                                                             </text>
-<text x="47.6" y="297.3" fill="#c5c8c6" textLength="235.2" lengthAdjust="spacing" xml:space="preserve">Cargo.toml                  </text>
-<text x="282.8" y="297.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">16 </text>
-<text x="341.6" y="297.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">let</text>
-<text x="375.2" y="297.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">mut</text>
-<text x="400.4" y="297.3" fill="#c5c8c6" textLength="92.4" lengthAdjust="spacing" xml:space="preserve"> previous: </text>
-<text x="492.8" y="297.3" fill="#f0c674" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">Option</text>
-<text x="543.2" y="297.3" fill="#c5c8c6" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">&lt;</text>
-<text x="551.6" y="297.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">usize</text>
-<text x="593.6" y="297.3" fill="#c5c8c6" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">&gt; = </text>
-<text x="627.2" y="297.3" fill="#81a2be" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">None</text>
-<text x="660.8" y="297.3" fill="#c5c8c6" textLength="344.4" lengthAdjust="spacing" xml:space="preserve">;                                        </text>
-<text x="47.6" y="315.3" fill="#c5c8c6" textLength="218.4" lengthAdjust="spacing" xml:space="preserve">README.md                 </text>
-<text x="266.0" y="315.3" fill="#f0c674" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">M</text>
+<text x="14.0" y="27.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="30.8" y="27.3" fill="#b294bb" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">maxgus</text>
+<text x="215.6" y="27.3" fill="#373b41" textLength="588.0" lengthAdjust="spacing" xml:space="preserve">╭────────────────────────────────────────────────────────────────────╮</text>
+<text x="30.8" y="45.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="47.6" y="45.3" fill="#81a2be" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">crates</text>
+<text x="215.6" y="45.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="224.0" y="45.3" fill="#de935f" font-weight="bold" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">1/13 </text>
+<text x="266.0" y="45.3" fill="#81a2be" font-weight="bold" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">M-x </text>
+<text x="299.6" y="45.3" fill="#c5c8c6" textLength="495.6" lengthAdjust="spacing" xml:space="preserve">sbf                                                        </text>
+<text x="795.2" y="45.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="47.6" y="63.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="64.4" y="63.3" fill="#81a2be" font-weight="bold" textLength="92.4" lengthAdjust="spacing" xml:space="preserve">maxgus-core</text>
+<text x="215.6" y="63.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="224.0" y="63.3" fill="#c5c8c6" font-weight="bold" textLength="571.2" lengthAdjust="spacing" xml:space="preserve">save-buffer                   C-x C-s    Save this buffer to its fil</text>
+<text x="795.2" y="63.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="803.6" y="63.3" fill="#969896" font-style="italic" textLength="109.2" lengthAdjust="spacing" xml:space="preserve">in order, not</text>
+<text x="64.4" y="81.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="81.2" y="81.3" fill="#81a2be" font-weight="bold" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">src</text>
+<text x="215.6" y="81.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="224.0" y="81.3" fill="#c5c8c6" textLength="344.4" lengthAdjust="spacing" xml:space="preserve">save-buffer-anyway                       </text>
+<text x="568.4" y="81.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Save over a file that has c</text>
+<text x="795.2" y="81.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="803.6" y="81.3" fill="#969896" font-style="italic" textLength="126.0" lengthAdjust="spacing" xml:space="preserve">g is what makes</text>
+<text x="98.0" y="99.3" fill="#c5c8c6" textLength="117.6" lengthAdjust="spacing" xml:space="preserve">editor.rs     </text>
+<text x="215.6" y="99.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="224.0" y="99.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">set-buffer-file-coding-system </text>
+<text x="476.0" y="99.3" fill="#8abeb7" textLength="75.6" lengthAdjust="spacing" xml:space="preserve">C-x RET f</text>
+<text x="568.4" y="99.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Choose the line endings thi</text>
+<text x="795.2" y="99.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="98.0" y="117.3" fill="#c5c8c6" font-weight="bold" textLength="117.6" lengthAdjust="spacing" xml:space="preserve">fuzzy.rs      </text>
+<text x="215.6" y="117.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="224.0" y="117.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">save-buffers-kill-terminal    </text>
+<text x="476.0" y="117.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-x C-c</text>
+<text x="568.4" y="117.3" fill="#969896" font-style="italic" textLength="218.4" lengthAdjust="spacing" xml:space="preserve">Save and leave the editor.</text>
+<text x="795.2" y="117.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="98.0" y="135.3" fill="#c5c8c6" textLength="117.6" lengthAdjust="spacing" xml:space="preserve">render.rs     </text>
+<text x="215.6" y="135.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="224.0" y="135.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">save-some-buffers             </text>
+<text x="476.0" y="135.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">C-x s</text>
+<text x="568.4" y="135.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Save every buffer with unsa</text>
+<text x="795.2" y="135.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="803.6" y="135.3" fill="#969896" font-style="italic" textLength="126.0" lengthAdjust="spacing" xml:space="preserve">oes not at all.</text>
+<text x="47.6" y="153.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="64.4" y="153.3" fill="#81a2be" font-weight="bold" textLength="100.8" lengthAdjust="spacing" xml:space="preserve">maxgus-faces</text>
+<text x="215.6" y="153.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="224.0" y="153.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">switch-to-buffer              </text>
+<text x="476.0" y="153.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">C-x b</text>
+<text x="568.4" y="153.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Display another buffer in t</text>
+<text x="795.2" y="153.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="47.6" y="171.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="64.4" y="171.3" fill="#81a2be" font-weight="bold" textLength="109.2" lengthAdjust="spacing" xml:space="preserve">maxgus-syntax</text>
+<text x="215.6" y="171.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="224.0" y="171.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">switch-to-buffer-other-window </text>
+<text x="476.0" y="171.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-x 4 b</text>
+<text x="568.4" y="171.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Display another buffer in a</text>
+<text x="795.2" y="171.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="47.6" y="189.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="64.4" y="189.3" fill="#81a2be" font-weight="bold" textLength="92.4" lengthAdjust="spacing" xml:space="preserve">maxgus-tree</text>
+<text x="215.6" y="189.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="224.0" y="189.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">panel-select-buffers          </text>
+<text x="476.0" y="189.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-x t 3</text>
+<text x="568.4" y="189.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Select the buffer list wind</text>
+<text x="795.2" y="189.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="30.8" y="207.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="47.6" y="207.3" fill="#81a2be" font-weight="bold" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">docs</text>
+<text x="215.6" y="207.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="224.0" y="207.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">list-buffers                  </text>
+<text x="476.0" y="207.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-x C-b</text>
+<text x="568.4" y="207.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Show a list of every buffer</text>
+<text x="795.2" y="207.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="47.6" y="225.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="64.4" y="225.3" fill="#81a2be" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">themes</text>
+<text x="215.6" y="225.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="224.0" y="225.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">describe-function             </text>
+<text x="476.0" y="225.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">C-h f</text>
+<text x="568.4" y="225.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Show a command's documentat</text>
+<text x="795.2" y="225.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="803.6" y="225.3" fill="#969896" font-style="italic" textLength="109.2" lengthAdjust="spacing" xml:space="preserve">es it matter.</text>
+<text x="81.2" y="243.3" fill="#c5c8c6" textLength="134.4" lengthAdjust="spacing" xml:space="preserve">dracula.kdl     </text>
+<text x="215.6" y="243.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="224.0" y="243.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">previous-buffer               </text>
+<text x="476.0" y="243.3" fill="#8abeb7" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">C-x &lt;left&gt;</text>
+<text x="568.4" y="243.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Display the previous buffer</text>
+<text x="795.2" y="243.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="81.2" y="261.3" fill="#c5c8c6" textLength="134.4" lengthAdjust="spacing" xml:space="preserve">gruvbox.kdl     </text>
+<text x="215.6" y="261.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="224.0" y="261.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">lsp-format-buffer             </text>
+<text x="476.0" y="261.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-c l f</text>
+<text x="568.4" y="261.3" fill="#969896" font-style="italic" textLength="176.4" lengthAdjust="spacing" xml:space="preserve">Reformat this buffer.</text>
+<text x="795.2" y="261.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="279.3" fill="#969896" textLength="201.6" lengthAdjust="spacing" xml:space="preserve"> %% 280 *treefile*  6:0 </text>
+<text x="215.6" y="279.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="224.0" y="279.3" fill="#c5c8c6" textLength="344.4" lengthAdjust="spacing" xml:space="preserve">magit-process-buffer                     </text>
+<text x="568.4" y="279.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Show what git has been aske</text>
+<text x="795.2" y="279.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="47.6" y="297.3" fill="#81a2be" font-weight="bold" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">score</text>
+<text x="215.6" y="297.3" fill="#373b41" textLength="588.0" lengthAdjust="spacing" xml:space="preserve">╰────────────────────────────────────────────────────────────────────╯</text>
+<text x="30.8" y="315.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="47.6" y="315.3" fill="#f0c674" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">Match</text>
+<text x="224.0" y="315.3" fill="#969896" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">struct</text>
 <text x="282.8" y="315.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">17 </text>
+<text x="64.4" y="333.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">score</text>
+<text x="232.4" y="333.3" fill="#969896" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">field</text>
 <text x="282.8" y="333.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">18 </text>
 <text x="341.6" y="333.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">for</text>
 <text x="375.2" y="333.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">&amp;</text>
@@ -97,6 +125,8 @@
 <text x="702.8" y="333.3" fill="#c5c8c6" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">&lt;</text>
 <text x="711.2" y="333.3" fill="#f0c674" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">_</text>
 <text x="719.6" y="333.3" fill="#c5c8c6" textLength="285.6" lengthAdjust="spacing" xml:space="preserve">&gt;&gt;() {                            </text>
+<text x="64.4" y="351.3" fill="#8abeb7" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">at</text>
+<text x="232.4" y="351.3" fill="#969896" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">field</text>
 <text x="282.8" y="351.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">19 </text>
 <text x="375.2" y="351.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">let</text>
 <text x="400.4" y="351.3" fill="#c5c8c6" textLength="117.6" lengthAdjust="spacing" xml:space="preserve"> found = text.</text>
@@ -108,21 +138,27 @@
 <text x="669.2" y="351.3" fill="#c5c8c6" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">t| </text>
 <text x="694.4" y="351.3" fill="#81a2be" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">same</text>
 <text x="728.0" y="351.3" fill="#c5c8c6" textLength="277.2" lengthAdjust="spacing" xml:space="preserve">(t, wanted, fold))?;             </text>
+<text x="47.6" y="369.3" fill="#81a2be" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">matches</text>
+<text x="257.6" y="369.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">fn</text>
 <text x="282.8" y="369.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">20 </text>
 <text x="375.2" y="369.3" fill="#b294bb" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">if</text>
 <text x="400.4" y="369.3" fill="#81a2be" textLength="92.4" lengthAdjust="spacing" xml:space="preserve">is_boundary</text>
 <text x="492.8" y="369.3" fill="#c5c8c6" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">(</text>
 <text x="501.2" y="369.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">&amp;</text>
 <text x="509.6" y="369.3" fill="#c5c8c6" textLength="495.6" lengthAdjust="spacing" xml:space="preserve">text, found) {                                             </text>
+<text x="47.6" y="387.3" fill="#81a2be" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">same</text>
+<text x="257.6" y="387.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">fn</text>
 <text x="282.8" y="387.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">21 </text>
 <text x="308.0" y="387.3" fill="#c5c8c6" textLength="176.4" lengthAdjust="spacing" xml:space="preserve">            score += </text>
 <text x="484.4" y="387.3" fill="#de935f" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">16</text>
 <text x="501.2" y="387.3" fill="#c5c8c6" textLength="504.0" lengthAdjust="spacing" xml:space="preserve">;                                                           </text>
-<text x="282.8" y="405.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">22 </text>
+<text x="14.0" y="405.3" fill="#969896" textLength="294.0" lengthAdjust="spacing" xml:space="preserve"> %% 50 *symbols*  1:0  All      22 </text>
 <text x="308.0" y="405.3" fill="#c5c8c6" textLength="697.2" lengthAdjust="spacing" xml:space="preserve">        }                                                                          </text>
+<text x="30.8" y="423.3" fill="#f0c674" font-weight="bold" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">│ fuzzy.rs</text>
 <text x="282.8" y="423.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">23 </text>
 <text x="375.2" y="423.3" fill="#b294bb" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">match</text>
 <text x="417.2" y="423.3" fill="#c5c8c6" textLength="588.0" lengthAdjust="spacing" xml:space="preserve"> previous {                                                           </text>
+<text x="14.0" y="441.3" fill="#c5c8c6" textLength="268.8" lengthAdjust="spacing" xml:space="preserve">    *scratch*                   </text>
 <text x="282.8" y="441.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">24 </text>
 <text x="408.8" y="441.3" fill="#969896" font-style="italic" textLength="504.0" lengthAdjust="spacing" xml:space="preserve">// Letters that follow one another are the strongest signal.</text>
 <text x="282.8" y="459.3" fill="#f0c674" font-weight="bold" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">25 </text>
@@ -158,10 +194,11 @@
 <text x="728.0" y="495.3" fill="#c5c8c6" textLength="277.2" lengthAdjust="spacing" xml:space="preserve">),                               </text>
 <text x="282.8" y="513.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">28 </text>
 <text x="308.0" y="513.3" fill="#c5c8c6" textLength="697.2" lengthAdjust="spacing" xml:space="preserve">        }                                                                          </text>
-<text x="14.0" y="531.3" fill="#969896" textLength="268.8" lengthAdjust="spacing" xml:space="preserve"> %% *treefile*  6:0  All  main  </text>
+<text x="14.0" y="531.3" fill="#969896" textLength="268.8" lengthAdjust="spacing" xml:space="preserve"> %% 23 *buffers*  1:0  All      </text>
 <text x="282.8" y="531.3" fill="#b5bd68" font-weight="bold" textLength="33.6" lengthAdjust="spacing" xml:space="preserve"> -- </text>
-<text x="316.4" y="531.3" fill="#81a2be" font-weight="bold" textLength="67.2" lengthAdjust="spacing" xml:space="preserve">fuzzy.rs</text>
-<text x="383.6" y="531.3" fill="#969896" textLength="100.8" lengthAdjust="spacing" xml:space="preserve">  25:37  Top</text>
-<text x="484.4" y="531.3" fill="#b5bd68" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">  main</text>
-<text x="534.8" y="531.3" fill="#c5c8c6" textLength="470.4" lengthAdjust="spacing" xml:space="preserve">  rust                                                  </text>
+<text x="316.4" y="531.3" fill="#969896" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">1.2k </text>
+<text x="358.4" y="531.3" fill="#81a2be" font-weight="bold" textLength="100.8" lengthAdjust="spacing" xml:space="preserve">src/fuzzy.rs</text>
+<text x="459.2" y="531.3" fill="#969896" textLength="100.8" lengthAdjust="spacing" xml:space="preserve">  25:37  Top</text>
+<text x="887.6" y="531.3" fill="#b5bd68" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">  main</text>
+<text x="938.0" y="531.3" fill="#c5c8c6" textLength="67.2" lengthAdjust="spacing" xml:space="preserve">  rust  </text>
 </svg>

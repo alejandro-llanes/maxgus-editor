@@ -1,0 +1,74 @@
+name: Features
+
+# The editor ships in three sizes, and a `#[cfg]` that only ever gets built one
+# way rots quietly. This builds every combination on every push, which is what
+# stops the minimal build from failing the first time someone asks for it.
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # A feature combination that only compiles by accident of a warning is not a
+  # combination anyone should ship.
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  combinations:
+    name: ${{ matrix.features }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - minimal
+          - syntax
+          - lsp
+          - git
+          - terminal
+          - "lsp,git"
+          - "syntax,lsp"
+          - "git,terminal"
+          - full
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.features }}
+      - name: Build
+        run: cargo build --workspace --no-default-features --features ${{ matrix.features }}
+      - name: Test
+        run: cargo test --workspace --no-default-features --features ${{ matrix.features }}
+
+  # The window needs system libraries the others do not, so it is its own job
+  # rather than another row of the matrix.
+  gui:
+    name: gui
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install what a window needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev
+      - name: Build
+        run: cargo build -p maxgus --features gui
+      - name: Test
+        run: cargo test -p maxgus-gui
+
+  lint:
+    name: clippy and fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets
+      - run: cargo clippy --workspace --all-targets --no-default-features

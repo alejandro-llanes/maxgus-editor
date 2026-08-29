@@ -49,6 +49,26 @@ pub struct Settings {
     /// fall back to plain text — which is what a terminal without one of those
     /// fonts wants, since the glyphs would otherwise draw as boxes.
     pub nerd_font_icons: bool,
+    /// Which of the side panel's three sections exist at all. A section that
+    /// is off is not drawn, not headed and not navigable: the panel is short
+    /// of rows, and a heading over something nobody wants is a wasted one.
+    pub panel_tree: bool,
+    pub panel_symbols: bool,
+    pub panel_buffers: bool,
+    /// How tall the outline and buffer-list windows are, in rows. The file
+    /// tree takes whatever they leave.
+    /// Open the side panel as soon as the editor starts.
+    pub panel_at_startup: bool,
+    pub panel_symbols_height: usize,
+    pub panel_buffers_height: usize,
+    /// The program a terminal tab starts. Unset means whatever `$SHELL` says,
+    /// which is what a user has already chosen once.
+    pub shell: Option<String>,
+    /// `gui-font`: the family the window draws with. Ignored by the terminal
+    /// front end, which uses whatever the terminal is configured with.
+    pub gui_font: String,
+    /// `gui-font-size`: its size in pixels.
+    pub gui_font_size: usize,
 }
 
 impl Default for Settings {
@@ -73,6 +93,18 @@ impl Default for Settings {
             blink_cursor: false,
             echo_keystrokes_ms: 1000,
             nerd_font_icons: true,
+            panel_tree: true,
+            panel_symbols: true,
+            panel_buffers: true,
+            panel_at_startup: false,
+            panel_symbols_height: 12,
+            panel_buffers_height: 8,
+            // A Nerd Font by default because the tree and the mode line draw
+            // glyphs from one; the loader falls through to whatever monospace
+            // font is installed when it is not there.
+            gui_font: "JetBrainsMono Nerd Font".into(),
+            gui_font_size: 16,
+            shell: None,
         }
     }
 }
@@ -99,6 +131,15 @@ pub const SETTING_NAMES: &[&str] = &[
     "blink-cursor",
     "echo-keystrokes-ms",
     "nerd-font-icons",
+    "panel-tree",
+    "panel-symbols",
+    "panel-buffers",
+    "panel-at-startup",
+    "panel-symbols-height",
+    "panel-buffers-height",
+    "shell",
+    "gui-font",
+    "gui-font-size",
 ];
 
 /// Every attribute a `face` node may carry.
@@ -130,10 +171,7 @@ pub fn closest_setting(name: &str) -> Option<&'static str> {
 ///
 /// Shared so that a misspelled face name gets the same help a misspelled
 /// setting does, rather than being silently ignored.
-pub fn closest_among<'a>(
-    name: &str,
-    candidates: impl Iterator<Item = &'a str>,
-) -> Option<&'a str> {
+pub fn closest_among<'a>(name: &str, candidates: impl Iterator<Item = &'a str>) -> Option<&'a str> {
     candidates
         .map(|candidate| (candidate, edit_distance(name, candidate)))
         .filter(|(_, d)| *d <= 2)

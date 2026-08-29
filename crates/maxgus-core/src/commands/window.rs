@@ -11,26 +11,74 @@ use crate::{
 /// Registers the window commands.
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
-        command!("split-window-below", "Split the selected window in two, stacked.", split_below),
-        command!("split-window-right", "Split the selected window in two, side by side.", split_right),
-        command!("delete-window", "Delete the selected window.", delete_window),
-        command!("delete-other-windows", "Delete every window but the selected one.", delete_other_windows),
+        command!(
+            "split-window-below",
+            "Split the selected window in two, stacked.",
+            split_below
+        ),
+        command!(
+            "split-window-right",
+            "Split the selected window in two, side by side.",
+            split_right
+        ),
+        command!(
+            "delete-window",
+            "Delete the selected window.",
+            delete_window
+        ),
+        command!(
+            "delete-other-windows",
+            "Delete every window but the selected one.",
+            delete_other_windows
+        ),
         command!("other-window", "Select another window.", other_window),
-        command!("windmove-left", "Select the window to the left.", windmove_left),
-        command!("windmove-right", "Select the window to the right.", windmove_right),
+        command!(
+            "windmove-left",
+            "Select the window to the left.",
+            windmove_left
+        ),
+        command!(
+            "windmove-right",
+            "Select the window to the right.",
+            windmove_right
+        ),
         command!("windmove-up", "Select the window above.", windmove_up),
         command!("windmove-down", "Select the window below.", windmove_down),
-        command!("enlarge-window", "Make the selected window taller.", enlarge_window),
-        command!("enlarge-window-horizontally", "Make the selected window wider.", enlarge_horizontally),
-        command!("shrink-window-horizontally", "Make the selected window narrower.", shrink_horizontally),
-        command!("balance-windows", "Give every window the same size.", balance_windows),
-        command!("scroll-other-window", "Scroll the next window down a page.", scroll_other_window),
+        command!(
+            "enlarge-window",
+            "Make the selected window taller.",
+            enlarge_window
+        ),
+        command!(
+            "enlarge-window-horizontally",
+            "Make the selected window wider.",
+            enlarge_horizontally
+        ),
+        command!(
+            "shrink-window-horizontally",
+            "Make the selected window narrower.",
+            shrink_horizontally
+        ),
+        command!(
+            "balance-windows",
+            "Give every window the same size.",
+            balance_windows
+        ),
+        command!(
+            "scroll-other-window",
+            "Scroll the next window down a page.",
+            scroll_other_window
+        ),
         command!(
             "move-to-window-line-top-bottom",
             "Move point to the middle, top or bottom line of the window.",
             move_to_window_line_top_bottom
         ),
-        command!("kill-buffer-and-window", "Kill this buffer and delete its window.", kill_buffer_and_window),
+        command!(
+            "kill-buffer-and-window",
+            "Kill this buffer and delete its window.",
+            kill_buffer_and_window
+        ),
     ]);
 }
 
@@ -109,9 +157,13 @@ fn move_to_window_line_top_bottom(editor: &mut Editor, args: &Args) -> Result<()
     } else {
         // Derived from where point already sits, so the cycle needs no state
         // of its own — the same trick `recenter-top-bottom` uses.
-        let repeating =
-            matches!(editor.last_command.as_deref(), Some("move-to-window-line-top-bottom"));
-        let current = editor.current_buffer().line_of(editor.windows.current().point);
+        let repeating = matches!(
+            editor.last_command.as_deref(),
+            Some("move-to-window-line-top-bottom")
+        );
+        let current = editor
+            .current_buffer()
+            .line_of(editor.windows.current().point);
         let middle = top + height / 2;
         let bottom = top + height.saturating_sub(1);
         match repeating {
@@ -183,7 +235,9 @@ fn windmove_down(editor: &mut Editor, _: &Args) -> Result<()> {
 /// ordinary window's size is decided by the layout, which splits evenly.
 fn resize(editor: &mut Editor, delta: i32) -> Result<()> {
     let id = editor.windows.current_id();
-    let Some(window) = editor.windows.get(id) else { return Err(crate::CoreError::NoSuchWindow) };
+    let Some(window) = editor.windows.get(id) else {
+        return Err(crate::CoreError::NoSuchWindow);
+    };
     if !window.side {
         return Err(crate::CoreError::Message(
             "Only side windows have an adjustable size".into(),
@@ -197,7 +251,9 @@ fn resize(editor: &mut Editor, delta: i32) -> Result<()> {
 fn enlarge_window(editor: &mut Editor, _: &Args) -> Result<()> {
     // Height is decided by the layout for every window the editor creates.
     let _ = editor;
-    Err(crate::CoreError::Message("Window height is managed by the layout".into()))
+    Err(crate::CoreError::Message(
+        "Window height is managed by the layout".into(),
+    ))
 }
 
 fn enlarge_horizontally(editor: &mut Editor, args: &Args) -> Result<()> {
@@ -236,7 +292,10 @@ mod tests {
 
     fn run(d: &mut Dispatcher, e: &mut Editor, command: &str) {
         let out = d.execute(e, command, None);
-        assert!(!matches!(out, Dispatch::Failed { .. }), "`{command}` failed: {out:?}");
+        assert!(
+            !matches!(out, Dispatch::Failed { .. }),
+            "`{command}` failed: {out:?}"
+        );
     }
 
     fn fails(d: &mut Dispatcher, e: &mut Editor, command: &str) -> String {
@@ -313,15 +372,30 @@ mod tests {
         run(&mut d, &mut e, "scroll-other-window");
 
         assert_eq!(e.windows.current_id(), here, "selection came back");
-        assert_eq!(e.windows.current().top_line, before, "this window did not move");
-        let other = e.windows.ids().into_iter().find(|w| *w != here).expect("two windows");
-        assert!(e.windows.get(other).unwrap().top_line > before, "the other one scrolled");
+        assert_eq!(
+            e.windows.current().top_line,
+            before,
+            "this window did not move"
+        );
+        let other = e
+            .windows
+            .ids()
+            .into_iter()
+            .find(|w| *w != here)
+            .expect("two windows");
+        assert!(
+            e.windows.get(other).unwrap().top_line > before,
+            "the other one scrolled"
+        );
     }
 
     #[test]
     fn scrolling_the_other_window_needs_one() {
         let (mut d, mut e) = setup();
-        assert_eq!(fails(&mut d, &mut e, "scroll-other-window"), "No other window");
+        assert_eq!(
+            fails(&mut d, &mut e, "scroll-other-window"),
+            "No other window"
+        );
     }
 
     #[test]
@@ -352,7 +426,10 @@ mod tests {
         let top = e.windows.current().top_line;
         e.prefix = crate::Prefix::Numeric(3);
         run(&mut d, &mut e, "move-to-window-line-top-bottom");
-        assert_eq!(e.current_buffer().line_of(e.current_buffer().point()), top + 3);
+        assert_eq!(
+            e.current_buffer().line_of(e.current_buffer().point()),
+            top + 3
+        );
     }
 
     #[test]
@@ -449,7 +526,10 @@ mod tests {
         e.tree_window = Some(tree);
 
         run(&mut d, &mut e, "delete-other-windows");
-        assert!(e.tree_window.is_none(), "the tree window is gone, so the record is too");
+        assert!(
+            e.tree_window.is_none(),
+            "the tree window is gone, so the record is too"
+        );
     }
 
     #[test]
@@ -516,7 +596,12 @@ mod tests {
         e.with_current_buffer(|b| b.set_point(6));
 
         run(&mut d, &mut e, "split-window-below");
-        let other = e.windows.ids().into_iter().find(|w| *w != e.windows.current_id()).unwrap();
+        let other = e
+            .windows
+            .ids()
+            .into_iter()
+            .find(|w| *w != e.windows.current_id())
+            .unwrap();
         let window = e.windows.get(other).unwrap();
         assert_eq!(window.buffer, id);
         assert_eq!(window.point, 6);
@@ -535,6 +620,10 @@ mod tests {
 
         run(&mut d, &mut e, "other-window");
         e.sync_to_buffer();
-        assert_eq!(e.current_buffer().point(), 2, "the first window's point survived");
+        assert_eq!(
+            e.current_buffer().point(),
+            2,
+            "the first window's point survived"
+        );
     }
 }

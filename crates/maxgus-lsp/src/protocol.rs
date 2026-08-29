@@ -111,10 +111,14 @@ impl Message {
     /// with an `id` is a request, `method` alone is a notification, and an
     /// `id` with `result` or `error` is a response.
     pub fn from_json(value: Value) -> Result<Message> {
-        let object =
-            value.as_object().ok_or_else(|| LspError::Protocol("not a JSON object".into()))?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| LspError::Protocol("not a JSON object".into()))?;
         let id = object.get("id").filter(|v| !v.is_null()).cloned();
-        let method = object.get("method").and_then(Value::as_str).map(str::to_string);
+        let method = object
+            .get("method")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         let params = object.get("params").cloned().unwrap_or(Value::Null);
 
         match (method, id) {
@@ -168,7 +172,9 @@ pub fn decode(buffer: &[u8]) -> Result<Decoded> {
     let Some(header_end) = find(buffer, SEPARATOR) else {
         // Guard against a peer that never sends a separator.
         if buffer.len() > 64 * 1024 {
-            return Err(LspError::Protocol("header block is implausibly long".into()));
+            return Err(LspError::Protocol(
+                "header block is implausibly long".into(),
+            ));
         }
         return Ok(Decoded::Incomplete);
     };
@@ -178,7 +184,9 @@ pub fn decode(buffer: &[u8]) -> Result<Decoded> {
     let mut content_length = None;
     for line in headers.split("\r\n").filter(|l| !l.is_empty()) {
         let Some((name, value)) = line.split_once(':') else {
-            return Err(LspError::Protocol(format!("header line without a colon: `{line}`")));
+            return Err(LspError::Protocol(format!(
+                "header line without a colon: `{line}`"
+            )));
         };
         if name.trim().eq_ignore_ascii_case("content-length") {
             content_length = Some(
@@ -198,7 +206,10 @@ pub fn decode(buffer: &[u8]) -> Result<Decoded> {
         return Ok(Decoded::Incomplete);
     }
     let value: Value = serde_json::from_slice(&buffer[body_start..body_end])?;
-    Ok(Decoded::Message(Box::new(Message::from_json(value)?), body_end))
+    Ok(Decoded::Message(
+        Box::new(Message::from_json(value)?),
+        body_end,
+    ))
 }
 
 /// Index of the first occurrence of `needle` in `haystack`.
@@ -255,7 +266,11 @@ mod tests {
     #[test]
     fn a_partial_message_reports_incomplete() {
         let bytes = request().encode();
-        assert_eq!(decode(&bytes[..10]).unwrap(), Decoded::Incomplete, "headers cut short");
+        assert_eq!(
+            decode(&bytes[..10]).unwrap(),
+            Decoded::Incomplete,
+            "headers cut short"
+        );
         assert_eq!(
             decode(&bytes[..bytes.len() - 5]).unwrap(),
             Decoded::Incomplete,
@@ -273,9 +288,13 @@ mod tests {
         });
         stream.extend_from_slice(&second.encode());
 
-        let Decoded::Message(first, used) = decode(&stream).unwrap() else { panic!() };
+        let Decoded::Message(first, used) = decode(&stream).unwrap() else {
+            panic!()
+        };
         assert_eq!(*first, request());
-        let Decoded::Message(rest, _) = decode(&stream[used..]).unwrap() else { panic!() };
+        let Decoded::Message(rest, _) = decode(&stream[used..]).unwrap() else {
+            panic!()
+        };
         assert_eq!(*rest, second);
     }
 
@@ -286,7 +305,9 @@ mod tests {
             "content-length: {}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n{body}",
             body.len()
         );
-        let Decoded::Message(m, _) = decode(framed.as_bytes()).unwrap() else { panic!() };
+        let Decoded::Message(m, _) = decode(framed.as_bytes()).unwrap() else {
+            panic!()
+        };
         assert!(matches!(*m, Message::Notification(_)));
     }
 
@@ -335,9 +356,13 @@ mod tests {
     #[test]
     fn a_null_id_is_treated_as_absent() {
         // Servers send `"id": null` on a parse error they cannot attribute.
-        let m = Message::from_json(json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse"}}))
-            .unwrap();
-        let Message::Response(r) = m else { panic!("expected a response") };
+        let m = Message::from_json(
+            json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse"}}),
+        )
+        .unwrap();
+        let Message::Response(r) = m else {
+            panic!("expected a response")
+        };
         assert!(r.id.is_none());
         assert_eq!(r.error.unwrap().code, -32700);
     }
@@ -372,8 +397,12 @@ mod tests {
 
     #[test]
     fn a_successful_response_always_carries_a_result_field() {
-        let encoded = Message::Response(Response { id: Some(1.into()), result: None, error: None })
-            .to_json();
+        let encoded = Message::Response(Response {
+            id: Some(1.into()),
+            result: None,
+            error: None,
+        })
+        .to_json();
         assert!(encoded.get("result").is_some());
     }
 
@@ -394,7 +423,9 @@ mod tests {
             params: json!({"text": "héllo wörld ünïcode"}),
         });
         let bytes = message.encode();
-        let Decoded::Message(decoded, used) = decode(&bytes).unwrap() else { panic!() };
+        let Decoded::Message(decoded, used) = decode(&bytes).unwrap() else {
+            panic!()
+        };
         assert_eq!(*decoded, message);
         assert_eq!(used, bytes.len());
     }

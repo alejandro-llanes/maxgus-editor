@@ -79,7 +79,9 @@ impl Color {
             return Self::parse_hex(hex).ok_or_else(|| ColorError::Unrecognised(text.to_string()));
         }
         if let Ok(n) = t.parse::<u32>() {
-            return u8::try_from(n).map(Color::Indexed).map_err(|_| ColorError::IndexOutOfRange(n));
+            return u8::try_from(n)
+                .map(Color::Indexed)
+                .map_err(|_| ColorError::IndexOutOfRange(n));
         }
         // `grey`/`gray` are the usual aliases for bright black.
         let normalised = t.to_ascii_lowercase().replace('_', "-");
@@ -99,7 +101,10 @@ impl Color {
     }
 
     fn parse_hex(hex: &str) -> Option<Color> {
-        let digits: Vec<u8> = hex.chars().map(|c| c.to_digit(16).map(|d| d as u8)).collect::<Option<_>>()?;
+        let digits: Vec<u8> = hex
+            .chars()
+            .map(|c| c.to_digit(16).map(|d| d as u8))
+            .collect::<Option<_>>()?;
         match digits.len() {
             // `#rgb` expands each digit, so `#f0a` is `#ff00aa`.
             3 => Some(Color::Rgb(digits[0] * 17, digits[1] * 17, digits[2] * 17)),
@@ -148,7 +153,9 @@ impl Color {
 
     /// Relative luminance, used to decide whether a background is dark.
     pub fn luminance(self) -> f32 {
-        let Some((r, g, b)) = self.to_rgb() else { return 0.0 };
+        let Some((r, g, b)) = self.to_rgb() else {
+            return 0.0;
+        };
         // Rec. 601 luma, good enough for a light/dark decision.
         (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) / 255.0
     }
@@ -269,7 +276,10 @@ mod tests {
 
     #[test]
     fn six_digit_hex_parses() {
-        assert_eq!(Color::parse("#1d1f21").unwrap(), Color::Rgb(0x1d, 0x1f, 0x21));
+        assert_eq!(
+            Color::parse("#1d1f21").unwrap(),
+            Color::Rgb(0x1d, 0x1f, 0x21)
+        );
         assert_eq!(Color::parse("#FFFFFF").unwrap(), Color::Rgb(255, 255, 255));
     }
 
@@ -306,9 +316,18 @@ mod tests {
 
     #[test]
     fn malformed_colours_are_rejected() {
-        assert!(matches!(Color::parse("#12345"), Err(ColorError::Unrecognised(_))));
-        assert!(matches!(Color::parse("#gggggg"), Err(ColorError::Unrecognised(_))));
-        assert!(matches!(Color::parse("chartreuse"), Err(ColorError::Unrecognised(_))));
+        assert!(matches!(
+            Color::parse("#12345"),
+            Err(ColorError::Unrecognised(_))
+        ));
+        assert!(matches!(
+            Color::parse("#gggggg"),
+            Err(ColorError::Unrecognised(_))
+        ));
+        assert!(matches!(
+            Color::parse("chartreuse"),
+            Err(ColorError::Unrecognised(_))
+        ));
         assert!(matches!(Color::parse(""), Err(ColorError::Unrecognised(_))));
     }
 
@@ -341,8 +360,15 @@ mod tests {
     #[test]
     fn greys_use_the_greyscale_ramp() {
         let c = rgb_to_ansi256(128, 128, 128);
-        assert!((232..=255).contains(&c), "expected a greyscale entry, got {c}");
-        assert_eq!(rgb_to_ansi256(0, 0, 0), 16, "pure black uses the cube origin");
+        assert!(
+            (232..=255).contains(&c),
+            "expected a greyscale entry, got {c}"
+        );
+        assert_eq!(
+            rgb_to_ansi256(0, 0, 0),
+            16,
+            "pure black uses the cube origin"
+        );
     }
 
     #[test]
@@ -368,9 +394,18 @@ mod tests {
 
     #[test]
     fn high_palette_indices_degrade_to_the_base_sixteen() {
-        assert!(matches!(Color::Indexed(196).degrade(ColorDepth::Ansi16), Color::Indexed(i) if i < 16));
-        assert_eq!(Color::Indexed(3).degrade(ColorDepth::Ansi16), Color::Indexed(3), "already low");
-        assert_eq!(Color::Indexed(196).degrade(ColorDepth::Ansi256), Color::Indexed(196));
+        assert!(
+            matches!(Color::Indexed(196).degrade(ColorDepth::Ansi16), Color::Indexed(i) if i < 16)
+        );
+        assert_eq!(
+            Color::Indexed(3).degrade(ColorDepth::Ansi16),
+            Color::Indexed(3),
+            "already low"
+        );
+        assert_eq!(
+            Color::Indexed(196).degrade(ColorDepth::Ansi256),
+            Color::Indexed(196)
+        );
     }
 
     #[test]
@@ -382,11 +417,26 @@ mod tests {
 
     #[test]
     fn colour_depth_is_detected_from_the_environment() {
-        assert_eq!(ColorDepth::from_env(Some("truecolor"), None), ColorDepth::TrueColor);
-        assert_eq!(ColorDepth::from_env(Some("24bit"), Some("dumb")), ColorDepth::TrueColor);
-        assert_eq!(ColorDepth::from_env(None, Some("xterm-256color")), ColorDepth::Ansi256);
-        assert_eq!(ColorDepth::from_env(None, Some("xterm-kitty")), ColorDepth::TrueColor);
-        assert_eq!(ColorDepth::from_env(None, Some("vt100")), ColorDepth::Ansi16);
+        assert_eq!(
+            ColorDepth::from_env(Some("truecolor"), None),
+            ColorDepth::TrueColor
+        );
+        assert_eq!(
+            ColorDepth::from_env(Some("24bit"), Some("dumb")),
+            ColorDepth::TrueColor
+        );
+        assert_eq!(
+            ColorDepth::from_env(None, Some("xterm-256color")),
+            ColorDepth::Ansi256
+        );
+        assert_eq!(
+            ColorDepth::from_env(None, Some("xterm-kitty")),
+            ColorDepth::TrueColor
+        );
+        assert_eq!(
+            ColorDepth::from_env(None, Some("vt100")),
+            ColorDepth::Ansi16
+        );
         assert_eq!(ColorDepth::from_env(None, None), ColorDepth::Ansi16);
     }
 

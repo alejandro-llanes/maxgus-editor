@@ -52,7 +52,10 @@ pub fn flatten(mut captures: Vec<Capture>) -> Vec<Highlight> {
     }
     // Outer spans first at a given start, so the stack nests correctly.
     captures.sort_by(|a, b| {
-        a.start.cmp(&b.start).then(b.end.cmp(&a.end)).then(a.pattern.cmp(&b.pattern))
+        a.start
+            .cmp(&b.start)
+            .then(b.end.cmp(&a.end))
+            .then(a.pattern.cmp(&b.pattern))
     });
     // Identical ranges: keep only the first, earliest-pattern capture.
     captures.dedup_by(|a, b| a.start == b.start && a.end == b.end);
@@ -113,7 +116,11 @@ pub struct InputEdit {
 
 impl InputEdit {
     pub fn new(start_byte: usize, old_end_byte: usize, new_end_byte: usize) -> Self {
-        Self { start_byte, old_end_byte, new_end_byte }
+        Self {
+            start_byte,
+            old_end_byte,
+            new_end_byte,
+        }
     }
 
     /// An insertion of `len` bytes at `at`.
@@ -153,7 +160,9 @@ impl InputEdit {
         // How much of the end is shared, without overlapping the prefix.
         let most = (old_bytes.len() - prefix).min(new_bytes.len() - prefix);
         let mut suffix = (0..most)
-            .take_while(|i| old_bytes[old_bytes.len() - 1 - i] == new_bytes[new_bytes.len() - 1 - i])
+            .take_while(|i| {
+                old_bytes[old_bytes.len() - 1 - i] == new_bytes[new_bytes.len() - 1 - i]
+            })
             .count();
         while suffix > 0
             && (!old.is_char_boundary(old_bytes.len() - suffix)
@@ -175,7 +184,12 @@ mod tests {
     use super::*;
 
     fn cap(start: usize, end: usize, face: &'static str) -> Capture {
-        Capture { start, end, face, pattern: 0 }
+        Capture {
+            start,
+            end,
+            face,
+            pattern: 0,
+        }
     }
 
     #[test]
@@ -186,7 +200,10 @@ mod tests {
     #[test]
     fn disjoint_captures_pass_through_in_order() {
         let out = flatten(vec![cap(4, 6, "b"), cap(0, 2, "a")]);
-        assert_eq!(out, vec![Highlight::new(0, 2, "a"), Highlight::new(4, 6, "b")]);
+        assert_eq!(
+            out,
+            vec![Highlight::new(0, 2, "a"), Highlight::new(4, 6, "b")]
+        );
     }
 
     #[test]
@@ -221,13 +238,19 @@ mod tests {
     #[test]
     fn an_inner_capture_flush_with_the_outer_start_leaves_no_gap() {
         let out = flatten(vec![cap(0, 8, "outer"), cap(0, 3, "inner")]);
-        assert_eq!(out, vec![Highlight::new(0, 3, "inner"), Highlight::new(3, 8, "outer")]);
+        assert_eq!(
+            out,
+            vec![Highlight::new(0, 3, "inner"), Highlight::new(3, 8, "outer")]
+        );
     }
 
     #[test]
     fn an_inner_capture_flush_with_the_outer_end_leaves_no_gap() {
         let out = flatten(vec![cap(0, 8, "outer"), cap(5, 8, "inner")]);
-        assert_eq!(out, vec![Highlight::new(0, 5, "outer"), Highlight::new(5, 8, "inner")]);
+        assert_eq!(
+            out,
+            vec![Highlight::new(0, 5, "outer"), Highlight::new(5, 8, "inner")]
+        );
     }
 
     #[test]
@@ -248,8 +271,18 @@ mod tests {
     #[test]
     fn identical_ranges_resolve_to_the_earlier_pattern() {
         let out = flatten(vec![
-            Capture { start: 0, end: 5, face: "later", pattern: 7 },
-            Capture { start: 0, end: 5, face: "earlier", pattern: 1 },
+            Capture {
+                start: 0,
+                end: 5,
+                face: "later",
+                pattern: 7,
+            },
+            Capture {
+                start: 0,
+                end: 5,
+                face: "earlier",
+                pattern: 1,
+            },
         ]);
         assert_eq!(out, vec![Highlight::new(0, 5, "earlier")]);
     }
@@ -276,7 +309,12 @@ mod tests {
             cap(12, 14, "e"),
         ]);
         for pair in out.windows(2) {
-            assert!(pair[0].end <= pair[1].start, "{:?} overlaps {:?}", pair[0], pair[1]);
+            assert!(
+                pair[0].end <= pair[1].start,
+                "{:?} overlaps {:?}",
+                pair[0],
+                pair[1]
+            );
         }
         assert_eq!(out.first().unwrap().start, 0);
         assert_eq!(out.last().unwrap().end, 20);
@@ -295,14 +333,29 @@ mod tests {
     #[test]
     fn the_changed_region_is_found_between_two_texts() {
         // An insertion in the middle.
-        assert_eq!(InputEdit::between("abcdef", "abcXdef"), Some(InputEdit::new(3, 3, 4)));
+        assert_eq!(
+            InputEdit::between("abcdef", "abcXdef"),
+            Some(InputEdit::new(3, 3, 4))
+        );
         // A deletion.
-        assert_eq!(InputEdit::between("abcdef", "abdef"), Some(InputEdit::new(2, 3, 2)));
+        assert_eq!(
+            InputEdit::between("abcdef", "abdef"),
+            Some(InputEdit::new(2, 3, 2))
+        );
         // A replacement.
-        assert_eq!(InputEdit::between("abcdef", "abXYdef"), Some(InputEdit::new(2, 3, 4)));
+        assert_eq!(
+            InputEdit::between("abcdef", "abXYdef"),
+            Some(InputEdit::new(2, 3, 4))
+        );
         // Appending, and truncating.
-        assert_eq!(InputEdit::between("abc", "abcdef"), Some(InputEdit::new(3, 3, 6)));
-        assert_eq!(InputEdit::between("abcdef", "abc"), Some(InputEdit::new(3, 6, 3)));
+        assert_eq!(
+            InputEdit::between("abc", "abcdef"),
+            Some(InputEdit::new(3, 3, 6))
+        );
+        assert_eq!(
+            InputEdit::between("abcdef", "abc"),
+            Some(InputEdit::new(3, 6, 3))
+        );
     }
 
     #[test]
@@ -325,14 +378,26 @@ mod tests {
     fn a_region_never_splits_a_character() {
         // The two strings share the first byte of `é` but differ after it.
         let edit = InputEdit::between("aéb", "aèb").unwrap();
-        assert!("aéb".is_char_boundary(edit.start_byte), "start splits a character");
-        assert!("aéb".is_char_boundary(edit.old_end_byte), "old end splits a character");
-        assert!("aèb".is_char_boundary(edit.new_end_byte), "new end splits a character");
+        assert!(
+            "aéb".is_char_boundary(edit.start_byte),
+            "start splits a character"
+        );
+        assert!(
+            "aéb".is_char_boundary(edit.old_end_byte),
+            "old end splits a character"
+        );
+        assert!(
+            "aèb".is_char_boundary(edit.new_end_byte),
+            "new end splits a character"
+        );
     }
 
     #[test]
     fn an_edit_at_the_very_start_or_end_is_found() {
-        assert_eq!(InputEdit::between("bcd", "abcd"), Some(InputEdit::new(0, 0, 1)));
+        assert_eq!(
+            InputEdit::between("bcd", "abcd"),
+            Some(InputEdit::new(0, 0, 1))
+        );
         assert_eq!(InputEdit::between("abc", ""), Some(InputEdit::new(0, 3, 0)));
         assert_eq!(InputEdit::between("", "abc"), Some(InputEdit::new(0, 0, 3)));
     }

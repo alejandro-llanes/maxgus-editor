@@ -72,8 +72,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // The built-in, then every theme that ships as a file, so the gallery is
     // exactly what `docs/themes` offers.
-    let mut themes: Vec<(String, Theme)> =
-        vec![("maxgus-dark".into(), maxgus_faces::defaults::builtin("maxgus-dark").unwrap())];
+    let mut themes: Vec<(String, Theme)> = vec![(
+        "maxgus-dark".into(),
+        maxgus_faces::defaults::builtin("maxgus-dark").unwrap(),
+    )];
     let mut files: Vec<_> = std::fs::read_dir(out.join("../themes"))?
         .flatten()
         .map(|e| e.path())
@@ -91,7 +93,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `--text` prints the scene as plain characters, which is how to check
     // the layout without opening an image.
     if std::env::args().any(|a| a == "--text") {
-        let editor = scene(themes[0].1.clone(), std::env::args().any(|a| a == "--popup"));
+        let editor = scene(
+            themes[0].1.clone(),
+            std::env::args().any(|a| a == "--popup"),
+        );
         let mut surface = Surface::new(Size::new(COLUMNS, ROWS));
         maxgus_core::draw(&editor, &mut surface);
         for line in surface.to_lines() {
@@ -110,6 +115,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let editor = scene(themes[0].1.clone(), true);
     write(&out.join("command-popup.svg"), &render(&editor))?;
     println!("docs/screenshots/command-popup.svg");
+
+    let editor = terminal_scene(themes[0].1.clone());
+    write(&out.join("terminal.svg"), &render(&editor))?;
+    println!("docs/screenshots/terminal.svg");
+
+    let editor = git_scene(themes[0].1.clone());
+    write(&out.join("magit.svg"), &render(&editor))?;
+    println!("docs/screenshots/magit.svg");
+
+    // The same status view with the top-level menu up.
+    let mut editor = git_scene(themes[0].1.clone());
+    let registry = maxgus_core::standard_registry();
+    let mut dispatcher = Dispatcher::new(registry);
+    dispatcher.handle_keys(&mut editor, "?");
+    write(&out.join("magit-menu.svg"), &render(&editor))?;
+    println!("docs/screenshots/magit-menu.svg");
     Ok(())
 }
 
@@ -126,13 +147,26 @@ fn scene(theme: Theme, popup: bool) -> Editor {
     let mut editor = Editor::new(settings, theme, Rect::new(0, 0, COLUMNS, ROWS));
     let registry = maxgus_core::standard_registry();
     editor.command_names = registry.interactive_names();
-    editor.command_docs = registry.iter().map(|c| (c.name.to_string(), c.doc.to_string())).collect();
+    editor.command_docs = registry
+        .iter()
+        .map(|c| (c.name.to_string(), c.doc.to_string()))
+        .collect();
     let mut dispatcher = Dispatcher::new(registry);
 
-    let buffer = editor.buffers.visit_file("/maxgus/crates/maxgus-core/src/fuzzy.rs", SOURCE);
+    let buffer = editor
+        .buffers
+        .visit_file("/maxgus/crates/maxgus-core/src/fuzzy.rs", SOURCE);
     editor.switch_to_buffer(buffer).unwrap();
     editor.with_current_buffer(|b| b.set_point(0));
     editor.git_branch = Some("main".to_string());
+
+    // The server first: which windows the panel has is decided when it opens.
+    editor
+        .apply_task_result(TaskResult::LanguageServerStarted {
+            language: "rust".into(),
+            encoding: maxgus_lsp::PositionEncoding::Utf16,
+        })
+        .unwrap();
 
     // The tree, opened with the key that opens it and filled from a snapshot
     // the way a real directory walk would fill it.
@@ -164,6 +198,17 @@ fn scene(theme: Theme, popup: bool) -> Editor {
             .unwrap();
     }
 
+    // The outline the server would answer with. The JSON is the shape
+    // `rust-analyzer` sends, read by the same parser a real reply goes
+    // through — the panel is drawn from real data, not from a fixture shaped
+    // to look good.
+    editor.apply_lsp_response(TaskResult::LspResponse {
+        language: "rust".into(),
+        uri: "file:///maxgus/crates/maxgus-core/src/fuzzy.rs".into(),
+        query: maxgus_core::LspQuery::DocumentSymbols { for_panel: true },
+        result: outline(),
+    });
+
     // Back to the text, with point somewhere that reads as a working session.
     // The window carries the point that redisplay draws, so it is the one to
     // move; the buffer follows on the next command.
@@ -186,37 +231,247 @@ fn scene(theme: Theme, popup: bool) -> Editor {
     editor
 }
 
+/// The git status view, over a repository with something to look at.
+///
+/// The snapshot is fed through the same parsers a real `git status` and
+/// `git diff` go through, so what is drawn is what the editor would draw.
+fn git_scene(theme: Theme) -> Editor {
+    let settings = maxgus_config::Settings {
+        nerd_font_icons: false,
+        ..Default::default()
+    };
+    let mut editor = Editor::new(settings, theme, Rect::new(0, 0, COLUMNS, ROWS));
+    let registry = maxgus_core::standard_registry();
+    editor.command_names = registry.interactive_names();
+    let mut dispatcher = Dispatcher::new(registry);
+
+    let buffer = editor.buffers.visit_file("/maxgus/src/fuzzy.rs", SOURCE);
+    editor.switch_to_buffer(buffer).unwrap();
+    dispatcher.handle_keys(&mut editor, "C-x");
+    dispatcher.handle_keys(&mut editor, "g");
+
+    // Raw strings: a diff is full of quotes and backslashes, and escaping
+    // them here would make the fixture unreadable.
+    let unstaged = r#"diff --git a/crates/maxgus-core/src/render.rs b/crates/maxgus-core/src/render.rs
+index 83db48f..bf269f4 100644
+--- a/crates/maxgus-core/src/render.rs
++++ b/crates/maxgus-core/src/render.rs
+@@ -412,7 +412,9 @@ fn draw_git_row
+         Row::Section(section) => {
+             let folded = editor.git.is_collapsed(*section);
+-            let arrow = if folded { '>' } else { 'v' };
++            // A triangle rather than a caret: it reads as a fold at a
++            // glance, which a punctuation mark does not.
++            let arrow = if folded { TRIANGLE_RIGHT } else { TRIANGLE_DOWN };
+             surface.set_char(x, area.y, arrow, face(SHADOW));
+         }
+"#;
+    let staged = r#"diff --git a/README.md b/README.md
+index aaa..bbb 100644
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,3 @@
+-**1531 tests.**
++**1597 tests.**
+ Unit tests beside the code.
+"#;
+    let snapshot = maxgus_core::task::GitSnapshot {
+        root: "/maxgus".into(),
+        status: maxgus_git::status::parse(
+            concat!(
+                "# branch.oid 5958f5e13418d8b5\0",
+                "# branch.head main\0",
+                "# branch.upstream origin/main\0",
+                "# branch.ab +2 -0\0",
+                "1 .M N... 100644 100644 100644 a b crates/maxgus-core/src/render.rs\0",
+                "1 M. N... 100644 100644 100644 a b README.md\0",
+                "? docs/screenshots/magit.svg\0",
+            )
+            .as_bytes(),
+        ),
+        unstaged: maxgus_git::diff::parse(unstaged),
+        staged: maxgus_git::diff::parse(staged),
+        stashes: maxgus_git::log::parse_stashes("stash@{0}\u{1f}WIP on main: the terminal\u{1e}\n"),
+        unpushed: maxgus_git::log::parse_log(
+            "h1\u{1f}a1b2c3d\u{1f}Alejandro\u{1f}an hour ago\u{1f}\u{1f}Draw the status view\u{1e}\n\
+             h2\u{1f}e4f5a6b\u{1f}Alejandro\u{1f}2 hours ago\u{1f}\u{1f}Read a diff into hunks\u{1e}\n",
+        ),
+        unpulled: Vec::new(),
+        recent: maxgus_git::log::parse_log(
+            "h3\u{1f}5958f5e\u{1f}Alejandro\u{1f}a day ago\u{1f}HEAD -> main, origin/main, tag: v0.1.0\u{1f}Count the tests correctly\u{1e}\n",
+        ),
+        head_subject: "Count the tests correctly".into(),
+        branches: vec!["main".into()],
+        references: vec![maxgus_git::Reference {
+            name: "main".into(),
+            kind: maxgus_git::RefKind::Local,
+        }],
+    };
+    editor
+        .apply_task_result(TaskResult::GitRefreshed(Box::new(snapshot)))
+        .unwrap();
+    // The unstaged file opened, so the hunk and its lines are on show.
+    editor.git.toggle_file(
+        maxgus_core::git::Section::Unstaged,
+        "crates/maxgus-core/src/render.rs",
+    );
+    editor.render_git_buffer();
+    editor.move_git_cursor_to_line(
+        editor
+            .git
+            .line_of(&maxgus_core::git::Row::Hunk {
+                section: maxgus_core::git::Section::Unstaged,
+                file: 0,
+                hunk: 0,
+            })
+            .unwrap_or(0),
+    );
+    editor.tasks.drain();
+    editor
+}
+
+/// The same session with the terminal panel open and two tabs in it.
+///
+/// The output below is fed through the real emulator, so the colours and the
+/// layout are what a shell writing those bytes would actually produce.
+fn terminal_scene(theme: Theme) -> Editor {
+    let mut editor = scene(theme, false);
+    let registry = maxgus_core::standard_registry();
+    let mut dispatcher = Dispatcher::new(registry);
+    dispatcher.handle_keys(&mut editor, "C-x");
+    dispatcher.handle_keys(&mut editor, "t");
+    dispatcher.handle_keys(&mut editor, "v");
+
+    let first = editor.terminals.current().expect("a terminal").id;
+    feed(
+        &mut editor,
+        first,
+        "\u{1b}[1;32m~/maxgus\u{1b}[0m $ cargo test --workspace\r\n\
+         \u{1b}[1;32m   Compiling\u{1b}[0m maxgus-term v0.1.0\r\n\
+         \u{1b}[1;32m    Finished\u{1b}[0m `test` profile in 4.11s\r\n\
+         \u{1b}[1;32m     Running\u{1b}[0m unittests src/lib.rs\r\n\r\n\
+         test result: \u{1b}[1;32mok\u{1b}[0m. 1531 passed; 0 failed; 2 ignored\r\n\r\n\
+         \u{1b}[1;32m~/maxgus\u{1b}[0m $ \u{1b}]0;cargo test\u{7}",
+    );
+    // A second tab, so the bar has something to show.
+    dispatcher.handle_keys(&mut editor, "C-c");
+    dispatcher.handle_keys(&mut editor, "t");
+    let second = editor.terminals.current().expect("a terminal").id;
+    feed(
+        &mut editor,
+        second,
+        "\u{1b}]0;htop\u{7}\u{1b}[1;34m  PID USER      CPU%  MEM%  COMMAND\u{1b}[0m\r\n 4711 alejandro  2.1   0.4  maxgus\r\n",
+    );
+    editor.terminals.select(0);
+    editor.tasks.drain();
+    editor
+}
+
+fn feed(editor: &mut Editor, terminal: maxgus_core::task::TerminalId, bytes: &str) {
+    editor
+        .apply_task_result(TaskResult::TerminalOutput {
+            terminal,
+            bytes: bytes.as_bytes().to_vec(),
+        })
+        .unwrap();
+}
+
+/// What a server answers with for the file being shown.
+fn outline() -> serde_json::Value {
+    serde_json::json!([
+        {"name": "score", "kind": 12, "detail": "fn(&str, &str) -> Option<i32>",
+         "selectionRange": {"start": {"line": 7, "character": 7}}},
+        {"name": "Match", "kind": 23,
+         "selectionRange": {"start": {"line": 20, "character": 11}},
+         "children": [
+            {"name": "score", "kind": 8,
+             "selectionRange": {"start": {"line": 21, "character": 4}}},
+            {"name": "at", "kind": 8,
+             "selectionRange": {"start": {"line": 22, "character": 4}}}
+         ]},
+        {"name": "matches", "kind": 12, "detail": "fn(&str) -> Vec<String>",
+         "selectionRange": {"start": {"line": 30, "character": 7}}},
+        {"name": "same", "kind": 12,
+         "selectionRange": {"start": {"line": 40, "character": 3}}}
+    ])
+}
+
 fn tree() -> Vec<VisibleNode> {
-    let node = |path: &str, name: &str, dir: bool, depth: usize, git: Option<GitStatus>| {
-        VisibleNode {
+    let node =
+        |path: &str, name: &str, dir: bool, depth: usize, git: Option<GitStatus>| VisibleNode {
             path: path.into(),
             name: name.into(),
-            kind: if dir { NodeKind::Directory } else { NodeKind::File },
+            kind: if dir {
+                NodeKind::Directory
+            } else {
+                NodeKind::File
+            },
             depth,
             expanded: dir,
             expandable: dir,
             git,
             is_root: depth == 0,
-        }
-    };
+        };
     vec![
         node("/maxgus", "maxgus", true, 0, None),
         node("/maxgus/crates", "crates", true, 1, None),
         node("/maxgus/crates/maxgus-core", "maxgus-core", true, 2, None),
         node("/maxgus/crates/maxgus-core/src", "src", true, 3, None),
-        node("/maxgus/crates/maxgus-core/src/editor.rs", "editor.rs", false, 4, None),
-        node("/maxgus/crates/maxgus-core/src/fuzzy.rs", "fuzzy.rs", false, 4, Some(GitStatus::Added)),
-        node("/maxgus/crates/maxgus-core/src/render.rs", "render.rs", false, 4, Some(GitStatus::Modified)),
+        node(
+            "/maxgus/crates/maxgus-core/src/editor.rs",
+            "editor.rs",
+            false,
+            4,
+            None,
+        ),
+        node(
+            "/maxgus/crates/maxgus-core/src/fuzzy.rs",
+            "fuzzy.rs",
+            false,
+            4,
+            Some(GitStatus::Added),
+        ),
+        node(
+            "/maxgus/crates/maxgus-core/src/render.rs",
+            "render.rs",
+            false,
+            4,
+            Some(GitStatus::Modified),
+        ),
         node("/maxgus/crates/maxgus-faces", "maxgus-faces", true, 2, None),
-        node("/maxgus/crates/maxgus-syntax", "maxgus-syntax", true, 2, None),
+        node(
+            "/maxgus/crates/maxgus-syntax",
+            "maxgus-syntax",
+            true,
+            2,
+            None,
+        ),
         node("/maxgus/crates/maxgus-tree", "maxgus-tree", true, 2, None),
         node("/maxgus/docs", "docs", true, 1, None),
         node("/maxgus/docs/themes", "themes", true, 2, None),
-        node("/maxgus/docs/themes/dracula.kdl", "dracula.kdl", false, 3, None),
-        node("/maxgus/docs/themes/gruvbox.kdl", "gruvbox.kdl", false, 3, None),
+        node(
+            "/maxgus/docs/themes/dracula.kdl",
+            "dracula.kdl",
+            false,
+            3,
+            None,
+        ),
+        node(
+            "/maxgus/docs/themes/gruvbox.kdl",
+            "gruvbox.kdl",
+            false,
+            3,
+            None,
+        ),
         node("/maxgus/docs/themes/nord.kdl", "nord.kdl", false, 3, None),
         node("/maxgus/Cargo.toml", "Cargo.toml", false, 1, None),
-        node("/maxgus/README.md", "README.md", false, 1, Some(GitStatus::Modified)),
+        node(
+            "/maxgus/README.md",
+            "README.md",
+            false,
+            1,
+            Some(GitStatus::Modified),
+        ),
     ]
 }
 
@@ -312,7 +567,9 @@ fn runs<K: PartialEq>(
 ) -> Vec<(u16, u16, Face)> {
     let mut out: Vec<(u16, u16, Face)> = Vec::new();
     for x in 0..surface.width() {
-        let Some(cell) = surface.get(x, y) else { continue };
+        let Some(cell) = surface.get(x, y) else {
+            continue;
+        };
         match out.last_mut() {
             Some((_, len, face)) if key(face) == key(&cell.face) => *len += 1,
             _ => out.push((x, 1, cell.face)),
@@ -330,10 +587,22 @@ fn hex(color: Color) -> Option<String> {
         Color::Indexed(i) => Some(match i {
             0..=15 => {
                 const BASE: [(u8, u8, u8); 16] = [
-                    (0, 0, 0), (205, 0, 0), (0, 205, 0), (205, 205, 0),
-                    (0, 0, 238), (205, 0, 205), (0, 205, 205), (229, 229, 229),
-                    (127, 127, 127), (255, 0, 0), (0, 255, 0), (255, 255, 0),
-                    (92, 92, 255), (255, 0, 255), (0, 255, 255), (255, 255, 255),
+                    (0, 0, 0),
+                    (205, 0, 0),
+                    (0, 205, 0),
+                    (205, 205, 0),
+                    (0, 0, 238),
+                    (205, 0, 205),
+                    (0, 205, 205),
+                    (229, 229, 229),
+                    (127, 127, 127),
+                    (255, 0, 0),
+                    (0, 255, 0),
+                    (255, 255, 0),
+                    (92, 92, 255),
+                    (255, 0, 255),
+                    (0, 255, 255),
+                    (255, 255, 255),
                 ];
                 let (r, g, b) = BASE[i as usize];
                 format!("#{r:02x}{g:02x}{b:02x}")
@@ -358,7 +627,9 @@ fn solid(color: Option<Color>, fallback: &str) -> String {
 }
 
 fn escape(text: &str) -> String {
-    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 fn write(path: &std::path::Path, svg: &str) -> std::io::Result<()> {

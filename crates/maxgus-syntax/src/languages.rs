@@ -27,29 +27,63 @@ impl std::fmt::Debug for SyntaxLanguage {
 }
 
 /// Language identifiers with a compiled-in grammar.
-pub const SUPPORTED_LANGUAGES: &[&str] =
-    &["rust", "python", "javascript", "json", "c", "bash", "html", "css"];
+pub const SUPPORTED_LANGUAGES: &[&str] = &[
+    "rust",
+    "python",
+    "javascript",
+    "json",
+    "c",
+    "bash",
+    "html",
+    "css",
+];
 
 /// The grammar for `name`, if one is compiled in.
 pub fn language(name: &str) -> Option<SyntaxLanguage> {
     // The grammar crates disagree on whether the constant is `HIGHLIGHTS_QUERY`
     // or `HIGHLIGHT_QUERY`, hence the spelling differences below.
     let (language, highlights): (Language, &'static str) = match name {
-        "rust" => (tree_sitter_rust::LANGUAGE.into(), tree_sitter_rust::HIGHLIGHTS_QUERY),
-        "python" => (tree_sitter_python::LANGUAGE.into(), tree_sitter_python::HIGHLIGHTS_QUERY),
-        "javascript" => {
-            (tree_sitter_javascript::LANGUAGE.into(), tree_sitter_javascript::HIGHLIGHT_QUERY)
-        }
-        "json" => (tree_sitter_json::LANGUAGE.into(), tree_sitter_json::HIGHLIGHTS_QUERY),
-        "c" => (tree_sitter_c::LANGUAGE.into(), tree_sitter_c::HIGHLIGHT_QUERY),
-        "bash" => (tree_sitter_bash::LANGUAGE.into(), tree_sitter_bash::HIGHLIGHT_QUERY),
-        "html" => (tree_sitter_html::LANGUAGE.into(), tree_sitter_html::HIGHLIGHTS_QUERY),
-        "css" => (tree_sitter_css::LANGUAGE.into(), tree_sitter_css::HIGHLIGHTS_QUERY),
+        "rust" => (
+            tree_sitter_rust::LANGUAGE.into(),
+            tree_sitter_rust::HIGHLIGHTS_QUERY,
+        ),
+        "python" => (
+            tree_sitter_python::LANGUAGE.into(),
+            tree_sitter_python::HIGHLIGHTS_QUERY,
+        ),
+        "javascript" => (
+            tree_sitter_javascript::LANGUAGE.into(),
+            tree_sitter_javascript::HIGHLIGHT_QUERY,
+        ),
+        "json" => (
+            tree_sitter_json::LANGUAGE.into(),
+            tree_sitter_json::HIGHLIGHTS_QUERY,
+        ),
+        "c" => (
+            tree_sitter_c::LANGUAGE.into(),
+            tree_sitter_c::HIGHLIGHT_QUERY,
+        ),
+        "bash" => (
+            tree_sitter_bash::LANGUAGE.into(),
+            tree_sitter_bash::HIGHLIGHT_QUERY,
+        ),
+        "html" => (
+            tree_sitter_html::LANGUAGE.into(),
+            tree_sitter_html::HIGHLIGHTS_QUERY,
+        ),
+        "css" => (
+            tree_sitter_css::LANGUAGE.into(),
+            tree_sitter_css::HIGHLIGHTS_QUERY,
+        ),
         _ => return None,
     };
     // `name` is one of the literals above, so it outlives the call.
     let name = SUPPORTED_LANGUAGES.iter().find(|n| **n == name).copied()?;
-    Some(SyntaxLanguage { name, language, highlights })
+    Some(SyntaxLanguage {
+        name,
+        language,
+        highlights,
+    })
 }
 
 /// True when a grammar is compiled in for `name`.
@@ -71,7 +105,10 @@ mod tests {
         for name in SUPPORTED_LANGUAGES {
             let l = language(name).unwrap_or_else(|| panic!("`{name}` has no grammar"));
             assert_eq!(l.name, *name);
-            assert!(!l.highlights.is_empty(), "`{name}` has an empty highlights query");
+            assert!(
+                !l.highlights.is_empty(),
+                "`{name}` has an empty highlights query"
+            );
         }
     }
 

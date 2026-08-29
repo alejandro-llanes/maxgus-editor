@@ -15,8 +15,17 @@ use crate::{
 };
 use std::path::PathBuf;
 
-/// The buffer the tree is drawn into.
+/// The buffers the panel's three windows are drawn into.
 pub const TREE_BUFFER_NAME: &str = "*treefile*";
+pub const SYMBOLS_BUFFER_NAME: &str = "*symbols*";
+pub const BUFFERS_BUFFER_NAME: &str = "*buffers*";
+
+/// All three, for the places that need to know a buffer belongs to the panel.
+pub const PANEL_BUFFERS: &[&str] = &[TREE_BUFFER_NAME, SYMBOLS_BUFFER_NAME, BUFFERS_BUFFER_NAME];
+
+/// The mode names the outline and the buffer list go under.
+pub const SYMBOLS_MODE: &str = "symbols-mode";
+pub const BUFFERS_MODE: &str = "buffers-mode";
 
 /// The mode name the tree's keymap goes under.
 ///
@@ -30,48 +39,252 @@ pub fn register(registry: &mut Registry) {
     registry.register_all(&[
         command!("treefile-toggle", "Show or hide the file tree.", toggle),
         command!("treefile-select", "Select the file tree window.", select),
-        command!("treefile-select-directory", "Show the file tree rooted at a directory.", select_directory),
-        command!("treefile-next-line", "Move down one line.", next_line, non_interactive),
-        command!("treefile-previous-line", "Move up one line.", previous_line, non_interactive),
-        command!("treefile-goto-first", "Move to the first line.", goto_first, non_interactive),
-        command!("treefile-goto-last", "Move to the last line.", goto_last, non_interactive),
-        command!("treefile-next-neighbour", "Move to the next node at this depth.", next_neighbour, non_interactive),
-        command!("treefile-previous-neighbour", "Move to the previous node at this depth.", previous_neighbour, non_interactive),
-        command!("treefile-goto-parent", "Move to the enclosing directory.", goto_parent, non_interactive),
-        command!("treefile-toggle-node", "Expand or collapse the directory here.", toggle_node, non_interactive),
-        command!("treefile-expand-node", "Expand the directory here.", expand_node, non_interactive),
-        command!("treefile-collapse-node", "Collapse the directory here.", collapse_node, non_interactive),
-        command!("treefile-collapse-parent", "Collapse the enclosing directory.", collapse_parent, non_interactive),
-        command!("treefile-expand-recursively", "Expand everything below here.", expand_recursively, non_interactive),
-        command!("treefile-visit-node", "Open the file here, or expand the directory.", visit, non_interactive),
-        command!("treefile-visit-node-vertical-split", "Open the file here in a window below.", visit_below, non_interactive),
-        command!("treefile-visit-node-horizontal-split", "Open the file here in a window beside.", visit_beside, non_interactive),
-        command!("treefile-visit-node-recent-window", "Open the file here in the other window.", visit_other, non_interactive),
-        command!("treefile-visit-node-external", "Open the file here in an external program.", visit_external, non_interactive),
-        command!("treefile-peek", "Show the file here without leaving the tree.", peek, non_interactive),
-        command!("treefile-create-file", "Create a file here.", create_file, non_interactive),
-        command!("treefile-create-dir", "Create a directory here.", create_dir, non_interactive),
-        command!("treefile-rename-file", "Rename the file here.", rename, non_interactive),
-        command!("treefile-delete-file", "Delete the file here.", delete, non_interactive),
-        command!("treefile-move-file", "Move the file here somewhere else.", move_file, non_interactive),
-        command!("treefile-run-shell-command", "Run a shell command in this directory.", shell_command, non_interactive),
-        command!("treefile-copy-absolute-path", "Copy the full path here.", copy_absolute, non_interactive),
-        command!("treefile-copy-relative-path", "Copy the path here, relative to the root.", copy_relative, non_interactive),
-        command!("treefile-copy-project-path", "Copy the path here, relative to the project.", copy_relative, non_interactive),
-        command!("treefile-copy-file", "Copy the file name here.", copy_name, non_interactive),
-        command!("treefile-toggle-show-dotfiles", "Show or hide dotfiles.", toggle_hidden, non_interactive),
-        command!("treefile-toggle-fixed-width", "Lock or unlock the tree width.", toggle_fixed_width, non_interactive),
-        command!("treefile-toggle-follow-mode", "Follow the current buffer, or stop.", toggle_follow, non_interactive),
-        command!("treefile-toggle-git-mode", "Show or hide git status.", toggle_git, non_interactive),
-        command!("treefile-toggle-directories-first", "Sort directories first, or by name.", toggle_directories_first, non_interactive),
-        command!("treefile-set-width", "Set the tree width.", set_width, non_interactive),
-        command!("treefile-increase-width", "Widen the tree.", increase_width, non_interactive),
-        command!("treefile-decrease-width", "Narrow the tree.", decrease_width, non_interactive),
-        command!("treefile-refresh", "Re-read the tree from disk.", refresh, non_interactive),
-        command!("treefile-resort", "Re-sort the tree.", refresh, non_interactive),
+        command!(
+            "treefile-select-directory",
+            "Show the file tree rooted at a directory.",
+            select_directory
+        ),
+        command!(
+            "treefile-next-line",
+            "Move down one line.",
+            next_line,
+            non_interactive
+        ),
+        command!(
+            "treefile-previous-line",
+            "Move up one line.",
+            previous_line,
+            non_interactive
+        ),
+        command!(
+            "treefile-goto-first",
+            "Move to the first line.",
+            goto_first,
+            non_interactive
+        ),
+        command!(
+            "treefile-goto-last",
+            "Move to the last line.",
+            goto_last,
+            non_interactive
+        ),
+        command!(
+            "treefile-next-neighbour",
+            "Move to the next node at this depth.",
+            next_neighbour,
+            non_interactive
+        ),
+        command!(
+            "treefile-previous-neighbour",
+            "Move to the previous node at this depth.",
+            previous_neighbour,
+            non_interactive
+        ),
+        command!(
+            "treefile-goto-parent",
+            "Move to the enclosing directory.",
+            goto_parent,
+            non_interactive
+        ),
+        command!(
+            "treefile-toggle-node",
+            "Expand or collapse the directory here.",
+            toggle_node,
+            non_interactive
+        ),
+        command!(
+            "treefile-expand-node",
+            "Expand the directory here.",
+            expand_node,
+            non_interactive
+        ),
+        command!(
+            "treefile-collapse-node",
+            "Collapse the directory here.",
+            collapse_node,
+            non_interactive
+        ),
+        command!(
+            "treefile-collapse-parent",
+            "Collapse the enclosing directory.",
+            collapse_parent,
+            non_interactive
+        ),
+        command!(
+            "treefile-expand-recursively",
+            "Expand everything below here.",
+            expand_recursively,
+            non_interactive
+        ),
+        command!(
+            "treefile-visit-node",
+            "Open the file here, or expand the directory.",
+            visit,
+            non_interactive
+        ),
+        command!(
+            "treefile-visit-node-vertical-split",
+            "Open the file here in a window below.",
+            visit_below,
+            non_interactive
+        ),
+        command!(
+            "treefile-visit-node-horizontal-split",
+            "Open the file here in a window beside.",
+            visit_beside,
+            non_interactive
+        ),
+        command!(
+            "treefile-visit-node-recent-window",
+            "Open the file here in the other window.",
+            visit_other,
+            non_interactive
+        ),
+        command!(
+            "treefile-visit-node-external",
+            "Open the file here in an external program.",
+            visit_external,
+            non_interactive
+        ),
+        command!(
+            "treefile-peek",
+            "Show the file here without leaving the tree.",
+            peek,
+            non_interactive
+        ),
+        command!(
+            "treefile-create-file",
+            "Create a file here.",
+            create_file,
+            non_interactive
+        ),
+        command!(
+            "treefile-create-dir",
+            "Create a directory here.",
+            create_dir,
+            non_interactive
+        ),
+        command!(
+            "treefile-rename-file",
+            "Rename the file here.",
+            rename,
+            non_interactive
+        ),
+        command!(
+            "treefile-delete-file",
+            "Delete the file here.",
+            delete,
+            non_interactive
+        ),
+        command!(
+            "treefile-move-file",
+            "Move the file here somewhere else.",
+            move_file,
+            non_interactive
+        ),
+        command!(
+            "treefile-run-shell-command",
+            "Run a shell command in this directory.",
+            shell_command,
+            non_interactive
+        ),
+        command!(
+            "treefile-copy-absolute-path",
+            "Copy the full path here.",
+            copy_absolute,
+            non_interactive
+        ),
+        command!(
+            "treefile-copy-relative-path",
+            "Copy the path here, relative to the root.",
+            copy_relative,
+            non_interactive
+        ),
+        command!(
+            "treefile-copy-project-path",
+            "Copy the path here, relative to the project.",
+            copy_relative,
+            non_interactive
+        ),
+        command!(
+            "treefile-copy-file",
+            "Copy the file name here.",
+            copy_name,
+            non_interactive
+        ),
+        command!(
+            "treefile-toggle-show-dotfiles",
+            "Show or hide dotfiles.",
+            toggle_hidden,
+            non_interactive
+        ),
+        command!(
+            "treefile-toggle-fixed-width",
+            "Lock or unlock the tree width.",
+            toggle_fixed_width,
+            non_interactive
+        ),
+        command!(
+            "treefile-toggle-follow-mode",
+            "Follow the current buffer, or stop.",
+            toggle_follow,
+            non_interactive
+        ),
+        command!(
+            "treefile-toggle-git-mode",
+            "Show or hide git status.",
+            toggle_git,
+            non_interactive
+        ),
+        command!(
+            "treefile-toggle-directories-first",
+            "Sort directories first, or by name.",
+            toggle_directories_first,
+            non_interactive
+        ),
+        command!(
+            "treefile-set-width",
+            "Set the tree width.",
+            set_width,
+            non_interactive
+        ),
+        command!(
+            "treefile-increase-width",
+            "Widen the tree.",
+            increase_width,
+            non_interactive
+        ),
+        command!(
+            "treefile-decrease-width",
+            "Narrow the tree.",
+            decrease_width,
+            non_interactive
+        ),
+        command!(
+            "treefile-refresh",
+            "Re-read the tree from disk.",
+            refresh,
+            non_interactive
+        ),
+        command!(
+            "treefile-resort",
+            "Re-sort the tree.",
+            refresh,
+            non_interactive
+        ),
         command!("treefile-quit", "Hide the tree.", quit, non_interactive),
-        command!("treefile-kill", "Hide the tree and forget it.", kill, non_interactive),
-        command!("treefile-help", "Describe the tree keymap.", help, non_interactive),
+        command!(
+            "treefile-kill",
+            "Hide the tree and forget it.",
+            kill,
+            non_interactive
+        ),
+        command!(
+            "treefile-help",
+            "Describe the tree keymap.",
+            help,
+            non_interactive
+        ),
     ]);
 }
 
@@ -90,34 +303,110 @@ fn act(editor: &mut Editor, action: TreeAction) {
 
 // ---- showing and hiding -------------------------------------------------
 
-/// Opens the tree window, creating its buffer if this is the first time.
-fn open(editor: &mut Editor, root: PathBuf) -> Result<()> {
-    let id = match editor.buffers.find_by_name(TREE_BUFFER_NAME) {
-        Some(id) => id,
-        None => {
-            let id = editor.buffers.create_with_text(TREE_BUFFER_NAME, "");
-            editor.buffers.get_mut(id).expect("just created").set_read_only(true);
-            id
-        }
-    };
-    let window = editor.windows.add_side_window(id, editor.tree_width);
-    editor.tree_window = Some(window);
+/// Opens the panel: a column of windows down the left, one per section.
+///
+/// Three windows rather than one buffer with headings in it. Moving between
+/// them is then ordinary window movement, each keeps its own point, and each
+/// scrolls on its own.
+pub fn open(editor: &mut Editor, root: PathBuf) -> Result<()> {
+    use crate::panel::PanelSection;
     editor.tree_root = Some(root.clone());
+
+    // The configured heights, cut down to what the frame can actually give.
+    // A twelve-row outline in a ten-row frame would leave the tree nothing at
+    // all, and a panel whose first window is empty looks broken.
+    let available = editor.frame.height.saturating_sub(1);
+    let share = |wanted: u16| {
+        wanted
+            .min(available / 4)
+            .max(3)
+            .min(available.saturating_sub(3))
+    };
+
+    let mut entries = Vec::new();
+    if editor.panel.is_enabled(PanelSection::Tree) {
+        // No fixed height: the tree takes whatever the other two leave.
+        entries.push((panel_buffer(editor, TREE_BUFFER_NAME), None));
+    }
+    if editor.panel.is_enabled(PanelSection::Symbols) && editor.symbols_available() {
+        let height = share(editor.symbols_height);
+        entries.push((panel_buffer(editor, SYMBOLS_BUFFER_NAME), Some(height)));
+    }
+    if editor.panel.is_enabled(PanelSection::Buffers) {
+        let height = share(editor.buffers_height);
+        entries.push((panel_buffer(editor, BUFFERS_BUFFER_NAME), Some(height)));
+    }
+    if entries.is_empty() {
+        return Err(crate::CoreError::Message(
+            "Every panel section is switched off".into(),
+        ));
+    }
+
+    let windows = editor.windows.add_side_column(&entries, editor.tree_width);
+    editor.tree_window = windows.first().copied();
+    editor.panel_windows = windows;
+    // Drawn straight away rather than when the directory walk answers: the
+    // buffer list is already known, and an empty column while the filesystem
+    // is read looks like a panel that failed to open.
+    editor.render_panel_buffer();
+    // The outline is asked for directly rather than through
+    // `follow_panel_to_buffer`, which may rebuild the column — and rebuilding
+    // comes back here. One cycle would terminate; relying on that is how a
+    // later change turns into a stack overflow.
+    editor.request_document_symbols();
     act(editor, TreeAction::Refresh);
     Ok(())
 }
 
-/// Closes the tree window, leaving its buffer alone.
-fn close(editor: &mut Editor) {
-    let Some(window) = editor.tree_window.take() else { return };
-    editor.windows.delete(window).ok();
+/// One of the panel's buffers, created read-only if this is the first time.
+fn panel_buffer(editor: &mut Editor, name: &str) -> maxgus_text::BufferId {
+    match editor.buffers.find_by_name(name) {
+        Some(id) => id,
+        None => {
+            let id = editor.buffers.create_with_text(name, "");
+            editor
+                .buffers
+                .get_mut(id)
+                .expect("just created")
+                .set_read_only(true);
+            id
+        }
+    }
+}
+
+/// Closes every panel window, leaving their buffers alone.
+pub fn close(editor: &mut Editor) {
+    for window in std::mem::take(&mut editor.panel_windows) {
+        editor.windows.delete(window).ok();
+    }
+    editor.tree_window = None;
     // The map goes with the buffer, so selecting whatever is left takes it
     // away; nothing to remove by hand.
     editor.activate_mode_keymap();
 }
 
+/// Closes the panel and opens it again, which is how a section is switched
+/// on or off: the column's shape is decided when it is built.
+pub fn rebuild(editor: &mut Editor) -> Result<()> {
+    if editor.panel_windows.is_empty() {
+        return Ok(());
+    }
+    let root = editor
+        .tree_root
+        .clone()
+        .unwrap_or_else(|| editor.default_directory());
+    let selected = editor.windows.current_id();
+    let was_in_panel = editor.panel_windows.contains(&selected);
+    close(editor);
+    open(editor, root)?;
+    if was_in_panel && let Some(window) = editor.tree_window {
+        editor.select_window(window);
+    }
+    Ok(())
+}
+
 fn toggle(editor: &mut Editor, _: &Args) -> Result<()> {
-    if editor.tree_window.is_some() {
+    if !editor.panel_windows.is_empty() {
         close(editor);
         return Ok(());
     }
@@ -126,14 +415,11 @@ fn toggle(editor: &mut Editor, _: &Args) -> Result<()> {
 }
 
 fn select(editor: &mut Editor, _: &Args) -> Result<()> {
-    let window = match editor.tree_window {
-        Some(window) => window,
-        None => {
-            let root = editor.default_directory();
-            open(editor, root)?;
-            editor.tree_window.ok_or(crate::CoreError::NoSuchWindow)?
-        }
-    };
+    if editor.panel_windows.is_empty() {
+        let root = editor.default_directory();
+        open(editor, root)?;
+    }
+    let window = editor.tree_window.ok_or(crate::CoreError::NoSuchWindow)?;
     editor.select_window(window);
     Ok(())
 }
@@ -174,6 +460,12 @@ fn kill(editor: &mut Editor, _: &Args) -> Result<()> {
 
 // ---- navigation ---------------------------------------------------------
 
+/// `n`: down one row of the *panel*, not of the tree.
+///
+/// The panel stacks the tree, the symbol outline and the buffer list in one
+/// window. Moving by tree index — which is what this did — clamps at the last
+/// file and can never reach a symbol or a buffer, so the sections below the
+/// tree could be scrolled past but never entered.
 fn next_line(editor: &mut Editor, args: &Args) -> Result<()> {
     let line = editor.tree_cursor_line() + args.count();
     editor.move_tree_cursor_to_line(line);
@@ -220,7 +512,9 @@ fn neighbour(editor: &mut Editor, forward: bool) -> Result<()> {
             std::cmp::Ordering::Greater => {}
         }
     }
-    Err(crate::CoreError::Message("No more nodes at this level".into()))
+    Err(crate::CoreError::Message(
+        "No more nodes at this level".into(),
+    ))
 }
 
 fn next_neighbour(editor: &mut Editor, _: &Args) -> Result<()> {
@@ -238,7 +532,9 @@ fn parent_line(editor: &Editor) -> Option<usize> {
     if depth == 0 {
         return None;
     }
-    (0..here).rev().find(|index| editor.tree[*index].depth < depth)
+    (0..here)
+        .rev()
+        .find(|index| editor.tree[*index].depth < depth)
 }
 
 fn goto_parent(editor: &mut Editor, _: &Args) -> Result<()> {
@@ -308,12 +604,9 @@ fn open_selection(editor: &mut Editor, split: Option<Direction>, stay: bool) -> 
         return Ok(());
     }
     let tree_window = editor.tree_window;
-    // Never open a file into the tree's own side window.
+    // Never open a file into one of the panel's own windows.
     let target = editor
-        .windows
-        .ids()
-        .into_iter()
-        .find(|w| Some(*w) != tree_window)
+        .editing_window()
         .ok_or_else(|| crate::CoreError::Message("No window to open into".into()))?;
     editor.select_window(target);
     if let Some(direction) = split {
@@ -359,18 +652,16 @@ fn peek(editor: &mut Editor, _: &Args) -> Result<()> {
 
 fn visit_external(editor: &mut Editor, _: &Args) -> Result<()> {
     let node = selection(editor)?;
-    let directory = editor.tree_root.clone().unwrap_or_else(|| editor.default_directory());
+    let directory = editor
+        .tree_root
+        .clone()
+        .unwrap_or_else(|| editor.default_directory());
     editor.spawn(Task::Shell {
-        command: format!("xdg-open {}", shell_quote(&node.path.to_string_lossy())),
+        command: crate::desktop_open_command(&node.path.to_string_lossy()),
         directory,
         insert_at: None,
     });
     Ok(())
-}
-
-/// Wraps `text` in single quotes for a shell, escaping any it contains.
-fn shell_quote(text: &str) -> String {
-    format!("'{}'", text.replace('\'', r"'\''"))
 }
 
 // ---- file operations ----------------------------------------------------
@@ -390,7 +681,13 @@ fn target_directory(editor: &Editor) -> Result<PathBuf> {
 
 fn create_file(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(name) = args.input.clone() else {
-        editor.prompt_for("treefile-create-file", MinibufferKind::Text, "Create file: ", "", Vec::new());
+        editor.prompt_for(
+            "treefile-create-file",
+            MinibufferKind::Text,
+            "Create file: ",
+            "",
+            Vec::new(),
+        );
         return Ok(());
     };
     let parent = target_directory(editor)?;
@@ -400,7 +697,13 @@ fn create_file(editor: &mut Editor, args: &Args) -> Result<()> {
 
 fn create_dir(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(name) = args.input.clone() else {
-        editor.prompt_for("treefile-create-dir", MinibufferKind::Text, "Create directory: ", "", Vec::new());
+        editor.prompt_for(
+            "treefile-create-dir",
+            MinibufferKind::Text,
+            "Create directory: ",
+            "",
+            Vec::new(),
+        );
         return Ok(());
     };
     let parent = target_directory(editor)?;
@@ -420,7 +723,13 @@ fn rename(editor: &mut Editor, args: &Args) -> Result<()> {
         );
         return Ok(());
     };
-    act(editor, TreeAction::Rename { path: node.path, name });
+    act(
+        editor,
+        TreeAction::Rename {
+            path: node.path,
+            name,
+        },
+    );
     Ok(())
 }
 
@@ -447,8 +756,12 @@ fn delete(editor: &mut Editor, args: &Args) -> Result<()> {
 fn move_file(editor: &mut Editor, args: &Args) -> Result<()> {
     let node = selection(editor)?;
     let Some(destination) = args.input.clone() else {
-        let initial =
-            editor.tree_root.clone().unwrap_or_default().to_string_lossy().into_owned();
+        let initial = editor
+            .tree_root
+            .clone()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         editor.prompt_for(
             "treefile-move-file",
             MinibufferKind::File,
@@ -460,7 +773,10 @@ fn move_file(editor: &mut Editor, args: &Args) -> Result<()> {
     };
     act(
         editor,
-        TreeAction::Move { path: node.path, destination: PathBuf::from(destination.trim()) },
+        TreeAction::Move {
+            path: node.path,
+            destination: PathBuf::from(destination.trim()),
+        },
     );
     Ok(())
 }
@@ -480,7 +796,11 @@ fn shell_command(editor: &mut Editor, args: &Args) -> Result<()> {
     if command.trim().is_empty() {
         return Err(crate::CoreError::Message("No command given".into()));
     }
-    editor.spawn(Task::Shell { command, directory, insert_at: None });
+    editor.spawn(Task::Shell {
+        command,
+        directory,
+        insert_at: None,
+    });
     Ok(())
 }
 
@@ -529,13 +849,21 @@ fn toggle_git(editor: &mut Editor, _: &Args) -> Result<()> {
 
 fn toggle_follow(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.tree_follow = !editor.tree_follow;
-    editor.message(if editor.tree_follow { "Follow mode on" } else { "Follow mode off" });
+    editor.message(if editor.tree_follow {
+        "Follow mode on"
+    } else {
+        "Follow mode off"
+    });
     Ok(())
 }
 
 fn toggle_fixed_width(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.tree_width_locked = !editor.tree_width_locked;
-    editor.message(if editor.tree_width_locked { "Width locked" } else { "Width unlocked" });
+    editor.message(if editor.tree_width_locked {
+        "Width locked"
+    } else {
+        "Width unlocked"
+    });
     Ok(())
 }
 
@@ -563,7 +891,13 @@ fn decrease_width(editor: &mut Editor, args: &Args) -> Result<()> {
 fn set_width(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(input) = args.input.clone() else {
         let current = editor.tree_width.to_string();
-        editor.prompt_for("treefile-set-width", MinibufferKind::Text, "Width: ", &current, Vec::new());
+        editor.prompt_for(
+            "treefile-set-width",
+            MinibufferKind::Text,
+            "Width: ",
+            &current,
+            Vec::new(),
+        );
         return Ok(());
     };
     let width: i32 = input
@@ -592,10 +926,13 @@ fn help(editor: &mut Editor, _: &Args) -> Result<()> {
         }
         None => editor.buffers.create_with_text("*Help*", &text),
     };
-    editor.buffers.get_mut(id).expect("just created").set_read_only(true);
-    // Show the help beside the tree rather than replacing it.
-    let tree_window = editor.tree_window;
-    if let Some(target) = editor.windows.ids().into_iter().find(|w| Some(*w) != tree_window) {
+    editor
+        .buffers
+        .get_mut(id)
+        .expect("just created")
+        .set_read_only(true);
+    // Show the help beside the panel rather than replacing it.
+    if let Some(target) = editor.editing_window() {
         editor.select_window(target);
     }
     editor.switch_to_buffer(id)
@@ -614,7 +951,11 @@ mod tests {
         VisibleNode {
             path: PathBuf::from(path),
             name: name.into(),
-            kind: if directory { NodeKind::Directory } else { NodeKind::File },
+            kind: if directory {
+                NodeKind::Directory
+            } else {
+                NodeKind::File
+            },
             depth,
             expanded,
             expandable: directory,
@@ -671,7 +1012,10 @@ mod tests {
 
     fn run(d: &mut Dispatcher, e: &mut Editor, command: &str) {
         let out = d.execute(e, command, None);
-        assert!(!matches!(out, Dispatch::Failed { .. }), "`{command}` failed: {out:?}");
+        assert!(
+            !matches!(out, Dispatch::Failed { .. }),
+            "`{command}` failed: {out:?}"
+        );
     }
 
     fn fails(d: &mut Dispatcher, e: &mut Editor, command: &str) -> String {
@@ -682,15 +1026,23 @@ mod tests {
     }
 
     fn selected(e: &Editor) -> String {
-        e.tree_selection().map(|n| n.name.clone()).unwrap_or_default()
+        e.tree_selection()
+            .map(|n| n.name.clone())
+            .unwrap_or_default()
     }
 
     #[test]
     fn every_treemacs_binding_is_registered() {
+        // The map covers the whole panel, not only the tree, so the panel's
+        // own commands have to be registered alongside it.
         let mut registry = Registry::new();
         register(&mut registry);
+        crate::commands::panel::register(&mut registry);
         for (keys, command) in maxgus_tree::TREEMACS_BINDINGS {
-            assert!(registry.contains(command), "`{keys}` runs unregistered `{command}`");
+            assert!(
+                registry.contains(command),
+                "`{keys}` runs unregistered `{command}`"
+            );
         }
     }
 
@@ -699,12 +1051,22 @@ mod tests {
         let (mut d, mut e) = setup();
         run(&mut d, &mut e, "treefile-toggle");
         assert!(e.tree_window.is_some());
-        assert_eq!(e.windows.len(), 2);
+        // The panel is a column: the tree and the buffer list, with no
+        // outline because no language server is running. Plus the buffer.
+        assert_eq!(e.panel_windows.len(), 2);
+        assert_eq!(e.windows.len(), 3);
         let window = e.tree_window.unwrap();
-        assert_eq!(e.windows.get(window).unwrap().rect.x, 0, "the tree sits on the left");
+        assert_eq!(
+            e.windows.get(window).unwrap().rect.x,
+            0,
+            "the tree sits on the left"
+        );
         assert!(e.windows.get(window).unwrap().side);
         assert!(
-            e.tasks.peek().iter().any(|t| matches!(t, Task::Tree(TreeAction::Refresh))),
+            e.tasks
+                .peek()
+                .iter()
+                .any(|t| matches!(t, Task::Tree(TreeAction::Refresh))),
             "a refresh was queued"
         );
 
@@ -717,11 +1079,20 @@ mod tests {
     fn the_tree_keymap_takes_over_while_the_tree_is_selected() {
         let (mut d, mut e) = setup();
         with_tree(&mut d, &mut e);
-        assert_eq!(d.handle_keys(&mut e, "n").command(), Some("treefile-next-line"));
-        assert_eq!(d.handle_keys(&mut e, "u").command(), Some("treefile-goto-parent"));
+        assert_eq!(
+            d.handle_keys(&mut e, "n").command(),
+            Some("treefile-next-line")
+        );
+        assert_eq!(
+            d.handle_keys(&mut e, "u").command(),
+            Some("treefile-goto-parent")
+        );
 
         run(&mut d, &mut e, "treefile-quit");
-        assert_eq!(d.handle_keys(&mut e, "n").command(), Some("self-insert-command"));
+        assert_eq!(
+            d.handle_keys(&mut e, "n").command(),
+            Some("self-insert-command")
+        );
     }
 
     #[test]
@@ -759,10 +1130,10 @@ mod tests {
         let (mut d, mut e) = setup();
         with_tree(&mut d, &mut e);
         run(&mut d, &mut e, "treefile-previous-line");
-        assert_eq!(selected(&e), "project");
+        assert_eq!(selected(&e), "project", "it walked off the top");
         e.prefix = crate::Prefix::Numeric(100);
         d.execute(&mut e, "treefile-next-line", None);
-        assert_eq!(selected(&e), "Cargo.toml");
+        assert_eq!(selected(&e), "Cargo.toml", "it walked off the bottom");
     }
 
     #[test]
@@ -802,7 +1173,9 @@ mod tests {
         run(&mut d, &mut e, "treefile-toggle-node");
         assert_eq!(
             e.tasks.drain(),
-            vec![Task::Tree(TreeAction::Toggle(PathBuf::from("/project/docs")))]
+            vec![Task::Tree(TreeAction::Toggle(PathBuf::from(
+                "/project/docs"
+            )))]
         );
     }
 
@@ -815,7 +1188,9 @@ mod tests {
         assert_eq!(selected(&e), "src", "moved up to the directory");
         assert_eq!(
             e.tasks.drain(),
-            vec![Task::Tree(TreeAction::Collapse(PathBuf::from("/project/src")))]
+            vec![Task::Tree(TreeAction::Collapse(PathBuf::from(
+                "/project/src"
+            )))]
         );
     }
 
@@ -827,7 +1202,9 @@ mod tests {
         run(&mut d, &mut e, "treefile-expand-recursively");
         assert_eq!(
             e.tasks.drain(),
-            vec![Task::Tree(TreeAction::ExpandRecursively(PathBuf::from("/project/src")))]
+            vec![Task::Tree(TreeAction::ExpandRecursively(PathBuf::from(
+                "/project/src"
+            )))]
         );
     }
 
@@ -839,7 +1216,11 @@ mod tests {
         e.tasks.drain();
         run(&mut d, &mut e, "treefile-visit-node");
 
-        assert_ne!(e.windows.current_id(), e.tree_window.unwrap(), "not into the tree window");
+        assert_ne!(
+            e.windows.current_id(),
+            e.tree_window.unwrap(),
+            "not into the tree window"
+        );
         assert_eq!(
             e.tasks.drain(),
             vec![Task::ReadFile {
@@ -868,7 +1249,11 @@ mod tests {
         with_tree(&mut d, &mut e);
         e.move_tree_cursor_to_line(2);
         run(&mut d, &mut e, "treefile-visit-node-vertical-split");
-        assert_eq!(e.windows.len(), 3, "tree plus two");
+        assert_eq!(
+            e.windows.len(),
+            e.panel_windows.len() + 2,
+            "the panel plus two"
+        );
     }
 
     #[test]
@@ -878,7 +1263,10 @@ mod tests {
         e.move_tree_cursor_to_line(4);
         e.tasks.drain();
         run(&mut d, &mut e, "treefile-visit-node");
-        assert!(matches!(&e.tasks.peek()[0], Task::Tree(TreeAction::Toggle(_))));
+        assert!(matches!(
+            &e.tasks.peek()[0],
+            Task::Tree(TreeAction::Toggle(_))
+        ));
     }
 
     #[test]
@@ -978,7 +1366,9 @@ mod tests {
         d.handle_keys(&mut e, "RET");
         assert_eq!(
             e.tasks.drain(),
-            vec![Task::Tree(TreeAction::Delete(PathBuf::from("/project/src/main.rs")))]
+            vec![Task::Tree(TreeAction::Delete(PathBuf::from(
+                "/project/src/main.rs"
+            )))]
         );
     }
 
@@ -1091,7 +1481,12 @@ mod tests {
         }
         e.tasks.drain();
         d.handle_keys(&mut e, "RET");
-        let Task::Shell { command, directory, .. } = &e.tasks.peek()[0] else { panic!() };
+        let Task::Shell {
+            command, directory, ..
+        } = &e.tasks.peek()[0]
+        else {
+            panic!()
+        };
         assert_eq!(command, "ls");
         assert_eq!(directory, &PathBuf::from("/project/src"));
     }
@@ -1103,9 +1498,11 @@ mod tests {
         e.move_tree_cursor_to_line(2);
         e.tasks.drain();
         run(&mut d, &mut e, "treefile-visit-node-external");
-        let Task::Shell { command, .. } = &e.tasks.peek()[0] else { panic!() };
+        let Task::Shell { command, .. } = &e.tasks.peek()[0] else {
+            panic!()
+        };
         assert_eq!(command, "xdg-open '/project/src/main.rs'");
-        assert_eq!(shell_quote("it's here"), r"'it'\''s here'");
+        assert_eq!(crate::shell_quote("it's here"), r"'it'\''s here'");
     }
 
     #[test]
@@ -1116,7 +1513,11 @@ mod tests {
         let text = e.current_buffer().text();
         assert!(text.contains("treefile-visit-node"), "got `{text}`");
         assert!(text.contains("RET"), "got `{text}`");
-        assert_ne!(e.windows.current_id(), e.tree_window.unwrap(), "shown beside the tree");
+        assert_ne!(
+            e.windows.current_id(),
+            e.tree_window.unwrap(),
+            "shown beside the tree"
+        );
     }
 
     #[test]
@@ -1132,7 +1533,11 @@ mod tests {
             show_hidden: false,
         })
         .unwrap();
-        assert_eq!(selected(&e), "lib.rs", "the cursor line survived the redraw");
+        assert_eq!(
+            selected(&e),
+            "lib.rs",
+            "the cursor line survived the redraw"
+        );
     }
 
     #[test]
@@ -1165,5 +1570,7 @@ mod tests {
         d.execute(&mut e, "treefile-toggle", None);
         assert!(fails(&mut d, &mut e, "treefile-toggle-node").contains("No node here"));
         assert!(fails(&mut d, &mut e, "treefile-copy-absolute-path").contains("No node here"));
+        assert!(fails(&mut d, &mut e, "treefile-delete-file").contains("No node here"));
+        assert!(fails(&mut d, &mut e, "treefile-rename-file").contains("No node here"));
     }
 }

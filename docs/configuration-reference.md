@@ -3,7 +3,9 @@
 Every option `maxgus` understands, with its type and default.
 
 The file lives at `~/.config/maxgus/config.kdl`. Start elsewhere with
-`--config <file>`, or with nothing at all using `-Q`. Every node is optional.
+`--config <file>`, or with nothing at all using `-Q`. From inside the editor,
+`C-c e` (`M-x edit-configuration`) opens whichever file this session was
+started with, creating it if it is not there yet. Every node is optional.
 A node or key `maxgus` does not recognise is reported with its line number and
 skipped, so a file written for a newer version still starts an older one — and
 a misspelling gets a "did you mean" rather than silence.
@@ -49,6 +51,15 @@ KDL spells booleans `#true` and `#false`, and null `#null`.
 | `blink-cursor` | bool | `#false` | Ask the terminal for a blinking block cursor. |
 | `nerd-font-icons` | bool | `#true` | Glyphs in the file tree and mode line, chosen by file type. Needs a [Nerd Font](https://www.nerdfonts.com); turn it off and both fall back to plain text. |
 | `echo-keystrokes-ms` | integer | `1000` | Pause before a half-typed `C-x …` is echoed. |
+| `panel-tree` | bool | `#true` | Show the file tree section of the side panel. |
+| `panel-symbols` | bool | `#true` | Show the symbol outline section. It hides itself anyway when no language server is running for the buffer being edited. |
+| `panel-buffers` | bool | `#true` | Show the open-buffers section. |
+| `panel-at-startup` | bool | `#false` | Open the side panel as soon as the editor starts. |
+| `panel-symbols-height` | integer | `12` | Rows the symbol outline's window takes. The tree takes whatever the others leave. |
+| `panel-buffers-height` | integer | `8` | Rows the buffer list's window takes. |
+| `gui-font` | string | `"JetBrainsMono Nerd Font"` | The family the window draws with. Falls through a list of installed monospace families when it is not there. Only read by a `--features gui` build started with `--gui`. |
+| `gui-font-size` | integer | `16` | Its size in pixels, clamped to 6–96. |
+| `shell` | string | `$SHELL` | The program a terminal tab starts. |
 
 ### Searching
 
@@ -212,7 +223,15 @@ your `theme` blocks override.
 `mode-line-buffer-id`, `minibuffer-prompt`, `echo-area`, `isearch`,
 `isearch-fail`, `lazy-highlight`, `match-paren`, `trailing-whitespace`,
 `fill-column-indicator`, `completion-selected`, `completion-annotation`,
-`completion-border`, `completion-key`, `completion-count`, `error`,
+`completion-border`, `completion-key`, `completion-count`, `terminal`,
+`transient-key`, `transient-heading`, `transient-switch-on`,
+`transient-switch-off`, `magit-section-heading`, `magit-section-highlight`,
+`magit-diff-file-heading`,
+`magit-diff-hunk-heading`, `magit-diff-added`, `magit-diff-removed`,
+`magit-diff-context`, `magit-hash`, `magit-branch-local`,
+`magit-branch-remote`, `magit-tag`,
+`terminal-tab`, `terminal-tab-selected`, `terminal-exited`, `panel-header`,
+`panel-note`, `panel-current-buffer`, `symbol-detail`, `error`,
 `warning`, `success`, and `default`, which the rest fall back to.
 
 **Syntax** — `font-lock-keyword`, `font-lock-builtin`, `font-lock-constant`,

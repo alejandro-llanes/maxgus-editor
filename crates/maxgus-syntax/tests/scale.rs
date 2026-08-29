@@ -11,7 +11,9 @@ fn source(lines: usize) -> String {
 
 /// A byte index at or after `at` that sits on a character boundary.
 fn boundary(text: &str, at: usize) -> usize {
-    (at..text.len()).find(|i| text.is_char_boundary(*i)).unwrap_or(text.len())
+    (at..text.len())
+        .find(|i| text.is_char_boundary(*i))
+        .unwrap_or(text.len())
 }
 
 #[test]

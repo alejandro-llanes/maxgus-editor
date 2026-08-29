@@ -53,7 +53,11 @@ mod tests {
         let encoding = PositionEncoding::Utf16;
         for offset in 0..=b.len_chars() {
             let position = position_of_offset(&b, offset, encoding);
-            assert_eq!(offset_of_position(&b, position, encoding), offset, "offset {offset}");
+            assert_eq!(
+                offset_of_position(&b, position, encoding),
+                offset,
+                "offset {offset}"
+            );
         }
     }
 
@@ -79,8 +83,14 @@ mod tests {
     fn a_line_past_the_end_clamps_to_the_end_of_the_buffer() {
         let b = buffer("one\ntwo");
         let encoding = PositionEncoding::Utf16;
-        assert_eq!(offset_of_position(&b, LspPosition::new(99, 0), encoding), b.len_chars());
-        assert_eq!(position_of_offset(&b, 999, encoding), LspPosition::new(1, 3));
+        assert_eq!(
+            offset_of_position(&b, LspPosition::new(99, 0), encoding),
+            b.len_chars()
+        );
+        assert_eq!(
+            position_of_offset(&b, 999, encoding),
+            LspPosition::new(1, 3)
+        );
     }
 
     #[test]

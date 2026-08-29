@@ -6,6 +6,8 @@
 //! visible line when diagnostics were present, which made a frame take 1.67
 //! seconds on this file instead of 361 microseconds. A ratio catches it on any
 //! machine, in debug or release.
+#![cfg(feature = "lsp")]
+
 use maxgus_config::Settings;
 use maxgus_core::{Dispatcher, Editor};
 use maxgus_faces::defaults;
@@ -24,8 +26,11 @@ fn operations_on_a_large_file_stay_responsive() {
     println!("file: {} lines, {} bytes", text.lines().count(), text.len());
 
     let frame = Rect::new(0, 0, 100, 40);
-    let mut editor =
-        Editor::new(Settings::default(), defaults::builtin("maxgus-dark").unwrap(), frame);
+    let mut editor = Editor::new(
+        Settings::default(),
+        defaults::builtin("maxgus-dark").unwrap(),
+        frame,
+    );
     let registry = maxgus_core::standard_registry();
     editor.command_names = registry.interactive_names();
     let mut dispatcher = Dispatcher::new(registry);
@@ -52,7 +57,11 @@ fn operations_on_a_large_file_stay_responsive() {
 
     let start = Instant::now();
     for _ in 0..200 {
-        dispatcher.execute(&mut editor, "self-insert-command", Some(maxgus_keys::Key::char('x')));
+        dispatcher.execute(
+            &mut editor,
+            "self-insert-command",
+            Some(maxgus_keys::Key::char('x')),
+        );
     }
     println!("self-insert (each):{:>8.2?}", start.elapsed() / 200);
 
@@ -61,7 +70,11 @@ fn operations_on_a_large_file_stay_responsive() {
     dispatcher.execute(&mut editor, "isearch-forward", None);
     let start = Instant::now();
     for c in "function_19000".chars() {
-        dispatcher.execute(&mut editor, "isearch-printing-char", Some(maxgus_keys::Key::char(c)));
+        dispatcher.execute(
+            &mut editor,
+            "isearch-printing-char",
+            Some(maxgus_keys::Key::char(c)),
+        );
     }
     println!("isearch late  (key):{:>8.2?}", start.elapsed() / 14);
     dispatcher.execute(&mut editor, "isearch-abort", None);
@@ -72,7 +85,11 @@ fn operations_on_a_large_file_stay_responsive() {
     dispatcher.execute(&mut editor, "isearch-forward", None);
     let start = Instant::now();
     for c in "function_2(".chars() {
-        dispatcher.execute(&mut editor, "isearch-printing-char", Some(maxgus_keys::Key::char(c)));
+        dispatcher.execute(
+            &mut editor,
+            "isearch-printing-char",
+            Some(maxgus_keys::Key::char(c)),
+        );
     }
     println!("isearch early (key):{:>8.2?}", start.elapsed() / 11);
     dispatcher.execute(&mut editor, "isearch-abort", None);

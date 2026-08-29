@@ -47,6 +47,7 @@ pub struct Editor {
     pub pending_overwrite: Option<BufferId>,
     /// The branch the project is on, for the mode line. `None` until the
     /// executor has been able to ask git, and when it is not a repository.
+    #[cfg(feature = "git")]
     pub git_branch: Option<String>,
     /// The theme that was in use before `visit-theme` started previewing, so
     /// abandoning the prompt puts it back.
@@ -58,6 +59,10 @@ pub struct Editor {
     /// use — which is how `visit-theme` knows whether there is anything worth
     /// writing down.
     pub config_says_theme: Option<String>,
+    /// A file being read, and the line point should land on when it arrives.
+    pub pending_line: Option<(PathBuf, usize)>,
+    /// How long the editor took to be ready, measured by whoever started it.
+    pub startup_time: Option<std::time::Duration>,
     pub tasks: TaskQueue,
     /// The prefix argument for the command about to run.
     pub prefix: Prefix,
@@ -87,6 +92,7 @@ pub struct Editor {
     /// and popped as the minibuffer, isearch and the tree take over input.
     pub keymaps: KeymapSet,
     /// Diagnostics from every language server, keyed by document URI.
+    #[cfg(feature = "lsp")]
     pub diagnostics: maxgus_lsp::DiagnosticSet,
     /// The incremental search in progress, if any.
     pub isearch: Option<crate::commands::search::Isearch>,
@@ -96,6 +102,61 @@ pub struct Editor {
     /// event loop, where its directory reads can be awaited; this is what the
     /// editor draws and navigates.
     pub tree: Vec<maxgus_tree::VisibleNode>,
+    /// The side panel's own state: which of its three sections are on, and
+    /// the outline of whatever buffer was last asked about.
+    pub panel: crate::panel::Panel,
+    /// The panel's windows, top to bottom. The first is the file tree.
+    pub panel_windows: Vec<WindowId>,
+    /// How tall the outline and the buffer list are, in rows. The tree takes
+    /// whatever they leave.
+    pub symbols_height: u16,
+    pub buffers_height: u16,
+    /// The state of the repository, as the status view shows it.
+    #[cfg(feature = "git")]
+    pub git: crate::git::GitView,
+    /// The repository the status view is about.
+    #[cfg(feature = "git")]
+    pub git_root: Option<PathBuf>,
+    /// Branches, for the checkout and merge prompts.
+    #[cfg(feature = "git")]
+    pub git_branches: Vec<String>,
+    /// Every reference, with what kind it is, for the references view.
+    #[cfg(feature = "git")]
+    pub git_references: Vec<maxgus_git::Reference>,
+    /// The diff and revision buffers, by name.
+    #[cfg(feature = "git")]
+    pub git_diffs: std::collections::HashMap<String, crate::git::DiffView>,
+    /// The log, references and process buffers, by name.
+    #[cfg(feature = "git")]
+    pub git_lists: std::collections::HashMap<String, crate::git::ListView>,
+    /// What git has been asked to do this session, for the process buffer.
+    #[cfg(feature = "git")]
+    pub git_history: Vec<(String, String)>,
+    /// Which buffer the answer being waited for belongs in.
+    #[cfg(feature = "git")]
+    pub git_pending_view: Option<&'static str>,
+    /// True while the commit buffer is amending rather than committing.
+    #[cfg(feature = "git")]
+    pub committing_amend: bool,
+    /// The switches the commit menu had on, kept until the message is done.
+    #[cfg(feature = "git")]
+    pub committing_arguments: Vec<String>,
+    /// The menu showing, if one is.
+    #[cfg(feature = "git")]
+    pub transient: Option<crate::transient::Active>,
+    /// Switches the menu was holding when it ran a command, for that command
+    /// to read. Cleared when the next menu opens.
+    #[cfg(feature = "git")]
+    pub transient_arguments: Vec<String>,
+    /// Terminal tabs, and which of them is showing.
+    #[cfg(feature = "terminal")]
+    pub terminals: crate::terminal::Terminals,
+    /// The window the terminal panel is drawn in, when it is open.
+    #[cfg(feature = "terminal")]
+    pub terminal_window: Option<WindowId>,
+    /// How tall the terminal panel is, in rows.
+    #[cfg(feature = "terminal")]
+    pub terminal_height: u16,
     /// Whether the tree is showing dotfiles, for the header line.
     pub tree_shows_hidden: bool,
     /// The directory the tree is rooted at.
@@ -122,11 +183,14 @@ pub struct Editor {
     /// Command documentation, for `describe-function`.
     pub command_docs: Vec<(String, String)>,
     /// The position encoding each running language server negotiated.
+    #[cfg(feature = "lsp")]
     pub lsp_encodings: Vec<(String, maxgus_lsp::PositionEncoding)>,
     /// The buffer revision each language server was last told about, so a
     /// change notification is sent exactly when the document has moved on.
+    #[cfg(feature = "lsp")]
     pub lsp_versions: std::collections::HashMap<BufferId, u64>,
     /// A jump waiting on a file to be read, applied once it arrives.
+    #[cfg(feature = "lsp")]
     pub pending_jump: Option<(PathBuf, maxgus_lsp::LspPosition)>,
     /// Keymaps defined for a major mode by the configuration, activated when
     /// a buffer of that mode is selected.
@@ -145,6 +209,7 @@ pub struct Editor {
     ///
     /// A stale entry is still drawn — colours a keystroke behind are better
     /// than none — and replaced when the re-parse comes back.
+    #[cfg(feature = "syntax")]
     pub highlights: std::collections::HashMap<
         BufferId,
         (u64, std::ops::Range<usize>, Vec<maxgus_syntax::Highlight>),
@@ -154,8 +219,16 @@ pub struct Editor {
 impl Editor {
     /// A fresh editor showing `*scratch*` in one window.
     pub fn new(settings: Settings, theme: Theme, frame: Rect) -> Editor {
+        let panel = crate::panel::Panel::from_settings(&settings);
+        let (symbols_height, buffers_height) = (
+            settings.panel_symbols_height as u16,
+            settings.panel_buffers_height as u16,
+        );
         let buffers = BufferList::new();
-        let first = *buffers.ids().first().expect("the list starts with *scratch*");
+        let first = *buffers
+            .ids()
+            .first()
+            .expect("the list starts with *scratch*");
         let kill_ring = KillRing::new(settings.kill_ring_max);
         // Windows occupy everything but the echo area's row.
         let (body, _) = frame.split_bottom(1);
@@ -169,10 +242,13 @@ impl Editor {
             theme,
             theme_specs: Vec::new(),
             pending_overwrite: None,
+            #[cfg(feature = "git")]
             git_branch: None,
             theme_before_preview: None,
             config_path: None,
             config_says_theme: None,
+            pending_line: None,
+            startup_time: None,
             tasks: TaskQueue::new(),
             prefix: Prefix::None,
             last_command: None,
@@ -183,10 +259,45 @@ impl Editor {
             pending_char: None,
             pending_input: None,
             completion_candidates: Vec::new(),
+            panel,
+            panel_windows: Vec::new(),
+            symbols_height,
+            buffers_height,
+            #[cfg(feature = "git")]
+            git: crate::git::GitView::new(),
+            #[cfg(feature = "git")]
+            git_root: None,
+            #[cfg(feature = "git")]
+            git_branches: Vec::new(),
+            #[cfg(feature = "git")]
+            git_references: Vec::new(),
+            #[cfg(feature = "git")]
+            git_diffs: std::collections::HashMap::new(),
+            #[cfg(feature = "git")]
+            git_lists: std::collections::HashMap::new(),
+            #[cfg(feature = "git")]
+            git_history: Vec::new(),
+            #[cfg(feature = "git")]
+            git_pending_view: None,
+            #[cfg(feature = "git")]
+            committing_amend: false,
+            #[cfg(feature = "git")]
+            committing_arguments: Vec::new(),
+            #[cfg(feature = "git")]
+            transient: None,
+            #[cfg(feature = "git")]
+            transient_arguments: Vec::new(),
+            #[cfg(feature = "terminal")]
+            terminals: crate::terminal::Terminals::new(),
+            #[cfg(feature = "terminal")]
+            terminal_window: None,
+            #[cfg(feature = "terminal")]
+            terminal_height: 14,
             deferred: None,
             keymaps: KeymapSet::new(
                 crate::keymap::global_keymap().expect("the built-in global map is well formed"),
             ),
+            #[cfg(feature = "lsp")]
             diagnostics: maxgus_lsp::DiagnosticSet::new(),
             isearch: None,
             query_replace: None,
@@ -203,13 +314,17 @@ impl Editor {
             suspend: false,
             command_names: Vec::new(),
             command_docs: Vec::new(),
+            #[cfg(feature = "lsp")]
             lsp_encodings: Vec::new(),
+            #[cfg(feature = "lsp")]
             lsp_versions: std::collections::HashMap::new(),
+            #[cfg(feature = "lsp")]
             pending_jump: None,
             mode_keymaps: Vec::new(),
             frame,
             pending_keys: None,
             text_cache: None,
+            #[cfg(feature = "syntax")]
             highlights: std::collections::HashMap::new(),
         };
         editor.sync_from_buffer();
@@ -226,7 +341,9 @@ impl Editor {
     /// characters.
     pub fn replace_buffer_contents(&mut self, buffer: BufferId, text: &str) -> Result<()> {
         self.buffers.revert(buffer, text)?;
-        let Some(target) = self.buffers.get(buffer) else { return Ok(()) };
+        let Some(target) = self.buffers.get(buffer) else {
+            return Ok(());
+        };
         let (length, lines) = (target.len_chars(), target.len_lines());
         for id in self.windows.showing(buffer) {
             if let Some(window) = self.windows.get_mut(id) {
@@ -280,7 +397,9 @@ impl Editor {
     pub fn current_buffer_mut(&mut self) -> &mut Buffer {
         self.sync_to_buffer();
         let id = self.current_buffer_id();
-        self.buffers.get_mut(id).expect("every window shows a live buffer")
+        self.buffers
+            .get_mut(id)
+            .expect("every window shows a live buffer")
     }
 
     /// Copies the selected window's point and goal column into its buffer.
@@ -297,7 +416,9 @@ impl Editor {
     /// command has moved it.
     pub fn sync_from_buffer(&mut self) {
         let id = self.current_buffer_id();
-        let Some(buffer) = self.buffers.get(id) else { return };
+        let Some(buffer) = self.buffers.get(id) else {
+            return;
+        };
         let (point, goal) = (buffer.point(), buffer.goal_column());
         let window = self.windows.current_mut();
         window.point = point;
@@ -310,7 +431,10 @@ impl Editor {
         self.sync_to_buffer();
         let id = self.current_buffer_id();
         let (out, adjustments) = {
-            let buffer = self.buffers.get_mut(id).expect("every window shows a live buffer");
+            let buffer = self
+                .buffers
+                .get_mut(id)
+                .expect("every window shows a live buffer");
             let out = f(buffer);
             (out, buffer.take_adjustments())
         };
@@ -337,7 +461,9 @@ impl Editor {
             if id == selected {
                 continue;
             }
-            let Some(window) = self.windows.get_mut(id) else { continue };
+            let Some(window) = self.windows.get_mut(id) else {
+                continue;
+            };
             for (at, removed, inserted) in adjustments {
                 window.point = Buffer::adjust_position(window.point, *at, *removed, *inserted);
             }
@@ -363,7 +489,151 @@ impl Editor {
         self.apply_settings(buffer);
         self.activate_mode_keymap();
         self.follow_point();
+        self.follow_panel_to_buffer();
         Ok(())
+    }
+
+    /// The window the terminal panel is in, if this build has one at all.
+    ///
+    /// A build without the terminal has no such window, and the windows that
+    /// ask — which one is the file being edited in — need the same answer
+    /// either way rather than a `cfg` at each of them.
+    pub fn terminal_pane(&self) -> Option<WindowId> {
+        #[cfg(feature = "terminal")]
+        {
+            self.terminal_window
+        }
+        #[cfg(not(feature = "terminal"))]
+        {
+            None
+        }
+    }
+
+    /// Puts point at the start of `line`, clamped into the buffer.
+    ///
+    /// A line rather than a protocol position: what a hunk header, a compiler
+    /// message and `M-g g` all mean by "go there".
+    pub fn go_to_line(&mut self, line: usize) {
+        let offset = {
+            let buffer = self.current_buffer();
+            buffer.line_start(line.min(buffer.len_lines().saturating_sub(1)))
+        };
+        self.windows.current_mut().point = offset;
+        self.with_current_buffer(move |b| b.set_point(offset));
+        self.follow_point();
+    }
+
+    // ---- what a pointer means ------------------------------------------
+
+    /// The buffer position under the cell at `column`, `row` of the frame.
+    ///
+    /// `None` when the cell is not in a window at all — the echo area, or a
+    /// mode line — or when it is past the end of the text, which is a click
+    /// on empty space rather than on a character.
+    pub fn position_at_cell(&self, column: u16, row: u16) -> Option<(WindowId, usize)> {
+        let id = self.windows.window_at(column, row)?;
+        let window = self.windows.get(id)?;
+        // The last row of a window is its mode line, which is not text.
+        let (text, _) = window.rect.split_bottom(1);
+        if !text.contains(column, row) {
+            return None;
+        }
+        let buffer = self.buffers.get(window.buffer)?;
+        let line = window.top_line + (row - text.y) as usize;
+        if line >= buffer.len_lines() {
+            // Past the last line: the end of the buffer, as clicking below
+            // the text does everywhere.
+            return Some((id, buffer.len_chars()));
+        }
+        // The gutter is drawn in the window but is not part of the line.
+        let gutter = crate::render::line_number_width(self, buffer);
+        let start = buffer.line_start(line);
+        let end = maxgus_text::Motion::line_end(buffer.rope(), start);
+        let into = (column.saturating_sub(text.x + gutter)) as usize + window.left_column;
+        Some((id, (start + into).min(end)))
+    }
+
+    /// Selects the window under the pointer and puts point where it is.
+    pub fn point_at_cell(&mut self, column: u16, row: u16) -> bool {
+        let Some((window, offset)) = self.position_at_cell(column, row) else {
+            return false;
+        };
+        self.select_window(window);
+        self.windows.current_mut().point = offset;
+        self.with_current_buffer(move |b| b.set_point(offset));
+        self.follow_point();
+        true
+    }
+
+    /// Puts the mark where point is, so a drag has something to extend from.
+    pub fn set_mark_here(&mut self) {
+        let point = self.windows.current().point;
+        self.with_current_buffer(move |b| b.set_mark(point));
+    }
+
+    /// Drags the selection to the cell under the pointer.
+    ///
+    /// Only within the window the drag started in: a drag that wanders into
+    /// another window should not move point into it.
+    pub fn extend_to_cell(&mut self, column: u16, row: u16) -> bool {
+        let Some((window, offset)) = self.position_at_cell(column, row) else {
+            return false;
+        };
+        if window != self.windows.current_id() {
+            return false;
+        }
+        self.windows.current_mut().point = offset;
+        self.with_current_buffer(move |b| b.set_point(offset));
+        self.follow_point();
+        true
+    }
+
+    /// The text between mark and point, if there is a region.
+    pub fn region_text(&self) -> Option<String> {
+        let buffer = self.current_buffer();
+        let region = buffer.region()?;
+        Some(buffer.slice(region).chars().collect())
+    }
+
+    /// Scrolls the selected window by whole lines, as the wheel asks.
+    ///
+    /// Point follows the view rather than the other way round, which is what
+    /// a wheel means: the text moves and the cursor stays where it is on the
+    /// screen until it would leave it.
+    pub fn scroll_lines(&mut self, lines: isize) {
+        let total = self.current_buffer().len_lines();
+        let window = self.windows.current_mut();
+        let top = window.top_line as isize + lines;
+        window.top_line = top.clamp(0, total.saturating_sub(1) as isize) as usize;
+        let top_line = window.top_line;
+        let height = window.rect.height.saturating_sub(1) as usize;
+        // Point stays on screen: a wheel that has scrolled past it drags it
+        // along rather than leaving it somewhere nobody can see.
+        let point_line = {
+            let buffer = self.current_buffer();
+            buffer.line_of(self.windows.current().point)
+        };
+        let wanted = point_line.clamp(top_line, top_line + height.saturating_sub(1));
+        if wanted != point_line {
+            let offset = self.current_buffer().line_start(wanted);
+            self.windows.current_mut().point = offset;
+            self.with_current_buffer(move |b| b.set_point(offset));
+        }
+    }
+
+    /// Shows `buffer` in the window a file is edited in, never in the panel.
+    ///
+    /// Everything the editor pops up on its own — a listing, a help buffer, a
+    /// magit view — goes through here. Put in one of the panel's windows it
+    /// would replace what that window is for, and survive into the next
+    /// rebuild of the column as a window that does not belong to it.
+    pub fn show_in_editing_window(&mut self, buffer: BufferId) -> Result<()> {
+        if self.panel_windows.contains(&self.windows.current_id())
+            && let Some(target) = self.editing_window()
+        {
+            self.select_window(target);
+        }
+        self.switch_to_buffer(buffer)
     }
 
     /// Selects `window`, saving the outgoing window's point first.
@@ -402,6 +672,13 @@ impl Editor {
         self.forget_highlights(buffer);
         // The executor is holding a parser and a copy of the text for it.
         self.spawn(Task::ForgetBuffer { buffer });
+        // The windows are showing a different buffer now, which is as much a
+        // change of buffer as switching to it: without this the settings and
+        // the keymap are still the dead buffer's, and `q` in the magit buffer
+        // underneath types a `q`.
+        let current = self.current_buffer_id();
+        self.apply_settings(current);
+        self.activate_mode_keymap();
         self.follow_point();
         Ok(replacement)
     }
@@ -412,7 +689,9 @@ impl Editor {
     /// `scroll-margin` and truncation.
     pub fn follow_point(&mut self) {
         let id = self.current_buffer_id();
-        let Some(buffer) = self.buffers.get(id) else { return };
+        let Some(buffer) = self.buffers.get(id) else {
+            return;
+        };
         let point = self.windows.current().point.min(buffer.len_chars());
         let line = buffer.line_of(point);
         let column = buffer.display_column(point);
@@ -447,6 +726,29 @@ impl Editor {
             return (x, y);
         }
         let window = self.windows.current();
+        // A terminal draws its own cursor position, which is the program's
+        // rather than a buffer's — and in reading mode it is the reader's.
+        #[cfg(feature = "terminal")]
+        if Some(window.id) == self.terminal_window
+            && let Some(terminal) = self.terminals.current()
+        {
+            // One row for the tab bar.
+            let origin = (window.rect.x, window.rect.y + 1);
+            if let Some(cursor) = terminal.copy_cursor {
+                let row = cursor.line.saturating_sub(terminal.top_line()) as u16;
+                return (
+                    (origin.0 + cursor.column as u16).min(window.rect.right().saturating_sub(1)),
+                    (origin.1 + row).min(window.rect.bottom().saturating_sub(2)),
+                );
+            }
+            if let Some((row, column)) = terminal.cursor() {
+                return (
+                    (origin.0 + column as u16).min(window.rect.right().saturating_sub(1)),
+                    (origin.1 + row as u16).min(window.rect.bottom().saturating_sub(2)),
+                );
+            }
+            return origin;
+        }
         let Some(buffer) = self.buffers.get(window.buffer) else {
             return (window.rect.x, window.rect.y);
         };
@@ -483,9 +785,41 @@ impl Editor {
     /// configuration names them.
     pub fn mode_keymap_name(&self, buffer: BufferId) -> Option<String> {
         let buffer = self.buffers.get(buffer)?;
-        // The tree has a mode of its own rather than a language.
+        // The panel's three windows each have a mode of their own.
         if buffer.name() == crate::commands::tree::TREE_BUFFER_NAME {
             return Some(crate::commands::tree::TREE_MODE.to_string());
+        }
+        if buffer.name() == crate::commands::tree::SYMBOLS_BUFFER_NAME {
+            return Some(crate::commands::tree::SYMBOLS_MODE.to_string());
+        }
+        if buffer.name() == crate::commands::tree::BUFFERS_BUFFER_NAME {
+            return Some(crate::commands::tree::BUFFERS_MODE.to_string());
+        }
+        // Every magit buffer shares one keymap, as magit's do: `q`, `g`, `n`
+        // and the menus mean the same thing in all of them, and the commands
+        // that differ ask which buffer they are in.
+        #[cfg(feature = "git")]
+        {
+            if crate::commands::git::MAGIT_BUFFERS.contains(&buffer.name()) {
+                return Some(crate::commands::git::GIT_MODE.to_string());
+            }
+            if buffer.name() == crate::commands::git::COMMIT_BUFFER_NAME {
+                return Some(crate::commands::git::COMMIT_MODE.to_string());
+            }
+        }
+        // A terminal has two: one where the keys go to the shell, and one
+        // where they move a cursor over what the shell has already written.
+        #[cfg(feature = "terminal")]
+        if buffer.name() == crate::commands::terminal::TERMINAL_BUFFER_NAME {
+            let reading = self.terminals.current().is_some_and(|t| t.in_copy_mode());
+            return Some(
+                if reading {
+                    crate::commands::terminal::TERMINAL_COPY_MODE
+                } else {
+                    crate::commands::terminal::TERMINAL_MODE
+                }
+                .to_string(),
+            );
         }
         let language = buffer.language()?;
         Some(format!("{language}-mode"))
@@ -507,13 +841,37 @@ impl Editor {
         if self.keymaps.major.as_ref().map(|m| m.name().to_string()) == wanted {
             return;
         }
-        self.keymaps.set_major(wanted.and_then(|name| self.mode_keymap(&name)));
+        self.keymaps
+            .set_major(wanted.and_then(|name| self.mode_keymap(&name)));
     }
 
     /// The keymap for a named mode: the built-in one where there is one, with
     /// whatever the configuration defined for that mode laid over it.
     fn mode_keymap(&self, name: &str) -> Option<maxgus_keys::Keymap> {
         let configured = self.mode_keymaps.iter().find(|m| m.name() == name);
+        // The built-in maps, which configuration adds to rather than replaces
+        // — rebinding one key should not cost every other binding in the mode.
+        let built_in = match name {
+            #[cfg(feature = "git")]
+            crate::commands::git::GIT_MODE => crate::keymap::magit_keymap().ok(),
+            #[cfg(feature = "git")]
+            crate::commands::git::COMMIT_MODE => crate::keymap::commit_keymap().ok(),
+            crate::commands::tree::SYMBOLS_MODE => crate::keymap::symbols_keymap().ok(),
+            crate::commands::tree::BUFFERS_MODE => crate::keymap::buffers_keymap().ok(),
+            #[cfg(feature = "terminal")]
+            crate::commands::terminal::TERMINAL_MODE => crate::keymap::terminal_keymap().ok(),
+            #[cfg(feature = "terminal")]
+            crate::commands::terminal::TERMINAL_COPY_MODE => {
+                crate::keymap::terminal_copy_keymap().ok()
+            }
+            _ => None,
+        };
+        if let Some(mut map) = built_in {
+            if let Some(configured) = configured {
+                map.merge(configured);
+            }
+            return Some(map);
+        }
         if name != crate::commands::tree::TREE_MODE {
             return configured.cloned();
         }
@@ -562,7 +920,30 @@ impl Editor {
         // Leave the frame room for the popup's own two border rows, its
         // prompt line, and something of the buffer behind it.
         let room = (self.frame.height as usize).saturating_sub(6);
-        self.minibuffer.completion().len().min(MOST).min(room.max(1))
+        self.minibuffer
+            .completion()
+            .len()
+            .min(MOST)
+            .min(room.max(1))
+    }
+
+    /// Moves the highlight `delta` rows and brings it into view.
+    ///
+    /// The move wraps; the scrolling is what makes the wrap visible, since a
+    /// highlight that has gone round to the far end of a list is off the box
+    /// until the list under it moves too.
+    pub fn move_completion_selection(&mut self, delta: isize) -> bool {
+        if !self.minibuffer.move_selection(delta) {
+            return false;
+        }
+        self.follow_completion_selection();
+        true
+    }
+
+    /// Scrolls the candidate list so the highlight is one of the rows drawn.
+    pub fn follow_completion_selection(&mut self) {
+        let rows = self.completion_rows();
+        self.minibuffer.scroll_completion(rows);
     }
 
     /// Re-filters the candidate list against what is now in the minibuffer.
@@ -573,6 +954,7 @@ impl Editor {
         let candidates = std::mem::take(&mut self.completion_candidates);
         self.minibuffer.filter_completions(&candidates);
         self.completion_candidates = candidates;
+        self.follow_completion_selection();
         self.preview_theme();
     }
 
@@ -602,7 +984,9 @@ impl Editor {
 
     /// Puts back the theme that was in use before previewing began.
     pub fn end_theme_preview(&mut self, restore: bool) {
-        let Some(before) = self.theme_before_preview.take() else { return };
+        let Some(before) = self.theme_before_preview.take() else {
+            return;
+        };
         if restore && self.settings.theme != before {
             let _ = self.set_theme(&before);
         }
@@ -640,6 +1024,22 @@ impl Editor {
     }
 
     // ---- messages ------------------------------------------------------
+
+    /// Records how long the editor took to start.
+    ///
+    /// Kept rather than shown: the files named on the command line are still
+    /// arriving and will have their own say, so the announcement waits for
+    /// them. `M-x startup-time` asks for it again afterwards, which is what
+    /// `emacs-init-time` is for.
+    pub fn set_startup_time(&mut self, elapsed: std::time::Duration) {
+        self.startup_time = Some(elapsed);
+    }
+
+    /// What the echo area says about the startup, once startup is over.
+    pub fn startup_message(&self) -> Option<String> {
+        self.startup_time
+            .map(|elapsed| format!("maxgus started in {}", crate::human_duration(elapsed)))
+    }
 
     pub fn message(&mut self, text: impl Into<String>) {
         self.minibuffer.show_message(text);
@@ -681,6 +1081,10 @@ impl Editor {
         let (body, _) = frame.split_bottom(1);
         self.windows.layout(body);
         self.follow_point();
+        // A program in a terminal has to be told, or it goes on drawing to
+        // the shape the window used to be.
+        #[cfg(feature = "terminal")]
+        self.resize_terminals();
     }
 
     /// The directory file prompts start in: the current buffer's, or the
@@ -741,6 +1145,12 @@ impl Editor {
                 }
                 self.switch_to_buffer(id)?;
                 // A jump that was waiting on this file can finish now.
+                if let Some((waiting, line)) = self.pending_line.take()
+                    && waiting == path
+                {
+                    self.go_to_line(line);
+                }
+                #[cfg(feature = "lsp")]
                 if let Some((waiting, position)) = self.pending_jump.take() {
                     if waiting == path {
                         let offset = crate::position::offset_of_position(
@@ -756,12 +1166,19 @@ impl Editor {
                 let lines = self.current_buffer().len_lines();
                 self.message_unless_error(format!("{} ({lines} lines)", path.display()));
                 self.request_highlighting(id);
+                #[cfg(feature = "lsp")]
                 self.request_language_server(id);
                 Ok(())
             }
-            TaskResult::FileWritten { path, buffer, bytes, disk_time } => {
+            TaskResult::FileWritten {
+                path,
+                buffer,
+                bytes,
+                disk_time,
+            } => {
                 // A save is as good a moment as any to notice the branch has
                 // moved — a checkout between edits is the usual way it does.
+                #[cfg(feature = "git")]
                 if let Some(root) = self.tree_root.clone() {
                     self.spawn(crate::task::Task::GitBranch { root });
                 }
@@ -775,7 +1192,11 @@ impl Editor {
                 self.message(format!("Wrote {} ({bytes} bytes)", path.display()));
                 Ok(())
             }
-            TaskResult::WriteRefused { path, buffer, because } => {
+            TaskResult::WriteRefused {
+                path,
+                buffer,
+                because,
+            } => {
                 // Nothing was written. Whichever expectation failed will fail
                 // the same way next time, so the only way on is the command
                 // that says to write regardless.
@@ -793,10 +1214,14 @@ impl Editor {
                 });
                 Ok(())
             }
-            TaskResult::TreeUpdated { nodes, select, show_hidden } => {
+            TaskResult::TreeUpdated {
+                nodes,
+                select,
+                show_hidden,
+            } => {
                 self.tree = nodes;
                 self.tree_shows_hidden = show_hidden;
-                self.render_tree_buffer();
+                self.render_panel_buffer();
                 if let Some(path) = select {
                     self.select_tree_path(&path);
                 }
@@ -814,21 +1239,144 @@ impl Editor {
                 self.message(format!("Theme {theme}, written to {}", path.display()));
                 Ok(())
             }
+            #[cfg(feature = "git")]
             TaskResult::GitBranch { branch } => {
                 self.git_branch = branch;
                 Ok(())
             }
-            TaskResult::Reparsed { buffer, revision, range, highlights } => {
+            #[cfg(feature = "syntax")]
+            TaskResult::Reparsed {
+                buffer,
+                revision,
+                range,
+                highlights,
+            } => {
                 // A buffer killed while its parse was still running has
                 // already been cleaned up by `kill_buffer`; filing the answer
                 // now would put back an entry nothing ever removes. Buffer ids
                 // are never reused, so it would sit there for the session and
                 // grow with every file opened and closed.
                 if self.buffers.get(buffer).is_some() {
-                    self.highlights.insert(buffer, (revision, range, highlights));
+                    self.highlights
+                        .insert(buffer, (revision, range, highlights));
                 }
                 Ok(())
             }
+            #[cfg(feature = "lsp")]
+            TaskResult::LanguageServerStarted { language, encoding } => {
+                // Which servers are up is not idle bookkeeping: the panel's
+                // symbol section is hidden entirely when there is nothing to
+                // ask, and `lsp-*` commands address positions in whatever
+                // encoding the server settled on.
+                self.lsp_encodings.retain(|(name, _)| *name != language);
+                self.lsp_encodings.push((language, encoding));
+                self.request_document_symbols();
+                // The outline window appears now, whether or not the panel
+                // was open before the server was.
+                self.sync_panel_sections();
+                Ok(())
+            }
+            #[cfg(feature = "lsp")]
+            TaskResult::LanguageServerStopped { language } => {
+                self.lsp_encodings.retain(|(name, _)| *name != language);
+                if !self.symbols_available() {
+                    self.panel.forget_symbols();
+                    self.sync_panel_sections();
+                    self.render_panel_buffer();
+                }
+                Ok(())
+            }
+            #[cfg(feature = "git")]
+            TaskResult::GitRefreshed(snapshot) => {
+                let snapshot = *snapshot;
+                self.git_root = Some(snapshot.root);
+                self.git.status = snapshot.status;
+                self.git.unstaged = snapshot.unstaged;
+                self.git.staged = snapshot.staged;
+                self.git.stashes = snapshot.stashes;
+                self.git.unpushed = snapshot.unpushed;
+                self.git.unpulled = snapshot.unpulled;
+                self.git.recent = snapshot.recent;
+                self.git.head_subject = snapshot.head_subject;
+                self.git.loaded = true;
+                self.git_branches = snapshot.branches;
+                self.git_references = snapshot.references;
+                // The branch on the mode line comes from the same reading, so
+                // it can never disagree with the status view.
+                self.git_branch = self.git.status.branch.clone();
+                self.render_git_buffer();
+                Ok(())
+            }
+            #[cfg(feature = "git")]
+            TaskResult::GitLog { title, commits } => {
+                let view = crate::git::ListView::from_log(title, &commits);
+                let name = self
+                    .git_pending_view
+                    .take()
+                    .unwrap_or(crate::commands::git::LOG_BUFFER_NAME);
+                self.open_git_list(name, view)
+            }
+            #[cfg(feature = "git")]
+            TaskResult::GitDiff {
+                title,
+                preamble,
+                files,
+            } => {
+                let view = crate::git::DiffView::new(
+                    title,
+                    preamble.into_iter().map(|line| (line, "shadow")).collect(),
+                    files,
+                );
+                let name = self
+                    .git_pending_view
+                    .take()
+                    .unwrap_or(crate::commands::git::DIFF_BUFFER_NAME);
+                self.open_git_diff(name, view)
+            }
+            #[cfg(feature = "git")]
+            TaskResult::GitDone {
+                action,
+                command,
+                output,
+            } => {
+                // Kept whatever the outcome, so the process buffer can show
+                // what was run even when nothing went wrong.
+                self.git_history.push((command, output.clone()));
+                self.message(match output.trim() {
+                    "" => format!("{action} done"),
+                    said => format!("{action}: {}", said.lines().next().unwrap_or(said)),
+                });
+                Ok(())
+            }
+            #[cfg(feature = "terminal")]
+            TaskResult::TerminalOutput { terminal, bytes } => {
+                if let Some(tab) = self.terminals.get_mut(terminal) {
+                    tab.receive(&bytes);
+                    // Some sequences are questions. A shell that asks where
+                    // the cursor is and is never told will sit there waiting,
+                    // so the answer goes back the way it came.
+                    let replies = tab.emulator.take_replies();
+                    if !replies.is_empty() {
+                        self.spawn(crate::task::Task::TerminalInput {
+                            terminal,
+                            bytes: replies,
+                        });
+                    }
+                }
+                Ok(())
+            }
+            #[cfg(feature = "terminal")]
+            TaskResult::TerminalExited { terminal, status } => {
+                if let Some(tab) = self.terminals.get_mut(terminal) {
+                    tab.exited = Some(status);
+                    // Said on the screen rather than only in the echo area,
+                    // which the next message would wipe.
+                    let note = format!("\r\n[exited with status {status}]\r\n");
+                    tab.receive(note.as_bytes());
+                }
+                Ok(())
+            }
+            #[cfg(feature = "lsp")]
             TaskResult::Diagnostics { uri, diagnostics } => {
                 self.diagnostics.replace(uri, diagnostics);
                 Ok(())
@@ -846,6 +1394,7 @@ impl Editor {
         }
     }
 
+    #[cfg(feature = "lsp")]
     /// Folds a language server's answer into editor state.
     pub fn apply_lsp_response(&mut self, result: crate::task::TaskResult) {
         match result {
@@ -857,7 +1406,11 @@ impl Editor {
             // here, where the buffers are, and the answer queued back.
             crate::task::TaskResult::LspApplyEdit { language, id, edit } => {
                 let applied = crate::commands::lsp::apply_workspace_edit(self, &edit) > 0;
-                self.spawn(crate::task::Task::LspRespond { language, id, applied });
+                self.spawn(crate::task::Task::LspRespond {
+                    language,
+                    id,
+                    applied,
+                });
             }
             _ => {}
         }
@@ -873,33 +1426,48 @@ impl Editor {
         let fresh = matches!(&self.text_cache, Some((id, known, _))
             if *id == buffer && *known == revision);
         if !fresh {
-            let text = self.buffers.get(buffer).map(|b| b.text()).unwrap_or_default();
+            let text = self
+                .buffers
+                .get(buffer)
+                .map(|b| b.text())
+                .unwrap_or_default();
             self.text_cache = Some((buffer, revision, text));
         }
     }
 
     /// The text most recently put in the cache.
     pub fn cached_text(&self) -> &str {
-        self.text_cache.as_ref().map(|(_, _, text)| text.as_str()).unwrap_or_default()
+        self.text_cache
+            .as_ref()
+            .map(|(_, _, text)| text.as_str())
+            .unwrap_or_default()
     }
 
+    #[cfg(feature = "syntax")]
     /// The highlight spans for `buffer`, empty when none have been computed.
     pub fn highlights_for(&self, buffer: BufferId) -> &[maxgus_syntax::Highlight] {
-        self.highlights.get(&buffer).map_or(&[], |(_, _, spans)| spans.as_slice())
+        self.highlights
+            .get(&buffer)
+            .map_or(&[], |(_, _, spans)| spans.as_slice())
     }
 
+    #[cfg(feature = "syntax")]
     /// True when the highlighting for `buffer` is behind its contents, or does
     /// not reach as far as the window now shows.
     pub fn highlights_are_stale(&self, buffer: BufferId) -> bool {
-        let Some(current) = self.buffers.get(buffer).map(|b| b.revision()) else { return false };
+        let Some(current) = self.buffers.get(buffer).map(|b| b.revision()) else {
+            return false;
+        };
         // Staleness is judged against what is actually on screen, not against
         // the wider region that would be fetched. Comparing with the margin
         // included would make every scroll forward look uncovered, and the
         // margin would buy nothing.
         let visible = self.visible_byte_range(buffer);
-        self.highlights.get(&buffer).is_none_or(|(revision, covered, _)| {
-            *revision != current || covered.start > visible.start || covered.end < visible.end
-        })
+        self.highlights
+            .get(&buffer)
+            .is_none_or(|(revision, covered, _)| {
+                *revision != current || covered.start > visible.start || covered.end < visible.end
+            })
     }
 
     /// The byte range a window showing `buffer` actually displays.
@@ -915,10 +1483,16 @@ impl Editor {
 
     /// The bytes of the lines a window shows, widened by `margin` screenfuls.
     fn byte_range_for(&self, buffer: BufferId, margin: usize) -> std::ops::Range<usize> {
-        let Some(text) = self.buffers.get(buffer) else { return 0..0 };
-        let showing: Vec<&Window> =
-            self.windows.iter().filter(|w| w.buffer == buffer).collect();
-        let height = showing.iter().map(|w| w.text_height()).max().unwrap_or(40).max(1);
+        let Some(text) = self.buffers.get(buffer) else {
+            return 0..0;
+        };
+        let showing: Vec<&Window> = self.windows.iter().filter(|w| w.buffer == buffer).collect();
+        let height = showing
+            .iter()
+            .map(|w| w.text_height())
+            .max()
+            .unwrap_or(40)
+            .max(1);
         let top = showing.iter().map(|w| w.top_line).min().unwrap_or(0);
         let widen = height * margin;
         let first = top.saturating_sub(widen);
@@ -929,37 +1503,105 @@ impl Editor {
 
     /// Forgets a buffer's highlighting, as killing it should.
     pub fn forget_highlights(&mut self, buffer: BufferId) {
-        self.highlights.remove(&buffer);
+        let _ = buffer;
+        #[cfg(feature = "syntax")]
+        {
+            self.highlights.remove(&buffer);
+        }
     }
 
     /// Redraws the tree buffer from the current snapshot, keeping the cursor
     /// on whichever line it was on.
+    /// Rewrites every panel window's buffer.
+    pub fn render_panel_buffer(&mut self) {
+        self.render_tree_buffer();
+        self.render_symbols_buffer();
+        self.render_buffers_buffer();
+    }
+
+    /// One line per node, which is what makes the tree's own commands index
+    /// straight into the snapshot.
     pub fn render_tree_buffer(&mut self) {
-        let Some(id) = self.buffers.find_by_name(crate::commands::tree::TREE_BUFFER_NAME) else {
+        let Some(id) = self
+            .buffers
+            .find_by_name(crate::commands::tree::TREE_BUFFER_NAME)
+        else {
             return;
         };
-        let text: String =
-            self.tree.iter().map(|n| format!("{}\n", n.render())).collect::<String>();
-        let line = self
+        let text: String = self
+            .tree
+            .iter()
+            .map(|n| format!("{}\n", n.render()))
+            .collect();
+        let line = self.line_in(id);
+        self.replace_buffer_contents(id, &text).ok();
+        self.move_point_in(id, line.min(self.tree.len().saturating_sub(1)));
+    }
+
+    /// One line per symbol that is on show.
+    pub fn render_symbols_buffer(&mut self) {
+        let Some(id) = self
+            .buffers
+            .find_by_name(crate::commands::tree::SYMBOLS_BUFFER_NAME)
+        else {
+            return;
+        };
+        let visible = self.panel.visible_symbols();
+        let text: String = visible
+            .iter()
+            .filter_map(|index| self.panel.symbols.get(*index))
+            .map(|symbol| {
+                format!(
+                    "{}{}{}\n",
+                    "  ".repeat(symbol.depth),
+                    symbol.arrow(),
+                    symbol.name
+                )
+            })
+            .collect();
+        let line = self.line_in(id);
+        self.replace_buffer_contents(id, &text).ok();
+        self.move_point_in(id, line.min(visible.len().saturating_sub(1)));
+    }
+
+    /// One line per open buffer.
+    pub fn render_buffers_buffer(&mut self) {
+        let Some(id) = self
+            .buffers
+            .find_by_name(crate::commands::tree::BUFFERS_BUFFER_NAME)
+        else {
+            return;
+        };
+        let listed = self.panel_buffers();
+        let text: String = listed
+            .iter()
+            .map(|(_, name)| format!("  {name}\n"))
+            .collect();
+        let line = self.line_in(id);
+        self.replace_buffer_contents(id, &text).ok();
+        self.move_point_in(id, line.min(listed.len().saturating_sub(1)));
+    }
+
+    /// The line point is on in a buffer, wherever that buffer is shown.
+    pub fn line_in(&self, id: BufferId) -> usize {
+        let Some(buffer) = self.buffers.get(id) else {
+            return 0;
+        };
+        let point = self
             .windows
             .showing(id)
             .first()
             .and_then(|w| self.windows.get(*w))
-            .and_then(|w| self.buffers.get(id).map(|b| b.line_of(w.point)))
-            .unwrap_or(0);
-        // The tree buffer is not user-editable, so it is reverted rather than
-        // edited: no undo history, no modified flag.
-        self.replace_buffer_contents(id, &text).ok();
-        self.move_tree_cursor_to_line(line);
+            .map_or(buffer.point(), |w| w.point);
+        buffer.line_of(point)
     }
 
-    /// Puts the tree cursor on `line`, clamped to the snapshot.
-    pub fn move_tree_cursor_to_line(&mut self, line: usize) {
-        let Some(id) = self.buffers.find_by_name(crate::commands::tree::TREE_BUFFER_NAME) else {
+    /// Moves point to a line of a buffer, in the buffer and in every window
+    /// showing it.
+    pub fn move_point_in(&mut self, id: BufferId, line: usize) {
+        let Some(offset) = self.buffers.get(id).map(|b| b.line_start(line)) else {
             return;
         };
-        let line = line.min(self.tree.len().saturating_sub(1));
-        let Some(offset) = self.buffers.get(id).map(|b| b.line_start(line)) else { return };
         for window in self.windows.showing(id) {
             if let Some(window) = self.windows.get_mut(window) {
                 window.point = offset;
@@ -970,11 +1612,462 @@ impl Editor {
         }
     }
 
+    /// The buffers the panel lists, most recently used first and without the
+    /// panel's own, which nobody wants to switch to from inside it.
+    pub fn panel_buffers(&self) -> Vec<(BufferId, String)> {
+        self.buffers
+            .iter()
+            .filter(|buffer| !crate::commands::tree::PANEL_BUFFERS.contains(&buffer.name()))
+            .filter(|buffer| !buffer.name().starts_with(' '))
+            .map(|buffer| (buffer.id, buffer.name().to_string()))
+            .collect()
+    }
+
+    /// True when a language server is running for the buffer being edited,
+    /// which is what decides whether the outline window exists at all.
+    ///
+    /// Always false in a build with no language server in it, so the panel
+    /// leaves the outline window out without having to know why.
+    pub fn symbols_available(&self) -> bool {
+        #[cfg(feature = "lsp")]
+        {
+            let Some(buffer) = self.editing_buffer() else {
+                return false;
+            };
+            let Some(buffer) = self.buffers.get(buffer) else {
+                return false;
+            };
+            buffer
+                .language()
+                .is_some_and(|language| self.lsp_encodings.iter().any(|(name, _)| name == language))
+        }
+        #[cfg(not(feature = "lsp"))]
+        false
+    }
+
+    /// The window a file belongs in: the first that is neither part of the
+    /// side panel nor the terminal.
+    ///
+    /// "Not the tree" is not enough any more — the panel is a column of
+    /// windows, and the one after the tree is the symbol outline.
+    pub fn editing_window(&self) -> Option<WindowId> {
+        self.windows
+            .ids()
+            .into_iter()
+            .find(|id| !self.panel_windows.contains(id) && Some(*id) != self.terminal_pane())
+    }
+
+    /// The buffer being edited: the one in the first window that is not part
+    /// of the panel or the terminal.
+    pub fn editing_buffer(&self) -> Option<BufferId> {
+        self.windows
+            .iter()
+            .find(|window| {
+                !self.panel_windows.contains(&window.id) && Some(window.id) != self.terminal_pane()
+            })
+            .map(|window| window.buffer)
+    }
+
+    /// Asks the server for the outline of the buffer the panel is following.
+    pub fn request_document_symbols(&mut self) {
+        #[cfg(feature = "lsp")]
+        {
+            if !self.panel.is_enabled(crate::panel::PanelSection::Symbols)
+                || self.panel_windows.is_empty()
+            {
+                return;
+            }
+            let Some(buffer) = self.editing_buffer() else {
+                return;
+            };
+            let (language, path) = {
+                let Some(text) = self.buffers.get(buffer) else {
+                    return;
+                };
+                let Some(language) = text.language().map(str::to_string) else {
+                    return;
+                };
+                let Some(path) = text.path().map(Path::to_path_buf) else {
+                    return;
+                };
+                (language, path)
+            };
+            if !self.lsp_encodings.iter().any(|(name, _)| *name == language) {
+                return;
+            }
+            // The outline belongs to one buffer; recording which before the
+            // answer arrives is what lets a late reply for the previous file be
+            // thrown away instead of shown against this one.
+            self.panel.symbols_pending = true;
+            self.panel.symbols_buffer = Some(buffer);
+            self.spawn(Task::LspRequest {
+                language,
+                uri: maxgus_lsp::client::path_to_uri(&path),
+                query: crate::task::LspQuery::DocumentSymbols { for_panel: true },
+            });
+        }
+    }
+
+    /// Adds or removes the outline window as a server comes and goes.
+    ///
+    /// Which windows the column has is decided when it is built, so a server
+    /// starting after the panel was opened would otherwise never get one —
+    /// and a buffer with no server would keep an outline window over nothing.
+    pub fn sync_panel_sections(&mut self) {
+        if self.panel_windows.is_empty()
+            || !self.panel.is_enabled(crate::panel::PanelSection::Symbols)
+        {
+            return;
+        }
+        let showing = self
+            .buffers
+            .find_by_name(crate::commands::tree::SYMBOLS_BUFFER_NAME)
+            .is_some_and(|id| !self.windows.showing(id).is_empty());
+        // Only a change is worth a rebuild. In a build with no language
+        // server `symbols_available` is always false, so a column that has
+        // never shown an outline is already right and this returns every
+        // time — which is what keeps a plain buffer switch from rebuilding
+        // the panel.
+        if showing == self.symbols_available() {
+            return;
+        }
+        crate::commands::tree::rebuild(self).ok();
+    }
+
+    /// Points the outline at whatever buffer is now being edited.
+    pub fn follow_panel_to_buffer(&mut self) {
+        if self.panel_windows.is_empty()
+            || !self.panel.is_enabled(crate::panel::PanelSection::Symbols)
+        {
+            return;
+        }
+        let showing = self.editing_buffer();
+        if showing == self.panel.symbols_buffer && !self.panel.symbols.is_empty() {
+            return;
+        }
+        self.panel.forget_symbols();
+        #[cfg(feature = "lsp")]
+        self.request_document_symbols();
+        self.sync_panel_sections();
+        self.render_symbols_buffer();
+    }
+
+    // ---- the git views --------------------------------------------------
+
+    #[cfg(feature = "git")]
+    /// The tags there are, for the tag prompts.
+    pub fn git_tags(&self) -> Vec<String> {
+        self.git_references
+            .iter()
+            .filter(|reference| reference.kind == maxgus_git::RefKind::Tag)
+            .map(|reference| reference.name.clone())
+            .collect()
+    }
+
+    #[cfg(feature = "git")]
+    /// What git has been asked to do, as a buffer to read.
+    pub fn git_process_view(&self) -> crate::git::ListView {
+        let mut lines = Vec::new();
+        for (command, output) in &self.git_history {
+            lines.push(crate::git::ListLine {
+                spans: vec![
+                    ("$ ".into(), "shadow"),
+                    (command.clone(), "magit-section-heading"),
+                ],
+                target: None,
+            });
+            for line in output.lines() {
+                lines.push(crate::git::ListLine::plain(format!("  {line}"), "default"));
+            }
+        }
+        if lines.is_empty() {
+            lines.push(crate::git::ListLine::plain(
+                "Nothing has been run yet",
+                "shadow",
+            ));
+        }
+        crate::git::ListView {
+            title: "Git output".into(),
+            lines,
+        }
+    }
+
+    #[cfg(feature = "git")]
+    /// Shows a list view in its own buffer.
+    pub fn open_git_list(&mut self, name: &'static str, view: crate::git::ListView) -> Result<()> {
+        let id = self.read_only_buffer(name);
+        let text: String = view
+            .lines
+            .iter()
+            .map(|line| format!("{}\n", line.text()))
+            .collect();
+        self.git_lists.insert(name.to_string(), view);
+        self.replace_buffer_contents(id, &text).ok();
+        self.show_in_editing_window(id)?;
+        self.move_point_in(id, 0);
+        Ok(())
+    }
+
+    #[cfg(feature = "git")]
+    /// Shows a diff view in its own buffer, point at the top.
+    pub fn open_git_diff(&mut self, name: &'static str, view: crate::git::DiffView) -> Result<()> {
+        self.open_git_diff_showing(name, view, None)
+    }
+
+    #[cfg(feature = "git")]
+    /// Shows a diff view, putting point on `keep` if that row is still there.
+    ///
+    /// Folding re-lays-out the whole buffer, so the line a row was on means
+    /// nothing afterwards — the row does. This is what `render_git_buffer`
+    /// does for the status buffer, and what folding a file in a commit needs
+    /// so a reader is not sent back to the first line each time.
+    pub fn open_git_diff_showing(
+        &mut self,
+        name: &'static str,
+        mut view: crate::git::DiffView,
+        keep: Option<crate::git::DiffRow>,
+    ) -> Result<()> {
+        let id = self.read_only_buffer(name);
+        view.lay_out();
+        let text: String = view
+            .rows()
+            .iter()
+            .map(|row| format!("{}\n", crate::render::git_diff_row_text(&view, row)))
+            .collect();
+        let line = keep.and_then(|row| view.line_of(&row)).unwrap_or(0);
+        self.git_diffs.insert(name.to_string(), view);
+        self.replace_buffer_contents(id, &text).ok();
+        self.show_in_editing_window(id)?;
+        self.move_point_in(id, line);
+        Ok(())
+    }
+
+    /// A buffer the editor writes and the user only reads.
+    #[cfg(feature = "git")]
+    fn read_only_buffer(&mut self, name: &str) -> BufferId {
+        match self.buffers.find_by_name(name) {
+            Some(id) => id,
+            None => {
+                let id = self.buffers.create_with_text(name, "");
+                self.buffers
+                    .get_mut(id)
+                    .expect("just created")
+                    .set_read_only(true);
+                id
+            }
+        }
+    }
+
+    #[cfg(feature = "git")]
+    /// The list view the current buffer is showing, if it is one.
+    pub fn git_list(&self) -> Option<&crate::git::ListView> {
+        self.git_lists.get(self.current_buffer().name())
+    }
+
+    #[cfg(feature = "git")]
+    /// The diff view the current buffer is showing, if it is one.
+    pub fn git_diff_view(&self) -> Option<&crate::git::DiffView> {
+        self.git_diffs.get(self.current_buffer().name())
+    }
+
+    /// What the line point is on in a list view refers to.
+    #[cfg(feature = "git")]
+    pub fn git_list_target(&self) -> Option<String> {
+        let view = self.git_list()?;
+        let line = self.current_buffer().line_of(self.windows.current().point);
+        view.lines.get(line)?.target.clone()
+    }
+
+    #[cfg(feature = "git")]
+    /// Rewrites the status buffer from the view.
+    ///
+    /// Point comes back to the *row* it was on rather than the line: folding
+    /// a section moves everything below it, and every command there acts on
+    /// the row under point, which must still be under it afterwards.
+    pub fn render_git_buffer(&mut self) {
+        let Some(id) = self
+            .buffers
+            .find_by_name(crate::commands::git::STATUS_BUFFER_NAME)
+        else {
+            return;
+        };
+        let keep = self.git_row_at_cursor().cloned();
+        let rows = self.git.lay_out();
+        let text: String = rows
+            .iter()
+            .map(|row| format!("{}\n", self.git_row_text(row)))
+            .collect();
+        self.replace_buffer_contents(id, &text).ok();
+        let line = keep.and_then(|row| self.git.line_of(&row)).unwrap_or(0);
+        self.move_git_cursor_to_line(line);
+    }
+
+    #[cfg(feature = "git")]
+    /// The text of one status row, which is what point moves through.
+    ///
+    /// Deliberately plain: the faces and the alignment are the drawing's
+    /// business, and point has to be able to sit anywhere on the line.
+    fn git_row_text(&self, row: &crate::git::Row) -> String {
+        use crate::git::Row;
+        match row {
+            Row::Header(head) => format!("{:<9}{} {}", head.label, head.reference, head.subject),
+            Row::Blank => String::new(),
+            Row::Section(section) => format!("{} ({})", section.title(), self.git.count(*section)),
+            Row::Empty(_) => "Nothing to commit, the working tree is clean".to_string(),
+            Row::File { section, file } => {
+                let path = self
+                    .git
+                    .paths(*section)
+                    .get(*file)
+                    .cloned()
+                    .unwrap_or_default();
+                match self.git.files(*section).get(*file) {
+                    Some(diff) => {
+                        let (added, removed) = diff.counts();
+                        format!("{path}  +{added} -{removed}")
+                    }
+                    None => path,
+                }
+            }
+            Row::Hunk {
+                section,
+                file,
+                hunk,
+            } => self
+                .git
+                .files(*section)
+                .get(*file)
+                .and_then(|diff| diff.hunks.get(*hunk))
+                .map(|hunk| hunk.header.clone())
+                .unwrap_or_default(),
+            Row::Line {
+                section,
+                file,
+                hunk,
+                line,
+            } => self
+                .git
+                .files(*section)
+                .get(*file)
+                .and_then(|diff| diff.hunks.get(*hunk))
+                .and_then(|hunk| hunk.lines.get(*line))
+                .map(|line| line.to_patch_line())
+                .unwrap_or_default(),
+            Row::Stash(index) => match self.git.stashes.get(*index) {
+                Some(stash) => format!("{} {}", stash.name, stash.subject),
+                None => String::new(),
+            },
+            Row::Commit { section, commit } => match self.git.commits(*section).get(*commit) {
+                Some(commit) => format!("{} {}", commit.short, commit.subject),
+                None => String::new(),
+            },
+        }
+    }
+
+    #[cfg(feature = "git")]
+    pub fn git_row_at_cursor(&self) -> Option<&crate::git::Row> {
+        self.git.row(self.git_cursor_line())
+    }
+
+    #[cfg(feature = "git")]
+    pub fn git_cursor_line(&self) -> usize {
+        match self
+            .buffers
+            .find_by_name(crate::commands::git::STATUS_BUFFER_NAME)
+        {
+            Some(id) => self.line_in(id),
+            None => 0,
+        }
+    }
+
+    #[cfg(feature = "git")]
+    pub fn move_git_cursor_to_line(&mut self, line: usize) {
+        let Some(id) = self
+            .buffers
+            .find_by_name(crate::commands::git::STATUS_BUFFER_NAME)
+        else {
+            return;
+        };
+        self.move_point_in(id, line.min(self.git.rows().len().saturating_sub(1)));
+    }
+
+    /// Shows whatever was here before this buffer, without killing it.
+    pub fn bury_buffer(&mut self) {
+        let current = self.windows.current().buffer;
+        let next = self
+            .buffers
+            .ids()
+            .iter()
+            .copied()
+            .find(|id| *id != current)
+            .unwrap_or(current);
+        if next != current {
+            self.switch_to_buffer(next).ok();
+        }
+    }
+
+    #[cfg(feature = "terminal")]
+    /// The size the terminal panel gives a program, in rows and columns.
+    ///
+    /// One row of the panel is the tab bar and one is the mode line, so what
+    /// the program gets is smaller than the window. Telling it the window's
+    /// size would put its last line under the mode line.
+    pub fn terminal_size(&self) -> (usize, usize) {
+        let Some(window) = self.terminal_window.and_then(|id| self.windows.get(id)) else {
+            return (24, 80);
+        };
+        let rows = window.rect.height.saturating_sub(2).max(1) as usize;
+        let columns = window.rect.width.max(1) as usize;
+        (rows, columns)
+    }
+
+    #[cfg(feature = "terminal")]
+    /// Tells every terminal, and every program in one, the new size.
+    pub fn resize_terminals(&mut self) {
+        if self.terminal_window.is_none() {
+            return;
+        }
+        let (rows, columns) = self.terminal_size();
+        let already = self
+            .terminals
+            .current()
+            .map(|terminal| {
+                let grid = terminal.emulator.grid();
+                (grid.rows(), grid.columns())
+            })
+            .unwrap_or_default();
+        if already == (rows, columns) {
+            return;
+        }
+        self.terminals.resize(rows, columns);
+        let ids: Vec<_> = self.terminals.iter().map(|terminal| terminal.id).collect();
+        for terminal in ids {
+            self.spawn(crate::task::Task::TerminalResize {
+                terminal,
+                rows: rows as u16,
+                columns: columns as u16,
+            });
+        }
+    }
+
+    /// Puts the tree cursor on `line`, clamped to the snapshot.
+    pub fn move_tree_cursor_to_line(&mut self, line: usize) {
+        let Some(id) = self
+            .buffers
+            .find_by_name(crate::commands::tree::TREE_BUFFER_NAME)
+        else {
+            return;
+        };
+        self.move_point_in(id, line.min(self.tree.len().saturating_sub(1)));
+    }
+
     /// Every theme that can be loaded: the ones built in, and any the
     /// configuration names.
     pub fn theme_names(&self) -> Vec<String> {
-        let mut names: Vec<String> =
-            maxgus_faces::defaults::BUILTIN_THEMES.iter().map(|n| (*n).to_string()).collect();
+        let mut names: Vec<String> = maxgus_faces::defaults::BUILTIN_THEMES
+            .iter()
+            .map(|n| (*n).to_string())
+            .collect();
         for spec in &self.theme_specs {
             if !names.contains(&spec.name) {
                 names.push(spec.name.clone());
@@ -991,7 +2084,9 @@ impl Editor {
     /// it so a typo cannot stop the editor from starting.
     pub fn set_theme(&mut self, name: &str) -> Result<()> {
         if !self.theme_names().iter().any(|known| known == name) {
-            return Err(crate::CoreError::Message(format!("No theme named `{name}`")));
+            return Err(crate::CoreError::Message(format!(
+                "No theme named `{name}`"
+            )));
         }
         self.theme = build_theme(&self.theme_specs, name);
         // `describe-settings` reads this back, so it has to keep up.
@@ -1012,17 +2107,13 @@ impl Editor {
 
     /// The tree line the cursor is on.
     pub fn tree_cursor_line(&self) -> usize {
-        let Some(id) = self.buffers.find_by_name(crate::commands::tree::TREE_BUFFER_NAME) else {
-            return 0;
-        };
-        let Some(buffer) = self.buffers.get(id) else { return 0 };
-        let point = self
-            .windows
-            .showing(id)
-            .first()
-            .and_then(|w| self.windows.get(*w))
-            .map_or(buffer.point(), |w| w.point);
-        buffer.line_of(point)
+        match self
+            .buffers
+            .find_by_name(crate::commands::tree::TREE_BUFFER_NAME)
+        {
+            Some(id) => self.line_in(id),
+            None => 0,
+        }
     }
 
     /// The tree node under the cursor.
@@ -1030,34 +2121,81 @@ impl Editor {
         self.tree.get(self.tree_cursor_line())
     }
 
+    /// The symbol point is on in the outline window.
+    pub fn symbol_at_cursor(&self) -> Option<usize> {
+        let id = self
+            .buffers
+            .find_by_name(crate::commands::tree::SYMBOLS_BUFFER_NAME)?;
+        self.panel.symbol_on_line(self.line_in(id))
+    }
+
+    /// The buffer the buffer-list window's point is on.
+    pub fn listed_buffer_at_cursor(&self) -> Option<BufferId> {
+        let id = self
+            .buffers
+            .find_by_name(crate::commands::tree::BUFFERS_BUFFER_NAME)?;
+        self.panel_buffers()
+            .get(self.line_in(id))
+            .map(|(id, _)| *id)
+    }
+
     /// Queues a re-parse for syntax highlighting, when the buffer has a
     /// language and highlighting is switched on.
     pub fn request_highlighting(&mut self, id: BufferId) {
-        if !self.settings.syntax_highlighting {
-            return;
+        let _ = id;
+        #[cfg(feature = "syntax")]
+        {
+            if !self.settings.syntax_highlighting {
+                return;
+            }
+            let Some(buffer) = self.buffers.get(id) else {
+                return;
+            };
+            let Some(language) = buffer.language().map(str::to_string) else {
+                return;
+            };
+            let (text, revision) = (buffer.text(), buffer.revision());
+            let range = self.highlight_request_range(id);
+            self.spawn(Task::Reparse {
+                buffer: id,
+                language,
+                text,
+                revision,
+                range,
+            });
         }
-        let Some(buffer) = self.buffers.get(id) else { return };
-        let Some(language) = buffer.language().map(str::to_string) else { return };
-        let (text, revision) = (buffer.text(), buffer.revision());
-        let range = self.highlight_request_range(id);
-        self.spawn(Task::Reparse { buffer: id, language, text, revision, range });
     }
 
+    #[cfg(feature = "lsp")]
     /// Opens the buffer to its language server, starting one if needed.
     pub fn request_language_server(&mut self, id: BufferId) {
         if !self.settings.lsp_enabled {
             return;
         }
-        let Some(buffer) = self.buffers.get(id) else { return };
-        let Some(language) = buffer.language().map(str::to_string) else { return };
-        let Some(path) = buffer.path().map(Path::to_path_buf) else { return };
+        let Some(buffer) = self.buffers.get(id) else {
+            return;
+        };
+        let Some(language) = buffer.language().map(str::to_string) else {
+            return;
+        };
+        let Some(path) = buffer.path().map(Path::to_path_buf) else {
+            return;
+        };
         let (text, version) = (buffer.text(), buffer.revision() as i64);
         let uri = maxgus_lsp::client::path_to_uri(&path);
-        self.spawn(Task::StartLanguageServer { language: language.clone() });
-        self.spawn(Task::LspDidOpen { language, uri, version, text });
+        self.spawn(Task::StartLanguageServer {
+            language: language.clone(),
+        });
+        self.spawn(Task::LspDidOpen {
+            language,
+            uri,
+            version,
+            text,
+        });
         self.lsp_versions.insert(id, version as u64);
     }
 
+    #[cfg(feature = "lsp")]
     /// The language and document URI of `buffer`, when it has a server to talk
     /// to at all.
     fn lsp_document(&self, buffer: BufferId) -> Option<(String, String)> {
@@ -1077,39 +2215,64 @@ impl Editor {
     /// the user types, and everything it says afterwards is about the wrong
     /// text. Returns whether a notification was queued.
     pub fn sync_language_server(&mut self, buffer: BufferId) -> bool {
-        let Some((language, uri)) = self.lsp_document(buffer) else { return false };
-        let Some(revision) = self.buffers.get(buffer).map(|b| b.revision()) else { return false };
-        // Nothing to say if the server already has this version, and nothing
-        // to say about a document it was never told about.
-        match self.lsp_versions.get(&buffer) {
-            Some(known) if *known == revision => return false,
-            None => return false,
-            Some(_) => {}
+        #[cfg(not(feature = "lsp"))]
+        {
+            let _ = buffer;
+            false
         }
-        let text = self.buffers.get(buffer).expect("checked above").text();
-        self.lsp_versions.insert(buffer, revision);
-        self.spawn(Task::LspDidChange { language, uri, version: revision as i64, text });
-        true
+        #[cfg(feature = "lsp")]
+        {
+            let Some((language, uri)) = self.lsp_document(buffer) else {
+                return false;
+            };
+            let Some(revision) = self.buffers.get(buffer).map(|b| b.revision()) else {
+                return false;
+            };
+            // Nothing to say if the server already has this version, and nothing
+            // to say about a document it was never told about.
+            match self.lsp_versions.get(&buffer) {
+                Some(known) if *known == revision => return false,
+                None => return false,
+                Some(_) => {}
+            }
+            let text = self.buffers.get(buffer).expect("checked above").text();
+            self.lsp_versions.insert(buffer, revision);
+            self.spawn(Task::LspDidChange {
+                language,
+                uri,
+                version: revision as i64,
+                text,
+            });
+            true
+        }
     }
 
     /// Tells the language server a buffer was saved.
     pub fn notify_saved(&mut self, buffer: BufferId) {
-        // A save is only meaningful for a document the server knows about.
-        if !self.lsp_versions.contains_key(&buffer) {
-            return;
-        }
-        if let Some((language, uri)) = self.lsp_document(buffer) {
-            self.spawn(Task::LspDidSave { language, uri });
+        let _ = buffer;
+        #[cfg(feature = "lsp")]
+        {
+            // A save is only meaningful for a document the server knows about.
+            if !self.lsp_versions.contains_key(&buffer) {
+                return;
+            }
+            if let Some((language, uri)) = self.lsp_document(buffer) {
+                self.spawn(Task::LspDidSave { language, uri });
+            }
         }
     }
 
     /// Tells the language server a buffer is gone, and forgets its version.
     pub fn notify_closed(&mut self, buffer: BufferId) {
-        if self.lsp_versions.remove(&buffer).is_none() {
-            return;
-        }
-        if let Some((language, uri)) = self.lsp_document(buffer) {
-            self.spawn(Task::LspDidClose { language, uri });
+        let _ = buffer;
+        #[cfg(feature = "lsp")]
+        {
+            if self.lsp_versions.remove(&buffer).is_none() {
+                return;
+            }
+            if let Some((language, uri)) = self.lsp_document(buffer) {
+                self.spawn(Task::LspDidClose { language, uri });
+            }
         }
     }
 
@@ -1122,10 +2285,12 @@ impl Editor {
         let buffer = self.current_buffer();
         match buffer.region() {
             Some(range) => Ok(range),
-            None if buffer.mark().is_none() => {
-                Err(crate::CoreError::Message("The mark is not set now, so there is no region".into()))
-            }
-            None => Err(crate::CoreError::Message("The mark is not active now".into())),
+            None if buffer.mark().is_none() => Err(crate::CoreError::Message(
+                "The mark is not set now, so there is no region".into(),
+            )),
+            None => Err(crate::CoreError::Message(
+                "The mark is not active now".into(),
+            )),
         }
     }
 
@@ -1158,18 +2323,49 @@ impl Editor {
     /// punctuation — the thing a doom-style mode line gets right. The plain
     /// text is still available through [`Editor::mode_line`].
     pub fn mode_line_segments(&self, window: WindowId) -> Vec<ModeLineSegment> {
-        let Some(window) = self.windows.get(window) else { return Vec::new() };
-        let Some(buffer) = self.buffers.get(window.buffer) else { return Vec::new() };
+        let Some(window) = self.windows.get(window) else {
+            return Vec::new();
+        };
+        let Some(buffer) = self.buffers.get(window.buffer) else {
+            return Vec::new();
+        };
         let icons = self.settings.nerd_font_icons;
         let mut out = Vec::new();
 
         // What state the buffer is in, said once and in colour.
         let (state, state_face) = match (buffer.is_read_only(), buffer.is_modified()) {
-            (true, _) => (if icons { crate::icons::READ_ONLY.to_string() } else { "%%".into() }, "warning"),
-            (false, true) => (if icons { crate::icons::MODIFIED.to_string() } else { "**".into() }, "error"),
-            (false, false) => (if icons { crate::icons::SAVED.to_string() } else { "--".into() }, "success"),
+            (true, _) => (
+                if icons {
+                    crate::icons::READ_ONLY.to_string()
+                } else {
+                    "%%".into()
+                },
+                "warning",
+            ),
+            (false, true) => (
+                if icons {
+                    crate::icons::MODIFIED.to_string()
+                } else {
+                    "**".into()
+                },
+                "error",
+            ),
+            (false, false) => (
+                if icons {
+                    crate::icons::SAVED.to_string()
+                } else {
+                    "--".into()
+                },
+                "success",
+            ),
         };
         out.push(ModeLineSegment::new(format!(" {state} "), state_face));
+
+        // How big it is, as a person would say it.
+        out.push(ModeLineSegment::new(
+            format!("{} ", human_size(buffer.len_chars())),
+            "shadow",
+        ));
 
         // The buffer, behind the glyph for whatever kind of file it is.
         let mut name = String::new();
@@ -1181,7 +2377,10 @@ impl Editor {
             name.push(glyph);
             name.push(' ');
         }
-        name.push_str(buffer.name());
+        // The path within the project rather than the bare file name: three
+        // buffers called `mod.rs` are told apart by where they are, and that
+        // is exactly what the bare name leaves out.
+        name.push_str(&self.project_path(buffer));
         out.push(ModeLineSegment::new(name, "mode-line-buffer-id"));
 
         // The coding system, which is how `set-buffer-file-coding-system`
@@ -1196,7 +2395,11 @@ impl Editor {
 
         let position = buffer.position_of(window.point);
         let percent = self.scroll_indicator(window.top_line, buffer);
-        let marker = if icons { format!("{} ", crate::icons::POSITION) } else { String::new() };
+        let marker = if icons {
+            format!("{} ", crate::icons::POSITION)
+        } else {
+            String::new()
+        };
         out.push(ModeLineSegment::new(
             format!(
                 "  {marker}{}:{}  {percent}",
@@ -1210,10 +2413,24 @@ impl Editor {
             out.push(ModeLineSegment::new("  Narrow".to_string(), "warning"));
         }
 
-        // The branch, when the project is in git and the branch is known.
+        // From here to the right edge.
+        #[cfg(feature = "lsp")]
+        for mut segment in self.diagnostic_segments(buffer) {
+            segment.right = true;
+            out.push(segment);
+        }
+
+        #[cfg(feature = "git")]
         if let Some(branch) = &self.git_branch {
-            let glyph = if icons { format!("{} ", crate::icons::BRANCH) } else { String::new() };
-            out.push(ModeLineSegment::new(format!("  {glyph}{branch}"), "success"));
+            let glyph = if icons {
+                format!("{} ", crate::icons::BRANCH)
+            } else {
+                String::new()
+            };
+            out.push(ModeLineSegment::right(
+                format!("  {glyph}{branch}"),
+                "success",
+            ));
         }
 
         let language = buffer.language().unwrap_or("Fundamental");
@@ -1221,16 +2438,49 @@ impl Editor {
             true => format!("{} ", crate::icons::for_language(language)),
             false => String::new(),
         };
-        out.push(ModeLineSegment::new(format!("  {glyph}{language}"), "mode-line"));
-
-        out.extend(self.diagnostic_segments(buffer));
+        out.push(ModeLineSegment::right(
+            format!("  {glyph}{language}  "),
+            "mode-line",
+        ));
         out
     }
 
+    /// Where the buffer's file is, relative to the project it is in.
+    ///
+    /// Falls back to the bare name for a buffer with no file, and for a file
+    /// outside the project — an absolute path in the mode line is usually
+    /// longer than the bar and tells the reader nothing they wanted.
+    fn project_path(&self, buffer: &maxgus_text::Buffer) -> String {
+        let Some(path) = buffer.path() else {
+            return buffer.name().to_string();
+        };
+        #[cfg(feature = "git")]
+        let root = self.git_root.as_ref().or(self.tree_root.as_ref());
+        #[cfg(not(feature = "git"))]
+        let root = self.tree_root.as_ref();
+        let Some(root) = root else {
+            return buffer.name().to_string();
+        };
+        match path.strip_prefix(root) {
+            // The project's own name in front, as `doom` shows it: it is what
+            // tells two checkouts of the same repository apart.
+            Ok(inside) => match root.file_name() {
+                Some(project) => format!("{}/{}", project.to_string_lossy(), inside.display()),
+                None => inside.display().to_string(),
+            },
+            Err(_) => buffer.name().to_string(),
+        }
+    }
+
+    #[cfg(feature = "lsp")]
     /// The error and warning counts, each in its own colour.
     fn diagnostic_segments(&self, buffer: &Buffer) -> Vec<ModeLineSegment> {
-        let Some(path) = buffer.path() else { return Vec::new() };
-        let counts = self.diagnostics.counts(&maxgus_lsp::client::path_to_uri(path));
+        let Some(path) = buffer.path() else {
+            return Vec::new();
+        };
+        let counts = self
+            .diagnostics
+            .counts(&maxgus_lsp::client::path_to_uri(path));
         let icons = self.settings.nerd_font_icons;
         [
             (counts[0], crate::icons::ERROR, 'E', "diagnostic-error"),
@@ -1239,7 +2489,11 @@ impl Editor {
         .into_iter()
         .filter(|(n, _, _, _)| *n > 0)
         .map(|(n, glyph, letter, face)| {
-            let mark = if icons { glyph.to_string() } else { format!("{letter}:") };
+            let mark = if icons {
+                glyph.to_string()
+            } else {
+                format!("{letter}:")
+            };
             ModeLineSegment::new(format!("  {mark} {n}"), face)
         })
         .collect()
@@ -1284,11 +2538,30 @@ pub struct ModeLineSegment {
     pub text: String,
     /// The face name, resolved against the theme at drawing time.
     pub face: &'static str,
+    /// True for the segments that sit against the right edge.
+    ///
+    /// What is being edited belongs on the left, where the eye starts; what
+    /// the editor knows *about* it — the language, the branch, how many
+    /// problems there are — belongs on the right, where it can be glanced at
+    /// without reading past it.
+    pub right: bool,
 }
 
 impl ModeLineSegment {
     fn new(text: impl Into<String>, face: &'static str) -> ModeLineSegment {
-        ModeLineSegment { text: text.into(), face }
+        ModeLineSegment {
+            text: text.into(),
+            face,
+            right: false,
+        }
+    }
+
+    fn right(text: impl Into<String>, face: &'static str) -> ModeLineSegment {
+        ModeLineSegment {
+            text: text.into(),
+            face,
+            right: true,
+        }
     }
 }
 
@@ -1314,6 +2587,19 @@ pub fn build_theme(specs: &[ThemeSpec], name: &str) -> Theme {
         theme.apply_spec(spec).ok();
     }
     theme
+}
+
+/// A size as a person would say it: `812`, `6.6k`, `1.2M`.
+///
+/// Counted in characters rather than bytes, which is what the buffer holds
+/// and what a reader of a text file means by how big it is.
+fn human_size(characters: usize) -> String {
+    const K: usize = 1024;
+    match characters {
+        _ if characters < K => format!("{characters}"),
+        _ if characters < K * K => format!("{:.1}k", characters as f64 / K as f64),
+        _ => format!("{:.1}M", characters as f64 / (K * K) as f64),
+    }
 }
 
 #[cfg(test)]
@@ -1355,7 +2641,11 @@ mod tests {
         assert_eq!(e.current_buffer().point(), 6);
 
         e.with_current_buffer(|b| b.set_point(2));
-        assert_eq!(e.windows.current().point, 2, "the window followed the buffer");
+        assert_eq!(
+            e.windows.current().point,
+            2,
+            "the window followed the buffer"
+        );
     }
 
     #[test]
@@ -1371,7 +2661,11 @@ mod tests {
 
         e.other_window(1);
         e.sync_to_buffer();
-        assert_eq!(e.current_buffer().point(), 2, "the first window's point survived");
+        assert_eq!(
+            e.current_buffer().point(),
+            2,
+            "the first window's point survived"
+        );
     }
 
     #[test]
@@ -1468,7 +2762,11 @@ mod tests {
 
         e.settings.truncate_lines = false;
         e.follow_point();
-        assert_eq!(e.windows.current().left_column, 0, "wrapped lines never scroll sideways");
+        assert_eq!(
+            e.windows.current().left_column,
+            0,
+            "wrapped lines never scroll sideways"
+        );
     }
 
     #[test]
@@ -1482,7 +2780,8 @@ mod tests {
     #[test]
     fn the_cursor_moves_to_the_minibuffer_while_it_prompts() {
         let mut e = editor_with("text");
-        e.minibuffer.activate(crate::MinibufferKind::Command, "M-x ");
+        e.minibuffer
+            .activate(crate::MinibufferKind::Command, "M-x ");
         e.minibuffer.insert("save");
         let (x, y) = e.cursor_position();
         assert_eq!(y, 23, "the last row of the frame");
@@ -1497,7 +2796,10 @@ mod tests {
         e.follow_point();
         let (_, y) = e.cursor_position();
         let window = e.windows.current();
-        assert!(y < window.rect.bottom(), "the cursor stays inside the window");
+        assert!(
+            y < window.rect.bottom(),
+            "the cursor stays inside the window"
+        );
         assert_eq!(y as usize, 50 - window.top_line);
     }
 
@@ -1558,7 +2860,9 @@ mod tests {
     #[test]
     fn the_mode_line_shows_the_buffer_state() {
         let mut e = editor();
-        let id = e.buffers.visit_file("/project/src/main.rs", "fn main() {}\n");
+        let id = e
+            .buffers
+            .visit_file("/project/src/main.rs", "fn main() {}\n");
         e.switch_to_buffer(id).unwrap();
 
         let line = e.mode_line(e.windows.current_id());
@@ -1577,20 +2881,33 @@ mod tests {
         let state = |e: &Editor| e.mode_line(e.windows.current_id());
 
         e.with_current_buffer(|b| b.insert_at_point("more").unwrap());
-        assert!(state(&e).contains(crate::icons::MODIFIED), "got `{}`", state(&e));
+        assert!(
+            state(&e).contains(crate::icons::MODIFIED),
+            "got `{}`",
+            state(&e)
+        );
 
         // Read-only is reported over modified: it is the more useful of the
         // two to know, because it is the one that stops a save.
         e.with_current_buffer(|b| b.set_read_only(true));
-        assert!(state(&e).contains(crate::icons::READ_ONLY), "got `{}`", state(&e));
+        assert!(
+            state(&e).contains(crate::icons::READ_ONLY),
+            "got `{}`",
+            state(&e)
+        );
 
         e.with_current_buffer(|b| {
             b.set_read_only(false);
             b.mark_saved();
         });
-        assert!(state(&e).contains(crate::icons::SAVED), "got `{}`", state(&e));
+        assert!(
+            state(&e).contains(crate::icons::SAVED),
+            "got `{}`",
+            state(&e)
+        );
     }
 
+    #[cfg(feature = "syntax")]
     #[test]
     fn killing_a_buffer_forgets_the_highlights_it_had() {
         // The ordinary case, and the one the late-result guard does *not*
@@ -1611,7 +2928,10 @@ mod tests {
                 }],
             })
             .unwrap();
-        assert!(editor.highlights.contains_key(&id), "filed while it was alive");
+        assert!(
+            editor.highlights.contains_key(&id),
+            "filed while it was alive"
+        );
 
         editor.kill_buffer(id).unwrap();
         assert!(
@@ -1620,6 +2940,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "syntax")]
     #[test]
     fn highlights_for_a_buffer_that_is_still_alive_are_filed_normally() {
         // The other half: a guard that drops everything protects nothing.
@@ -1640,9 +2961,14 @@ mod tests {
             })
             .unwrap();
 
-        assert_eq!(editor.highlights_for(id).len(), 1, "the answer was thrown away");
+        assert_eq!(
+            editor.highlights_for(id).len(),
+            1,
+            "the answer was thrown away"
+        );
     }
 
+    #[cfg(feature = "syntax")]
     #[test]
     fn highlights_for_a_buffer_killed_mid_parse_are_not_filed_against_it() {
         // The parse is already running when the buffer is killed, so its
@@ -1697,10 +3023,16 @@ mod tests {
         });
 
         let theme = crate::build_theme(std::slice::from_ref(&spec), "daylight");
-        assert_eq!(theme.name(), "daylight", "it keeps its own name, not the base's");
+        assert_eq!(
+            theme.name(),
+            "daylight",
+            "it keeps its own name, not the base's"
+        );
         assert_eq!(
             theme.resolve("default"),
-            maxgus_faces::defaults::builtin("maxgus-light").unwrap().resolve("default"),
+            maxgus_faces::defaults::builtin("maxgus-light")
+                .unwrap()
+                .resolve("default"),
             "a face it did not set came from the wrong built-in"
         );
         assert_eq!(
@@ -1722,7 +3054,9 @@ mod tests {
         let theme = crate::build_theme(std::slice::from_ref(&spec), "maxgus-light");
         assert_eq!(
             theme.resolve("default"),
-            maxgus_faces::defaults::builtin("maxgus-light").unwrap().resolve("default")
+            maxgus_faces::defaults::builtin("maxgus-light")
+                .unwrap()
+                .resolve("default")
         );
     }
 
@@ -1736,7 +3070,10 @@ mod tests {
         });
         let theme = crate::build_theme(std::slice::from_ref(&spec), "maxgus-dark");
         assert_eq!(theme.name(), "maxgus-dark");
-        assert_eq!(theme.resolve("region").foreground, Some(maxgus_faces::Color::Rgb(0, 255, 0)));
+        assert_eq!(
+            theme.resolve("region").foreground,
+            Some(maxgus_faces::Color::Rgb(0, 255, 0))
+        );
     }
 
     #[test]
@@ -1785,7 +3122,10 @@ mod tests {
         e.with_current_buffer(|b| b.set_point(b.line_start(100)));
         e.follow_point();
         let line = e.mode_line(e.windows.current_id());
-        assert!(line.contains('%'), "a percentage in the middle, got `{line}`");
+        assert!(
+            line.contains('%'),
+            "a percentage in the middle, got `{line}`"
+        );
     }
 
     #[test]
@@ -1810,7 +3150,11 @@ mod tests {
     #[test]
     fn the_frame_title_names_the_buffer_and_its_directory() {
         let mut e = editor();
-        assert_eq!(e.frame_title(), crate::buffers::SCRATCH_NAME, "no file, no directory");
+        assert_eq!(
+            e.frame_title(),
+            crate::buffers::SCRATCH_NAME,
+            "no file, no directory"
+        );
         let id = e.buffers.visit_file("/project/src/main.rs", "");
         e.switch_to_buffer(id).unwrap();
         assert_eq!(e.frame_title(), "main.rs — /project/src");
@@ -1821,17 +3165,23 @@ mod tests {
         let mut e = editor();
         let id = e.buffers.visit_file(path, text);
         e.switch_to_buffer(id).unwrap();
+        #[cfg(feature = "lsp")]
         e.request_language_server(id);
         e.tasks.drain();
         (e, id)
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn opening_a_file_records_the_version_the_server_was_told() {
         let (e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
-        assert!(e.lsp_versions.contains_key(&id), "the document is now known to the server");
+        assert!(
+            e.lsp_versions.contains_key(&id),
+            "the document is now known to the server"
+        );
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn an_edit_is_reported_to_the_language_server() {
         let (mut e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
@@ -1844,17 +3194,24 @@ mod tests {
         let Some(Task::LspDidChange { text, version, .. }) = tasks.into_iter().next() else {
             panic!("no change notification was queued");
         };
-        assert!(text.starts_with("// edit"), "the server is sent the new text");
+        assert!(
+            text.starts_with("// edit"),
+            "the server is sent the new text"
+        );
         assert_eq!(version as u64, e.current_buffer().revision());
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn the_same_edit_is_not_reported_twice() {
         let (mut e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
         e.with_current_buffer(|b| b.insert_at_point("x").unwrap());
         assert!(e.sync_language_server(id));
         e.tasks.drain();
-        assert!(!e.sync_language_server(id), "the server is already up to date");
+        assert!(
+            !e.sync_language_server(id),
+            "the server is already up to date"
+        );
         assert!(e.tasks.is_empty());
     }
 
@@ -1864,7 +3221,10 @@ mod tests {
         let id = e.buffers.create_with_text("notes", "text");
         e.switch_to_buffer(id).unwrap();
         e.with_current_buffer(|b| b.insert_at_point("more").unwrap());
-        assert!(!e.sync_language_server(id), "there is no open document to change");
+        assert!(
+            !e.sync_language_server(id),
+            "there is no open document to change"
+        );
         assert!(e.tasks.is_empty());
     }
 
@@ -1877,6 +3237,7 @@ mod tests {
         assert!(e.tasks.is_empty());
     }
 
+    #[cfg(feature = "lsp")]
     #[test]
     fn saving_tells_the_server_the_file_is_on_disk() {
         let (mut e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
@@ -1894,6 +3255,7 @@ mod tests {
         );
     }
 
+    #[cfg(all(feature = "lsp", feature = "syntax"))]
     #[test]
     fn killing_a_buffer_closes_its_document_and_drops_its_highlighting() {
         let (mut e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
@@ -1906,8 +3268,14 @@ mod tests {
             tasks.iter().any(|t| matches!(t, Task::LspDidClose { .. })),
             "no close notification, got {tasks:?}"
         );
-        assert!(!e.lsp_versions.contains_key(&id), "the version was forgotten");
-        assert!(e.highlights_for(id).is_empty(), "the highlighting went with it");
+        assert!(
+            !e.lsp_versions.contains_key(&id),
+            "the version was forgotten"
+        );
+        assert!(
+            e.highlights_for(id).is_empty(),
+            "the highlighting went with it"
+        );
     }
 
     #[test]
@@ -1921,6 +3289,7 @@ mod tests {
 
     /// An editor showing a file long enough that the window covers only part
     /// of it, with the opening tasks drained.
+    #[cfg(feature = "lsp")]
     fn editor_with_long_file() -> (Editor, BufferId) {
         let text: String = (0..2_000).map(|n| format!("line {n}\n")).collect();
         let mut e = editor();
@@ -1972,7 +3341,11 @@ mod tests {
         });
         let window = e.windows.get(other).unwrap();
         let length = e.current_buffer().len_chars();
-        assert!(window.point <= length, "point {} is past {length}", window.point);
+        assert!(
+            window.point <= length,
+            "point {} is past {length}",
+            window.point
+        );
         assert_eq!(window.point, 2, "it followed the text that is left");
     }
 
@@ -1986,7 +3359,11 @@ mod tests {
             b.set_point(0);
             b.delete(Range::new(6, 10)).unwrap();
         });
-        assert_eq!(e.windows.get(other).unwrap().point, 6, "collapsed to where it began");
+        assert_eq!(
+            e.windows.get(other).unwrap().point,
+            6,
+            "collapsed to where it began"
+        );
     }
 
     #[test]
@@ -2024,8 +3401,16 @@ mod tests {
 
         e.replace_buffer_contents(id, "one line\n").unwrap();
         for window in e.windows.iter() {
-            assert!(window.point <= 9, "a window kept a point of {}", window.point);
-            assert!(window.top_line < 2, "a window stayed scrolled to line {}", window.top_line);
+            assert!(
+                window.point <= 9,
+                "a window kept a point of {}",
+                window.point
+            );
+            assert!(
+                window.top_line < 2,
+                "a window stayed scrolled to line {}",
+                window.top_line
+            );
         }
     }
 
@@ -2064,10 +3449,14 @@ mod tests {
     #[test]
     fn a_language_with_no_configured_map_uses_the_global_one() {
         let mut e = editor();
-        e.mode_keymaps.push(mode_map("python", "python-only-command"));
+        e.mode_keymaps
+            .push(mode_map("python", "python-only-command"));
         let rust = e.buffers.visit_file("/project/main.rs", "fn main() {}");
         e.switch_to_buffer(rust).unwrap();
-        assert!(e.keymaps.major.is_none(), "no map should have been installed");
+        assert!(
+            e.keymaps.major.is_none(),
+            "no map should have been installed"
+        );
     }
 
     #[test]
@@ -2099,7 +3488,10 @@ mod tests {
         e.switch_to_buffer(text).unwrap();
 
         let sequence = maxgus_keys::KeySequence::parse("C-t").unwrap();
-        assert_eq!(e.keymaps.lookup(&sequence).command(), Some("transpose-chars"));
+        assert_eq!(
+            e.keymaps.lookup(&sequence).command(),
+            Some("transpose-chars")
+        );
 
         e.other_window(1);
         assert_eq!(
@@ -2111,7 +3503,11 @@ mod tests {
 
     #[test]
     fn a_buffer_takes_the_configured_tab_width() {
-        let settings = Settings { tab_width: 8, indent_with_tabs: true, ..Default::default() };
+        let settings = Settings {
+            tab_width: 8,
+            indent_with_tabs: true,
+            ..Default::default()
+        };
         let mut e = Editor::new(
             settings,
             defaults::builtin("maxgus-dark").unwrap(),
@@ -2131,7 +3527,10 @@ mod tests {
     fn a_tab_is_drawn_at_the_width_the_indent_commands_use() {
         // These disagreeing is what makes indentation look wrong: a tab
         // inserted as one width but displayed as another.
-        let settings = Settings { tab_width: 8, ..Default::default() };
+        let settings = Settings {
+            tab_width: 8,
+            ..Default::default()
+        };
         let mut e = Editor::new(
             settings.clone(),
             defaults::builtin("maxgus-dark").unwrap(),
@@ -2159,27 +3558,34 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "syntax")]
     #[test]
     fn highlighting_is_asked_for_only_around_what_the_window_shows() {
         let (mut e, id) = editor_with_long_file();
         e.request_highlighting(id);
         let tasks = e.tasks.drain();
-        let Some(Task::Reparse { range, text, .. }) =
-            tasks.into_iter().find(|t| matches!(t, Task::Reparse { .. }))
+        let Some(Task::Reparse { range, text, .. }) = tasks
+            .into_iter()
+            .find(|t| matches!(t, Task::Reparse { .. }))
         else {
             panic!("no reparse was queued");
         };
         assert_eq!(range.start, 0, "the window is at the top of the file");
-        assert!(range.end < text.len(), "the whole file was asked for: {range:?}");
+        assert!(
+            range.end < text.len(),
+            "the whole file was asked for: {range:?}"
+        );
         assert!(range.end > 0);
     }
 
+    #[cfg(feature = "syntax")]
     #[test]
     fn scrolling_past_the_highlighted_region_asks_for_more() {
         let (mut e, id) = editor_with_long_file();
         let revision = e.current_buffer().revision();
         let covered = e.highlight_request_range(id);
-        e.highlights.insert(id, (revision, covered.clone(), Vec::new()));
+        e.highlights
+            .insert(id, (revision, covered.clone(), Vec::new()));
         assert!(!e.highlights_are_stale(id), "what is on screen is covered");
 
         // Scroll far enough that the window itself leaves the region.
@@ -2190,23 +3596,35 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "syntax")]
     #[test]
     fn scrolling_within_the_margin_does_not_ask_again() {
         let (mut e, id) = editor_with_long_file();
         let revision = e.current_buffer().revision();
-        e.highlights.insert(id, (revision, e.highlight_request_range(id), Vec::new()));
+        e.highlights
+            .insert(id, (revision, e.highlight_request_range(id), Vec::new()));
 
         // A page down stays inside the margin already highlighted.
         let height = e.windows.current().text_height();
         e.windows.current_mut().top_line = height;
-        assert!(!e.highlights_are_stale(id), "an ordinary scroll should not re-query");
+        assert!(
+            !e.highlights_are_stale(id),
+            "an ordinary scroll should not re-query"
+        );
     }
 
+    #[cfg(feature = "syntax")]
     #[test]
     fn an_edit_makes_the_highlighting_stale_wherever_the_window_is() {
         let (mut e, id) = editor_with_long_file();
-        e.highlights
-            .insert(id, (e.current_buffer().revision(), e.highlight_request_range(id), Vec::new()));
+        e.highlights.insert(
+            id,
+            (
+                e.current_buffer().revision(),
+                e.highlight_request_range(id),
+                Vec::new(),
+            ),
+        );
         assert!(!e.highlights_are_stale(id));
         e.with_current_buffer(|b| b.insert_at_point("x").unwrap());
         assert!(e.highlights_are_stale(id), "the buffer moved on");
@@ -2219,7 +3637,11 @@ mod tests {
         e.switch_to_buffer(id).unwrap();
         let range = e.highlight_request_range(id);
         assert_eq!(range.start, 0);
-        assert_eq!(range.end, e.current_buffer().text().len(), "nothing is left out");
+        assert_eq!(
+            range.end,
+            e.current_buffer().text().len(),
+            "nothing is left out"
+        );
     }
 
     #[test]
@@ -2243,7 +3665,10 @@ mod tests {
 
     #[test]
     fn the_kill_ring_honours_the_configured_maximum() {
-        let settings = Settings { kill_ring_max: 2, ..Default::default() };
+        let settings = Settings {
+            kill_ring_max: 2,
+            ..Default::default()
+        };
         let mut e = Editor::new(
             settings,
             defaults::builtin("maxgus-dark").unwrap(),

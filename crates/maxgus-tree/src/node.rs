@@ -184,7 +184,10 @@ mod tests {
         assert_eq!(dir("/a").face(true), "tree-root");
         assert_eq!(dir("/a").face(false), "tree-directory");
         assert_eq!(file("/a/b").face(false), "tree-file");
-        assert_eq!(Node::new("/a/l", NodeKind::Symlink).face(false), "tree-symlink");
+        assert_eq!(
+            Node::new("/a/l", NodeKind::Symlink).face(false),
+            "tree-symlink"
+        );
     }
 
     #[test]
@@ -229,7 +232,12 @@ mod tests {
     #[test]
     fn children_sort_directories_first_then_case_insensitively() {
         let mut root = dir("/a");
-        root.children = vec![file("/a/zeta.rs"), dir("/a/Src"), file("/a/Alpha.rs"), dir("/a/bin")];
+        root.children = vec![
+            file("/a/zeta.rs"),
+            dir("/a/Src"),
+            file("/a/Alpha.rs"),
+            dir("/a/bin"),
+        ];
         root.sort_children(true);
         let names: Vec<&str> = root.children.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, vec!["bin", "Src", "Alpha.rs", "zeta.rs"]);

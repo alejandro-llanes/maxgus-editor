@@ -26,6 +26,7 @@ pub mod panel;
 pub mod position;
 pub mod prefix;
 pub mod render;
+pub mod session;
 pub mod task;
 #[cfg(feature = "terminal")]
 pub mod terminal;

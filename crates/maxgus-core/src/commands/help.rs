@@ -193,6 +193,7 @@ fn setting_value(editor: &Editor, name: &str) -> Option<String> {
         "panel-at-startup" => s.panel_at_startup.to_string(),
         "panel-symbols-height" => s.panel_symbols_height.to_string(),
         "panel-buffers-height" => s.panel_buffers_height.to_string(),
+        "session" => s.session.to_string(),
         "gui-font" => s.gui_font.clone(),
         "gui-font-size" => s.gui_font_size.to_string(),
         "shell" => s.shell.clone().unwrap_or_else(|| "(from $SHELL)".into()),

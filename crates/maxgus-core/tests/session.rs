@@ -4482,7 +4482,7 @@ fn the_readme_quotes_the_right_totals() {
 #[cfg(feature = "full")]
 const README_BINDINGS: usize = 341;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 398;
+const README_COMMANDS: usize = 400;
 
 #[cfg(feature = "lsp")]
 #[test]
@@ -5738,4 +5738,104 @@ fn a_projects_line_length_is_what_fill_uses() {
             "a line is longer than the project asked for: {line:?}"
         );
     }
+}
+
+// ---- sessions ------------------------------------------------------------
+
+#[test]
+fn a_restored_session_puts_point_back_where_it_was() {
+    let mut s = tall_session("/project/main.rs", "");
+    s.editor.restore_session(maxgus_core::session::Session {
+        root: Some("/project".into()),
+        files: vec![maxgus_core::session::OpenFile {
+            path: "/project/notes.txt".into(),
+            point: 9,
+            top_line: 2,
+        }],
+        current: None,
+        panel_open: false,
+    });
+    // The file arrives as any other read does.
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::FileRead {
+            path: "/project/notes.txt".into(),
+            contents: "one\ntwo\nthree\nfour\n".into(),
+            read_only: false,
+            lossy: false,
+            disk_time: None,
+            reverting: None,
+            other_window: false,
+            editor_config: Default::default(),
+        })
+        .unwrap();
+
+    assert_eq!(s.editor.current_buffer().name(), "notes.txt");
+    assert_eq!(
+        s.editor.windows.current().point,
+        9,
+        "point is not where the session left it"
+    );
+    assert_eq!(
+        s.editor.windows.current().top_line,
+        2,
+        "the window is not scrolled where it was"
+    );
+}
+
+#[test]
+fn a_session_describes_what_is_open() {
+    let mut s = tall_session(
+        "/project/main.rs",
+        "fn main() {}
+",
+    );
+    s.editor.tree_root = Some("/project".into());
+    s.editor
+        .buffers
+        .visit_file("/project/notes.txt", "a note\n");
+    s.editor.with_current_buffer(|b| b.set_point(4));
+    s.editor.windows.current_mut().point = 4;
+
+    let session = s.editor.session();
+    let paths: Vec<String> = session
+        .files
+        .iter()
+        .map(|f| f.path.display().to_string())
+        .collect();
+    assert!(paths.iter().any(|p| p.ends_with("main.rs")));
+    assert!(paths.iter().any(|p| p.ends_with("notes.txt")));
+    assert_eq!(
+        session.current.as_deref(),
+        Some(std::path::Path::new("/project/main.rs"))
+    );
+    let main = session
+        .files
+        .iter()
+        .find(|f| f.path.ends_with("main.rs"))
+        .expect("the file");
+    assert_eq!(main.point, 4, "point was not remembered");
+}
+
+#[test]
+fn a_session_leaves_out_the_buffers_that_are_not_files() {
+    // `*scratch*` restored from a previous run would be a surprise, and the
+    // editor's own buffers are made again when they are needed.
+    let mut s = tall_session(
+        "/project/main.rs",
+        "fn main() {}
+",
+    );
+    s.keys("C-x t t"); // the panel, whose buffers have no files
+    let session = s.editor.session();
+    for file in &session.files {
+        assert!(
+            file.path.extension().is_some(),
+            "a buffer with no file got into the session: {:?}",
+            file.path
+        );
+    }
+    assert!(
+        session.panel_open,
+        "the panel being open was not remembered"
+    );
 }

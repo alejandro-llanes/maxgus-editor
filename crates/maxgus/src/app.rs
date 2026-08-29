@@ -151,6 +151,20 @@ impl App {
             }
             self.after_turn()?;
         }
+        // What was open, for next time. Queued and run before the executor
+        // is dropped, so a session is written even though leaving is
+        // otherwise immediate.
+        if self.editor.settings.session {
+            let _ = self
+                .dispatcher
+                .execute(&mut self.editor, "save-session", None);
+            for task in self.editor.tasks.drain() {
+                let _ = self.tasks.send(task);
+            }
+            // The write is a round trip through the executor; waiting for it
+            // is the difference between a session and a truncated one.
+            let _ = tokio::time::timeout(Duration::from_secs(2), self.results.recv()).await;
+        }
         self.terminal.restore()?;
         Ok(())
     }

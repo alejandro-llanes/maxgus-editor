@@ -77,6 +77,7 @@ KDL spells booleans `#true` and `#false`, and null `#null`.
 | `panel-at-startup` | bool | `#false` | Open the side panel as soon as the editor starts. |
 | `panel-symbols-height` | integer | `12` | Rows the symbol outline's window takes. The tree takes whatever the others leave. |
 | `panel-buffers-height` | integer | `8` | Rows the buffer list's window takes. |
+| `session` | bool | `#false` | Remember what is open when the editor leaves, and open it again when it is next started in the same project with no file named. Kept under the state directory, keyed by the project's path. |
 | `gui-font` | string | `"JetBrainsMono Nerd Font"` | The family the window draws with. Falls through a list of installed monospace families when it is not there. Only read by a `--features gui` build started with `--gui`. |
 | `gui-font-size` | integer | `16` | Its size in pixels, clamped to 6–96. |
 | `shell` | string | `$SHELL` | The program a terminal tab starts. |

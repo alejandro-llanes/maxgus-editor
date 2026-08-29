@@ -53,7 +53,26 @@ impl Session {
         Session::spawn(directory, arguments, true)
     }
 
+    /// Starts the editor with extra environment, which is how a test gets
+    /// its own state directory instead of the real one.
+    fn start_with_env(
+        directory: &std::path::Path,
+        arguments: &[&str],
+        environment: &[(&str, &str)],
+    ) -> Session {
+        Session::spawn_with(directory, arguments, false, environment)
+    }
+
     fn spawn(directory: &std::path::Path, arguments: &[&str], own_group: bool) -> Session {
+        Session::spawn_with(directory, arguments, own_group, &[])
+    }
+
+    fn spawn_with(
+        directory: &std::path::Path,
+        arguments: &[&str],
+        own_group: bool,
+        environment: &[(&str, &str)],
+    ) -> Session {
         let pty =
             rustix::pty::openpt(rustix::pty::OpenptFlags::RDWR | rustix::pty::OpenptFlags::NOCTTY)
                 .expect("a pseudo-terminal");
@@ -87,6 +106,7 @@ impl Session {
             .current_dir(directory)
             .env("TERM", "xterm-256color")
             .env("COLORTERM", "truecolor")
+            .envs(environment.iter().copied())
             .stdin(Stdio::from(open(&name)))
             .stdout(Stdio::from(open(&name)))
             .stderr(Stdio::from(open(&name)));
@@ -2410,6 +2430,104 @@ fn a_real_editorconfig_decides_how_a_file_is_indented() {
         column_of_x(&mut session),
         8,
         "`[*] indent_size = 8` did not take"
+    );
+    assert_eq!(session.quit(), 0);
+}
+
+#[test]
+fn a_session_brings_back_the_files_that_were_open() {
+    // The whole round trip through a real state directory: what was open,
+    // where point was in it, and which one was showing.
+    let fixture = Fixture::new("session");
+    let root = fixture.path();
+    std::fs::write(root.join("one.txt"), "first\nsecond\nthird\n").unwrap();
+    std::fs::write(root.join("two.txt"), "alpha\nbeta\n").unwrap();
+    std::fs::write(
+        root.join("config.kdl"),
+        "set session=#true\nset nerd-font-icons=#false\n",
+    )
+    .unwrap();
+    // Its own state directory, so this test cannot read or write the real
+    // one and cannot be affected by whatever is in it.
+    let state = root.join("state");
+    std::fs::create_dir_all(&state).unwrap();
+
+    {
+        let mut session = Session::start_with_env(
+            root,
+            &["--config", "config.kdl", "one.txt"],
+            &[("XDG_DATA_HOME", state.to_string_lossy().as_ref())],
+        );
+        assert!(
+            wait_for(&mut session, "maxgus started in", 60),
+            "no startup"
+        );
+        // Open the second file and move down two lines in it.
+        session.send(b"\x18\x06two.txt\r"); // C-x C-f two.txt RET
+        assert!(
+            wait_for(&mut session, "alpha", 60),
+            "the second file did not open"
+        );
+        session.send(b"\x0e"); // C-n
+        session.settle();
+        assert_eq!(session.quit(), 0);
+    }
+
+    // Started again in the same project, with no file named.
+    let mut session = Session::start_with_env(
+        root,
+        &["--config", "config.kdl"],
+        &[("XDG_DATA_HOME", state.to_string_lossy().as_ref())],
+    );
+    assert!(
+        wait_for(&mut session, "alpha", 100),
+        "the session did not come back:\n{:#?}",
+        session.screen()
+    );
+    // Both files, and point where it was left.
+    session.send(b"\x18\x02"); // C-x C-b
+    assert!(
+        wait_for(&mut session, "one.txt", 60),
+        "the other file was not restored:\n{:#?}",
+        session.screen()
+    );
+    assert_eq!(session.quit(), 0);
+}
+
+#[test]
+fn naming_a_file_means_that_file_rather_than_the_last_session() {
+    let fixture = Fixture::new("sessionarg");
+    let root = fixture.path();
+    std::fs::write(root.join("wanted.txt"), "the one asked for\n").unwrap();
+    std::fs::write(root.join("other.txt"), "not this one\n").unwrap();
+    std::fs::write(
+        root.join("config.kdl"),
+        "set session=#true\nset nerd-font-icons=#false\n",
+    )
+    .unwrap();
+    let state = root.join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let env = [("XDG_DATA_HOME", state.to_string_lossy().to_string())];
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
+
+    {
+        let mut session =
+            Session::start_with_env(root, &["--config", "config.kdl", "other.txt"], &env);
+        assert!(wait_for(&mut session, "not this one", 60), "no first run");
+        assert_eq!(session.quit(), 0);
+    }
+
+    let mut session =
+        Session::start_with_env(root, &["--config", "config.kdl", "wanted.txt"], &env);
+    assert!(
+        wait_for(&mut session, "the one asked for", 60),
+        "the named file did not open:\n{:#?}",
+        session.screen()
+    );
+    assert!(
+        !session.shows("not this one"),
+        "the session was restored over the file that was asked for:\n{:#?}",
+        session.screen()
     );
     assert_eq!(session.quit(), 0);
 }

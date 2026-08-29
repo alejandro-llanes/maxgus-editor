@@ -55,12 +55,19 @@ pub struct Editor {
     /// Where the configuration was read from, so a theme can be written back
     /// to it. `None` when the editor started without one.
     pub config_path: Option<PathBuf>,
+    /// Where the editor keeps what is its own business rather than the
+    /// user's — sessions, and whatever else comes to want a home.
+    pub state_dir: Option<PathBuf>,
     /// The theme the configuration file names, as distinct from the one in
     /// use — which is how `visit-theme` knows whether there is anything worth
     /// writing down.
     pub config_says_theme: Option<String>,
     /// A file being read, and the line point should land on when it arrives.
     pub pending_line: Option<(PathBuf, usize)>,
+    /// Where a restored session wants point in each of its files.
+    pub session_points: std::collections::HashMap<PathBuf, (usize, usize)>,
+    /// Whether the session being restored had the panel open.
+    pub session_panel: bool,
     /// What each buffer's `.editorconfig` asked for.
     pub editor_configs: std::collections::HashMap<BufferId, crate::task::EditorConfig>,
     /// Cursors besides the window's own, which every editing command is run
@@ -262,8 +269,11 @@ impl Editor {
             git_branch: None,
             theme_before_preview: None,
             config_path: None,
+            state_dir: None,
             config_says_theme: None,
             pending_line: None,
+            session_points: std::collections::HashMap::new(),
+            session_panel: false,
             editor_configs: std::collections::HashMap::new(),
             cursors: crate::multi::Cursors::new(),
             undo_tree_subject: None,
@@ -1227,6 +1237,66 @@ impl Editor {
         Some(text[start..end].iter().collect())
     }
 
+    /// What is open now, as a session.
+    ///
+    /// Buffers with no file are left out: a `*scratch*` restored from a
+    /// previous run would be a surprise, and the ones the editor makes for
+    /// itself are made again when they are needed.
+    pub fn session(&self) -> crate::session::Session {
+        let current = self
+            .current_buffer()
+            .path()
+            .map(std::path::Path::to_path_buf);
+        let mut files = Vec::new();
+        for buffer in self.buffers.iter() {
+            let Some(path) = buffer.path() else { continue };
+            // Where the window showing it was, when one is.
+            let window = self.windows.iter().find(|w| w.buffer == buffer.id);
+            files.push(crate::session::OpenFile {
+                path: path.to_path_buf(),
+                point: window.map(|w| w.point).unwrap_or_else(|| buffer.point()),
+                top_line: window.map(|w| w.top_line).unwrap_or(0),
+            });
+        }
+        crate::session::Session {
+            root: self.tree_root.clone(),
+            files,
+            current,
+            panel_open: !self.panel_windows.is_empty(),
+        }
+    }
+
+    /// Opens everything a session remembers.
+    ///
+    /// The files are read asynchronously like any others; where point should
+    /// land in each is recorded and applied as they arrive.
+    pub fn restore_session(&mut self, session: crate::session::Session) {
+        if session.files.is_empty() {
+            return;
+        }
+        let count = session.files.len();
+        for file in &session.files {
+            self.session_points
+                .insert(file.path.clone(), (file.point, file.top_line));
+            self.spawn(crate::task::Task::ReadFile {
+                path: file.path.clone(),
+                reverting: None,
+                other_window: false,
+            });
+        }
+        // Read last so it is the buffer left showing: files arrive in the
+        // order they were asked for.
+        if let Some(current) = session.current {
+            self.spawn(crate::task::Task::ReadFile {
+                path: current,
+                reverting: None,
+                other_window: false,
+            });
+        }
+        self.session_panel = session.panel_open;
+        self.message(format!("Restoring {count} file(s)"));
+    }
+
     /// Applies the outcome of a [`Task`].
     ///
     /// This is the other half of the asynchronous story: a command queues work,
@@ -1296,6 +1366,20 @@ impl Editor {
                 }
                 let lines = self.current_buffer().len_lines();
                 self.message_unless_error(format!("{} ({lines} lines)", path.display()));
+                // Where a restored session left the reader in this file.
+                if let Some((point, top_line)) = self.session_points.remove(&path) {
+                    let point = point.min(self.buffers.get(id).map_or(0, |b| b.len_chars()));
+                    for window in self.windows.showing(id) {
+                        if let Some(window) = self.windows.get_mut(window) {
+                            window.point = point;
+                            window.top_line = top_line;
+                        }
+                    }
+                    if let Some(buffer) = self.buffers.get_mut(id) {
+                        buffer.set_point(point);
+                    }
+                    self.follow_point();
+                }
                 // Before the highlighting and the server, so a buffer whose
                 // project says four-space indent is four-space indent from
                 // the first frame it is drawn in.
@@ -1399,6 +1483,14 @@ impl Editor {
                     "Wrote {} line(s) in {} file(s)",
                     applied.lines, applied.files
                 ));
+                Ok(())
+            }
+            TaskResult::SessionRead { session } => {
+                self.restore_session(session);
+                Ok(())
+            }
+            TaskResult::SessionSaved { path } => {
+                self.message(format!("Session saved to {}", path.display()));
                 Ok(())
             }
             #[cfg(feature = "git")]

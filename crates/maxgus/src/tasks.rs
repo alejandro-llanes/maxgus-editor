@@ -165,6 +165,8 @@ impl Executor {
             } => {
                 self.reparse(buffer, &language, text, revision, range).await;
             }
+            Task::SaveSession { path, contents } => self.save_session(path, contents).await,
+            Task::ReadSession { path } => self.read_session(path).await,
             Task::PersistTheme { path, theme } => {
                 self.persist_theme(path, theme).await;
             }
@@ -335,6 +337,31 @@ impl Executor {
             }
             Err(error) => self.fail("find-file", error),
         }
+    }
+
+    // ---- sessions ------------------------------------------------------
+
+    async fn save_session(&self, path: PathBuf, contents: String) {
+        if let Some(parent) = path.parent()
+            && let Err(error) = tokio::fs::create_dir_all(parent).await
+        {
+            self.fail("saving the session", error);
+            return;
+        }
+        match tokio::fs::write(&path, contents).await {
+            Ok(()) => self.send(TaskResult::SessionSaved { path }),
+            Err(error) => self.fail("saving the session", error),
+        }
+    }
+
+    /// Reads a session back. A project that has never been opened has none,
+    /// which is not a failure and is reported as an empty session.
+    async fn read_session(&self, path: PathBuf) {
+        let session = match tokio::fs::read_to_string(&path).await {
+            Ok(source) => maxgus_core::session::Session::from_kdl(&source),
+            Err(_) => maxgus_core::session::Session::default(),
+        };
+        self.send(TaskResult::SessionRead { session });
     }
 
     /// Writes the chosen theme into the configuration file.

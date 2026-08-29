@@ -64,6 +64,8 @@ pub struct Settings {
     /// The program a terminal tab starts. Unset means whatever `$SHELL` says,
     /// which is what a user has already chosen once.
     pub shell: Option<String>,
+    /// `session`: remember what is open, and open it again next time.
+    pub session: bool,
     /// `gui-font`: the family the window draws with. Ignored by the terminal
     /// front end, which uses whatever the terminal is configured with.
     pub gui_font: String,
@@ -102,6 +104,7 @@ impl Default for Settings {
             // A Nerd Font by default because the tree and the mode line draw
             // glyphs from one; the loader falls through to whatever monospace
             // font is installed when it is not there.
+            session: false,
             gui_font: "JetBrainsMono Nerd Font".into(),
             gui_font_size: 16,
             shell: None,
@@ -138,6 +141,7 @@ pub const SETTING_NAMES: &[&str] = &[
     "panel-symbols-height",
     "panel-buffers-height",
     "shell",
+    "session",
     "gui-font",
     "gui-font-size",
 ];

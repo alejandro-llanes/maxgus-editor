@@ -47,6 +47,16 @@ pub fn register(registry: &mut Registry) {
         ),
         command!("suspend-maxgus", "Suspend the editor.", suspend),
         command!(
+            "save-session",
+            "Remember what is open, for the next time this project is opened.",
+            save_session
+        ),
+        command!(
+            "restore-session",
+            "Open what was open the last time this project was.",
+            restore_session
+        ),
+        command!(
             "startup-time",
             "Report how long the editor took to start.",
             startup_time
@@ -187,6 +197,34 @@ fn escape_quit(editor: &mut Editor, _: &Args) -> Result<()> {
 /// Creating it matters: the usual reason to reach for this key is that there
 /// is no configuration yet, and being told the file does not exist is not
 /// what anybody wanted from it.
+/// Where this project's session is kept, when there is anywhere to keep it.
+fn session_path(editor: &Editor) -> Result<std::path::PathBuf> {
+    let state = editor
+        .state_dir
+        .clone()
+        .ok_or_else(|| crate::CoreError::Message("There is nowhere to keep a session".into()))?;
+    Ok(crate::session::path_for(&state, &editor.project_root()))
+}
+
+fn save_session(editor: &mut Editor, _: &Args) -> Result<()> {
+    let session = editor.session();
+    if session.is_empty() {
+        return Err(crate::CoreError::Message("No files are open".into()));
+    }
+    let path = session_path(editor)?;
+    editor.spawn(crate::task::Task::SaveSession {
+        path,
+        contents: session.to_kdl(),
+    });
+    Ok(())
+}
+
+fn restore_session(editor: &mut Editor, _: &Args) -> Result<()> {
+    let path = session_path(editor)?;
+    editor.spawn(crate::task::Task::ReadSession { path });
+    Ok(())
+}
+
 /// `M-x startup-time`, which is `emacs-init-time` by another name.
 fn startup_time(editor: &mut Editor, _: &Args) -> Result<()> {
     match editor.startup_time {

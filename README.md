@@ -91,7 +91,7 @@ $ ./target/release/maxgus
 ### Emacs keys, and they behave like Emacs
 
 **341 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **398 commands**. Prefix
+the panel, tree, magit and terminal maps, driving **400 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -236,6 +236,21 @@ The tree keeps **47 bindings and 41 commands** from treemacs' own keymap:
 `c f`/`c d` to create, `R`, `d`, `m`, `!`, `y a`/`y r`/`y p`/`y f` to copy
 paths, `t h`/`t w`/`t f`/`t g`/`t d` to toggle, `g r` to refresh. Git status
 in the gutter, follow mode, `?` for help.
+
+### It remembers where you left off
+
+`set session=#true`, and starting maxgus in a project with no file named opens
+what was open last time — the files, where point was in each, which one you
+were looking at, and whether the panel was up. Naming a file means that file:
+`maxgus src/main.rs` is a request, not a suggestion.
+
+`M-x save-session` and `M-x restore-session` do it by hand at any time.
+
+Sessions live under the state directory, keyed by the project's path, so
+nothing is written into the project and nobody has to gitignore their editor.
+Window splits are deliberately not restored — `desktop-save-mode` leaves them
+out too, and a layout restored into a differently sized terminal is worse than
+none.
 
 ### It reads your project's `.editorconfig`
 
@@ -603,7 +618,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1832 tests.** Unit tests beside the code; session tests that press real keys
+**1848 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

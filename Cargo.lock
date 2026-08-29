@@ -1452,6 +1452,7 @@ dependencies = [
 name = "maxgus-core"
 version = "0.1.0"
 dependencies = [
+ "kdl",
  "maxgus-config",
  "maxgus-faces",
  "maxgus-git",

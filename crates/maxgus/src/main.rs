@@ -94,6 +94,7 @@ async fn main() -> Result<()> {
     editor.theme_specs = config.themes.clone();
     // Where a chosen theme would be written, and what is written there now.
     editor.config_path = arguments.config.clone().or_else(default_config_path);
+    editor.state_dir = default_state_dir();
     editor.config_says_theme = Some(config.settings.theme.clone());
     apply_keymaps(&mut editor, &config);
 
@@ -119,6 +120,17 @@ async fn main() -> Result<()> {
                 .collect::<Vec<_>>()
                 .join("; ")
         ));
+    }
+
+    // A session, when the configuration asks for one and no files were named:
+    // `maxgus file.rs` means that file, not the last twelve.
+    if config.settings.session
+        && arguments.files.is_empty()
+        && let Some(state) = &editor.state_dir
+    {
+        editor.spawn(maxgus_core::Task::ReadSession {
+            path: maxgus_core::session::path_for(state, &root),
+        });
     }
 
     for path in &arguments.files {
@@ -327,6 +339,11 @@ fn load_theme_directory(config_path: &Path, config: &mut Config) -> Vec<maxgus_c
 }
 
 /// `~/.config/maxgus/config.kdl`, or wherever the platform puts it.
+/// Where the editor keeps what is its own business: sessions, for now.
+fn default_state_dir() -> Option<PathBuf> {
+    directories::ProjectDirs::from("", "", "maxgus").map(|dirs| dirs.data_local_dir().to_path_buf())
+}
+
 fn default_config_path() -> Option<PathBuf> {
     directories::ProjectDirs::from("", "", "maxgus")
         .map(|dirs| dirs.config_dir().join("config.kdl"))

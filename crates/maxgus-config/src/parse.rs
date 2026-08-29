@@ -358,6 +358,11 @@ impl<'a> Parser<'a> {
                     self.config.settings.shell = Some(text);
                 }
             }
+            "session" => {
+                if let Some(on) = self.bool_value(node, key, value) {
+                    self.config.settings.session = on;
+                }
+            }
             "gui-font" => {
                 if let Some(text) = self.string_value(node, key, value) {
                     self.config.settings.gui_font = text;

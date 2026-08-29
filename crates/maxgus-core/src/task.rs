@@ -182,6 +182,10 @@ pub enum Task {
     /// Write `set theme="…"` into the configuration file, leaving the rest of
     /// it alone.
     PersistTheme { path: PathBuf, theme: String },
+    /// Write the session for a project.
+    SaveSession { path: PathBuf, contents: String },
+    /// Read one back.
+    ReadSession { path: PathBuf },
     /// Ask git which branch the project is on, for the mode line.
     #[cfg(feature = "git")]
     GitBranch { root: PathBuf },
@@ -557,6 +561,14 @@ pub enum TaskResult {
         applied: maxgus_grep::Applied,
         /// The files that were written, so their buffers can be re-read.
         paths: Vec<PathBuf>,
+    },
+    /// A session, as it was read. Absent when there was none.
+    SessionRead {
+        session: crate::session::Session,
+    },
+    /// A session was written.
+    SessionSaved {
+        path: PathBuf,
     },
 }
 

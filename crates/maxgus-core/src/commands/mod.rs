@@ -17,6 +17,7 @@ pub mod lsp;
 pub mod minibuffer;
 pub mod misc;
 pub mod motion;
+pub mod multi;
 pub mod panel;
 pub mod register;
 pub mod search;
@@ -37,6 +38,7 @@ pub fn standard_registry() -> Registry {
     motion::register(&mut registry);
     edit::register(&mut registry);
     minibuffer::register(&mut registry);
+    multi::register(&mut registry);
     window::register(&mut registry);
     buffer::register(&mut registry);
     file::register(&mut registry);

@@ -20,6 +20,68 @@ pub const MAX_DEFERRED_CHAIN: usize = 8;
 /// Commands that build up a prefix argument, and so must not clear it.
 pub const PREFIX_COMMANDS: &[&str] = &["universal-argument", "digit-argument", "negative-argument"];
 
+/// Commands that run again at every extra cursor.
+///
+/// A list rather than a rule, because there is no rule: a command that edits
+/// or moves is what several cursors are for, and one that prompts, switches
+/// buffer or splits a window means nothing done five times. Anything not
+/// named here runs once and puts the extra cursors away, which is what
+/// `multiple-cursors` does with a command it has not been told about.
+pub const MULTI_CURSOR_COMMANDS: &[&str] = &[
+    // Typing.
+    "self-insert-command",
+    "newline",
+    "open-line",
+    "delete-char",
+    "delete-backward-char",
+    "delete-horizontal-space",
+    "just-one-space",
+    "quoted-insert",
+    "indent-for-tab-command",
+    // Killing, which is also how a rename deletes the old word.
+    "kill-line",
+    "kill-whole-line",
+    "kill-word",
+    "backward-kill-word",
+    "kill-region",
+    "yank",
+    // Moving, so the cursors can be lined up before they are typed at.
+    "forward-char",
+    "backward-char",
+    "forward-word",
+    "backward-word",
+    "move-beginning-of-line",
+    "move-end-of-line",
+    "next-line",
+    "previous-line",
+    // Case, which is the other half of a rename.
+    "upcase-word",
+    "downcase-word",
+    "capitalize-word",
+    // Commenting a set of lines at once.
+    "comment-line",
+];
+
+/// Commands that leave the extra cursors alone without being run at them.
+///
+/// The multi-cursor commands themselves, and the ones that would be absurd
+/// run five times but should not put the cursors away either — a prefix
+/// argument, or asking what a key does.
+pub const KEEP_CURSORS_COMMANDS: &[&str] = &[
+    "mark-next-like-this",
+    "mark-previous-like-this",
+    "mark-all-like-this",
+    "cursor-at-next-line",
+    "cursor-at-previous-line",
+    "unmark-cursor",
+    "universal-argument",
+    "digit-argument",
+    "negative-argument",
+    "describe-key",
+    "describe-bindings",
+    "execute-extended-command",
+];
+
 /// Commands that append to the kill ring when run consecutively, which is what
 /// makes repeated `C-k` collect one entry rather than many.
 pub const KILL_COMMANDS: &[&str] = &[
@@ -130,6 +192,50 @@ impl Dispatcher {
         self.execute_with(editor, name, args)
     }
 
+    /// Runs `name` once at each extra cursor.
+    ///
+    /// Point is moved to the cursor, the command is run, and the cursor is
+    /// updated to wherever point ended up — so a motion moves every cursor
+    /// and an edit happens at each of them. The real point is put back at the
+    /// end, shifted by whatever the edits did to the text before it.
+    fn run_at_other_cursors(&mut self, editor: &mut Editor, name: &str, args: &Args) {
+        let mut point = editor.windows.current().point;
+        // Where each cursor ends up. Everything already in here is further
+        // through the buffer than the cursor being run, so each edit moves
+        // all of them — and the real point, when the edit is before it.
+        let mut moved: Vec<usize> = Vec::new();
+        for cursor in editor.cursors.descending() {
+            editor.windows.current_mut().point = cursor;
+            editor.with_current_buffer(|b| b.set_point(cursor));
+            let length = editor.current_buffer().len_chars();
+
+            // One cursor failing is not a reason to abandon the rest: a
+            // `C-d` at the end of the buffer has nothing to delete and the
+            // others still do.
+            let _ = self.registry.execute(editor, name, args);
+
+            let landed = editor.windows.current().point;
+            let delta = editor.current_buffer().len_chars() as isize - length as isize;
+            if delta != 0 {
+                let at = cursor.min(landed);
+                for offset in &mut moved {
+                    *offset = crate::multi::shift_by_delta(*offset, at, delta);
+                }
+                point = crate::multi::shift_by_delta(point, at, delta);
+            }
+            moved.push(landed);
+        }
+        let length = editor.current_buffer().len_chars();
+        editor.cursors.clear();
+        for cursor in moved {
+            editor.cursors.add(cursor.min(length), point.min(length));
+        }
+        let point = point.min(length);
+        editor.windows.current_mut().point = point;
+        editor.with_current_buffer(move |b| b.set_point(point));
+        editor.follow_point();
+    }
+
     /// Runs `name` with fully specified arguments.
     pub fn execute_with(&mut self, editor: &mut Editor, name: &str, args: Args) -> Dispatch {
         // A kill appends only when the previous command was also a kill.
@@ -140,7 +246,38 @@ impl Dispatcher {
                 .is_some_and(|last| KILL_COMMANDS.contains(&last));
         editor.this_command = Some(name.to_string());
 
+        // What the command is about to do has to be measured, because every
+        // other cursor is an offset into the text it is about to change.
+        let multi = !editor.cursors.is_empty() && MULTI_CURSOR_COMMANDS.contains(&name);
+        let before = multi.then(|| {
+            (
+                editor.windows.current().point,
+                editor.current_buffer().len_chars(),
+            )
+        });
+
         let outcome = self.registry.execute(editor, name, &args);
+
+        // The same command again at every other cursor, from the end of the
+        // buffer backwards so an edit at one cannot move the ones still to
+        // come. A command that cannot be run that way puts them away instead.
+        if outcome.is_ok() && !editor.cursors.is_empty() {
+            match before {
+                Some((point, length)) => {
+                    // The primary run has already changed the text under
+                    // every cursor after it.
+                    let after = editor.current_buffer().len_chars();
+                    let delta = after as isize - length as isize;
+                    if delta != 0 {
+                        let at = point.min(editor.windows.current().point);
+                        editor.cursors.shift_by(at, delta);
+                    }
+                    self.run_at_other_cursors(editor, name, &args);
+                }
+                None if !KEEP_CURSORS_COMMANDS.contains(&name) => editor.cursors.clear(),
+                None => {}
+            }
+        }
 
         // A command that asked for a character keeps its argument until the
         // character arrives.

@@ -1002,6 +1002,11 @@ fn draw_text(editor: &Editor, surface: &mut Surface, window: &Window, buffer: &B
     let theme = &editor.theme;
     let gutter = line_number_width(editor, buffer);
     let point_line = buffer.line_of(window.point.min(buffer.len_chars()));
+    // The extra cursors, so it is obvious where typing will go.
+    let extra_cursors: Vec<usize> = match window.id == editor.windows.current_id() {
+        true => editor.cursors.offsets().to_vec(),
+        false => Vec::new(),
+    };
     // Diagnostics are resolved once for the whole window. Doing it per line
     // would repeat the work for every row on screen.
     #[cfg(feature = "lsp")]
@@ -1045,6 +1050,39 @@ fn draw_text(editor: &Editor, surface: &mut Surface, window: &Window, buffer: &B
             },
         );
     }
+
+    // The extra cursors, painted over the text once it is drawn. A block
+    // where the terminal cannot put a second hardware cursor, which is the
+    // only way to show where typing will also go.
+    let face = theme.resolve("cursor");
+    for cursor in &extra_cursors {
+        let Some((x, y)) = cell_of(*cursor, buffer, window, &LineArea { area, gutter }) else {
+            continue;
+        };
+        let mut cell = surface.get(x, y).copied().unwrap_or_default();
+        cell.face = face;
+        surface.set(x, y, cell);
+    }
+}
+
+/// The screen cell an offset is drawn in, or `None` when it is not on screen.
+fn cell_of(offset: usize, buffer: &Buffer, window: &Window, area: &LineArea) -> Option<(u16, u16)> {
+    let line = buffer.line_of(offset.min(buffer.len_chars()));
+    if line < window.top_line {
+        return None;
+    }
+    let row = line - window.top_line;
+    if row >= area.area.height as usize {
+        return None;
+    }
+    let column = buffer
+        .display_column(offset)
+        .checked_sub(window.left_column)?;
+    let x = area.area.x + area.gutter + column as u16;
+    if x >= area.area.right() {
+        return None;
+    }
+    Some((x, area.area.y + row as u16))
 }
 
 fn draw_line_number(

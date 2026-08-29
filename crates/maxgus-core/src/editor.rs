@@ -61,6 +61,9 @@ pub struct Editor {
     pub config_says_theme: Option<String>,
     /// A file being read, and the line point should land on when it arrives.
     pub pending_line: Option<(PathBuf, usize)>,
+    /// Cursors besides the window's own, which every editing command is run
+    /// at as well.
+    pub cursors: crate::multi::Cursors,
     /// The buffer whose history the visualiser is showing.
     pub undo_tree_subject: Option<BufferId>,
     /// The results of the last project search.
@@ -259,6 +262,7 @@ impl Editor {
             config_path: None,
             config_says_theme: None,
             pending_line: None,
+            cursors: crate::multi::Cursors::new(),
             undo_tree_subject: None,
             #[cfg(feature = "grep")]
             grep: None,

@@ -4480,9 +4480,9 @@ fn the_readme_quotes_the_right_totals() {
 }
 
 #[cfg(feature = "full")]
-const README_BINDINGS: usize = 335;
+const README_BINDINGS: usize = 341;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 391;
+const README_COMMANDS: usize = 398;
 
 #[cfg(feature = "lsp")]
 #[test]
@@ -5387,4 +5387,184 @@ fn the_visualiser_on_a_buffer_with_no_history_still_opens() {
         "it did not say the history is empty:\n{:#?}",
         s.screen()
     );
+}
+
+// ---- several cursors -----------------------------------------------------
+
+/// A buffer with the same name in three places.
+fn with_three_names() -> Session {
+    let mut s = tall_session(
+        "/project/main.rs",
+        "let alpha = 1;\nlet beta = alpha + 1;\nprintln!(\"{alpha}\");\n",
+    );
+    s.editor.with_current_buffer(|b| b.set_point(4));
+    s
+}
+
+#[test]
+fn marking_the_next_occurrence_makes_a_second_cursor() {
+    let mut s = with_three_names();
+    s.keys("C->");
+    assert_eq!(s.editor.cursors.len(), 1, "no cursor was added");
+    assert!(s.echo().contains("2 cursors"), "got `{}`", s.echo());
+}
+
+#[test]
+fn typing_with_several_cursors_types_at_all_of_them() {
+    let mut s = with_three_names();
+    s.keys("C->");
+    s.keys("C->");
+    assert_eq!(s.editor.cursors.len(), 2, "three cursors expected");
+
+    s.type_text("_x");
+    let text = s.editor.current_buffer().text();
+    assert_eq!(
+        text.matches("alpha_x").count(),
+        3,
+        "not every cursor typed: {text:?}"
+    );
+}
+
+#[test]
+fn marking_them_all_at_once_reaches_every_occurrence() {
+    let mut s = with_three_names();
+    s.keys("C-c C-<");
+    s.type_text("!");
+    let text = s.editor.current_buffer().text();
+    assert_eq!(text.matches("alpha!").count(), 3, "got {text:?}");
+}
+
+#[test]
+fn deleting_with_several_cursors_deletes_at_all_of_them() {
+    let mut s = with_three_names();
+    s.keys("C-c C-<");
+    // Point is at the end of each `alpha`; a backspace takes the `a`.
+    s.keys("DEL");
+    let text = s.editor.current_buffer().text();
+    assert_eq!(text.matches("alph").count(), 3, "got {text:?}");
+    assert!(
+        !text.contains("alpha"),
+        "an occurrence was left alone: {text:?}"
+    );
+}
+
+#[test]
+fn moving_with_several_cursors_moves_all_of_them() {
+    let mut s = with_three_names();
+    s.keys("C-c C-<");
+    let before = s.editor.cursors.offsets().to_vec();
+    s.keys("C-f");
+    let after = s.editor.cursors.offsets().to_vec();
+    assert_eq!(after.len(), before.len(), "a cursor was lost");
+    for (a, b) in before.iter().zip(&after) {
+        assert_eq!(*b, a + 1, "a cursor did not move");
+    }
+}
+
+#[test]
+fn a_cursor_can_be_put_on_the_line_below() {
+    let mut s = with_three_names();
+    s.keys("C-S-<down>");
+    assert_eq!(s.editor.cursors.len(), 1);
+    s.keys("C-S-<down>");
+    assert_eq!(
+        s.editor.cursors.len(),
+        2,
+        "the second went to the same line"
+    );
+    // The buffer ends with a newline, so there is an empty last line to
+    // reach; the one after that does not exist.
+    s.keys("C-S-<down>");
+    assert_eq!(s.editor.cursors.len(), 3);
+    s.keys("C-S-<down>");
+    assert!(s.echo().contains("No line below"), "got `{}`", s.echo());
+}
+
+#[test]
+fn c_g_goes_back_to_one_cursor() {
+    let mut s = with_three_names();
+    s.keys("C-c C-<");
+    assert!(!s.editor.cursors.is_empty());
+    s.keys("C-g");
+    assert!(s.editor.cursors.is_empty(), "the cursors stayed");
+    assert!(s.echo().contains("One cursor"), "got `{}`", s.echo());
+}
+
+#[test]
+fn a_command_that_cannot_be_run_everywhere_puts_the_cursors_away() {
+    // Splitting a window five times is not what several cursors mean, and
+    // silently doing it would be worse than stopping.
+    let mut s = with_three_names();
+    s.keys("C-c C-<");
+    s.keys("C-x 2");
+    assert!(
+        s.editor.cursors.is_empty(),
+        "the cursors survived a command that cannot use them"
+    );
+}
+
+#[test]
+fn the_extra_cursors_are_drawn() {
+    let mut s = with_three_names();
+    s.keys("C-c C-<");
+    let cursor = s.editor.theme.resolve("cursor").background;
+    let painted = (0..3)
+        .flat_map(|y| (0..40).map(move |x| (x, y)))
+        .filter(|(x, y)| s.face_at(*x, *y).background == cursor)
+        .count();
+    assert!(
+        painted >= 2,
+        "the extra cursors are not on screen: {painted} cells painted"
+    );
+}
+
+#[test]
+fn undoing_a_multi_cursor_edit_takes_back_every_part_of_it() {
+    let mut s = with_three_names();
+    let before = s.editor.current_buffer().text();
+    s.keys("C-c C-<");
+    s.type_text("!");
+    assert_ne!(s.editor.current_buffer().text(), before);
+    s.keys("C-g");
+    for _ in 0..5 {
+        s.keys("C-/");
+    }
+    assert_eq!(
+        s.editor.current_buffer().text(),
+        before,
+        "the edit could not be taken back"
+    );
+}
+
+#[test]
+fn typing_twice_with_several_cursors_stays_lined_up() {
+    // The second round is where the cursors have to have been kept up to
+    // date: each edit moves every cursor after it, and the ones that have
+    // already run are all after the one running now.
+    let mut s = with_three_names();
+    s.keys("C-c C-<");
+    s.type_text("A");
+    s.type_text("B");
+    let text = s.editor.current_buffer().text();
+    assert_eq!(
+        text.matches("alphaAB").count(),
+        3,
+        "the cursors drifted between rounds: {text:?}"
+    );
+}
+
+#[test]
+fn deleting_twice_with_several_cursors_stays_lined_up() {
+    // The same the other way: a deletion moves everything after it back.
+    let mut s = with_three_names();
+    s.keys("C-c C-<");
+    s.keys("DEL");
+    s.keys("DEL");
+    let text = s.editor.current_buffer().text();
+    assert_eq!(
+        text.matches("alp").count(),
+        3,
+        "the cursors drifted between rounds: {text:?}"
+    );
+    assert!(!text.contains("alph"), "one was left behind: {text:?}");
 }

@@ -163,6 +163,13 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-x C-x", "exchange-point-and-mark"),
     ("C-x h", "mark-whole-buffer"),
     ("C-x u", "undo"),
+    // Several cursors, spelled as `multiple-cursors` spells them.
+    ("C->", "mark-next-like-this"),
+    ("C-<", "mark-previous-like-this"),
+    ("C-c C-<", "mark-all-like-this"),
+    ("C-S-<down>", "cursor-at-next-line"),
+    ("C-S-<up>", "cursor-at-previous-line"),
+    ("C-c C->", "unmark-cursor"),
     // The visualiser beside `undo` rather than over it: `C-x u` is undo in
     // every Emacs that has not loaded undo-tree, and that is muscle memory
     // worth more than matching a package's own binding.

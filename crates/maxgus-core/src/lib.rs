@@ -20,6 +20,7 @@ pub mod grep;
 pub mod icons;
 pub mod keymap;
 pub mod minibuffer;
+pub mod multi;
 pub mod panel;
 #[cfg(feature = "lsp")]
 pub mod position;

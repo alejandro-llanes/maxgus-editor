@@ -1006,6 +1006,13 @@ fn keyboard_quit(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.prefix = crate::Prefix::None;
     editor.tasks.clear();
     editor.with_current_buffer(|b| b.deactivate_mark());
+    // `C-g` is how you get back to one cursor, as it is in
+    // `multiple-cursors`: the alternative is typing everywhere by accident.
+    if !editor.cursors.is_empty() {
+        editor.cursors.clear();
+        editor.message("One cursor");
+        return Ok(());
+    }
     editor.message("Quit");
     Ok(())
 }

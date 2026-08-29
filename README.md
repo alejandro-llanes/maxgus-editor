@@ -90,8 +90,8 @@ $ ./target/release/maxgus
 
 ### Emacs keys, and they behave like Emacs
 
-**335 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **391 commands**. Prefix
+**341 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
+the panel, tree, magit and terminal maps, driving **398 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -236,6 +236,25 @@ The tree keeps **47 bindings and 41 commands** from treemacs' own keymap:
 `c f`/`c d` to create, `R`, `d`, `m`, `!`, `y a`/`y r`/`y p`/`y f` to copy
 paths, `t h`/`t w`/`t f`/`t g`/`t d` to toggle, `g r` to refresh. Git status
 in the gutter, follow mode, `?` for help.
+
+### Several cursors at once
+
+`C->` puts a cursor on the next occurrence of what is selected — or of the
+word point is on, which is what a rename starts as. `C-<` takes the previous
+one, `C-c C-<` takes them all, and `C-S-<up>`/`C-S-<down>` put one on the line
+above or below. Then typing types everywhere at once, `C-g` goes back to one.
+
+Every command that already exists works at every cursor, because that is
+literally what happens: the command runs at the real point as it always has,
+and is then run again at each of the others. Commands are run from the end of
+the buffer backwards so an edit at one cursor cannot move the ones still to
+come, and each edit shifts the cursors it passed. A command that cannot mean
+anything five times — one that prompts, splits a window, switches buffer —
+runs once and puts the cursors away, which is what `multiple-cursors` does
+with a command it has not been told about.
+
+The whole thing is one undo group per keystroke, so `C-/` takes back an edit
+at every cursor at once.
 
 ### Undo that keeps what you undid
 
@@ -430,6 +449,8 @@ first.
 | `M-h` `C-M-h` | Mark the paragraph, the definition |
 | `C-x z` | Repeat the last command |
 | `C-x U` | Show the undo history as a tree |
+| `C->` `C-<` | A cursor at the next / previous occurrence |
+| `C-c C-<` | A cursor at every occurrence |
 | `C-x t t` | Toggle the side panel |
 | `C-x t 1` / `2` / `3` | Select the tree, the outline, the buffer list |
 | `C-x t v` | Toggle the terminal panel |
@@ -566,7 +587,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1799 tests.** Unit tests beside the code; session tests that press real keys
+**1824 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

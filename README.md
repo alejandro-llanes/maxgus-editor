@@ -22,7 +22,7 @@ themes you rewrite in a config file&nbsp; ·&nbsp; a treemacs-style file tree&nb
 <img alt="" src="https://img.shields.io/badge/windows-333?style=flat-square&logo=windows&logoColor=white">
 <img alt="" src="https://img.shields.io/badge/freebsd-333?style=flat-square&logo=freebsd&logoColor=white">
 <img alt="Unsafe" src="https://img.shields.io/badge/unsafe-forbidden-4c9a2a?style=flat-square">
-<img alt="Tests" src="https://img.shields.io/badge/tests-1435-4c9a2a?style=flat-square">
+<img alt="Tests" src="https://img.shields.io/badge/tests-1436-4c9a2a?style=flat-square">
 </p>
 
 <sub><b>No Lisp interpreter. No plugin runtime.</b> ~37,000 lines · ten crates · one binary.</sub>
@@ -326,7 +326,7 @@ Ten crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1435 tests.** Unit tests beside the code; session tests that press real keys
+**1436 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

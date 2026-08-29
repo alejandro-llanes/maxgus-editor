@@ -1,0 +1,23 @@
+[package]
+name = "maxgus-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+crossterm = { version = "0.29.0", features = ["event-stream"] }
+futures-util = "0.3.34"
+maxgus-faces = { version = "0.1.0", path = "../maxgus-faces" }
+maxgus-keys = { version = "0.1.0", path = "../maxgus-keys" }
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["full"] }
+unicode-width = "0.2.2"
+
+# Job control is a POSIX idea. Windows has no stop signal and no shell waiting
+# to run `fg`, so the dependency is not pulled in there at all.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["process"] }

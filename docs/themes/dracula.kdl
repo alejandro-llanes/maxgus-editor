@@ -1,0 +1,76 @@
+// Dracula — high contrast on a cool dark ground.
+// Palette after Zeno Rocha's original.
+//
+// Drop into ~/.config/maxgus/themes/ and:
+//
+//   set theme="dracula"
+
+theme "dracula" base="maxgus-dark" {
+    face "default"                        fg="#f8f8f2" bg="#282a36"
+    face "cursor"                         bg="#f8f8f2"
+    face "region"                         bg="#44475a"
+    face "highlight"                      bg="#343746"
+    face "shadow"                         fg="#6272a4"
+
+    face "line-number"                    fg="#6272a4"
+    face "line-number-current-line"       fg="#f8f8f2" bold=#true
+    face "fill-column-indicator"          fg="#343746"
+    face "trailing-whitespace"            bg="#ff5555"
+
+    face "mode-line"                      fg="#282a36" bg="#bd93f9"
+    face "mode-line-inactive"             fg="#6272a4" bg="#343746"
+    face "mode-line-buffer-id"            fg="#282a36" bold=#true
+    face "minibuffer-prompt"              fg="#ff79c6" bold=#true
+    face "echo-area"                      fg="#f8f8f2"
+
+    face "isearch"                        fg="#282a36" bg="#f1fa8c"
+    face "lazy-highlight"                 fg="#282a36" bg="#ffb86c"
+    face "isearch-fail"                   fg="#f8f8f2" bg="#ff5555"
+    face "match-paren"                    fg="#ff79c6" bold=#true
+
+    face "completion-selected"            fg="#282a36" bg="#bd93f9"
+    face "completion-annotation"          fg="#6272a4" italic=#true
+    face "completion-border"              fg="#44475a"
+    face "completion-key"                 fg="#8be9fd"
+    face "completion-count"               fg="#ffb86c" bold=#true
+
+    face "error"                          fg="#ff5555" bold=#true
+    face "warning"                        fg="#ffb86c"
+    face "success"                        fg="#50fa7b"
+
+    face "font-lock-keyword"              fg="#ff79c6"
+    face "font-lock-builtin"              fg="#8be9fd"
+    face "font-lock-constant"             fg="#bd93f9"
+    face "font-lock-string"               fg="#f1fa8c"
+    face "font-lock-comment"              fg="#6272a4" italic=#true
+    face "font-lock-doc"                  fg="#6272a4" italic=#true
+    face "font-lock-function-name"        fg="#50fa7b" bold=#true
+    face "font-lock-variable-name"        fg="#f8f8f2"
+    face "font-lock-type"                 fg="#8be9fd"
+    face "font-lock-property"             fg="#f8f8f2"
+    face "font-lock-number"               fg="#bd93f9"
+    face "font-lock-operator"             fg="#ff79c6"
+    face "font-lock-punctuation"          fg="#f8f8f2"
+    face "font-lock-preprocessor"         fg="#ff79c6"
+    face "font-lock-escape"               fg="#ffb86c"
+    face "font-lock-label"                fg="#8be9fd"
+    face "font-lock-attribute"            fg="#50fa7b" italic=#true
+
+    face "diagnostic-error"               fg="#ff5555" underline=#true
+    face "diagnostic-warning"             fg="#ffb86c" underline=#true
+    face "diagnostic-info"                fg="#8be9fd"
+    face "diagnostic-hint"                fg="#50fa7b"
+
+    face "tree-root"                      fg="#bd93f9" bold=#true
+    face "tree-directory"                 fg="#8be9fd"
+    face "tree-file"                      fg="#f8f8f2"
+    face "tree-symlink"                   fg="#50fa7b" italic=#true
+    face "tree-selected"                  bg="#44475a"
+    face "tree-arrow"                     fg="#6272a4"
+    face "tree-git-modified"              fg="#ffb86c"
+    face "tree-git-added"                 fg="#50fa7b"
+    face "tree-git-deleted"               fg="#ff5555"
+    face "tree-git-untracked"             fg="#8be9fd"
+    face "tree-git-ignored"               fg="#44475a"
+    face "tree-git-conflict"              fg="#ff79c6" bold=#true
+}

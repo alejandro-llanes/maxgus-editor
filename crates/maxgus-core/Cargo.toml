@@ -1,0 +1,24 @@
+[package]
+name = "maxgus-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+maxgus-config = { version = "0.1.0", path = "../maxgus-config" }
+maxgus-faces = { version = "0.1.0", path = "../maxgus-faces" }
+maxgus-keys = { version = "0.1.0", path = "../maxgus-keys" }
+maxgus-lsp = { version = "0.1.0", path = "../maxgus-lsp" }
+maxgus-syntax = { version = "0.1.0", path = "../maxgus-syntax" }
+maxgus-text = { version = "0.1.0", path = "../maxgus-text" }
+maxgus-tree = { version = "0.1.0", path = "../maxgus-tree" }
+maxgus-tui = { version = "0.1.0", path = "../maxgus-tui" }
+ropey = "1.6.1"
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["full"] }
+tracing = "0.1.44"

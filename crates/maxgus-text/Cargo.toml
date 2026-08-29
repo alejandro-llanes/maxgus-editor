@@ -1,0 +1,17 @@
+[package]
+name = "maxgus-text"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+regex = "1.13.1"
+ropey = "1.6.1"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.20"
+unicode-segmentation = "1.13.3"
+unicode-width = "0.2.2"

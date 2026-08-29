@@ -1,0 +1,15 @@
+[package]
+name = "maxgus-tree"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+maxgus-config = { version = "0.1.0", path = "../maxgus-config" }
+maxgus-keys = { version = "0.1.0", path = "../maxgus-keys" }
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["full"] }

@@ -1,0 +1,19 @@
+[package]
+name = "maxgus-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+lsp-types = "0.97.0"
+percent-encoding = "2.3.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["full"] }
+tracing = "0.1.44"
+url = "2.5.8"

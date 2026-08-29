@@ -1,0 +1,76 @@
+// Nord — cool arctic blues, even contrast.
+// Palette after Arctic Ice Studio's original.
+//
+// Drop into ~/.config/maxgus/themes/ and:
+//
+//   set theme="nord"
+
+theme "nord" base="maxgus-dark" {
+    face "default"                        fg="#d8dee9" bg="#2e3440"
+    face "cursor"                         bg="#d8dee9"
+    face "region"                         bg="#434c5e"
+    face "highlight"                      bg="#3b4252"
+    face "shadow"                         fg="#616e88"
+
+    face "line-number"                    fg="#4c566a"
+    face "line-number-current-line"       fg="#88c0d0" bold=#true
+    face "fill-column-indicator"          fg="#3b4252"
+    face "trailing-whitespace"            bg="#bf616a"
+
+    face "mode-line"                      fg="#2e3440" bg="#88c0d0"
+    face "mode-line-inactive"             fg="#616e88" bg="#3b4252"
+    face "mode-line-buffer-id"            fg="#2e3440" bold=#true
+    face "minibuffer-prompt"              fg="#88c0d0" bold=#true
+    face "echo-area"                      fg="#d8dee9"
+
+    face "isearch"                        fg="#2e3440" bg="#ebcb8b"
+    face "lazy-highlight"                 fg="#2e3440" bg="#8fbcbb"
+    face "isearch-fail"                   fg="#e5e9f0" bg="#bf616a"
+    face "match-paren"                    fg="#d08770" bold=#true
+
+    face "completion-selected"            fg="#2e3440" bg="#88c0d0"
+    face "completion-annotation"          fg="#616e88" italic=#true
+    face "completion-border"              fg="#434c5e"
+    face "completion-key"                 fg="#8fbcbb"
+    face "completion-count"               fg="#d08770" bold=#true
+
+    face "error"                          fg="#bf616a" bold=#true
+    face "warning"                        fg="#ebcb8b"
+    face "success"                        fg="#a3be8c"
+
+    face "font-lock-keyword"              fg="#81a1c1"
+    face "font-lock-builtin"              fg="#8fbcbb"
+    face "font-lock-constant"             fg="#b48ead"
+    face "font-lock-string"               fg="#a3be8c"
+    face "font-lock-comment"              fg="#616e88" italic=#true
+    face "font-lock-doc"                  fg="#616e88" italic=#true
+    face "font-lock-function-name"        fg="#88c0d0" bold=#true
+    face "font-lock-variable-name"        fg="#d8dee9"
+    face "font-lock-type"                 fg="#8fbcbb"
+    face "font-lock-property"             fg="#e5e9f0"
+    face "font-lock-number"               fg="#b48ead"
+    face "font-lock-operator"             fg="#81a1c1"
+    face "font-lock-punctuation"          fg="#d8dee9"
+    face "font-lock-preprocessor"         fg="#5e81ac"
+    face "font-lock-escape"               fg="#d08770"
+    face "font-lock-label"                fg="#81a1c1"
+    face "font-lock-attribute"            fg="#b48ead" italic=#true
+
+    face "diagnostic-error"               fg="#bf616a" underline=#true
+    face "diagnostic-warning"             fg="#ebcb8b" underline=#true
+    face "diagnostic-info"                fg="#81a1c1"
+    face "diagnostic-hint"                fg="#8fbcbb"
+
+    face "tree-root"                      fg="#88c0d0" bold=#true
+    face "tree-directory"                 fg="#81a1c1"
+    face "tree-file"                      fg="#d8dee9"
+    face "tree-symlink"                   fg="#8fbcbb" italic=#true
+    face "tree-selected"                  bg="#434c5e"
+    face "tree-arrow"                     fg="#4c566a"
+    face "tree-git-modified"              fg="#ebcb8b"
+    face "tree-git-added"                 fg="#a3be8c"
+    face "tree-git-deleted"               fg="#bf616a"
+    face "tree-git-untracked"             fg="#8fbcbb"
+    face "tree-git-ignored"               fg="#4c566a"
+    face "tree-git-conflict"              fg="#d08770" bold=#true
+}

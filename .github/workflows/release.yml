@@ -1,0 +1,165 @@
+name: Release
+
+# Tag a commit and the binaries follow:
+#
+#     git tag v0.1.0 && git push origin v0.1.0
+#
+# `workflow_dispatch` rebuilds an existing tag without moving it, which is what
+# you want when a build failed on one platform and nothing about the source
+# needs to change.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish, e.g. v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # A release build is not the place to discover a warning.
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # One platform failing should not hide whether the others are fine.
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          # Statically linked, so it runs on distributions older than the one
+          # that built it.
+          - name: linux-x86_64-musl
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            cross: true
+          - name: linux-aarch64
+            runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            cross: true
+          - name: macos-x86_64
+            runner: macos-13
+            target: x86_64-apple-darwin
+          - name: macos-aarch64
+            runner: macos-14
+            target: aarch64-apple-darwin
+          - name: windows-x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+          # No FreeBSD runner exists, so this one is cross-compiled. The
+          # tree-sitter grammars are C, which is why it needs `cross` and its
+          # sysroot rather than a bare `rustup target add`.
+          - name: freebsd-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-freebsd
+            cross: true
+
+    steps:
+      - name: Work out which tag is being built
+        id: tag
+        shell: bash
+        run: echo "name=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.name }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          builder=cargo
+          if [ "${{ matrix.cross || false }}" = "true" ]; then builder=cross; fi
+          "$builder" build --release --locked --bin maxgus --target "${{ matrix.target }}"
+
+      - name: Package
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Deliberately unversioned: it is what makes
+          # `releases/latest/download/maxgus-linux-x86_64.tar.gz` a stable URL
+          # the README can hand out.
+          stem="maxgus-${{ matrix.name }}"
+          mkdir -p "dist/$stem"
+          cp README.md LICENSE "dist/$stem/"
+          cp -r docs "dist/$stem/"
+
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "target/${{ matrix.target }}/release/maxgus.exe" "dist/$stem/"
+            (cd dist && 7z a -mx=9 "$stem.zip" "$stem" >/dev/null)
+            asset="dist/$stem.zip"
+          else
+            cp "target/${{ matrix.target }}/release/maxgus" "dist/$stem/"
+            tar -czf "dist/$stem.tar.gz" -C dist "$stem"
+            asset="dist/$stem.tar.gz"
+          fi
+
+          # A checksum beside every archive, so a download can be verified.
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$asset" | awk '{print $1}' > "$asset.sha256"
+          else
+            shasum -a 256 "$asset" | awk '{print $1}' > "$asset.sha256"
+          fi
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            ${{ steps.package.outputs.asset }}
+            ${{ steps.package.outputs.asset }}.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Work out which tag is being built
+        id: tag
+        run: echo "name=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Show what is going out
+        run: ls -lh dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: maxgus ${{ steps.tag.outputs.name }}
+          draft: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256

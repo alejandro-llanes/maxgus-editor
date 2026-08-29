@@ -1,0 +1,35 @@
+[package]
+name = "maxgus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "maxgus"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.6", features = ["derive"] }
+directories = "6.0.0"
+futures-util = "0.3.34"
+maxgus-config = { version = "0.1.0", path = "../maxgus-config" }
+maxgus-core = { version = "0.1.0", path = "../maxgus-core" }
+maxgus-faces = { version = "0.1.0", path = "../maxgus-faces" }
+maxgus-keys = { version = "0.1.0", path = "../maxgus-keys" }
+maxgus-lsp = { version = "0.1.0", path = "../maxgus-lsp" }
+maxgus-syntax = { version = "0.1.0", path = "../maxgus-syntax" }
+maxgus-text = { version = "0.1.0", path = "../maxgus-text" }
+maxgus-tree = { version = "0.1.0", path = "../maxgus-tree" }
+maxgus-tui = { version = "0.1.0", path = "../maxgus-tui" }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+
+[dev-dependencies]
+rustix = { version = "1.1.4", features = ["pty", "termios", "process", "stdio"] }

@@ -1,0 +1,6 @@
+# The workspace uses edition 2024, let-chains and `resolver = "3"`, so it needs
+# a recent toolchain. Pinned to a channel rather than a version so `rustup`
+# fetches whatever stable is current, which is what the project asks for.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

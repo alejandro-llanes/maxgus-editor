@@ -1,0 +1,108 @@
+// maxgus configuration.
+//
+// Copy this to ~/.config/maxgus/config.kdl and edit it. Every node is
+// optional; anything left out keeps its default. A node maxgus does not
+// recognise is reported with a line number and skipped, so a file written
+// for a newer version still starts an older one.
+//
+// Every option, with its type and default:  docs/configuration-reference.md
+// Whole themes ready to copy:               docs/themes/
+
+// ---- settings ----
+set tab-width=4 indent-with-tabs=#false
+set theme="maxgus-dark"          // maxgus-dark, maxgus-light, maxgus-term
+set line-numbers=#true
+set scroll-margin=3              // lines of context kept around point
+set truncate-lines=#true         // clip long lines instead of wrapping
+set fill-column=80
+set fill-column-indicator=#false  // draw a line at the fill column
+set require-final-newline=#true
+set delete-trailing-whitespace=#true
+set backup-files=#false          // write file~ before overwriting
+set syntax-highlighting=#true
+set lsp-enabled=#true
+set idle-delay-ms=150            // pause before re-highlighting and syncing
+set case-fold-search=#null       // #null is smart case; #true or #false force it
+set kill-ring-max=60             // how many kills C-y and M-y can reach
+set blink-cursor=#false          // ask the terminal for a blinking block
+set echo-keystrokes-ms=1000      // pause before a half-typed C-x is echoed
+set nerd-font-icons=#true        // glyphs in the tree and mode line
+
+// ---- key bindings ----
+//
+// The command names are the ones M-x offers and C-h b lists.
+keymap "global" {
+    bind "C-c f" "lsp-format-buffer"
+    bind "C-c d" "lsp-describe-thing-at-point"
+    bind "M-o"   "other-window"
+
+    // Take a binding away entirely.
+    unbind "C-z"
+}
+
+// A block named after a major mode becomes a mode-local map.
+keymap "rust-mode" {
+    bind "C-c C-c" "lsp-code-action"
+}
+
+// The file tree is a mode too. These add to the treemacs bindings rather
+// than replacing them.
+keymap "treefile-mode" {
+    bind "C-c C-r" "treefile-refresh"
+}
+
+// ---- faces ----
+//
+// Only the differences from the built-in theme need stating. A whole theme is
+// better kept as its own file in ~/.config/maxgus/themes/ — everything there
+// is loaded at startup and `set theme=` finds it by name.
+theme "maxgus-dark" {
+    face "font-lock-comment"  fg="#5f6b73" italic=#true
+    face "font-lock-string"   fg="#98c379"
+    face "region"             bg="#3a4048"
+    face "line-number"        fg="#4b5263"
+
+    // `fg` and `bg` are the short spellings; `foreground` and `background`
+    // mean the same thing.
+    face "font-lock-keyword"  foreground="#c678dd" bold=#true
+    face "lazy-highlight"     background="#4b3a2f"
+
+    // The rest of the attributes a terminal can show. Any the terminal does
+    // not understand it simply ignores.
+    face "font-lock-type"     underline=#true
+    face "shadow"             dim=#true
+    face "diagnostic-error"   fg="#e06c75" strikethrough=#false
+    face "cursor"             reverse=#true
+
+    // `inherit` copies whatever the named face sets.
+    face "diagnostic-warning" inherit="warning" underline=#true
+}
+
+// ---- language servers ----
+lsp "rust" command="rust-analyzer" {
+    root-markers "Cargo.toml"
+}
+
+lsp "python" command="pyright-langserver" args="--stdio" {
+    root-markers "pyproject.toml" "setup.py"
+}
+
+// One argument fits on the `args=` property; several go in an `args` node.
+lsp "typescript" command="typescript-language-server" {
+    args "--stdio" "--log-level" "2"
+    root-markers "tsconfig.json" "package.json"
+}
+
+lsp "go" command="gopls" {
+    root-markers "go.mod"
+}
+
+// ---- the file tree ----
+tree {
+    width 32
+    show-hidden #false
+    directories-first #true
+    git-status #true
+    follow #true                 // keep the tree on the file being edited
+    ignore ".git" "target" "node_modules" "__pycache__"
+}

@@ -1,0 +1,75 @@
+// Solarized Light — Ethan Schoonover's precision palette.
+//
+// Drop into ~/.config/maxgus/themes/ and:
+//
+//   set theme="solarized-light"
+
+theme "solarized-light" base="maxgus-light" {
+    face "default"                        fg="#657b83" bg="#fdf6e3"
+    face "cursor"                         bg="#586e75"
+    face "region"                         bg="#eee8d5"
+    face "highlight"                      bg="#eee8d5"
+    face "shadow"                         fg="#93a1a1"
+
+    face "line-number"                    fg="#93a1a1"
+    face "line-number-current-line"       fg="#586e75" bold=#true
+    face "fill-column-indicator"          fg="#eee8d5"
+    face "trailing-whitespace"            bg="#dc322f"
+
+    face "mode-line"                      fg="#fdf6e3" bg="#268bd2"
+    face "mode-line-inactive"             fg="#93a1a1" bg="#eee8d5"
+    face "mode-line-buffer-id"            fg="#fdf6e3" bold=#true
+    face "minibuffer-prompt"              fg="#268bd2" bold=#true
+    face "echo-area"                      fg="#586e75"
+
+    face "isearch"                        fg="#fdf6e3" bg="#b58900"
+    face "lazy-highlight"                 fg="#586e75" bg="#eee8d5"
+    face "isearch-fail"                   fg="#fdf6e3" bg="#dc322f"
+    face "match-paren"                    fg="#d33682" bold=#true
+
+    face "completion-selected"            fg="#fdf6e3" bg="#268bd2"
+    face "completion-annotation"          fg="#93a1a1" italic=#true
+    face "completion-border"              fg="#eee8d5"
+    face "completion-key"                 fg="#2aa198"
+    face "completion-count"               fg="#cb4b16" bold=#true
+
+    face "error"                          fg="#dc322f" bold=#true
+    face "warning"                        fg="#cb4b16"
+    face "success"                        fg="#859900"
+
+    face "font-lock-keyword"              fg="#859900"
+    face "font-lock-builtin"              fg="#2aa198"
+    face "font-lock-constant"             fg="#d33682"
+    face "font-lock-string"               fg="#2aa198"
+    face "font-lock-comment"              fg="#93a1a1" italic=#true
+    face "font-lock-doc"                  fg="#93a1a1" italic=#true
+    face "font-lock-function-name"        fg="#268bd2" bold=#true
+    face "font-lock-variable-name"        fg="#586e75"
+    face "font-lock-type"                 fg="#b58900"
+    face "font-lock-property"             fg="#657b83"
+    face "font-lock-number"               fg="#d33682"
+    face "font-lock-operator"             fg="#859900"
+    face "font-lock-punctuation"          fg="#657b83"
+    face "font-lock-preprocessor"         fg="#cb4b16"
+    face "font-lock-escape"               fg="#cb4b16"
+    face "font-lock-label"                fg="#6c71c4"
+    face "font-lock-attribute"            fg="#6c71c4" italic=#true
+
+    face "diagnostic-error"               fg="#dc322f" underline=#true
+    face "diagnostic-warning"             fg="#cb4b16" underline=#true
+    face "diagnostic-info"                fg="#268bd2"
+    face "diagnostic-hint"                fg="#2aa198"
+
+    face "tree-root"                      fg="#268bd2" bold=#true
+    face "tree-directory"                 fg="#268bd2"
+    face "tree-file"                      fg="#657b83"
+    face "tree-symlink"                   fg="#2aa198" italic=#true
+    face "tree-selected"                  bg="#eee8d5"
+    face "tree-arrow"                     fg="#93a1a1"
+    face "tree-git-modified"              fg="#b58900"
+    face "tree-git-added"                 fg="#859900"
+    face "tree-git-deleted"               fg="#dc322f"
+    face "tree-git-untracked"             fg="#2aa198"
+    face "tree-git-ignored"               fg="#93a1a1"
+    face "tree-git-conflict"              fg="#cb4b16" bold=#true
+}

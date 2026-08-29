@@ -1,0 +1,2257 @@
+//! The editor state.
+//!
+//! One [`Editor`] holds everything: buffers, the window tree, the minibuffer,
+//! the kill ring, registers, settings and the queue of asynchronous work.
+//! Commands take `&mut Editor` and nothing else.
+//!
+//! Point lives in two places, as it does in Emacs: the buffer has one, and each
+//! window showing that buffer has its own. The window's copy is authoritative
+//! for the selected window and is written back to the buffer before any
+//! operation that reads it, which is what lets the same file be open in two
+//! windows at two positions.
+
+use crate::{
+    Result,
+    buffers::BufferList,
+    minibuffer::Minibuffer,
+    prefix::Prefix,
+    task::{Task, TaskQueue},
+    window::{Direction, Window, WindowId, WindowTree},
+};
+use maxgus_config::{Settings, ThemeSpec};
+use maxgus_faces::Theme;
+use maxgus_keys::KeymapSet;
+use maxgus_text::{Buffer, BufferId, KillRing, Range, Registers};
+use maxgus_tui::Rect;
+use std::path::{Path, PathBuf};
+
+/// Everything the editor knows.
+/// How many screenfuls either side of the window are highlighted, so ordinary
+/// scrolling does not outrun the last query.
+pub const HIGHLIGHT_MARGIN_SCREENS: usize = 3;
+
+#[derive(Debug)]
+pub struct Editor {
+    pub buffers: BufferList,
+    pub windows: WindowTree,
+    pub minibuffer: Minibuffer,
+    pub kill_ring: KillRing,
+    pub registers: Registers,
+    pub settings: Settings,
+    pub theme: Theme,
+    /// The `theme "name" { … }` blocks from the configuration file, kept so a
+    /// theme can be rebuilt later with the user's overrides still on it.
+    pub theme_specs: Vec<ThemeSpec>,
+    /// The buffer whose save was refused because its file had changed, which
+    /// is the only one `save-buffer-anyway` will write.
+    pub pending_overwrite: Option<BufferId>,
+    /// The branch the project is on, for the mode line. `None` until the
+    /// executor has been able to ask git, and when it is not a repository.
+    pub git_branch: Option<String>,
+    /// The theme that was in use before `visit-theme` started previewing, so
+    /// abandoning the prompt puts it back.
+    pub theme_before_preview: Option<String>,
+    /// Where the configuration was read from, so a theme can be written back
+    /// to it. `None` when the editor started without one.
+    pub config_path: Option<PathBuf>,
+    /// The theme the configuration file names, as distinct from the one in
+    /// use — which is how `visit-theme` knows whether there is anything worth
+    /// writing down.
+    pub config_says_theme: Option<String>,
+    pub tasks: TaskQueue,
+    /// The prefix argument for the command about to run.
+    pub prefix: Prefix,
+    /// The command that just ran, which `yank-pop` and friends consult.
+    pub last_command: Option<String>,
+    /// The command currently running.
+    pub this_command: Option<String>,
+    /// True once the editor should exit.
+    pub quit: bool,
+    /// True when the next kill should append to the previous one rather than
+    /// pushing a new entry — Emacs' `last-command` check for consecutive kills.
+    pub kill_appending: bool,
+    /// Where the file tree window is, when it is open.
+    pub tree_window: Option<WindowId>,
+    /// A command waiting for one character, with the prefix argument it was
+    /// invoked with. The next key goes to it instead of being dispatched.
+    pub pending_char: Option<(String, Prefix)>,
+    /// The command an open prompt is collecting text for, with the prefix
+    /// argument it was invoked with. Accepting the prompt re-enters it.
+    pub pending_input: Option<(String, Prefix)>,
+    /// Candidates the open prompt completes against.
+    pub completion_candidates: Vec<String>,
+    /// A command to run as soon as the current one finishes. Accepting a
+    /// prompt uses this to re-enter the command that opened it.
+    pub deferred: Option<(String, crate::command::Args)>,
+    /// The active keymaps, in Emacs' precedence order. Minor maps are pushed
+    /// and popped as the minibuffer, isearch and the tree take over input.
+    pub keymaps: KeymapSet,
+    /// Diagnostics from every language server, keyed by document URI.
+    pub diagnostics: maxgus_lsp::DiagnosticSet,
+    /// The incremental search in progress, if any.
+    pub isearch: Option<crate::commands::search::Isearch>,
+    /// The `query-replace` in progress, if any.
+    pub query_replace: Option<crate::commands::search::QueryReplace>,
+    /// The most recent snapshot of the file tree. The tree itself lives in the
+    /// event loop, where its directory reads can be awaited; this is what the
+    /// editor draws and navigates.
+    pub tree: Vec<maxgus_tree::VisibleNode>,
+    /// Whether the tree is showing dotfiles, for the header line.
+    pub tree_shows_hidden: bool,
+    /// The directory the tree is rooted at.
+    pub tree_root: Option<PathBuf>,
+    /// The tree window's width in columns.
+    pub tree_width: u16,
+    /// True while the width is pinned against the resize commands.
+    pub tree_width_locked: bool,
+    /// True while the tree follows the selected buffer.
+    pub tree_follow: bool,
+    /// The keyboard macro being recorded, if any.
+    pub recording_macro: Option<Vec<maxgus_keys::Key>>,
+    /// The last macro recorded, which `C-x e` replays.
+    pub last_macro: Vec<maxgus_keys::Key>,
+    /// True while a macro is replaying, so recording does not capture itself.
+    pub replaying_macro: bool,
+    /// How many times the loop should replay the last macro. Cleared once it
+    /// has done so.
+    pub macro_repeats: usize,
+    /// True once the editor should suspend itself.
+    pub suspend: bool,
+    /// Command names `M-x` completes against, filled in at startup.
+    pub command_names: Vec<String>,
+    /// Command documentation, for `describe-function`.
+    pub command_docs: Vec<(String, String)>,
+    /// The position encoding each running language server negotiated.
+    pub lsp_encodings: Vec<(String, maxgus_lsp::PositionEncoding)>,
+    /// The buffer revision each language server was last told about, so a
+    /// change notification is sent exactly when the document has moved on.
+    pub lsp_versions: std::collections::HashMap<BufferId, u64>,
+    /// A jump waiting on a file to be read, applied once it arrives.
+    pub pending_jump: Option<(PathBuf, maxgus_lsp::LspPosition)>,
+    /// Keymaps defined for a major mode by the configuration, activated when
+    /// a buffer of that mode is selected.
+    pub mode_keymaps: Vec<maxgus_keys::Keymap>,
+    /// The whole terminal, including the echo area's row. The window tree only
+    /// covers everything above it.
+    pub frame: Rect,
+    /// The half-typed key sequence, echoed so the user can see where they are.
+    pub pending_keys: Option<String>,
+    /// The current buffer's text, kept between operations that need it whole.
+    /// An incremental search does one per keystroke; rendering the rope each
+    /// time would cost the size of the buffer for every character typed.
+    text_cache: Option<(BufferId, u64, String)>,
+    /// Syntax highlighting per buffer: the revision it was computed for, the
+    /// byte range it covers, and the spans themselves.
+    ///
+    /// A stale entry is still drawn — colours a keystroke behind are better
+    /// than none — and replaced when the re-parse comes back.
+    pub highlights: std::collections::HashMap<
+        BufferId,
+        (u64, std::ops::Range<usize>, Vec<maxgus_syntax::Highlight>),
+    >,
+}
+
+impl Editor {
+    /// A fresh editor showing `*scratch*` in one window.
+    pub fn new(settings: Settings, theme: Theme, frame: Rect) -> Editor {
+        let buffers = BufferList::new();
+        let first = *buffers.ids().first().expect("the list starts with *scratch*");
+        let kill_ring = KillRing::new(settings.kill_ring_max);
+        // Windows occupy everything but the echo area's row.
+        let (body, _) = frame.split_bottom(1);
+        let mut editor = Editor {
+            windows: WindowTree::new(first, body),
+            buffers,
+            minibuffer: Minibuffer::new(),
+            kill_ring,
+            registers: Registers::new(),
+            settings,
+            theme,
+            theme_specs: Vec::new(),
+            pending_overwrite: None,
+            git_branch: None,
+            theme_before_preview: None,
+            config_path: None,
+            config_says_theme: None,
+            tasks: TaskQueue::new(),
+            prefix: Prefix::None,
+            last_command: None,
+            this_command: None,
+            quit: false,
+            kill_appending: false,
+            tree_window: None,
+            pending_char: None,
+            pending_input: None,
+            completion_candidates: Vec::new(),
+            deferred: None,
+            keymaps: KeymapSet::new(
+                crate::keymap::global_keymap().expect("the built-in global map is well formed"),
+            ),
+            diagnostics: maxgus_lsp::DiagnosticSet::new(),
+            isearch: None,
+            query_replace: None,
+            tree: Vec::new(),
+            tree_shows_hidden: false,
+            tree_root: None,
+            tree_width: 32,
+            tree_width_locked: false,
+            tree_follow: true,
+            recording_macro: None,
+            last_macro: Vec::new(),
+            replaying_macro: false,
+            macro_repeats: 0,
+            suspend: false,
+            command_names: Vec::new(),
+            command_docs: Vec::new(),
+            lsp_encodings: Vec::new(),
+            lsp_versions: std::collections::HashMap::new(),
+            pending_jump: None,
+            mode_keymaps: Vec::new(),
+            frame,
+            pending_keys: None,
+            text_cache: None,
+            highlights: std::collections::HashMap::new(),
+        };
+        editor.sync_from_buffer();
+        editor.apply_settings_everywhere();
+        editor
+    }
+
+    /// Replaces a buffer's contents, keeping every window showing it in range.
+    ///
+    /// A window carries its own point and scroll position. Replacing the text
+    /// underneath one — as `*Help*`, `*Occur*` and the tree all do — leaves
+    /// that point past the end of what is now there, and everything drawn
+    /// afterwards is measured against a buffer that no longer has those
+    /// characters.
+    pub fn replace_buffer_contents(&mut self, buffer: BufferId, text: &str) -> Result<()> {
+        self.buffers.revert(buffer, text)?;
+        let Some(target) = self.buffers.get(buffer) else { return Ok(()) };
+        let (length, lines) = (target.len_chars(), target.len_lines());
+        for id in self.windows.showing(buffer) {
+            if let Some(window) = self.windows.get_mut(id) {
+                window.point = window.point.min(length);
+                window.top_line = window.top_line.min(lines.saturating_sub(1));
+                window.goal_column = None;
+            }
+        }
+        Ok(())
+    }
+
+    /// Gives `buffer` the editor's settings.
+    ///
+    /// A buffer carries its own tab width and indentation style, so that a
+    /// mode could override them; they start from the configuration. Without
+    /// this a configured `tab-width` would reach the indent commands but not
+    /// redisplay, and a tab would be inserted as one width and drawn as
+    /// another.
+    pub fn apply_settings(&mut self, buffer: BufferId) {
+        let (width, tabs) = (self.settings.tab_width, self.settings.indent_with_tabs);
+        if let Some(buffer) = self.buffers.get_mut(buffer) {
+            buffer.set_tab_width(width);
+            buffer.set_indent_with_tabs(tabs);
+        }
+    }
+
+    /// Applies the settings to every buffer, for startup and after the
+    /// configuration changes.
+    pub fn apply_settings_everywhere(&mut self) {
+        for id in self.buffers.ids().to_vec() {
+            self.apply_settings(id);
+        }
+    }
+
+    // ---- current buffer and window -------------------------------------
+
+    /// The buffer the selected window shows.
+    pub fn current_buffer_id(&self) -> BufferId {
+        self.windows.current().buffer
+    }
+
+    /// The selected window's buffer, with point already synchronised.
+    pub fn current_buffer(&self) -> &Buffer {
+        self.buffers
+            .get(self.current_buffer_id())
+            .expect("every window shows a live buffer")
+    }
+
+    /// The selected window's buffer for mutation. Point is written from the
+    /// window first, so the command sees the cursor where the user sees it.
+    pub fn current_buffer_mut(&mut self) -> &mut Buffer {
+        self.sync_to_buffer();
+        let id = self.current_buffer_id();
+        self.buffers.get_mut(id).expect("every window shows a live buffer")
+    }
+
+    /// Copies the selected window's point and goal column into its buffer.
+    pub fn sync_to_buffer(&mut self) {
+        let window = self.windows.current();
+        let (point, goal, id) = (window.point, window.goal_column, window.buffer);
+        if let Some(buffer) = self.buffers.get_mut(id) {
+            buffer.set_point_keeping_goal(point);
+            buffer.set_goal_column(goal);
+        }
+    }
+
+    /// Copies point back out of the buffer into the selected window, after a
+    /// command has moved it.
+    pub fn sync_from_buffer(&mut self) {
+        let id = self.current_buffer_id();
+        let Some(buffer) = self.buffers.get(id) else { return };
+        let (point, goal) = (buffer.point(), buffer.goal_column());
+        let window = self.windows.current_mut();
+        window.point = point;
+        window.goal_column = goal;
+    }
+
+    /// Runs `f` on the current buffer with point synchronised in both
+    /// directions, which is what every editing command needs.
+    pub fn with_current_buffer<T>(&mut self, f: impl FnOnce(&mut Buffer) -> T) -> T {
+        self.sync_to_buffer();
+        let id = self.current_buffer_id();
+        let (out, adjustments) = {
+            let buffer = self.buffers.get_mut(id).expect("every window shows a live buffer");
+            let out = f(buffer);
+            (out, buffer.take_adjustments())
+        };
+        self.sync_from_buffer();
+        self.follow_edits(id, &adjustments);
+        out
+    }
+
+    /// Moves the other windows showing `buffer` across the edits just made.
+    ///
+    /// Point and the mark move with an edit inside the buffer, but a window
+    /// keeps its own point, and the same buffer can be shown in several. Emacs
+    /// does this with markers; the effect is what matters — a second window
+    /// stays on the text it was on rather than on the offset it happened to
+    /// have.
+    fn follow_edits(&mut self, buffer: BufferId, adjustments: &[(usize, usize, usize)]) {
+        if adjustments.is_empty() {
+            return;
+        }
+        let selected = self.windows.current_id();
+        let length = self.buffers.get(buffer).map_or(0, |b| b.len_chars());
+        let lines = self.buffers.get(buffer).map_or(1, |b| b.len_lines());
+        for id in self.windows.showing(buffer) {
+            if id == selected {
+                continue;
+            }
+            let Some(window) = self.windows.get_mut(id) else { continue };
+            for (at, removed, inserted) in adjustments {
+                window.point = Buffer::adjust_position(window.point, *at, *removed, *inserted);
+            }
+            window.point = window.point.min(length);
+            window.top_line = window.top_line.min(lines.saturating_sub(1));
+        }
+    }
+
+    /// Shows `buffer` in the selected window, remembering it as most recently
+    /// used.
+    pub fn switch_to_buffer(&mut self, buffer: BufferId) -> Result<()> {
+        if self.buffers.get(buffer).is_none() {
+            return Err(crate::CoreError::NoSuchBuffer);
+        }
+        self.sync_to_buffer();
+        let point = self.buffers.get(buffer).expect("checked above").point();
+        let window = self.windows.current_mut();
+        window.buffer = buffer;
+        window.point = point;
+        window.top_line = 0;
+        window.goal_column = None;
+        self.buffers.touch(buffer);
+        self.apply_settings(buffer);
+        self.activate_mode_keymap();
+        self.follow_point();
+        Ok(())
+    }
+
+    /// Selects `window`, saving the outgoing window's point first.
+    pub fn select_window(&mut self, window: WindowId) -> bool {
+        self.sync_to_buffer();
+        if !self.windows.select(window) {
+            return false;
+        }
+        let buffer = self.windows.current().buffer;
+        self.buffers.touch(buffer);
+        // A different window may be showing a different language.
+        self.activate_mode_keymap();
+        true
+    }
+
+    /// `other-window`.
+    pub fn other_window(&mut self, n: i32) {
+        self.sync_to_buffer();
+        let id = self.windows.other_window(n);
+        self.select_window(id);
+    }
+
+    /// Splits the selected window, leaving it selected.
+    pub fn split_window(&mut self, direction: Direction) -> Result<WindowId> {
+        self.sync_to_buffer();
+        self.windows.split(direction)
+    }
+
+    /// Kills `buffer`, pointing any window showing it at the replacement.
+    pub fn kill_buffer(&mut self, buffer: BufferId) -> Result<BufferId> {
+        // The server and the highlighter are told before the buffer goes, so
+        // they can still be asked what it was.
+        self.notify_closed(buffer);
+        let replacement = self.buffers.kill(buffer)?;
+        self.windows.replace_buffer(buffer, replacement);
+        self.forget_highlights(buffer);
+        // The executor is holding a parser and a copy of the text for it.
+        self.spawn(Task::ForgetBuffer { buffer });
+        self.follow_point();
+        Ok(replacement)
+    }
+
+    // ---- scrolling -----------------------------------------------------
+
+    /// Scrolls the selected window so point is visible, honouring
+    /// `scroll-margin` and truncation.
+    pub fn follow_point(&mut self) {
+        let id = self.current_buffer_id();
+        let Some(buffer) = self.buffers.get(id) else { return };
+        let point = self.windows.current().point.min(buffer.len_chars());
+        let line = buffer.line_of(point);
+        let column = buffer.display_column(point);
+        let total = buffer.len_lines();
+        let truncate = self.settings.truncate_lines;
+        let margin = self.settings.scroll_margin;
+
+        let window = self.windows.current_mut();
+        window.scroll_to_show(line, total, margin);
+        if truncate {
+            window.scroll_to_column(column);
+        } else {
+            window.left_column = 0;
+        }
+    }
+
+    /// Where the hardware cursor belongs on screen: the selected window's
+    /// point, or the minibuffer when it is prompting.
+    pub fn cursor_position(&self) -> (u16, u16) {
+        if self.minibuffer.is_active() {
+            let frame = self.frame;
+            // A completing prompt is drawn on the popup's first line, so the
+            // cursor goes there rather than to the echo area it left behind.
+            if let Some(popup) = crate::render::completion_popup(self, frame) {
+                let inner = popup.inset(1);
+                let lead = crate::render::completion_count(self).chars().count();
+                let x = inner.x + (lead + self.minibuffer.cursor_column()) as u16;
+                return (x.min(inner.right().saturating_sub(1)), inner.y);
+            }
+            let y = frame.y + frame.height.saturating_sub(1);
+            let x = (self.minibuffer.cursor_column() as u16).min(frame.width.saturating_sub(1));
+            return (x, y);
+        }
+        let window = self.windows.current();
+        let Some(buffer) = self.buffers.get(window.buffer) else {
+            return (window.rect.x, window.rect.y);
+        };
+        let point = window.point.min(buffer.len_chars());
+        let line = buffer.line_of(point);
+        let column = buffer.display_column(point);
+        // The line-number column shifts the text right, and the cursor with it.
+        let gutter = crate::render::line_number_width(self, buffer);
+        let x = window.rect.x + gutter + (column.saturating_sub(window.left_column) as u16);
+        let y = window.rect.y + (line.saturating_sub(window.top_line) as u16);
+        (
+            x.min(window.rect.right().saturating_sub(1)),
+            y.min(window.rect.bottom().saturating_sub(1)),
+        )
+    }
+
+    // ---- keymaps -------------------------------------------------------
+
+    /// Activates a minor-mode map at the highest precedence.
+    pub fn push_minor_map(&mut self, map: maxgus_keys::Keymap) {
+        // Re-activating an already-active map would shadow itself.
+        self.keymaps.remove_minor(map.name());
+        self.keymaps.push_minor(map);
+    }
+
+    /// Deactivates a minor-mode map by name.
+    pub fn remove_minor_map(&mut self, name: &str) -> bool {
+        self.keymaps.remove_minor(name)
+    }
+
+    /// The name of the keymap a buffer's language uses, if it has one.
+    ///
+    /// A `rust` buffer looks for a map called `rust-mode`, which is what the
+    /// configuration names them.
+    pub fn mode_keymap_name(&self, buffer: BufferId) -> Option<String> {
+        let buffer = self.buffers.get(buffer)?;
+        // The tree has a mode of its own rather than a language.
+        if buffer.name() == crate::commands::tree::TREE_BUFFER_NAME {
+            return Some(crate::commands::tree::TREE_MODE.to_string());
+        }
+        let language = buffer.language()?;
+        Some(format!("{language}-mode"))
+    }
+
+    /// Installs the major-mode keymap for the selected buffer.
+    ///
+    /// Called whenever the selected buffer changes: a binding defined for
+    /// `rust-mode` should be in effect in a Rust buffer and nowhere else. The
+    /// tree's map is one of these rather than a minor map — it binds the arrow
+    /// keys, and a minor map applies in *every* buffer, so having the tree
+    /// open took the arrows away from the file being edited.
+    ///
+    /// Minor maps — the minibuffer, isearch — still take precedence, as they
+    /// do in Emacs.
+    pub fn activate_mode_keymap(&mut self) {
+        let wanted = self.mode_keymap_name(self.current_buffer_id());
+        // Nothing to do when the right map is already in place.
+        if self.keymaps.major.as_ref().map(|m| m.name().to_string()) == wanted {
+            return;
+        }
+        self.keymaps.set_major(wanted.and_then(|name| self.mode_keymap(&name)));
+    }
+
+    /// The keymap for a named mode: the built-in one where there is one, with
+    /// whatever the configuration defined for that mode laid over it.
+    fn mode_keymap(&self, name: &str) -> Option<maxgus_keys::Keymap> {
+        let configured = self.mode_keymaps.iter().find(|m| m.name() == name);
+        if name != crate::commands::tree::TREE_MODE {
+            return configured.cloned();
+        }
+        // The tree's own map is built in; a `keymap "treefile-mode"` block in
+        // the configuration adds to it rather than replacing it, or the user
+        // would lose every treemacs binding by rebinding one key.
+        let mut map = maxgus_tree::treemacs_keymap().ok()?;
+        if let Some(configured) = configured {
+            map.merge(configured);
+        }
+        Some(map)
+    }
+
+    /// Opens a minibuffer prompt, giving the minibuffer keymap priority.
+    pub fn prompt(&mut self, kind: crate::MinibufferKind, prompt: impl Into<String>) {
+        self.prompt_with(kind, prompt, "");
+    }
+
+    /// Opens a prompt whose answer re-enters `command`.
+    ///
+    /// This is how an interactive command is written: it prompts on its first
+    /// invocation and does the work on the second, when `Args::input` holds
+    /// what the user typed.
+    pub fn prompt_for(
+        &mut self,
+        command: &str,
+        kind: crate::MinibufferKind,
+        prompt: impl Into<String>,
+        initial: &str,
+        candidates: Vec<String>,
+    ) {
+        self.pending_input = Some((command.to_string(), self.prefix));
+        self.completion_candidates = candidates;
+        self.prompt_with(kind, prompt, initial);
+        // Shown straight away rather than waiting for TAB: `M-x` and `C-x b`
+        // are far more useful when they say what is on offer.
+        self.refresh_completions();
+    }
+
+    /// How many candidate rows the popup has room for.
+    ///
+    /// Shared with the drawing code so a page moves exactly one screenful:
+    /// the two disagreeing would make `PgDn` skip or repeat rows.
+    pub fn completion_rows(&self) -> usize {
+        const MOST: usize = 15;
+        // Leave the frame room for the popup's own two border rows, its
+        // prompt line, and something of the buffer behind it.
+        let room = (self.frame.height as usize).saturating_sub(6);
+        self.minibuffer.completion().len().min(MOST).min(room.max(1))
+    }
+
+    /// Re-filters the candidate list against what is now in the minibuffer.
+    ///
+    /// Called after anything that changes the input, so the list on screen is
+    /// always the list the input actually matches.
+    pub fn refresh_completions(&mut self) {
+        let candidates = std::mem::take(&mut self.completion_candidates);
+        self.minibuffer.filter_completions(&candidates);
+        self.completion_candidates = candidates;
+        self.preview_theme();
+    }
+
+    /// While `visit-theme` is prompting, shows whatever the input now names.
+    ///
+    /// Driven from the same refresh every prompt edit already goes through, so
+    /// typing and cycling both preview without either needing to know about
+    /// the other.
+    fn preview_theme(&mut self) {
+        if self.theme_before_preview.is_none() {
+            return;
+        }
+        // The candidate under the cursor if one is selected, else what has
+        // been typed — so TAB-cycling previews as readily as typing does.
+        let wanted = self
+            .minibuffer
+            .completion()
+            .current()
+            .map(str::to_string)
+            .unwrap_or_else(|| self.minibuffer.input().to_string());
+        if wanted.is_empty() || self.settings.theme == wanted {
+            return;
+        }
+        // A half-typed name is not an error here; it simply is not a theme yet.
+        let _ = self.set_theme(&wanted);
+    }
+
+    /// Puts back the theme that was in use before previewing began.
+    pub fn end_theme_preview(&mut self, restore: bool) {
+        let Some(before) = self.theme_before_preview.take() else { return };
+        if restore && self.settings.theme != before {
+            let _ = self.set_theme(&before);
+        }
+    }
+
+    /// Opens a prompt pre-filled with `initial`.
+    pub fn prompt_with(
+        &mut self,
+        kind: crate::MinibufferKind,
+        prompt: impl Into<String>,
+        initial: &str,
+    ) {
+        self.minibuffer.activate_with(kind, prompt, initial);
+        self.push_minor_map(
+            crate::keymap::minibuffer_keymap().expect("the built-in minibuffer map is well formed"),
+        );
+    }
+
+    /// Closes the prompt and returns what was typed.
+    pub fn accept_prompt(&mut self) -> Option<String> {
+        let out = self.minibuffer.accept();
+        self.remove_minor_map("minibuffer-mode");
+        self.completion_candidates.clear();
+        out
+    }
+
+    /// Abandons the prompt and whatever command was waiting on it.
+    pub fn abort_prompt(&mut self) {
+        // Abandoning `visit-theme` means abandoning what it was showing.
+        self.end_theme_preview(true);
+        self.minibuffer.abort();
+        self.remove_minor_map("minibuffer-mode");
+        self.pending_input = None;
+        self.completion_candidates.clear();
+    }
+
+    // ---- messages ------------------------------------------------------
+
+    pub fn message(&mut self, text: impl Into<String>) {
+        self.minibuffer.show_message(text);
+    }
+
+    /// A message that gives way to an error already on show.
+    ///
+    /// Startup reports configuration problems into the echo area, and the
+    /// files named on the command line finish loading a moment later; without
+    /// this the routine "(N lines)" notice talks over the complaint and the
+    /// user never learns their config file has a mistake in it.
+    pub fn message_unless_error(&mut self, text: impl Into<String>) {
+        if self.minibuffer.message_is_error() {
+            return;
+        }
+        self.message(text);
+    }
+
+    pub fn error(&mut self, text: impl Into<String>) {
+        self.minibuffer.show_error(text);
+    }
+
+    /// Arranges for the next key to be delivered to `command`, showing
+    /// `prompt` while it waits.
+    pub fn read_char(&mut self, command: &str, prompt: impl Into<String>) {
+        self.pending_char = Some((command.to_string(), self.prefix));
+        self.message(prompt);
+    }
+
+    /// Queues asynchronous work.
+    pub fn spawn(&mut self, task: Task) {
+        self.tasks.push(task);
+    }
+
+    /// Re-lays out the windows for a new frame size, keeping the echo area's
+    /// row out of their reach.
+    pub fn set_frame(&mut self, frame: Rect) {
+        self.frame = frame;
+        let (body, _) = frame.split_bottom(1);
+        self.windows.layout(body);
+        self.follow_point();
+    }
+
+    /// The directory file prompts start in: the current buffer's, or the
+    /// working directory when it has no file.
+    pub fn default_directory(&self) -> PathBuf {
+        self.current_buffer()
+            .path()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+    }
+
+    /// Applies the outcome of a [`Task`].
+    ///
+    /// This is the other half of the asynchronous story: a command queues work,
+    /// the event loop runs it on tokio, and the answer comes back here to be
+    /// folded into editor state.
+    pub fn apply_task_result(&mut self, result: crate::task::TaskResult) -> Result<()> {
+        use crate::task::TaskResult;
+        match result {
+            TaskResult::FileRead {
+                path,
+                contents,
+                read_only,
+                lossy,
+                disk_time,
+                reverting,
+                other_window,
+            } => {
+                let id = match reverting {
+                    Some(id) => {
+                        self.replace_buffer_contents(id, &contents)?;
+                        id
+                    }
+                    None => self.buffers.visit_file(path.clone(), &contents),
+                };
+                if let Some(buffer) = self.buffers.get_mut(id) {
+                    buffer.set_read_only(read_only);
+                    buffer.set_disk_time(disk_time);
+                }
+                if lossy {
+                    // Said as an error, so the "(N lines)" notice that follows
+                    // gives way to it rather than talking over it. Saving this
+                    // buffer would put replacement characters on disk where
+                    // the original bytes are, so it is read-only and the
+                    // reason has to reach the user.
+                    self.error(format!(
+                        "{} holds bytes that are not text; opened read-only to avoid \
+                         writing them back changed",
+                        path.display()
+                    ));
+                }
+                if other_window && self.windows.len() < 2 {
+                    self.split_window(Direction::Vertical)?;
+                    self.other_window(1);
+                } else if other_window {
+                    self.other_window(1);
+                }
+                self.switch_to_buffer(id)?;
+                // A jump that was waiting on this file can finish now.
+                if let Some((waiting, position)) = self.pending_jump.take() {
+                    if waiting == path {
+                        let offset = crate::position::offset_of_position(
+                            self.current_buffer(),
+                            position,
+                            maxgus_lsp::PositionEncoding::Utf16,
+                        );
+                        self.with_current_buffer(|b| b.set_point(offset));
+                    } else {
+                        self.pending_jump = Some((waiting, position));
+                    }
+                }
+                let lines = self.current_buffer().len_lines();
+                self.message_unless_error(format!("{} ({lines} lines)", path.display()));
+                self.request_highlighting(id);
+                self.request_language_server(id);
+                Ok(())
+            }
+            TaskResult::FileWritten { path, buffer, bytes, disk_time } => {
+                // A save is as good a moment as any to notice the branch has
+                // moved — a checkout between edits is the usual way it does.
+                if let Some(root) = self.tree_root.clone() {
+                    self.spawn(crate::task::Task::GitBranch { root });
+                }
+                if let Some(target) = self.buffers.get_mut(buffer) {
+                    target.mark_saved();
+                    // What is on disk is now what this buffer holds, so the
+                    // next save compares against the file just written.
+                    target.set_disk_time(disk_time);
+                }
+                self.notify_saved(buffer);
+                self.message(format!("Wrote {} ({bytes} bytes)", path.display()));
+                Ok(())
+            }
+            TaskResult::WriteRefused { path, buffer, because } => {
+                // Nothing was written. Whichever expectation failed will fail
+                // the same way next time, so the only way on is the command
+                // that says to write regardless.
+                self.pending_overwrite = Some(buffer);
+                self.error(match because {
+                    crate::task::WriteGuard::Absent => format!(
+                        "{} already exists; M-x save-buffer-anyway to overwrite it",
+                        path.display()
+                    ),
+                    _ => format!(
+                        "{} has changed on disk since it was read; \
+                         C-x x g to re-read it, or M-x save-buffer-anyway to overwrite",
+                        path.display()
+                    ),
+                });
+                Ok(())
+            }
+            TaskResult::TreeUpdated { nodes, select, show_hidden } => {
+                self.tree = nodes;
+                self.tree_shows_hidden = show_hidden;
+                self.render_tree_buffer();
+                if let Some(path) = select {
+                    self.select_tree_path(&path);
+                }
+                Ok(())
+            }
+            TaskResult::DirectoryListed { entries, .. } => {
+                // Fills in completion for an open file prompt.
+                if self.minibuffer.is_active() {
+                    self.completion_candidates = entries;
+                }
+                Ok(())
+            }
+            TaskResult::ThemePersisted { path, theme } => {
+                self.config_says_theme = Some(theme.clone());
+                self.message(format!("Theme {theme}, written to {}", path.display()));
+                Ok(())
+            }
+            TaskResult::GitBranch { branch } => {
+                self.git_branch = branch;
+                Ok(())
+            }
+            TaskResult::Reparsed { buffer, revision, range, highlights } => {
+                // A buffer killed while its parse was still running has
+                // already been cleaned up by `kill_buffer`; filing the answer
+                // now would put back an entry nothing ever removes. Buffer ids
+                // are never reused, so it would sit there for the session and
+                // grow with every file opened and closed.
+                if self.buffers.get(buffer).is_some() {
+                    self.highlights.insert(buffer, (revision, range, highlights));
+                }
+                Ok(())
+            }
+            TaskResult::Diagnostics { uri, diagnostics } => {
+                self.diagnostics.replace(uri, diagnostics);
+                Ok(())
+            }
+            TaskResult::Failed { context, message } => {
+                self.error(format!("{context}: {message}"));
+                Ok(())
+            }
+            other => {
+                if let Some(text) = other.message() {
+                    self.message(text);
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Folds a language server's answer into editor state.
+    pub fn apply_lsp_response(&mut self, result: crate::task::TaskResult) {
+        match result {
+            crate::task::TaskResult::LspResponse { query, result, .. } => {
+                crate::commands::lsp::apply_response(self, &query, &result);
+            }
+            // `workspace/applyEdit`: the server asked to change the text and
+            // is waiting to hear whether it worked. The edit has to be applied
+            // here, where the buffers are, and the answer queued back.
+            crate::task::TaskResult::LspApplyEdit { language, id, edit } => {
+                let applied = crate::commands::lsp::apply_workspace_edit(self, &edit) > 0;
+                self.spawn(crate::task::Task::LspRespond { language, id, applied });
+            }
+            _ => {}
+        }
+    }
+
+    /// Renders `buffer` into the cache if what is there is stale.
+    ///
+    /// Kept separate from reading it so a caller can refresh the cache and
+    /// then borrow the editor immutably alongside it; taking `&mut self` to
+    /// read would force a copy at every call and defeat the point.
+    pub fn refresh_text_cache(&mut self, buffer: BufferId) {
+        let revision = self.buffers.get(buffer).map(|b| b.revision()).unwrap_or(0);
+        let fresh = matches!(&self.text_cache, Some((id, known, _))
+            if *id == buffer && *known == revision);
+        if !fresh {
+            let text = self.buffers.get(buffer).map(|b| b.text()).unwrap_or_default();
+            self.text_cache = Some((buffer, revision, text));
+        }
+    }
+
+    /// The text most recently put in the cache.
+    pub fn cached_text(&self) -> &str {
+        self.text_cache.as_ref().map(|(_, _, text)| text.as_str()).unwrap_or_default()
+    }
+
+    /// The highlight spans for `buffer`, empty when none have been computed.
+    pub fn highlights_for(&self, buffer: BufferId) -> &[maxgus_syntax::Highlight] {
+        self.highlights.get(&buffer).map_or(&[], |(_, _, spans)| spans.as_slice())
+    }
+
+    /// True when the highlighting for `buffer` is behind its contents, or does
+    /// not reach as far as the window now shows.
+    pub fn highlights_are_stale(&self, buffer: BufferId) -> bool {
+        let Some(current) = self.buffers.get(buffer).map(|b| b.revision()) else { return false };
+        // Staleness is judged against what is actually on screen, not against
+        // the wider region that would be fetched. Comparing with the margin
+        // included would make every scroll forward look uncovered, and the
+        // margin would buy nothing.
+        let visible = self.visible_byte_range(buffer);
+        self.highlights.get(&buffer).is_none_or(|(revision, covered, _)| {
+            *revision != current || covered.start > visible.start || covered.end < visible.end
+        })
+    }
+
+    /// The byte range a window showing `buffer` actually displays.
+    pub fn visible_byte_range(&self, buffer: BufferId) -> std::ops::Range<usize> {
+        self.byte_range_for(buffer, 0)
+    }
+
+    /// The byte range worth asking for: what is on screen plus a few screens
+    /// either side, so ordinary scrolling does not have to wait for a query.
+    pub fn highlight_request_range(&self, buffer: BufferId) -> std::ops::Range<usize> {
+        self.byte_range_for(buffer, HIGHLIGHT_MARGIN_SCREENS)
+    }
+
+    /// The bytes of the lines a window shows, widened by `margin` screenfuls.
+    fn byte_range_for(&self, buffer: BufferId, margin: usize) -> std::ops::Range<usize> {
+        let Some(text) = self.buffers.get(buffer) else { return 0..0 };
+        let showing: Vec<&Window> =
+            self.windows.iter().filter(|w| w.buffer == buffer).collect();
+        let height = showing.iter().map(|w| w.text_height()).max().unwrap_or(40).max(1);
+        let top = showing.iter().map(|w| w.top_line).min().unwrap_or(0);
+        let widen = height * margin;
+        let first = top.saturating_sub(widen);
+        let last = (top + height + widen).min(text.len_lines());
+        let rope = text.rope();
+        rope.char_to_byte(text.line_start(first))..rope.char_to_byte(text.line_start(last))
+    }
+
+    /// Forgets a buffer's highlighting, as killing it should.
+    pub fn forget_highlights(&mut self, buffer: BufferId) {
+        self.highlights.remove(&buffer);
+    }
+
+    /// Redraws the tree buffer from the current snapshot, keeping the cursor
+    /// on whichever line it was on.
+    pub fn render_tree_buffer(&mut self) {
+        let Some(id) = self.buffers.find_by_name(crate::commands::tree::TREE_BUFFER_NAME) else {
+            return;
+        };
+        let text: String =
+            self.tree.iter().map(|n| format!("{}\n", n.render())).collect::<String>();
+        let line = self
+            .windows
+            .showing(id)
+            .first()
+            .and_then(|w| self.windows.get(*w))
+            .and_then(|w| self.buffers.get(id).map(|b| b.line_of(w.point)))
+            .unwrap_or(0);
+        // The tree buffer is not user-editable, so it is reverted rather than
+        // edited: no undo history, no modified flag.
+        self.replace_buffer_contents(id, &text).ok();
+        self.move_tree_cursor_to_line(line);
+    }
+
+    /// Puts the tree cursor on `line`, clamped to the snapshot.
+    pub fn move_tree_cursor_to_line(&mut self, line: usize) {
+        let Some(id) = self.buffers.find_by_name(crate::commands::tree::TREE_BUFFER_NAME) else {
+            return;
+        };
+        let line = line.min(self.tree.len().saturating_sub(1));
+        let Some(offset) = self.buffers.get(id).map(|b| b.line_start(line)) else { return };
+        for window in self.windows.showing(id) {
+            if let Some(window) = self.windows.get_mut(window) {
+                window.point = offset;
+            }
+        }
+        if let Some(buffer) = self.buffers.get_mut(id) {
+            buffer.set_point(offset);
+        }
+    }
+
+    /// Every theme that can be loaded: the ones built in, and any the
+    /// configuration names.
+    pub fn theme_names(&self) -> Vec<String> {
+        let mut names: Vec<String> =
+            maxgus_faces::defaults::BUILTIN_THEMES.iter().map(|n| (*n).to_string()).collect();
+        for spec in &self.theme_specs {
+            if !names.contains(&spec.name) {
+                names.push(spec.name.clone());
+            }
+        }
+        names
+    }
+
+    /// Switches to a named theme.
+    ///
+    /// Unknown names are refused rather than quietly falling back, because
+    /// here the name came from the user this moment; a name in the
+    /// configuration file is a different matter and [`build_theme`] tolerates
+    /// it so a typo cannot stop the editor from starting.
+    pub fn set_theme(&mut self, name: &str) -> Result<()> {
+        if !self.theme_names().iter().any(|known| known == name) {
+            return Err(crate::CoreError::Message(format!("No theme named `{name}`")));
+        }
+        self.theme = build_theme(&self.theme_specs, name);
+        // `describe-settings` reads this back, so it has to keep up.
+        self.settings.theme = name.to_string();
+        Ok(())
+    }
+
+    /// Puts the tree cursor on the line showing `path`, if it is visible.
+    pub fn select_tree_path(&mut self, path: &Path) -> bool {
+        match self.tree.iter().position(|n| n.path == path) {
+            Some(line) => {
+                self.move_tree_cursor_to_line(line);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The tree line the cursor is on.
+    pub fn tree_cursor_line(&self) -> usize {
+        let Some(id) = self.buffers.find_by_name(crate::commands::tree::TREE_BUFFER_NAME) else {
+            return 0;
+        };
+        let Some(buffer) = self.buffers.get(id) else { return 0 };
+        let point = self
+            .windows
+            .showing(id)
+            .first()
+            .and_then(|w| self.windows.get(*w))
+            .map_or(buffer.point(), |w| w.point);
+        buffer.line_of(point)
+    }
+
+    /// The tree node under the cursor.
+    pub fn tree_selection(&self) -> Option<&maxgus_tree::VisibleNode> {
+        self.tree.get(self.tree_cursor_line())
+    }
+
+    /// Queues a re-parse for syntax highlighting, when the buffer has a
+    /// language and highlighting is switched on.
+    pub fn request_highlighting(&mut self, id: BufferId) {
+        if !self.settings.syntax_highlighting {
+            return;
+        }
+        let Some(buffer) = self.buffers.get(id) else { return };
+        let Some(language) = buffer.language().map(str::to_string) else { return };
+        let (text, revision) = (buffer.text(), buffer.revision());
+        let range = self.highlight_request_range(id);
+        self.spawn(Task::Reparse { buffer: id, language, text, revision, range });
+    }
+
+    /// Opens the buffer to its language server, starting one if needed.
+    pub fn request_language_server(&mut self, id: BufferId) {
+        if !self.settings.lsp_enabled {
+            return;
+        }
+        let Some(buffer) = self.buffers.get(id) else { return };
+        let Some(language) = buffer.language().map(str::to_string) else { return };
+        let Some(path) = buffer.path().map(Path::to_path_buf) else { return };
+        let (text, version) = (buffer.text(), buffer.revision() as i64);
+        let uri = maxgus_lsp::client::path_to_uri(&path);
+        self.spawn(Task::StartLanguageServer { language: language.clone() });
+        self.spawn(Task::LspDidOpen { language, uri, version, text });
+        self.lsp_versions.insert(id, version as u64);
+    }
+
+    /// The language and document URI of `buffer`, when it has a server to talk
+    /// to at all.
+    fn lsp_document(&self, buffer: BufferId) -> Option<(String, String)> {
+        if !self.settings.lsp_enabled {
+            return None;
+        }
+        let buffer = self.buffers.get(buffer)?;
+        let language = buffer.language()?.to_string();
+        let uri = maxgus_lsp::client::path_to_uri(buffer.path()?);
+        Some((language, uri))
+    }
+
+    /// Tells the language server about edits to `buffer`, if there are any it
+    /// has not been told about.
+    ///
+    /// Without this the server's copy of the document goes stale the moment
+    /// the user types, and everything it says afterwards is about the wrong
+    /// text. Returns whether a notification was queued.
+    pub fn sync_language_server(&mut self, buffer: BufferId) -> bool {
+        let Some((language, uri)) = self.lsp_document(buffer) else { return false };
+        let Some(revision) = self.buffers.get(buffer).map(|b| b.revision()) else { return false };
+        // Nothing to say if the server already has this version, and nothing
+        // to say about a document it was never told about.
+        match self.lsp_versions.get(&buffer) {
+            Some(known) if *known == revision => return false,
+            None => return false,
+            Some(_) => {}
+        }
+        let text = self.buffers.get(buffer).expect("checked above").text();
+        self.lsp_versions.insert(buffer, revision);
+        self.spawn(Task::LspDidChange { language, uri, version: revision as i64, text });
+        true
+    }
+
+    /// Tells the language server a buffer was saved.
+    pub fn notify_saved(&mut self, buffer: BufferId) {
+        // A save is only meaningful for a document the server knows about.
+        if !self.lsp_versions.contains_key(&buffer) {
+            return;
+        }
+        if let Some((language, uri)) = self.lsp_document(buffer) {
+            self.spawn(Task::LspDidSave { language, uri });
+        }
+    }
+
+    /// Tells the language server a buffer is gone, and forgets its version.
+    pub fn notify_closed(&mut self, buffer: BufferId) {
+        if self.lsp_versions.remove(&buffer).is_none() {
+            return;
+        }
+        if let Some((language, uri)) = self.lsp_document(buffer) {
+            self.spawn(Task::LspDidClose { language, uri });
+        }
+    }
+
+    // ---- the region ----------------------------------------------------
+
+    /// The active region in the current buffer, or an error naming what is
+    /// missing — the message `C-w` shows when there is no mark.
+    pub fn region(&mut self) -> Result<Range> {
+        self.sync_to_buffer();
+        let buffer = self.current_buffer();
+        match buffer.region() {
+            Some(range) => Ok(range),
+            None if buffer.mark().is_none() => {
+                Err(crate::CoreError::Message("The mark is not set now, so there is no region".into()))
+            }
+            None => Err(crate::CoreError::Message("The mark is not active now".into())),
+        }
+    }
+
+    /// Adds `text` to the kill ring, appending when the previous command was
+    /// also a kill.
+    pub fn kill(&mut self, text: &str, before: bool) {
+        if self.kill_appending {
+            self.kill_ring.kill_append(text, before);
+        } else {
+            self.kill_ring.kill_new(text);
+        }
+    }
+
+    // ---- the mode line -------------------------------------------------
+
+    /// The mode line for `window`, in Emacs' layout: modification flags, the
+    /// buffer name, the position, and the major mode.
+    pub fn mode_line(&self, window: WindowId) -> String {
+        self.mode_line_segments(window)
+            .into_iter()
+            .map(|segment| segment.text)
+            .collect::<Vec<_>>()
+            .join("")
+    }
+
+    /// The mode line broken into the pieces it is painted from.
+    ///
+    /// Each piece carries its own face, so state, position, language and
+    /// diagnostics can be told apart by colour rather than by counting
+    /// punctuation — the thing a doom-style mode line gets right. The plain
+    /// text is still available through [`Editor::mode_line`].
+    pub fn mode_line_segments(&self, window: WindowId) -> Vec<ModeLineSegment> {
+        let Some(window) = self.windows.get(window) else { return Vec::new() };
+        let Some(buffer) = self.buffers.get(window.buffer) else { return Vec::new() };
+        let icons = self.settings.nerd_font_icons;
+        let mut out = Vec::new();
+
+        // What state the buffer is in, said once and in colour.
+        let (state, state_face) = match (buffer.is_read_only(), buffer.is_modified()) {
+            (true, _) => (if icons { crate::icons::READ_ONLY.to_string() } else { "%%".into() }, "warning"),
+            (false, true) => (if icons { crate::icons::MODIFIED.to_string() } else { "**".into() }, "error"),
+            (false, false) => (if icons { crate::icons::SAVED.to_string() } else { "--".into() }, "success"),
+        };
+        out.push(ModeLineSegment::new(format!(" {state} "), state_face));
+
+        // The buffer, behind the glyph for whatever kind of file it is.
+        let mut name = String::new();
+        if icons {
+            let glyph = match buffer.path() {
+                Some(path) => crate::icons::for_file(path),
+                None => crate::icons::for_language(buffer.language().unwrap_or_default()),
+            };
+            name.push(glyph);
+            name.push(' ');
+        }
+        name.push_str(buffer.name());
+        out.push(ModeLineSegment::new(name, "mode-line-buffer-id"));
+
+        // The coding system, which is how `set-buffer-file-coding-system`
+        // reports itself. Only shown when it is not the ordinary one, so the
+        // bar stays quiet in the common case.
+        if buffer.line_ending() != maxgus_text::LineEnding::Lf {
+            out.push(ModeLineSegment::new(
+                format!("  {}", buffer.line_ending().mode_line_mnemonic()),
+                "warning",
+            ));
+        }
+
+        let position = buffer.position_of(window.point);
+        let percent = self.scroll_indicator(window.top_line, buffer);
+        let marker = if icons { format!("{} ", crate::icons::POSITION) } else { String::new() };
+        out.push(ModeLineSegment::new(
+            format!(
+                "  {marker}{}:{}  {percent}",
+                position.line + 1,
+                position.column
+            ),
+            "shadow",
+        ));
+
+        if buffer.is_narrowed() {
+            out.push(ModeLineSegment::new("  Narrow".to_string(), "warning"));
+        }
+
+        // The branch, when the project is in git and the branch is known.
+        if let Some(branch) = &self.git_branch {
+            let glyph = if icons { format!("{} ", crate::icons::BRANCH) } else { String::new() };
+            out.push(ModeLineSegment::new(format!("  {glyph}{branch}"), "success"));
+        }
+
+        let language = buffer.language().unwrap_or("Fundamental");
+        let glyph = match icons && buffer.language().is_some() {
+            true => format!("{} ", crate::icons::for_language(language)),
+            false => String::new(),
+        };
+        out.push(ModeLineSegment::new(format!("  {glyph}{language}"), "mode-line"));
+
+        out.extend(self.diagnostic_segments(buffer));
+        out
+    }
+
+    /// The error and warning counts, each in its own colour.
+    fn diagnostic_segments(&self, buffer: &Buffer) -> Vec<ModeLineSegment> {
+        let Some(path) = buffer.path() else { return Vec::new() };
+        let counts = self.diagnostics.counts(&maxgus_lsp::client::path_to_uri(path));
+        let icons = self.settings.nerd_font_icons;
+        [
+            (counts[0], crate::icons::ERROR, 'E', "diagnostic-error"),
+            (counts[1], crate::icons::WARNING, 'W', "diagnostic-warning"),
+        ]
+        .into_iter()
+        .filter(|(n, _, _, _)| *n > 0)
+        .map(|(n, glyph, letter, face)| {
+            let mark = if icons { glyph.to_string() } else { format!("{letter}:") };
+            ModeLineSegment::new(format!("  {mark} {n}"), face)
+        })
+        .collect()
+    }
+
+    /// `Top`, `Bot`, `All`, or a percentage — the indicator Emacs shows.
+    fn scroll_indicator(&self, top_line: usize, buffer: &Buffer) -> String {
+        let window = self.windows.current();
+        let height = window.text_height();
+        let total = buffer.len_lines();
+        if height == 0 || total == 0 {
+            return "All".to_string();
+        }
+        let at_top = top_line == 0;
+        let at_bottom = top_line + height >= total;
+        match (at_top, at_bottom) {
+            (true, true) => "All".to_string(),
+            (true, false) => "Top".to_string(),
+            (false, true) => "Bot".to_string(),
+            (false, false) => {
+                let above = top_line;
+                let below = total.saturating_sub(top_line + height);
+                let percent = above * 100 / (above + below).max(1);
+                format!("{percent}%")
+            }
+        }
+    }
+
+    /// The frame title: the buffer name and its directory, as Emacs sets it.
+    pub fn frame_title(&self) -> String {
+        let buffer = self.current_buffer();
+        match buffer.path().and_then(|p| p.parent()) {
+            Some(directory) => format!("{} — {}", buffer.name(), directory.display()),
+            None => buffer.name().to_string(),
+        }
+    }
+}
+
+/// One piece of the mode line, with the face it is painted in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModeLineSegment {
+    pub text: String,
+    /// The face name, resolved against the theme at drawing time.
+    pub face: &'static str,
+}
+
+impl ModeLineSegment {
+    fn new(text: impl Into<String>, face: &'static str) -> ModeLineSegment {
+        ModeLineSegment { text: text.into(), face }
+    }
+}
+
+/// The theme `name` describes: the built-in theme of that name, with the
+/// configuration's `theme "name" { … }` block laid over it.
+///
+/// Tolerant of an unknown name, which falls back to the default theme — a
+/// mistyped `theme` setting must not stop the editor from starting. The one
+/// construction both startup and `load-theme` go through, so the two cannot
+/// drift apart.
+pub fn build_theme(specs: &[ThemeSpec], name: &str) -> Theme {
+    let spec = specs.iter().find(|spec| spec.name == name);
+    // A theme file that names a `base` starts from that built-in; otherwise
+    // from the built-in of the same name, and failing that from the default.
+    // Without this a light theme would inherit dark values for every face it
+    // did not happen to set.
+    let base = spec.and_then(|s| s.base.as_deref()).unwrap_or(name);
+    let mut theme = maxgus_faces::defaults::builtin_or_fallback(base);
+    if let Some(spec) = spec {
+        // The theme keeps the name it was asked for, not the base's.
+        theme.set_name(name);
+        // A bad colour in the user's block leaves the built-in one intact.
+        theme.apply_spec(spec).ok();
+    }
+    theme
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maxgus_faces::defaults;
+
+    fn editor() -> Editor {
+        Editor::new(
+            Settings::default(),
+            defaults::builtin("maxgus-dark").unwrap(),
+            Rect::new(0, 0, 80, 24),
+        )
+    }
+
+    /// An editor showing a buffer with `text`, point at the start.
+    fn editor_with(text: &str) -> Editor {
+        let mut e = editor();
+        let id = e.buffers.create_with_text("test", text);
+        e.switch_to_buffer(id).unwrap();
+        e.with_current_buffer(|b| b.set_point(0));
+        e
+    }
+
+    #[test]
+    fn a_new_editor_shows_scratch_in_one_window() {
+        let e = editor();
+        assert_eq!(e.windows.len(), 1);
+        assert_eq!(e.current_buffer().name(), crate::buffers::SCRATCH_NAME);
+        assert!(!e.quit);
+        assert!(e.tasks.is_empty());
+    }
+
+    #[test]
+    fn point_moves_between_the_window_and_the_buffer() {
+        let mut e = editor_with("hello world");
+        e.windows.current_mut().point = 6;
+        e.sync_to_buffer();
+        assert_eq!(e.current_buffer().point(), 6);
+
+        e.with_current_buffer(|b| b.set_point(2));
+        assert_eq!(e.windows.current().point, 2, "the window followed the buffer");
+    }
+
+    #[test]
+    fn two_windows_on_one_buffer_keep_separate_points() {
+        let mut e = editor_with("0123456789");
+        let second = e.split_window(Direction::Vertical).unwrap();
+        e.windows.current_mut().point = 2;
+        e.windows.get_mut(second).unwrap().point = 8;
+
+        e.select_window(second);
+        e.sync_to_buffer();
+        assert_eq!(e.current_buffer().point(), 8);
+
+        e.other_window(1);
+        e.sync_to_buffer();
+        assert_eq!(e.current_buffer().point(), 2, "the first window's point survived");
+    }
+
+    #[test]
+    fn editing_through_the_helper_updates_both_copies_of_point() {
+        let mut e = editor_with("");
+        e.with_current_buffer(|b| b.insert_at_point("typed").unwrap());
+        assert_eq!(e.current_buffer().text(), "typed");
+        assert_eq!(e.windows.current().point, 5);
+    }
+
+    #[test]
+    fn switching_buffers_remembers_where_point_was() {
+        let mut e = editor();
+        let a = e.buffers.create_with_text("a", "aaaa");
+        let b = e.buffers.create_with_text("b", "bbbb");
+
+        e.switch_to_buffer(a).unwrap();
+        e.with_current_buffer(|buffer| buffer.set_point(3));
+        e.switch_to_buffer(b).unwrap();
+        assert_eq!(e.current_buffer().name(), "b");
+
+        e.switch_to_buffer(a).unwrap();
+        assert_eq!(e.windows.current().point, 3, "point came back");
+    }
+
+    #[test]
+    fn switching_makes_the_buffer_most_recently_used() {
+        let mut e = editor();
+        let a = e.buffers.create("a");
+        e.buffers.create("b");
+        e.switch_to_buffer(a).unwrap();
+        assert_eq!(e.buffers.ids().first(), Some(&a));
+    }
+
+    #[test]
+    fn switching_to_an_unknown_buffer_is_an_error() {
+        let mut e = editor();
+        assert!(matches!(
+            e.switch_to_buffer(BufferId(999)),
+            Err(crate::CoreError::NoSuchBuffer)
+        ));
+    }
+
+    #[test]
+    fn killing_a_displayed_buffer_repoints_its_windows() {
+        let mut e = editor();
+        let a = e.buffers.create_with_text("a", "text");
+        e.switch_to_buffer(a).unwrap();
+        e.split_window(Direction::Vertical).unwrap();
+
+        let replacement = e.kill_buffer(a).unwrap();
+        assert!(e.buffers.get(a).is_none());
+        assert!(
+            e.windows.iter().all(|w| w.buffer == replacement),
+            "no window still shows the dead buffer"
+        );
+    }
+
+    #[test]
+    fn the_view_follows_point_when_it_leaves_the_screen() {
+        let text: String = (0..200).map(|n| format!("line {n}\n")).collect();
+        let mut e = editor_with(&text);
+        assert_eq!(e.windows.current().top_line, 0);
+
+        e.with_current_buffer(|b| {
+            let end = b.len_chars();
+            b.set_point(end);
+        });
+        e.follow_point();
+        let window = e.windows.current();
+        assert!(window.top_line > 0, "the window scrolled down");
+        assert!(window.shows_line(e.current_buffer().line_of(window.point)));
+    }
+
+    #[test]
+    fn the_scroll_margin_is_honoured_when_following_point() {
+        let text: String = (0..200).map(|n| format!("line {n}\n")).collect();
+        let mut e = editor_with(&text);
+        e.settings.scroll_margin = 5;
+        e.with_current_buffer(|b| b.set_point(b.line_start(40)));
+        e.follow_point();
+        let window = e.windows.current();
+        assert!(window.top_line <= 35, "five lines of context above point");
+    }
+
+    #[test]
+    fn horizontal_scrolling_only_happens_when_lines_are_truncated() {
+        let long = "x".repeat(500);
+        let mut e = editor_with(&long);
+        e.settings.truncate_lines = true;
+        e.with_current_buffer(|b| b.set_point(400));
+        e.follow_point();
+        assert!(e.windows.current().left_column > 0);
+
+        e.settings.truncate_lines = false;
+        e.follow_point();
+        assert_eq!(e.windows.current().left_column, 0, "wrapped lines never scroll sideways");
+    }
+
+    #[test]
+    fn the_cursor_sits_where_point_is_on_screen() {
+        let mut e = editor_with("line one\nline two\nline three");
+        e.with_current_buffer(|b| b.set_point(b.line_start(1) + 4));
+        e.follow_point();
+        assert_eq!(e.cursor_position(), (4, 1));
+    }
+
+    #[test]
+    fn the_cursor_moves_to_the_minibuffer_while_it_prompts() {
+        let mut e = editor_with("text");
+        e.minibuffer.activate(crate::MinibufferKind::Command, "M-x ");
+        e.minibuffer.insert("save");
+        let (x, y) = e.cursor_position();
+        assert_eq!(y, 23, "the last row of the frame");
+        assert_eq!(x, 8, "after `M-x save`");
+    }
+
+    #[test]
+    fn the_cursor_accounts_for_scrolling() {
+        let text: String = (0..100).map(|n| format!("line {n}\n")).collect();
+        let mut e = editor_with(&text);
+        e.with_current_buffer(|b| b.set_point(b.line_start(50)));
+        e.follow_point();
+        let (_, y) = e.cursor_position();
+        let window = e.windows.current();
+        assert!(y < window.rect.bottom(), "the cursor stays inside the window");
+        assert_eq!(y as usize, 50 - window.top_line);
+    }
+
+    #[test]
+    fn the_cursor_accounts_for_tab_expansion() {
+        let mut e = editor_with("\t\tx");
+        e.with_current_buffer(|b| {
+            b.set_tab_width(4);
+            b.set_point(2);
+        });
+        e.follow_point();
+        assert_eq!(e.cursor_position().0, 8, "two tabs at width four");
+    }
+
+    #[test]
+    fn the_region_reports_why_it_is_unavailable() {
+        let mut e = editor_with("hello world");
+        let err = e.region().unwrap_err().to_string();
+        assert!(err.contains("mark is not set"), "got `{err}`");
+
+        e.with_current_buffer(|b| {
+            b.set_mark(0);
+            b.set_point(5);
+        });
+        assert_eq!(e.region().unwrap(), Range::new(0, 5));
+
+        e.with_current_buffer(|b| b.deactivate_mark());
+        let err = e.region().unwrap_err().to_string();
+        assert!(err.contains("not active"), "got `{err}`");
+    }
+
+    #[test]
+    fn consecutive_kills_append_to_one_entry() {
+        let mut e = editor();
+        e.kill("first", false);
+        assert_eq!(e.kill_ring.front(), Some("first"));
+        assert_eq!(e.kill_ring.len(), 1);
+
+        e.kill_appending = true;
+        e.kill(" second", false);
+        assert_eq!(e.kill_ring.front(), Some("first second"));
+        assert_eq!(e.kill_ring.len(), 1, "still one entry");
+
+        e.kill_appending = false;
+        e.kill("separate", false);
+        assert_eq!(e.kill_ring.len(), 2);
+    }
+
+    #[test]
+    fn a_backward_kill_prepends_when_appending() {
+        let mut e = editor();
+        e.kill("word", false);
+        e.kill_appending = true;
+        e.kill("before ", true);
+        assert_eq!(e.kill_ring.front(), Some("before word"));
+    }
+
+    #[test]
+    fn the_mode_line_shows_the_buffer_state() {
+        let mut e = editor();
+        let id = e.buffers.visit_file("/project/src/main.rs", "fn main() {}\n");
+        e.switch_to_buffer(id).unwrap();
+
+        let line = e.mode_line(e.windows.current_id());
+        assert!(line.contains("main.rs"), "got `{line}`");
+        assert!(line.contains("rust"), "the major mode, got `{line}`");
+        assert!(line.contains("1:0"), "the position, got `{line}`");
+        assert!(
+            line.contains(crate::icons::SAVED),
+            "unmodified and writable, got `{line}`"
+        );
+    }
+
+    #[test]
+    fn the_mode_line_flags_modification_and_read_only_state() {
+        let mut e = editor_with("text");
+        let state = |e: &Editor| e.mode_line(e.windows.current_id());
+
+        e.with_current_buffer(|b| b.insert_at_point("more").unwrap());
+        assert!(state(&e).contains(crate::icons::MODIFIED), "got `{}`", state(&e));
+
+        // Read-only is reported over modified: it is the more useful of the
+        // two to know, because it is the one that stops a save.
+        e.with_current_buffer(|b| b.set_read_only(true));
+        assert!(state(&e).contains(crate::icons::READ_ONLY), "got `{}`", state(&e));
+
+        e.with_current_buffer(|b| {
+            b.set_read_only(false);
+            b.mark_saved();
+        });
+        assert!(state(&e).contains(crate::icons::SAVED), "got `{}`", state(&e));
+    }
+
+    #[test]
+    fn killing_a_buffer_forgets_the_highlights_it_had() {
+        // The ordinary case, and the one the late-result guard does *not*
+        // cover: a buffer whose highlights were already filed. Without this,
+        // every file opened and closed leaves its spans behind.
+        let mut editor = editor();
+        let id = editor.buffers.create_with_text("doomed", "fn main() {}\n");
+        editor.switch_to_buffer(id).unwrap();
+        editor
+            .apply_task_result(crate::TaskResult::Reparsed {
+                buffer: id,
+                revision: 1,
+                range: 0..12,
+                highlights: vec![maxgus_syntax::Highlight {
+                    start: 0,
+                    end: 2,
+                    face: "font-lock-keyword",
+                }],
+            })
+            .unwrap();
+        assert!(editor.highlights.contains_key(&id), "filed while it was alive");
+
+        editor.kill_buffer(id).unwrap();
+        assert!(
+            !editor.highlights.contains_key(&id),
+            "the killed buffer's highlights were left behind"
+        );
+    }
+
+    #[test]
+    fn highlights_for_a_buffer_that_is_still_alive_are_filed_normally() {
+        // The other half: a guard that drops everything protects nothing.
+        let mut editor = editor();
+        let id = editor.buffers.create_with_text("live", "fn main() {}\n");
+        editor.switch_to_buffer(id).unwrap();
+
+        editor
+            .apply_task_result(crate::TaskResult::Reparsed {
+                buffer: id,
+                revision: 1,
+                range: 0..12,
+                highlights: vec![maxgus_syntax::Highlight {
+                    start: 0,
+                    end: 2,
+                    face: "font-lock-keyword",
+                }],
+            })
+            .unwrap();
+
+        assert_eq!(editor.highlights_for(id).len(), 1, "the answer was thrown away");
+    }
+
+    #[test]
+    fn highlights_for_a_buffer_killed_mid_parse_are_not_filed_against_it() {
+        // The parse is already running when the buffer is killed, so its
+        // answer arrives after `kill_buffer` has cleaned up. Filing it anyway
+        // leaves an entry nothing will ever remove — buffer ids are never
+        // reused — and a session that opens and closes files grows a map of
+        // highlight spans for buffers that no longer exist.
+        let mut editor = editor();
+        let id = editor.buffers.create_with_text("doomed", "fn main() {}\n");
+        editor.switch_to_buffer(id).unwrap();
+        editor.kill_buffer(id).unwrap();
+        assert!(editor.buffers.get(id).is_none(), "the buffer is gone");
+
+        editor
+            .apply_task_result(crate::TaskResult::Reparsed {
+                buffer: id,
+                revision: 1,
+                range: 0..12,
+                highlights: vec![maxgus_syntax::Highlight {
+                    start: 0,
+                    end: 2,
+                    face: "font-lock-keyword",
+                }],
+            })
+            .unwrap();
+
+        assert!(
+            !editor.highlights.contains_key(&id),
+            "a dead buffer kept an entry in the highlight map"
+        );
+    }
+
+    #[test]
+    fn a_mistyped_theme_in_the_configuration_still_starts_the_editor() {
+        // Startup is deliberately forgiving where `load-theme` is not: a typo
+        // in the config file must not leave the user with no editor.
+        let theme = crate::build_theme(&[], "solarized");
+        assert_eq!(theme.name(), maxgus_faces::defaults::FALLBACK_THEME);
+    }
+
+    #[test]
+    fn a_theme_starts_from_the_base_it_names() {
+        // A light theme that started from the dark built-in would come out
+        // dark everywhere it did not happen to set a face — which is most of
+        // them, since the point of `base` is not having to set them all.
+        let mut spec = maxgus_config::ThemeSpec::new("daylight");
+        spec.base = Some("maxgus-light".into());
+        spec.faces.push(maxgus_config::FaceSpec {
+            name: "region".into(),
+            background: Some("#cceeff".into()),
+            ..Default::default()
+        });
+
+        let theme = crate::build_theme(std::slice::from_ref(&spec), "daylight");
+        assert_eq!(theme.name(), "daylight", "it keeps its own name, not the base's");
+        assert_eq!(
+            theme.resolve("default"),
+            maxgus_faces::defaults::builtin("maxgus-light").unwrap().resolve("default"),
+            "a face it did not set came from the wrong built-in"
+        );
+        assert_eq!(
+            theme.resolve("region").background,
+            Some(maxgus_faces::Color::Rgb(204, 238, 255)),
+            "the face it did set was lost"
+        );
+    }
+
+    #[test]
+    fn a_theme_with_no_base_starts_from_the_built_in_of_its_own_name() {
+        // Which is what a block adjusting a built-in relies on.
+        let mut spec = maxgus_config::ThemeSpec::new("maxgus-light");
+        spec.faces.push(maxgus_config::FaceSpec {
+            name: "region".into(),
+            background: Some("#cceeff".into()),
+            ..Default::default()
+        });
+        let theme = crate::build_theme(std::slice::from_ref(&spec), "maxgus-light");
+        assert_eq!(
+            theme.resolve("default"),
+            maxgus_faces::defaults::builtin("maxgus-light").unwrap().resolve("default")
+        );
+    }
+
+    #[test]
+    fn build_theme_lays_the_configuration_over_the_built_in_theme() {
+        let mut spec = maxgus_config::ThemeSpec::new("maxgus-dark");
+        spec.faces.push(maxgus_config::FaceSpec {
+            name: "region".into(),
+            foreground: Some("#00ff00".into()),
+            ..Default::default()
+        });
+        let theme = crate::build_theme(std::slice::from_ref(&spec), "maxgus-dark");
+        assert_eq!(theme.name(), "maxgus-dark");
+        assert_eq!(theme.resolve("region").foreground, Some(maxgus_faces::Color::Rgb(0, 255, 0)));
+    }
+
+    #[test]
+    fn setting_an_unknown_theme_leaves_the_one_in_use_alone() {
+        let mut editor = editor();
+        let before = editor.theme.name().to_string();
+        assert!(editor.set_theme("solarized").is_err());
+        assert_eq!(editor.theme.name(), before);
+        assert_eq!(editor.settings.theme, "maxgus-dark");
+    }
+
+    #[test]
+    fn the_mode_line_shows_the_line_ending() {
+        let mut e = editor();
+        let id = e.buffers.create_with_text("dos", "a\r\nb\r\n");
+        e.switch_to_buffer(id).unwrap();
+        e.with_current_buffer(|b| b.set_line_ending(maxgus_text::LineEnding::Crlf));
+        let line = e.mode_line(e.windows.current_id());
+        assert!(
+            line.contains(maxgus_text::LineEnding::Crlf.mode_line_mnemonic()),
+            "backslash means CRLF, got `{line}`"
+        );
+
+        // And it stays quiet for the ordinary one, which is most files.
+        e.with_current_buffer(|b| b.set_line_ending(maxgus_text::LineEnding::Lf));
+        let line = e.mode_line(e.windows.current_id());
+        assert!(
+            !line.contains(maxgus_text::LineEnding::Crlf.mode_line_mnemonic()),
+            "LF should say nothing, got `{line}`"
+        );
+    }
+
+    #[test]
+    fn the_mode_line_reports_the_scroll_position() {
+        let text: String = (0..200).map(|n| format!("line {n}\n")).collect();
+        let mut e = editor_with(&text);
+        assert!(e.mode_line(e.windows.current_id()).contains("Top"));
+
+        e.with_current_buffer(|b| {
+            let end = b.len_chars();
+            b.set_point(end);
+        });
+        e.follow_point();
+        assert!(e.mode_line(e.windows.current_id()).contains("Bot"));
+
+        e.with_current_buffer(|b| b.set_point(b.line_start(100)));
+        e.follow_point();
+        let line = e.mode_line(e.windows.current_id());
+        assert!(line.contains('%'), "a percentage in the middle, got `{line}`");
+    }
+
+    #[test]
+    fn a_buffer_shorter_than_the_window_reports_all() {
+        let e = editor_with("one line");
+        assert!(e.mode_line(e.windows.current_id()).contains("All"));
+    }
+
+    #[test]
+    fn the_mode_line_flags_a_narrowed_buffer() {
+        let mut e = editor_with("0123456789");
+        e.with_current_buffer(|b| b.narrow(Range::new(2, 6)));
+        assert!(e.mode_line(e.windows.current_id()).contains("Narrow"));
+    }
+
+    #[test]
+    fn the_mode_line_of_an_unknown_window_is_empty() {
+        let e = editor();
+        assert_eq!(e.mode_line(WindowId(999)), "");
+    }
+
+    #[test]
+    fn the_frame_title_names_the_buffer_and_its_directory() {
+        let mut e = editor();
+        assert_eq!(e.frame_title(), crate::buffers::SCRATCH_NAME, "no file, no directory");
+        let id = e.buffers.visit_file("/project/src/main.rs", "");
+        e.switch_to_buffer(id).unwrap();
+        assert_eq!(e.frame_title(), "main.rs — /project/src");
+    }
+
+    /// An editor visiting a real file, with the opening tasks drained.
+    fn editor_visiting(path: &str, text: &str) -> (Editor, BufferId) {
+        let mut e = editor();
+        let id = e.buffers.visit_file(path, text);
+        e.switch_to_buffer(id).unwrap();
+        e.request_language_server(id);
+        e.tasks.drain();
+        (e, id)
+    }
+
+    #[test]
+    fn opening_a_file_records_the_version_the_server_was_told() {
+        let (e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
+        assert!(e.lsp_versions.contains_key(&id), "the document is now known to the server");
+    }
+
+    #[test]
+    fn an_edit_is_reported_to_the_language_server() {
+        let (mut e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
+        assert!(!e.sync_language_server(id), "nothing has changed yet");
+
+        e.with_current_buffer(|b| b.insert_at_point("// edit\n").unwrap());
+        assert!(e.sync_language_server(id), "the change is worth reporting");
+
+        let tasks = e.tasks.drain();
+        let Some(Task::LspDidChange { text, version, .. }) = tasks.into_iter().next() else {
+            panic!("no change notification was queued");
+        };
+        assert!(text.starts_with("// edit"), "the server is sent the new text");
+        assert_eq!(version as u64, e.current_buffer().revision());
+    }
+
+    #[test]
+    fn the_same_edit_is_not_reported_twice() {
+        let (mut e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
+        e.with_current_buffer(|b| b.insert_at_point("x").unwrap());
+        assert!(e.sync_language_server(id));
+        e.tasks.drain();
+        assert!(!e.sync_language_server(id), "the server is already up to date");
+        assert!(e.tasks.is_empty());
+    }
+
+    #[test]
+    fn a_buffer_the_server_never_saw_is_not_reported() {
+        let mut e = editor();
+        let id = e.buffers.create_with_text("notes", "text");
+        e.switch_to_buffer(id).unwrap();
+        e.with_current_buffer(|b| b.insert_at_point("more").unwrap());
+        assert!(!e.sync_language_server(id), "there is no open document to change");
+        assert!(e.tasks.is_empty());
+    }
+
+    #[test]
+    fn nothing_is_reported_when_language_server_support_is_off() {
+        let (mut e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
+        e.settings.lsp_enabled = false;
+        e.with_current_buffer(|b| b.insert_at_point("x").unwrap());
+        assert!(!e.sync_language_server(id));
+        assert!(e.tasks.is_empty());
+    }
+
+    #[test]
+    fn saving_tells_the_server_the_file_is_on_disk() {
+        let (mut e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
+        e.apply_task_result(crate::TaskResult::FileWritten {
+            path: std::path::PathBuf::from("/project/main.rs"),
+            buffer: id,
+            bytes: 13,
+            disk_time: None,
+        })
+        .unwrap();
+        let tasks = e.tasks.drain();
+        assert!(
+            tasks.iter().any(|t| matches!(t, Task::LspDidSave { .. })),
+            "no save notification, got {tasks:?}"
+        );
+    }
+
+    #[test]
+    fn killing_a_buffer_closes_its_document_and_drops_its_highlighting() {
+        let (mut e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
+        e.highlights.insert(id, (0, 0..usize::MAX, Vec::new()));
+        e.buffers.create("somewhere-else");
+
+        e.kill_buffer(id).unwrap();
+        let tasks = e.tasks.drain();
+        assert!(
+            tasks.iter().any(|t| matches!(t, Task::LspDidClose { .. })),
+            "no close notification, got {tasks:?}"
+        );
+        assert!(!e.lsp_versions.contains_key(&id), "the version was forgotten");
+        assert!(e.highlights_for(id).is_empty(), "the highlighting went with it");
+    }
+
+    #[test]
+    fn a_document_is_only_closed_once() {
+        let (mut e, id) = editor_visiting("/project/main.rs", "text");
+        e.notify_closed(id);
+        e.tasks.drain();
+        e.notify_closed(id);
+        assert!(e.tasks.is_empty(), "the second close has nothing to say");
+    }
+
+    /// An editor showing a file long enough that the window covers only part
+    /// of it, with the opening tasks drained.
+    fn editor_with_long_file() -> (Editor, BufferId) {
+        let text: String = (0..2_000).map(|n| format!("line {n}\n")).collect();
+        let mut e = editor();
+        let id = e.buffers.visit_file("/project/long.rs", &text);
+        e.switch_to_buffer(id).unwrap();
+        e.tasks.drain();
+        (e, id)
+    }
+
+    /// A keymap named `<language>-mode` binding `C-t` to `command`.
+    fn mode_map(language: &str, command: &str) -> maxgus_keys::Keymap {
+        let mut map = maxgus_keys::Keymap::new(format!("{language}-mode"));
+        map.define_str("C-t", command).unwrap();
+        map
+    }
+
+    #[test]
+    fn an_edit_in_one_window_moves_point_in_the_others() {
+        // The same buffer shown twice: typing in one window must not leave the
+        // other pointing at an offset that no longer means what it did.
+        let mut e = editor_with("alpha beta gamma");
+        let other = e.split_window(Direction::Vertical).unwrap();
+        e.windows.get_mut(other).unwrap().point = 11; // on `gamma`
+
+        // Insert three characters at the start, in the selected window.
+        e.with_current_buffer(|b| b.set_point(0));
+        e.with_current_buffer(|b| b.insert_at_point(">> ").unwrap());
+
+        assert_eq!(
+            e.windows.get(other).unwrap().point,
+            14,
+            "the other window should still be on `gamma`"
+        );
+        let buffer = e.current_buffer();
+        assert_eq!(buffer.slice(Range::new(14, 19)), "gamma");
+    }
+
+    #[test]
+    fn a_deletion_never_leaves_another_window_past_the_end() {
+        // This is what a random walk over the keymap found: four windows on
+        // one buffer, an edit in one, and the rest left past the end.
+        let mut e = editor_with("0123456789");
+        let other = e.split_window(Direction::Vertical).unwrap();
+        e.windows.get_mut(other).unwrap().point = 10;
+
+        e.with_current_buffer(|b| {
+            b.set_point(0);
+            b.delete(Range::new(0, 8)).unwrap();
+        });
+        let window = e.windows.get(other).unwrap();
+        let length = e.current_buffer().len_chars();
+        assert!(window.point <= length, "point {} is past {length}", window.point);
+        assert_eq!(window.point, 2, "it followed the text that is left");
+    }
+
+    #[test]
+    fn an_edit_inside_what_another_window_was_on_collapses_to_its_start() {
+        let mut e = editor_with("alpha beta gamma");
+        let other = e.split_window(Direction::Vertical).unwrap();
+        e.windows.get_mut(other).unwrap().point = 8; // inside `beta`
+
+        e.with_current_buffer(|b| {
+            b.set_point(0);
+            b.delete(Range::new(6, 10)).unwrap();
+        });
+        assert_eq!(e.windows.get(other).unwrap().point, 6, "collapsed to where it began");
+    }
+
+    #[test]
+    fn replacing_a_buffer_pulls_its_windows_back_into_range() {
+        // A window keeps its own point. Replacing the text underneath one with
+        // something shorter used to leave that point past the end, and every
+        // measurement made against it afterwards was wrong.
+        let mut e = editor();
+        let id = e.buffers.create_with_text("*Help*", &"x".repeat(200));
+        e.switch_to_buffer(id).unwrap();
+        e.with_current_buffer(|b| b.set_point(150));
+        assert_eq!(e.windows.current().point, 150);
+
+        e.replace_buffer_contents(id, "much shorter").unwrap();
+        assert_eq!(
+            e.windows.current().point,
+            12,
+            "the window should have been pulled back to the end of the new text"
+        );
+        assert!(e.windows.current().point <= e.current_buffer().len_chars());
+    }
+
+    #[test]
+    fn replacing_a_buffer_pulls_back_every_window_showing_it() {
+        let mut e = editor();
+        let id = e.buffers.create_with_text("*Occur*", &"line\n".repeat(100));
+        e.switch_to_buffer(id).unwrap();
+        let other = e.split_window(Direction::Vertical).unwrap();
+        for window in [e.windows.current_id(), other] {
+            if let Some(window) = e.windows.get_mut(window) {
+                window.point = 400;
+                window.top_line = 80;
+            }
+        }
+
+        e.replace_buffer_contents(id, "one line\n").unwrap();
+        for window in e.windows.iter() {
+            assert!(window.point <= 9, "a window kept a point of {}", window.point);
+            assert!(window.top_line < 2, "a window stayed scrolled to line {}", window.top_line);
+        }
+    }
+
+    #[test]
+    fn replacing_a_buffer_no_window_shows_is_harmless() {
+        let mut e = editor();
+        let id = e.buffers.create_with_text("hidden", "original");
+        e.replace_buffer_contents(id, "replaced").unwrap();
+        assert_eq!(e.buffers.get(id).unwrap().text(), "replaced");
+    }
+
+    #[test]
+    fn a_mode_keymap_is_in_effect_only_in_a_buffer_of_that_mode() {
+        let mut e = editor();
+        e.mode_keymaps.push(mode_map("rust", "rust-only-command"));
+
+        let rust = e.buffers.visit_file("/project/main.rs", "fn main() {}");
+        let text = e.buffers.visit_file("/project/notes.txt", "plain");
+        let sequence = maxgus_keys::KeySequence::parse("C-t").unwrap();
+
+        e.switch_to_buffer(rust).unwrap();
+        assert_eq!(
+            e.keymaps.lookup(&sequence).command(),
+            Some("rust-only-command"),
+            "a rust-mode binding should apply in a Rust buffer"
+        );
+
+        e.switch_to_buffer(text).unwrap();
+        assert_eq!(
+            e.keymaps.lookup(&sequence).command(),
+            Some("transpose-chars"),
+            "and give way to the global binding elsewhere"
+        );
+    }
+
+    #[test]
+    fn a_language_with_no_configured_map_uses_the_global_one() {
+        let mut e = editor();
+        e.mode_keymaps.push(mode_map("python", "python-only-command"));
+        let rust = e.buffers.visit_file("/project/main.rs", "fn main() {}");
+        e.switch_to_buffer(rust).unwrap();
+        assert!(e.keymaps.major.is_none(), "no map should have been installed");
+    }
+
+    #[test]
+    fn the_minibuffer_still_wins_over_a_mode_map() {
+        let mut e = editor();
+        e.mode_keymaps.push(mode_map("rust", "rust-only-command"));
+        let rust = e.buffers.visit_file("/project/main.rs", "fn main() {}");
+        e.switch_to_buffer(rust).unwrap();
+
+        e.prompt(crate::MinibufferKind::Command, "M-x ");
+        let sequence = maxgus_keys::KeySequence::parse("C-a").unwrap();
+        assert_eq!(
+            e.keymaps.lookup(&sequence).command(),
+            Some("minibuffer-beginning-of-line"),
+            "a prompt takes the keyboard from the mode map too"
+        );
+    }
+
+    #[test]
+    fn selecting_a_window_showing_another_language_swaps_the_map() {
+        let mut e = editor();
+        e.mode_keymaps.push(mode_map("rust", "rust-only-command"));
+        let rust = e.buffers.visit_file("/project/main.rs", "fn main() {}");
+        let text = e.buffers.visit_file("/project/notes.txt", "plain");
+
+        e.switch_to_buffer(rust).unwrap();
+        let other = e.split_window(Direction::Vertical).unwrap();
+        e.select_window(other);
+        e.switch_to_buffer(text).unwrap();
+
+        let sequence = maxgus_keys::KeySequence::parse("C-t").unwrap();
+        assert_eq!(e.keymaps.lookup(&sequence).command(), Some("transpose-chars"));
+
+        e.other_window(1);
+        assert_eq!(
+            e.keymaps.lookup(&sequence).command(),
+            Some("rust-only-command"),
+            "going back to the Rust window restores its map"
+        );
+    }
+
+    #[test]
+    fn a_buffer_takes_the_configured_tab_width() {
+        let settings = Settings { tab_width: 8, indent_with_tabs: true, ..Default::default() };
+        let mut e = Editor::new(
+            settings,
+            defaults::builtin("maxgus-dark").unwrap(),
+            Rect::new(0, 0, 80, 24),
+        );
+        // The buffer that already existed at startup.
+        assert_eq!(e.current_buffer().tab_width(), 8);
+        assert!(e.current_buffer().indent_with_tabs());
+
+        // And one opened afterwards.
+        let id = e.buffers.visit_file("/project/main.rs", "\tindented\n");
+        e.switch_to_buffer(id).unwrap();
+        assert_eq!(e.current_buffer().tab_width(), 8);
+    }
+
+    #[test]
+    fn a_tab_is_drawn_at_the_width_the_indent_commands_use() {
+        // These disagreeing is what makes indentation look wrong: a tab
+        // inserted as one width but displayed as another.
+        let settings = Settings { tab_width: 8, ..Default::default() };
+        let mut e = Editor::new(
+            settings.clone(),
+            defaults::builtin("maxgus-dark").unwrap(),
+            Rect::new(0, 0, 80, 24),
+        );
+        let id = e.buffers.create_with_text("test", "\tx");
+        e.switch_to_buffer(id).unwrap();
+        assert_eq!(
+            e.current_buffer().display_column(1),
+            settings.tab_width,
+            "the drawn width and the configured width must agree"
+        );
+    }
+
+    #[test]
+    fn changing_the_settings_reaches_every_buffer() {
+        let mut e = editor();
+        e.buffers.create("one");
+        e.buffers.create("two");
+        e.settings.tab_width = 2;
+        e.apply_settings_everywhere();
+        assert!(
+            e.buffers.iter().all(|b| b.tab_width() == 2),
+            "a buffer kept the old width"
+        );
+    }
+
+    #[test]
+    fn highlighting_is_asked_for_only_around_what_the_window_shows() {
+        let (mut e, id) = editor_with_long_file();
+        e.request_highlighting(id);
+        let tasks = e.tasks.drain();
+        let Some(Task::Reparse { range, text, .. }) =
+            tasks.into_iter().find(|t| matches!(t, Task::Reparse { .. }))
+        else {
+            panic!("no reparse was queued");
+        };
+        assert_eq!(range.start, 0, "the window is at the top of the file");
+        assert!(range.end < text.len(), "the whole file was asked for: {range:?}");
+        assert!(range.end > 0);
+    }
+
+    #[test]
+    fn scrolling_past_the_highlighted_region_asks_for_more() {
+        let (mut e, id) = editor_with_long_file();
+        let revision = e.current_buffer().revision();
+        let covered = e.highlight_request_range(id);
+        e.highlights.insert(id, (revision, covered.clone(), Vec::new()));
+        assert!(!e.highlights_are_stale(id), "what is on screen is covered");
+
+        // Scroll far enough that the window itself leaves the region.
+        e.windows.current_mut().top_line = 1_500;
+        assert!(
+            e.highlights_are_stale(id),
+            "the window moved past {covered:?} but no new highlighting was asked for"
+        );
+    }
+
+    #[test]
+    fn scrolling_within_the_margin_does_not_ask_again() {
+        let (mut e, id) = editor_with_long_file();
+        let revision = e.current_buffer().revision();
+        e.highlights.insert(id, (revision, e.highlight_request_range(id), Vec::new()));
+
+        // A page down stays inside the margin already highlighted.
+        let height = e.windows.current().text_height();
+        e.windows.current_mut().top_line = height;
+        assert!(!e.highlights_are_stale(id), "an ordinary scroll should not re-query");
+    }
+
+    #[test]
+    fn an_edit_makes_the_highlighting_stale_wherever_the_window_is() {
+        let (mut e, id) = editor_with_long_file();
+        e.highlights
+            .insert(id, (e.current_buffer().revision(), e.highlight_request_range(id), Vec::new()));
+        assert!(!e.highlights_are_stale(id));
+        e.with_current_buffer(|b| b.insert_at_point("x").unwrap());
+        assert!(e.highlights_are_stale(id), "the buffer moved on");
+    }
+
+    #[test]
+    fn a_short_file_is_highlighted_whole() {
+        let mut e = editor();
+        let id = e.buffers.visit_file("/project/short.rs", "fn main() {}\n");
+        e.switch_to_buffer(id).unwrap();
+        let range = e.highlight_request_range(id);
+        assert_eq!(range.start, 0);
+        assert_eq!(range.end, e.current_buffer().text().len(), "nothing is left out");
+    }
+
+    #[test]
+    fn queued_work_accumulates_until_it_is_drained() {
+        let mut e = editor();
+        e.spawn(Task::Tree(crate::TreeAction::Refresh));
+        assert_eq!(e.tasks.len(), 1);
+        assert_eq!(e.tasks.drain().len(), 1);
+        assert!(e.tasks.is_empty());
+    }
+
+    #[test]
+    fn messages_and_errors_reach_the_echo_area() {
+        let mut e = editor();
+        e.message("Wrote file");
+        assert_eq!(e.minibuffer.display(), "Wrote file");
+        assert!(!e.minibuffer.message_is_error());
+        e.error("No such file");
+        assert!(e.minibuffer.message_is_error());
+    }
+
+    #[test]
+    fn the_kill_ring_honours_the_configured_maximum() {
+        let settings = Settings { kill_ring_max: 2, ..Default::default() };
+        let mut e = Editor::new(
+            settings,
+            defaults::builtin("maxgus-dark").unwrap(),
+            Rect::new(0, 0, 80, 24),
+        );
+        for text in ["a", "b", "c"] {
+            e.kill(text, false);
+        }
+        assert_eq!(e.kill_ring.len(), 2);
+    }
+}

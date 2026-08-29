@@ -1,0 +1,1169 @@
+//! File tree commands.
+//!
+//! The tree is treemacs in miniature: a side window listing the project, with
+//! treemacs' own keymap. Navigation happens immediately on the last snapshot,
+//! so moving around never waits on the filesystem; anything structural —
+//! expanding, refreshing, creating, deleting — is queued as a [`TreeAction`]
+//! that the event loop performs on tokio and answers with a fresh snapshot.
+
+use crate::{
+    MinibufferKind, Result, command,
+    command::{Args, Registry},
+    editor::Editor,
+    task::{Task, TreeAction},
+    window::Direction,
+};
+use std::path::PathBuf;
+
+/// The buffer the tree is drawn into.
+pub const TREE_BUFFER_NAME: &str = "*treefile*";
+
+/// The mode name the tree's keymap goes under.
+///
+/// A *mode* map, not a minor one: it binds the arrow keys, and a minor map
+/// applies in every buffer — so while the tree was open the arrows moved the
+/// tree instead of the file being edited, wherever the cursor was.
+pub const TREE_MODE: &str = "treefile-mode";
+
+/// Registers the tree commands.
+pub fn register(registry: &mut Registry) {
+    registry.register_all(&[
+        command!("treefile-toggle", "Show or hide the file tree.", toggle),
+        command!("treefile-select", "Select the file tree window.", select),
+        command!("treefile-select-directory", "Show the file tree rooted at a directory.", select_directory),
+        command!("treefile-next-line", "Move down one line.", next_line, non_interactive),
+        command!("treefile-previous-line", "Move up one line.", previous_line, non_interactive),
+        command!("treefile-goto-first", "Move to the first line.", goto_first, non_interactive),
+        command!("treefile-goto-last", "Move to the last line.", goto_last, non_interactive),
+        command!("treefile-next-neighbour", "Move to the next node at this depth.", next_neighbour, non_interactive),
+        command!("treefile-previous-neighbour", "Move to the previous node at this depth.", previous_neighbour, non_interactive),
+        command!("treefile-goto-parent", "Move to the enclosing directory.", goto_parent, non_interactive),
+        command!("treefile-toggle-node", "Expand or collapse the directory here.", toggle_node, non_interactive),
+        command!("treefile-expand-node", "Expand the directory here.", expand_node, non_interactive),
+        command!("treefile-collapse-node", "Collapse the directory here.", collapse_node, non_interactive),
+        command!("treefile-collapse-parent", "Collapse the enclosing directory.", collapse_parent, non_interactive),
+        command!("treefile-expand-recursively", "Expand everything below here.", expand_recursively, non_interactive),
+        command!("treefile-visit-node", "Open the file here, or expand the directory.", visit, non_interactive),
+        command!("treefile-visit-node-vertical-split", "Open the file here in a window below.", visit_below, non_interactive),
+        command!("treefile-visit-node-horizontal-split", "Open the file here in a window beside.", visit_beside, non_interactive),
+        command!("treefile-visit-node-recent-window", "Open the file here in the other window.", visit_other, non_interactive),
+        command!("treefile-visit-node-external", "Open the file here in an external program.", visit_external, non_interactive),
+        command!("treefile-peek", "Show the file here without leaving the tree.", peek, non_interactive),
+        command!("treefile-create-file", "Create a file here.", create_file, non_interactive),
+        command!("treefile-create-dir", "Create a directory here.", create_dir, non_interactive),
+        command!("treefile-rename-file", "Rename the file here.", rename, non_interactive),
+        command!("treefile-delete-file", "Delete the file here.", delete, non_interactive),
+        command!("treefile-move-file", "Move the file here somewhere else.", move_file, non_interactive),
+        command!("treefile-run-shell-command", "Run a shell command in this directory.", shell_command, non_interactive),
+        command!("treefile-copy-absolute-path", "Copy the full path here.", copy_absolute, non_interactive),
+        command!("treefile-copy-relative-path", "Copy the path here, relative to the root.", copy_relative, non_interactive),
+        command!("treefile-copy-project-path", "Copy the path here, relative to the project.", copy_relative, non_interactive),
+        command!("treefile-copy-file", "Copy the file name here.", copy_name, non_interactive),
+        command!("treefile-toggle-show-dotfiles", "Show or hide dotfiles.", toggle_hidden, non_interactive),
+        command!("treefile-toggle-fixed-width", "Lock or unlock the tree width.", toggle_fixed_width, non_interactive),
+        command!("treefile-toggle-follow-mode", "Follow the current buffer, or stop.", toggle_follow, non_interactive),
+        command!("treefile-toggle-git-mode", "Show or hide git status.", toggle_git, non_interactive),
+        command!("treefile-toggle-directories-first", "Sort directories first, or by name.", toggle_directories_first, non_interactive),
+        command!("treefile-set-width", "Set the tree width.", set_width, non_interactive),
+        command!("treefile-increase-width", "Widen the tree.", increase_width, non_interactive),
+        command!("treefile-decrease-width", "Narrow the tree.", decrease_width, non_interactive),
+        command!("treefile-refresh", "Re-read the tree from disk.", refresh, non_interactive),
+        command!("treefile-resort", "Re-sort the tree.", refresh, non_interactive),
+        command!("treefile-quit", "Hide the tree.", quit, non_interactive),
+        command!("treefile-kill", "Hide the tree and forget it.", kill, non_interactive),
+        command!("treefile-help", "Describe the tree keymap.", help, non_interactive),
+    ]);
+}
+
+/// The node under the cursor, or an error naming what is missing.
+fn selection(editor: &Editor) -> Result<maxgus_tree::VisibleNode> {
+    editor
+        .tree_selection()
+        .cloned()
+        .ok_or_else(|| crate::CoreError::Message("No node here".into()))
+}
+
+/// Queues a structural change.
+fn act(editor: &mut Editor, action: TreeAction) {
+    editor.spawn(Task::Tree(action));
+}
+
+// ---- showing and hiding -------------------------------------------------
+
+/// Opens the tree window, creating its buffer if this is the first time.
+fn open(editor: &mut Editor, root: PathBuf) -> Result<()> {
+    let id = match editor.buffers.find_by_name(TREE_BUFFER_NAME) {
+        Some(id) => id,
+        None => {
+            let id = editor.buffers.create_with_text(TREE_BUFFER_NAME, "");
+            editor.buffers.get_mut(id).expect("just created").set_read_only(true);
+            id
+        }
+    };
+    let window = editor.windows.add_side_window(id, editor.tree_width);
+    editor.tree_window = Some(window);
+    editor.tree_root = Some(root.clone());
+    act(editor, TreeAction::Refresh);
+    Ok(())
+}
+
+/// Closes the tree window, leaving its buffer alone.
+fn close(editor: &mut Editor) {
+    let Some(window) = editor.tree_window.take() else { return };
+    editor.windows.delete(window).ok();
+    // The map goes with the buffer, so selecting whatever is left takes it
+    // away; nothing to remove by hand.
+    editor.activate_mode_keymap();
+}
+
+fn toggle(editor: &mut Editor, _: &Args) -> Result<()> {
+    if editor.tree_window.is_some() {
+        close(editor);
+        return Ok(());
+    }
+    let root = editor.default_directory();
+    open(editor, root)
+}
+
+fn select(editor: &mut Editor, _: &Args) -> Result<()> {
+    let window = match editor.tree_window {
+        Some(window) => window,
+        None => {
+            let root = editor.default_directory();
+            open(editor, root)?;
+            editor.tree_window.ok_or(crate::CoreError::NoSuchWindow)?
+        }
+    };
+    editor.select_window(window);
+    Ok(())
+}
+
+fn select_directory(editor: &mut Editor, args: &Args) -> Result<()> {
+    let Some(input) = args.input.clone() else {
+        let initial = editor.default_directory().to_string_lossy().into_owned();
+        editor.prompt_for(
+            "treefile-select-directory",
+            MinibufferKind::File,
+            "Tree root: ",
+            &initial,
+            Vec::new(),
+        );
+        return Ok(());
+    };
+    if input.trim().is_empty() {
+        return Err(crate::CoreError::Message("No directory given".into()));
+    }
+    close(editor);
+    open(editor, PathBuf::from(input.trim()))
+}
+
+fn quit(editor: &mut Editor, _: &Args) -> Result<()> {
+    close(editor);
+    Ok(())
+}
+
+fn kill(editor: &mut Editor, _: &Args) -> Result<()> {
+    close(editor);
+    if let Some(id) = editor.buffers.find_by_name(TREE_BUFFER_NAME) {
+        editor.kill_buffer(id).ok();
+    }
+    editor.tree.clear();
+    editor.tree_root = None;
+    Ok(())
+}
+
+// ---- navigation ---------------------------------------------------------
+
+fn next_line(editor: &mut Editor, args: &Args) -> Result<()> {
+    let line = editor.tree_cursor_line() + args.count();
+    editor.move_tree_cursor_to_line(line);
+    Ok(())
+}
+
+fn previous_line(editor: &mut Editor, args: &Args) -> Result<()> {
+    let line = editor.tree_cursor_line().saturating_sub(args.count());
+    editor.move_tree_cursor_to_line(line);
+    Ok(())
+}
+
+fn goto_first(editor: &mut Editor, _: &Args) -> Result<()> {
+    editor.move_tree_cursor_to_line(0);
+    Ok(())
+}
+
+fn goto_last(editor: &mut Editor, _: &Args) -> Result<()> {
+    let last = editor.tree.len().saturating_sub(1);
+    editor.move_tree_cursor_to_line(last);
+    Ok(())
+}
+
+/// Walks to the next or previous node at the same depth, stopping when the
+/// enclosing directory ends.
+fn neighbour(editor: &mut Editor, forward: bool) -> Result<()> {
+    let here = editor.tree_cursor_line();
+    let Some(depth) = editor.tree.get(here).map(|n| n.depth) else {
+        return Err(crate::CoreError::Message("No node here".into()));
+    };
+    let candidates: Vec<usize> = if forward {
+        ((here + 1)..editor.tree.len()).collect()
+    } else {
+        (0..here).rev().collect()
+    };
+    for index in candidates {
+        match editor.tree[index].depth.cmp(&depth) {
+            std::cmp::Ordering::Equal => {
+                editor.move_tree_cursor_to_line(index);
+                return Ok(());
+            }
+            // A shallower node means the parent ended: no more siblings.
+            std::cmp::Ordering::Less => break,
+            std::cmp::Ordering::Greater => {}
+        }
+    }
+    Err(crate::CoreError::Message("No more nodes at this level".into()))
+}
+
+fn next_neighbour(editor: &mut Editor, _: &Args) -> Result<()> {
+    neighbour(editor, true)
+}
+
+fn previous_neighbour(editor: &mut Editor, _: &Args) -> Result<()> {
+    neighbour(editor, false)
+}
+
+/// The line of the enclosing directory, if there is one.
+fn parent_line(editor: &Editor) -> Option<usize> {
+    let here = editor.tree_cursor_line();
+    let depth = editor.tree.get(here)?.depth;
+    if depth == 0 {
+        return None;
+    }
+    (0..here).rev().find(|index| editor.tree[*index].depth < depth)
+}
+
+fn goto_parent(editor: &mut Editor, _: &Args) -> Result<()> {
+    let Some(line) = parent_line(editor) else {
+        return Err(crate::CoreError::Message("Already at the root".into()));
+    };
+    editor.move_tree_cursor_to_line(line);
+    Ok(())
+}
+
+// ---- expansion ----------------------------------------------------------
+
+fn toggle_node(editor: &mut Editor, _: &Args) -> Result<()> {
+    let node = selection(editor)?;
+    if !node.expandable {
+        // `TAB` on a file visits it, as treemacs does.
+        return visit(editor, &Args::default());
+    }
+    act(editor, TreeAction::Toggle(node.path));
+    Ok(())
+}
+
+fn expand_node(editor: &mut Editor, _: &Args) -> Result<()> {
+    let node = selection(editor)?;
+    if node.expandable {
+        act(editor, TreeAction::Expand(node.path));
+    }
+    Ok(())
+}
+
+fn collapse_node(editor: &mut Editor, _: &Args) -> Result<()> {
+    let node = selection(editor)?;
+    if node.expandable && node.expanded {
+        act(editor, TreeAction::Collapse(node.path));
+        return Ok(());
+    }
+    // Collapsing a leaf moves up to its directory, as treemacs does.
+    collapse_parent(editor, &Args::default())
+}
+
+fn collapse_parent(editor: &mut Editor, _: &Args) -> Result<()> {
+    let Some(line) = parent_line(editor) else {
+        return Err(crate::CoreError::Message("Already at the root".into()));
+    };
+    let path = editor.tree[line].path.clone();
+    editor.move_tree_cursor_to_line(line);
+    act(editor, TreeAction::Collapse(path));
+    Ok(())
+}
+
+fn expand_recursively(editor: &mut Editor, _: &Args) -> Result<()> {
+    let node = selection(editor)?;
+    if node.expandable {
+        act(editor, TreeAction::ExpandRecursively(node.path));
+    }
+    Ok(())
+}
+
+// ---- visiting -----------------------------------------------------------
+
+/// Opens the file under the cursor. `split` says whether to make a window for
+/// it first, and `stay` keeps the tree selected afterwards.
+fn open_selection(editor: &mut Editor, split: Option<Direction>, stay: bool) -> Result<()> {
+    let node = selection(editor)?;
+    if node.expandable {
+        act(editor, TreeAction::Toggle(node.path));
+        return Ok(());
+    }
+    let tree_window = editor.tree_window;
+    // Never open a file into the tree's own side window.
+    let target = editor
+        .windows
+        .ids()
+        .into_iter()
+        .find(|w| Some(*w) != tree_window)
+        .ok_or_else(|| crate::CoreError::Message("No window to open into".into()))?;
+    editor.select_window(target);
+    if let Some(direction) = split {
+        editor.split_window(direction)?;
+        editor.other_window(1);
+    }
+
+    match editor.buffers.find_by_path(&node.path) {
+        Some(id) => editor.switch_to_buffer(id)?,
+        None => editor.spawn(Task::ReadFile {
+            path: node.path.clone(),
+            reverting: None,
+            other_window: false,
+        }),
+    }
+    if stay && let Some(window) = tree_window {
+        editor.select_window(window);
+    }
+    Ok(())
+}
+
+fn visit(editor: &mut Editor, _: &Args) -> Result<()> {
+    open_selection(editor, None, false)
+}
+
+fn visit_below(editor: &mut Editor, _: &Args) -> Result<()> {
+    open_selection(editor, Some(Direction::Vertical), false)
+}
+
+fn visit_beside(editor: &mut Editor, _: &Args) -> Result<()> {
+    open_selection(editor, Some(Direction::Horizontal), false)
+}
+
+fn visit_other(editor: &mut Editor, _: &Args) -> Result<()> {
+    open_selection(editor, None, false)
+}
+
+/// Shows the file without leaving the tree, so the arrow keys can walk a
+/// directory previewing as they go.
+fn peek(editor: &mut Editor, _: &Args) -> Result<()> {
+    open_selection(editor, None, true)
+}
+
+fn visit_external(editor: &mut Editor, _: &Args) -> Result<()> {
+    let node = selection(editor)?;
+    let directory = editor.tree_root.clone().unwrap_or_else(|| editor.default_directory());
+    editor.spawn(Task::Shell {
+        command: format!("xdg-open {}", shell_quote(&node.path.to_string_lossy())),
+        directory,
+        insert_at: None,
+    });
+    Ok(())
+}
+
+/// Wraps `text` in single quotes for a shell, escaping any it contains.
+fn shell_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+// ---- file operations ----------------------------------------------------
+
+/// The directory a new entry goes in: the selection when it is a directory,
+/// otherwise its parent.
+fn target_directory(editor: &Editor) -> Result<PathBuf> {
+    let node = selection(editor)?;
+    if node.expandable {
+        return Ok(node.path);
+    }
+    node.path
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .ok_or_else(|| crate::CoreError::Message("No directory here".into()))
+}
+
+fn create_file(editor: &mut Editor, args: &Args) -> Result<()> {
+    let Some(name) = args.input.clone() else {
+        editor.prompt_for("treefile-create-file", MinibufferKind::Text, "Create file: ", "", Vec::new());
+        return Ok(());
+    };
+    let parent = target_directory(editor)?;
+    act(editor, TreeAction::CreateFile { parent, name });
+    Ok(())
+}
+
+fn create_dir(editor: &mut Editor, args: &Args) -> Result<()> {
+    let Some(name) = args.input.clone() else {
+        editor.prompt_for("treefile-create-dir", MinibufferKind::Text, "Create directory: ", "", Vec::new());
+        return Ok(());
+    };
+    let parent = target_directory(editor)?;
+    act(editor, TreeAction::CreateDirectory { parent, name });
+    Ok(())
+}
+
+fn rename(editor: &mut Editor, args: &Args) -> Result<()> {
+    let node = selection(editor)?;
+    let Some(name) = args.input.clone() else {
+        editor.prompt_for(
+            "treefile-rename-file",
+            MinibufferKind::Text,
+            format!("Rename `{}` to: ", node.name),
+            &node.name,
+            Vec::new(),
+        );
+        return Ok(());
+    };
+    act(editor, TreeAction::Rename { path: node.path, name });
+    Ok(())
+}
+
+fn delete(editor: &mut Editor, args: &Args) -> Result<()> {
+    let node = selection(editor)?;
+    let Some(answer) = args.input.clone() else {
+        editor.prompt_for(
+            "treefile-delete-file",
+            MinibufferKind::YesNo,
+            format!("Delete `{}`? (yes or no) ", node.name),
+            "",
+            Vec::new(),
+        );
+        return Ok(());
+    };
+    if !answer.eq_ignore_ascii_case("yes") && !answer.eq_ignore_ascii_case("y") {
+        editor.message("Not deleted");
+        return Ok(());
+    }
+    act(editor, TreeAction::Delete(node.path));
+    Ok(())
+}
+
+fn move_file(editor: &mut Editor, args: &Args) -> Result<()> {
+    let node = selection(editor)?;
+    let Some(destination) = args.input.clone() else {
+        let initial =
+            editor.tree_root.clone().unwrap_or_default().to_string_lossy().into_owned();
+        editor.prompt_for(
+            "treefile-move-file",
+            MinibufferKind::File,
+            format!("Move `{}` to directory: ", node.name),
+            &initial,
+            Vec::new(),
+        );
+        return Ok(());
+    };
+    act(
+        editor,
+        TreeAction::Move { path: node.path, destination: PathBuf::from(destination.trim()) },
+    );
+    Ok(())
+}
+
+fn shell_command(editor: &mut Editor, args: &Args) -> Result<()> {
+    let directory = target_directory(editor)?;
+    let Some(command) = args.input.clone() else {
+        editor.prompt_for(
+            "treefile-run-shell-command",
+            MinibufferKind::Shell,
+            format!("Shell command in {}: ", directory.display()),
+            "",
+            Vec::new(),
+        );
+        return Ok(());
+    };
+    if command.trim().is_empty() {
+        return Err(crate::CoreError::Message("No command given".into()));
+    }
+    editor.spawn(Task::Shell { command, directory, insert_at: None });
+    Ok(())
+}
+
+// ---- copying paths ------------------------------------------------------
+
+/// Puts `text` on the kill ring and says so.
+fn copy(editor: &mut Editor, text: String) -> Result<()> {
+    editor.kill_ring.kill_new(text.clone());
+    editor.message(format!("Copied `{text}`"));
+    Ok(())
+}
+
+fn copy_absolute(editor: &mut Editor, _: &Args) -> Result<()> {
+    let node = selection(editor)?;
+    copy(editor, node.path.to_string_lossy().into_owned())
+}
+
+fn copy_relative(editor: &mut Editor, _: &Args) -> Result<()> {
+    let node = selection(editor)?;
+    let root = editor.tree_root.clone().unwrap_or_default();
+    let relative = node.path.strip_prefix(&root).unwrap_or(&node.path);
+    copy(editor, relative.to_string_lossy().into_owned())
+}
+
+fn copy_name(editor: &mut Editor, _: &Args) -> Result<()> {
+    let node = selection(editor)?;
+    copy(editor, node.name)
+}
+
+// ---- toggles and width --------------------------------------------------
+
+fn toggle_hidden(editor: &mut Editor, _: &Args) -> Result<()> {
+    act(editor, TreeAction::ToggleHidden);
+    Ok(())
+}
+
+fn toggle_directories_first(editor: &mut Editor, _: &Args) -> Result<()> {
+    act(editor, TreeAction::ToggleDirectoriesFirst);
+    Ok(())
+}
+
+fn toggle_git(editor: &mut Editor, _: &Args) -> Result<()> {
+    act(editor, TreeAction::ToggleGitStatus);
+    Ok(())
+}
+
+fn toggle_follow(editor: &mut Editor, _: &Args) -> Result<()> {
+    editor.tree_follow = !editor.tree_follow;
+    editor.message(if editor.tree_follow { "Follow mode on" } else { "Follow mode off" });
+    Ok(())
+}
+
+fn toggle_fixed_width(editor: &mut Editor, _: &Args) -> Result<()> {
+    editor.tree_width_locked = !editor.tree_width_locked;
+    editor.message(if editor.tree_width_locked { "Width locked" } else { "Width unlocked" });
+    Ok(())
+}
+
+/// Changes the tree width by `delta`, refusing when the width is locked.
+fn resize(editor: &mut Editor, delta: i32) -> Result<()> {
+    if editor.tree_width_locked {
+        return Err(crate::CoreError::Message("Tree width is locked".into()));
+    }
+    let width = (editor.tree_width as i32 + delta).clamp(8, 200) as u16;
+    editor.tree_width = width;
+    if let Some(window) = editor.tree_window {
+        editor.windows.set_fixed_width(window, width);
+    }
+    Ok(())
+}
+
+fn increase_width(editor: &mut Editor, args: &Args) -> Result<()> {
+    resize(editor, args.signed_count().max(1))
+}
+
+fn decrease_width(editor: &mut Editor, args: &Args) -> Result<()> {
+    resize(editor, -args.signed_count().max(1))
+}
+
+fn set_width(editor: &mut Editor, args: &Args) -> Result<()> {
+    let Some(input) = args.input.clone() else {
+        let current = editor.tree_width.to_string();
+        editor.prompt_for("treefile-set-width", MinibufferKind::Text, "Width: ", &current, Vec::new());
+        return Ok(());
+    };
+    let width: i32 = input
+        .trim()
+        .parse()
+        .map_err(|_| crate::CoreError::Message(format!("`{input}` is not a number")))?;
+    let delta = width - editor.tree_width as i32;
+    resize(editor, delta)
+}
+
+fn refresh(editor: &mut Editor, _: &Args) -> Result<()> {
+    act(editor, TreeAction::Refresh);
+    Ok(())
+}
+
+/// `?`: lists the tree's own bindings.
+fn help(editor: &mut Editor, _: &Args) -> Result<()> {
+    let mut text = String::from("File tree keys\n\n");
+    for (keys, command) in maxgus_tree::TREEMACS_BINDINGS {
+        text.push_str(&format!("{keys:<10} {command}\n"));
+    }
+    let id = match editor.buffers.find_by_name("*Help*") {
+        Some(id) => {
+            editor.replace_buffer_contents(id, &text)?;
+            id
+        }
+        None => editor.buffers.create_with_text("*Help*", &text),
+    };
+    editor.buffers.get_mut(id).expect("just created").set_read_only(true);
+    // Show the help beside the tree rather than replacing it.
+    let tree_window = editor.tree_window;
+    if let Some(target) = editor.windows.ids().into_iter().find(|w| Some(*w) != tree_window) {
+        editor.select_window(target);
+    }
+    editor.switch_to_buffer(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Dispatch, Dispatcher};
+    use maxgus_config::Settings;
+    use maxgus_faces::defaults;
+    use maxgus_tree::{NodeKind, VisibleNode};
+    use maxgus_tui::Rect;
+
+    fn node(path: &str, name: &str, depth: usize, directory: bool, expanded: bool) -> VisibleNode {
+        VisibleNode {
+            path: PathBuf::from(path),
+            name: name.into(),
+            kind: if directory { NodeKind::Directory } else { NodeKind::File },
+            depth,
+            expanded,
+            expandable: directory,
+            git: None,
+            is_root: depth == 0,
+        }
+    }
+
+    /// A tree resembling a small project, already expanded one level.
+    fn snapshot() -> Vec<VisibleNode> {
+        vec![
+            node("/project", "project", 0, true, true),
+            node("/project/src", "src", 1, true, true),
+            node("/project/src/main.rs", "main.rs", 2, false, false),
+            node("/project/src/lib.rs", "lib.rs", 2, false, false),
+            node("/project/docs", "docs", 1, true, false),
+            node("/project/Cargo.toml", "Cargo.toml", 1, false, false),
+        ]
+    }
+
+    fn setup() -> (Dispatcher, Editor) {
+        let mut editor = Editor::new(
+            Settings::default(),
+            defaults::builtin("maxgus-dark").unwrap(),
+            Rect::new(0, 0, 100, 24),
+        );
+        let id = editor.buffers.visit_file("/project/start.rs", "");
+        editor.switch_to_buffer(id).unwrap();
+
+        let mut registry = Registry::new();
+        register(&mut registry);
+        super::super::minibuffer::register(&mut registry);
+        super::super::motion::register(&mut registry);
+        super::super::edit::register(&mut registry);
+        super::super::window::register(&mut registry);
+        super::super::buffer::register(&mut registry);
+        super::super::file::register(&mut registry);
+        (Dispatcher::new(registry), editor)
+    }
+
+    /// Opens the tree and installs a snapshot, as a refresh result would.
+    fn with_tree(d: &mut Dispatcher, e: &mut Editor) {
+        d.execute(e, "treefile-toggle", None);
+        e.tasks.drain();
+        e.apply_task_result(crate::TaskResult::TreeUpdated {
+            nodes: snapshot(),
+            select: None,
+            show_hidden: false,
+        })
+        .unwrap();
+        let window = e.tree_window.expect("the tree window is open");
+        e.select_window(window);
+    }
+
+    fn run(d: &mut Dispatcher, e: &mut Editor, command: &str) {
+        let out = d.execute(e, command, None);
+        assert!(!matches!(out, Dispatch::Failed { .. }), "`{command}` failed: {out:?}");
+    }
+
+    fn fails(d: &mut Dispatcher, e: &mut Editor, command: &str) -> String {
+        match d.execute(e, command, None) {
+            Dispatch::Failed { message, .. } => message,
+            other => panic!("`{command}` should have failed, got {other:?}"),
+        }
+    }
+
+    fn selected(e: &Editor) -> String {
+        e.tree_selection().map(|n| n.name.clone()).unwrap_or_default()
+    }
+
+    #[test]
+    fn every_treemacs_binding_is_registered() {
+        let mut registry = Registry::new();
+        register(&mut registry);
+        for (keys, command) in maxgus_tree::TREEMACS_BINDINGS {
+            assert!(registry.contains(command), "`{keys}` runs unregistered `{command}`");
+        }
+    }
+
+    #[test]
+    fn toggling_opens_and_closes_the_side_window() {
+        let (mut d, mut e) = setup();
+        run(&mut d, &mut e, "treefile-toggle");
+        assert!(e.tree_window.is_some());
+        assert_eq!(e.windows.len(), 2);
+        let window = e.tree_window.unwrap();
+        assert_eq!(e.windows.get(window).unwrap().rect.x, 0, "the tree sits on the left");
+        assert!(e.windows.get(window).unwrap().side);
+        assert!(
+            e.tasks.peek().iter().any(|t| matches!(t, Task::Tree(TreeAction::Refresh))),
+            "a refresh was queued"
+        );
+
+        run(&mut d, &mut e, "treefile-toggle");
+        assert!(e.tree_window.is_none());
+        assert_eq!(e.windows.len(), 1);
+    }
+
+    #[test]
+    fn the_tree_keymap_takes_over_while_the_tree_is_selected() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        assert_eq!(d.handle_keys(&mut e, "n").command(), Some("treefile-next-line"));
+        assert_eq!(d.handle_keys(&mut e, "u").command(), Some("treefile-goto-parent"));
+
+        run(&mut d, &mut e, "treefile-quit");
+        assert_eq!(d.handle_keys(&mut e, "n").command(), Some("self-insert-command"));
+    }
+
+    #[test]
+    fn a_snapshot_is_rendered_into_the_tree_buffer() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        let id = e.buffers.find_by_name(TREE_BUFFER_NAME).unwrap();
+        let text = e.buffers.get(id).unwrap().text();
+        assert!(text.starts_with("v project\n"), "got `{text}`");
+        assert!(text.contains("  v src"), "got `{text}`");
+        assert!(text.contains("      main.rs"), "got `{text}`");
+        assert!(text.contains("  > docs"), "collapsed, got `{text}`");
+        assert!(e.buffers.get(id).unwrap().is_read_only());
+    }
+
+    #[test]
+    fn navigation_moves_through_the_snapshot() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        assert_eq!(selected(&e), "project");
+        run(&mut d, &mut e, "treefile-next-line");
+        assert_eq!(selected(&e), "src");
+        run(&mut d, &mut e, "treefile-next-line");
+        assert_eq!(selected(&e), "main.rs");
+        run(&mut d, &mut e, "treefile-previous-line");
+        assert_eq!(selected(&e), "src");
+        run(&mut d, &mut e, "treefile-goto-last");
+        assert_eq!(selected(&e), "Cargo.toml");
+        run(&mut d, &mut e, "treefile-goto-first");
+        assert_eq!(selected(&e), "project");
+    }
+
+    #[test]
+    fn navigation_clamps_at_both_ends() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        run(&mut d, &mut e, "treefile-previous-line");
+        assert_eq!(selected(&e), "project");
+        e.prefix = crate::Prefix::Numeric(100);
+        d.execute(&mut e, "treefile-next-line", None);
+        assert_eq!(selected(&e), "Cargo.toml");
+    }
+
+    #[test]
+    fn neighbour_navigation_skips_over_children() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(1);
+        assert_eq!(selected(&e), "src");
+        run(&mut d, &mut e, "treefile-next-neighbour");
+        assert_eq!(selected(&e), "docs", "skipped src's children");
+        run(&mut d, &mut e, "treefile-next-neighbour");
+        assert_eq!(selected(&e), "Cargo.toml");
+        assert!(fails(&mut d, &mut e, "treefile-next-neighbour").contains("No more nodes"));
+        run(&mut d, &mut e, "treefile-previous-neighbour");
+        assert_eq!(selected(&e), "docs");
+    }
+
+    #[test]
+    fn goto_parent_walks_up_a_level() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(2);
+        assert_eq!(selected(&e), "main.rs");
+        run(&mut d, &mut e, "treefile-goto-parent");
+        assert_eq!(selected(&e), "src");
+        run(&mut d, &mut e, "treefile-goto-parent");
+        assert_eq!(selected(&e), "project");
+        assert!(fails(&mut d, &mut e, "treefile-goto-parent").contains("root"));
+    }
+
+    #[test]
+    fn toggling_a_directory_queues_the_work_rather_than_blocking() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(4);
+        assert_eq!(selected(&e), "docs");
+        run(&mut d, &mut e, "treefile-toggle-node");
+        assert_eq!(
+            e.tasks.drain(),
+            vec![Task::Tree(TreeAction::Toggle(PathBuf::from("/project/docs")))]
+        );
+    }
+
+    #[test]
+    fn collapsing_a_leaf_collapses_its_directory_instead() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(2);
+        run(&mut d, &mut e, "treefile-collapse-node");
+        assert_eq!(selected(&e), "src", "moved up to the directory");
+        assert_eq!(
+            e.tasks.drain(),
+            vec![Task::Tree(TreeAction::Collapse(PathBuf::from("/project/src")))]
+        );
+    }
+
+    #[test]
+    fn expanding_recursively_queues_one_action() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(1);
+        run(&mut d, &mut e, "treefile-expand-recursively");
+        assert_eq!(
+            e.tasks.drain(),
+            vec![Task::Tree(TreeAction::ExpandRecursively(PathBuf::from("/project/src")))]
+        );
+    }
+
+    #[test]
+    fn visiting_a_file_opens_it_outside_the_tree_window() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(2);
+        e.tasks.drain();
+        run(&mut d, &mut e, "treefile-visit-node");
+
+        assert_ne!(e.windows.current_id(), e.tree_window.unwrap(), "not into the tree window");
+        assert_eq!(
+            e.tasks.drain(),
+            vec![Task::ReadFile {
+                path: PathBuf::from("/project/src/main.rs"),
+                reverting: None,
+                other_window: false
+            }]
+        );
+    }
+
+    #[test]
+    fn visiting_an_already_open_file_switches_to_its_buffer() {
+        let (mut d, mut e) = setup();
+        e.buffers.visit_file("/project/src/main.rs", "fn main() {}");
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(2);
+        e.tasks.drain();
+        run(&mut d, &mut e, "treefile-visit-node");
+        assert!(e.tasks.is_empty(), "nothing needed reading");
+        assert_eq!(e.current_buffer().name(), "main.rs");
+    }
+
+    #[test]
+    fn visiting_in_a_split_makes_a_window_for_it() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(2);
+        run(&mut d, &mut e, "treefile-visit-node-vertical-split");
+        assert_eq!(e.windows.len(), 3, "tree plus two");
+    }
+
+    #[test]
+    fn visiting_a_directory_expands_it_instead() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(4);
+        e.tasks.drain();
+        run(&mut d, &mut e, "treefile-visit-node");
+        assert!(matches!(&e.tasks.peek()[0], Task::Tree(TreeAction::Toggle(_))));
+    }
+
+    #[test]
+    fn peeking_leaves_the_tree_selected() {
+        let (mut d, mut e) = setup();
+        e.buffers.visit_file("/project/src/main.rs", "");
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(2);
+        run(&mut d, &mut e, "treefile-peek");
+        assert_eq!(e.windows.current_id(), e.tree_window.unwrap());
+    }
+
+    #[test]
+    fn creating_prompts_and_targets_the_right_directory() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        // On a file, the new entry goes beside it.
+        e.move_tree_cursor_to_line(2);
+        d.execute(&mut e, "treefile-create-file", None);
+        assert!(e.minibuffer.is_active());
+        for c in "new.rs".chars() {
+            e.minibuffer.insert_char(c);
+        }
+        e.tasks.drain();
+        d.handle_keys(&mut e, "RET");
+        assert_eq!(
+            e.tasks.drain(),
+            vec![Task::Tree(TreeAction::CreateFile {
+                parent: PathBuf::from("/project/src"),
+                name: "new.rs".into()
+            })]
+        );
+    }
+
+    #[test]
+    fn creating_on_a_directory_puts_the_entry_inside_it() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(4);
+        d.execute(&mut e, "treefile-create-dir", None);
+        for c in "images".chars() {
+            e.minibuffer.insert_char(c);
+        }
+        e.tasks.drain();
+        d.handle_keys(&mut e, "RET");
+        assert_eq!(
+            e.tasks.drain(),
+            vec![Task::Tree(TreeAction::CreateDirectory {
+                parent: PathBuf::from("/project/docs"),
+                name: "images".into()
+            })]
+        );
+    }
+
+    #[test]
+    fn renaming_starts_from_the_current_name() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(2);
+        d.execute(&mut e, "treefile-rename-file", None);
+        assert_eq!(e.minibuffer.input(), "main.rs");
+        e.minibuffer.kill_whole();
+        for c in "app.rs".chars() {
+            e.minibuffer.insert_char(c);
+        }
+        e.tasks.drain();
+        d.handle_keys(&mut e, "RET");
+        assert_eq!(
+            e.tasks.drain(),
+            vec![Task::Tree(TreeAction::Rename {
+                path: PathBuf::from("/project/src/main.rs"),
+                name: "app.rs".into()
+            })]
+        );
+    }
+
+    #[test]
+    fn deleting_asks_first_and_a_no_cancels_it() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(2);
+
+        d.execute(&mut e, "treefile-delete-file", None);
+        assert!(e.minibuffer.prompt().contains("Delete `main.rs`?"));
+        for c in "no".chars() {
+            e.minibuffer.insert_char(c);
+        }
+        e.tasks.drain();
+        d.handle_keys(&mut e, "RET");
+        assert!(e.tasks.is_empty(), "nothing was queued");
+        assert_eq!(e.minibuffer.display(), "Not deleted");
+
+        d.execute(&mut e, "treefile-delete-file", None);
+        for c in "yes".chars() {
+            e.minibuffer.insert_char(c);
+        }
+        d.handle_keys(&mut e, "RET");
+        assert_eq!(
+            e.tasks.drain(),
+            vec![Task::Tree(TreeAction::Delete(PathBuf::from("/project/src/main.rs")))]
+        );
+    }
+
+    #[test]
+    fn copying_paths_puts_them_on_the_kill_ring() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(2);
+
+        run(&mut d, &mut e, "treefile-copy-absolute-path");
+        assert_eq!(e.kill_ring.front(), Some("/project/src/main.rs"));
+        run(&mut d, &mut e, "treefile-copy-relative-path");
+        assert_eq!(e.kill_ring.front(), Some("src/main.rs"));
+        run(&mut d, &mut e, "treefile-copy-file");
+        assert_eq!(e.kill_ring.front(), Some("main.rs"));
+        assert!(e.minibuffer.display().starts_with("Copied"));
+    }
+
+    #[test]
+    fn the_toggles_queue_their_actions() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.tasks.drain();
+        run(&mut d, &mut e, "treefile-toggle-show-dotfiles");
+        run(&mut d, &mut e, "treefile-toggle-git-mode");
+        run(&mut d, &mut e, "treefile-toggle-directories-first");
+        assert_eq!(
+            e.tasks.drain(),
+            vec![
+                Task::Tree(TreeAction::ToggleHidden),
+                Task::Tree(TreeAction::ToggleGitStatus),
+                Task::Tree(TreeAction::ToggleDirectoriesFirst),
+            ]
+        );
+    }
+
+    #[test]
+    fn follow_mode_toggles_locally() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        let before = e.tree_follow;
+        run(&mut d, &mut e, "treefile-toggle-follow-mode");
+        assert_ne!(e.tree_follow, before);
+        assert!(e.minibuffer.display().starts_with("Follow mode"));
+    }
+
+    #[test]
+    fn the_width_can_be_changed_and_locked() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        let window = e.tree_window.unwrap();
+        let before = e.tree_width;
+
+        e.prefix = crate::Prefix::Numeric(6);
+        d.execute(&mut e, "treefile-increase-width", None);
+        assert_eq!(e.tree_width, before + 6);
+        assert_eq!(e.windows.get(window).unwrap().rect.width, before + 6);
+
+        e.prefix = crate::Prefix::Numeric(6);
+        d.execute(&mut e, "treefile-decrease-width", None);
+        assert_eq!(e.tree_width, before);
+
+        run(&mut d, &mut e, "treefile-toggle-fixed-width");
+        assert!(fails(&mut d, &mut e, "treefile-increase-width").contains("locked"));
+    }
+
+    #[test]
+    fn the_width_can_be_set_outright_and_has_a_floor() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        d.execute(&mut e, "treefile-set-width", None);
+        e.minibuffer.kill_whole();
+        for c in "50".chars() {
+            e.minibuffer.insert_char(c);
+        }
+        d.handle_keys(&mut e, "RET");
+        assert_eq!(e.tree_width, 50);
+
+        d.execute(&mut e, "treefile-set-width", None);
+        e.minibuffer.kill_whole();
+        for c in "2".chars() {
+            e.minibuffer.insert_char(c);
+        }
+        d.handle_keys(&mut e, "RET");
+        assert_eq!(e.tree_width, 8, "a floor keeps the tree usable");
+    }
+
+    #[test]
+    fn a_width_that_is_not_a_number_is_refused() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        d.execute(&mut e, "treefile-set-width", None);
+        e.minibuffer.kill_whole();
+        for c in "wide".chars() {
+            e.minibuffer.insert_char(c);
+        }
+        let out = d.handle_keys(&mut e, "RET");
+        assert!(matches!(out, Dispatch::Failed { .. }));
+    }
+
+    #[test]
+    fn a_shell_command_runs_in_the_selected_directory() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(2);
+        d.execute(&mut e, "treefile-run-shell-command", None);
+        assert!(e.minibuffer.prompt().contains("/project/src"));
+        for c in "ls".chars() {
+            e.minibuffer.insert_char(c);
+        }
+        e.tasks.drain();
+        d.handle_keys(&mut e, "RET");
+        let Task::Shell { command, directory, .. } = &e.tasks.peek()[0] else { panic!() };
+        assert_eq!(command, "ls");
+        assert_eq!(directory, &PathBuf::from("/project/src"));
+    }
+
+    #[test]
+    fn opening_externally_quotes_the_path() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(2);
+        e.tasks.drain();
+        run(&mut d, &mut e, "treefile-visit-node-external");
+        let Task::Shell { command, .. } = &e.tasks.peek()[0] else { panic!() };
+        assert_eq!(command, "xdg-open '/project/src/main.rs'");
+        assert_eq!(shell_quote("it's here"), r"'it'\''s here'");
+    }
+
+    #[test]
+    fn the_help_lists_every_binding() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        run(&mut d, &mut e, "treefile-help");
+        let text = e.current_buffer().text();
+        assert!(text.contains("treefile-visit-node"), "got `{text}`");
+        assert!(text.contains("RET"), "got `{text}`");
+        assert_ne!(e.windows.current_id(), e.tree_window.unwrap(), "shown beside the tree");
+    }
+
+    #[test]
+    fn a_refresh_result_keeps_the_cursor_where_it_was() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(3);
+        assert_eq!(selected(&e), "lib.rs");
+
+        e.apply_task_result(crate::TaskResult::TreeUpdated {
+            nodes: snapshot(),
+            select: None,
+            show_hidden: false,
+        })
+        .unwrap();
+        assert_eq!(selected(&e), "lib.rs", "the cursor line survived the redraw");
+    }
+
+    #[test]
+    fn a_result_can_ask_for_a_particular_node_to_be_selected() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.apply_task_result(crate::TaskResult::TreeUpdated {
+            nodes: snapshot(),
+            select: Some(PathBuf::from("/project/Cargo.toml")),
+            show_hidden: true,
+        })
+        .unwrap();
+        assert_eq!(selected(&e), "Cargo.toml");
+        assert!(e.tree_shows_hidden);
+    }
+
+    #[test]
+    fn killing_the_tree_forgets_it_entirely() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        run(&mut d, &mut e, "treefile-kill");
+        assert!(e.tree_window.is_none());
+        assert!(e.tree.is_empty());
+        assert!(e.buffers.find_by_name(TREE_BUFFER_NAME).is_none());
+    }
+
+    #[test]
+    fn commands_on_an_empty_tree_say_there_is_nothing_here() {
+        let (mut d, mut e) = setup();
+        d.execute(&mut e, "treefile-toggle", None);
+        assert!(fails(&mut d, &mut e, "treefile-toggle-node").contains("No node here"));
+        assert!(fails(&mut d, &mut e, "treefile-copy-absolute-path").contains("No node here"));
+    }
+}

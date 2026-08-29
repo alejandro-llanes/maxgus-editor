@@ -61,6 +61,15 @@ pub struct Editor {
     pub config_says_theme: Option<String>,
     /// A file being read, and the line point should land on when it arrives.
     pub pending_line: Option<(PathBuf, usize)>,
+    /// The results of the last project search.
+    #[cfg(feature = "grep")]
+    pub grep: Option<crate::grep::GrepView>,
+    /// The search that produced them, so `g` can run it again.
+    #[cfg(feature = "grep")]
+    pub grep_search: Option<maxgus_grep::Search>,
+    /// What an empty answer at the search prompt means.
+    #[cfg(feature = "grep")]
+    pub grep_default: Option<String>,
     /// How long the editor took to be ready, measured by whoever started it.
     pub startup_time: Option<std::time::Duration>,
     pub tasks: TaskQueue,
@@ -248,6 +257,12 @@ impl Editor {
             config_path: None,
             config_says_theme: None,
             pending_line: None,
+            #[cfg(feature = "grep")]
+            grep: None,
+            #[cfg(feature = "grep")]
+            grep_search: None,
+            #[cfg(feature = "grep")]
+            grep_default: None,
             startup_time: None,
             tasks: TaskQueue::new(),
             prefix: Prefix::None,
@@ -807,6 +822,17 @@ impl Editor {
                 return Some(crate::commands::git::COMMIT_MODE.to_string());
             }
         }
+        #[cfg(feature = "grep")]
+        if buffer.name() == crate::commands::grep::GREP_BUFFER_NAME {
+            let writing = self.grep.as_ref().is_some_and(|view| view.editable);
+            return Some(
+                match writing {
+                    true => crate::commands::grep::GREP_EDIT_MODE,
+                    false => crate::commands::grep::GREP_MODE,
+                }
+                .to_string(),
+            );
+        }
         // A terminal has two: one where the keys go to the shell, and one
         // where they move a cursor over what the shell has already written.
         #[cfg(feature = "terminal")]
@@ -856,6 +882,10 @@ impl Editor {
             crate::commands::git::GIT_MODE => crate::keymap::magit_keymap().ok(),
             #[cfg(feature = "git")]
             crate::commands::git::COMMIT_MODE => crate::keymap::commit_keymap().ok(),
+            #[cfg(feature = "grep")]
+            crate::commands::grep::GREP_MODE => crate::keymap::grep_keymap().ok(),
+            #[cfg(feature = "grep")]
+            crate::commands::grep::GREP_EDIT_MODE => crate::keymap::grep_edit_keymap().ok(),
             crate::commands::tree::SYMBOLS_MODE => crate::keymap::symbols_keymap().ok(),
             crate::commands::tree::BUFFERS_MODE => crate::keymap::buffers_keymap().ok(),
             #[cfg(feature = "terminal")]
@@ -1097,6 +1127,40 @@ impl Editor {
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
     }
 
+    /// The project's root: what git calls the top of the tree, else the
+    /// directory the file tree is rooted at, else where the editor started.
+    pub fn project_root(&self) -> PathBuf {
+        #[cfg(feature = "git")]
+        if let Some(root) = self.git_root.clone() {
+            return root;
+        }
+        self.tree_root
+            .clone()
+            .unwrap_or_else(|| self.default_directory())
+    }
+
+    /// The word point is in or beside, which is what a search prompt offers.
+    pub fn word_at_point(&self) -> Option<String> {
+        let buffer = self.current_buffer();
+        let point = self.windows.current().point.min(buffer.len_chars());
+        let text: Vec<char> = buffer.text().chars().collect();
+        let is_word = |c: &char| c.is_alphanumeric() || *c == '_';
+        // Point sits between characters: the word is the one it is inside, or
+        // the one it is at the end of, which is where a cursor usually is.
+        let mut start = point;
+        while start > 0 && text.get(start - 1).is_some_and(is_word) {
+            start -= 1;
+        }
+        let mut end = point;
+        while text.get(end).is_some_and(is_word) {
+            end += 1;
+        }
+        if start == end {
+            return None;
+        }
+        Some(text[start..end].iter().collect())
+    }
+
     /// Applies the outcome of a [`Task`].
     ///
     /// This is the other half of the asynchronous story: a command queues work,
@@ -1237,6 +1301,33 @@ impl Editor {
             TaskResult::ThemePersisted { path, theme } => {
                 self.config_says_theme = Some(theme.clone());
                 self.message(format!("Theme {theme}, written to {}", path.display()));
+                Ok(())
+            }
+            #[cfg(feature = "grep")]
+            TaskResult::GrepFinished { pattern, found } => {
+                if let Err(error) = crate::commands::grep::show(self, &pattern, found) {
+                    self.error(error.to_string());
+                }
+                Ok(())
+            }
+            #[cfg(feature = "grep")]
+            TaskResult::GrepApplied { applied, paths } => {
+                // The buffers for the files that were written are stale now,
+                // and a buffer showing an old copy of a file that has just
+                // been rewritten is how work gets lost.
+                for path in paths {
+                    if let Some(id) = self.buffers.find_by_path(&path) {
+                        self.spawn(crate::task::Task::ReadFile {
+                            path,
+                            reverting: Some(id),
+                            other_window: false,
+                        });
+                    }
+                }
+                self.message(format!(
+                    "Wrote {} line(s) in {} file(s)",
+                    applied.lines, applied.files
+                ));
                 Ok(())
             }
             #[cfg(feature = "git")]

@@ -244,6 +244,17 @@ pub enum Task {
     /// Something to do with git, in the repository the editor is in.
     #[cfg(feature = "git")]
     Git { root: PathBuf, action: GitAction },
+    /// Search the project for a pattern.
+    #[cfg(feature = "grep")]
+    Grep {
+        root: PathBuf,
+        search: maxgus_grep::Search,
+    },
+    /// Write edited result lines back to the files they came from.
+    #[cfg(feature = "grep")]
+    ApplyGrep {
+        replacements: Vec<maxgus_grep::Replacement>,
+    },
     /// Re-parse a buffer and highlight `range`.
     ///
     /// Only the region the user can see — plus a margin for scrolling — is
@@ -509,6 +520,19 @@ pub enum TaskResult {
     Failed {
         context: String,
         message: String,
+    },
+    /// What a search found.
+    #[cfg(feature = "grep")]
+    GrepFinished {
+        pattern: String,
+        found: maxgus_grep::Found,
+    },
+    /// What writing the edited results did.
+    #[cfg(feature = "grep")]
+    GrepApplied {
+        applied: maxgus_grep::Applied,
+        /// The files that were written, so their buffers can be re-read.
+        paths: Vec<PathBuf>,
     },
 }
 

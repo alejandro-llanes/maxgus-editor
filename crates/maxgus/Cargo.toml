@@ -26,6 +26,7 @@ maxgus-syntax = { version = "0.1.0", path = "../maxgus-syntax", optional = true 
 maxgus-text = { version = "0.1.0", path = "../maxgus-text" }
 maxgus-tree = { version = "0.1.0", path = "../maxgus-tree" }
 maxgus-git = { version = "0.1.0", path = "../maxgus-git", optional = true }
+maxgus-grep = { version = "0.1.0", path = "../maxgus-grep", optional = true }
 maxgus-term = { version = "0.1.0", path = "../maxgus-term", optional = true }
 maxgus-tui = { version = "0.1.0", path = "../maxgus-tui" }
 maxgus-gui = { version = "0.1.0", path = "../maxgus-gui", default-features = false, optional = true }
@@ -52,12 +53,13 @@ minimal = []
 
 # Everything: tree-sitter highlighting, the language-server client, magit and
 # the terminal panel.
-full = ["syntax", "lsp", "git", "terminal"]
+full = ["syntax", "lsp", "git", "terminal", "grep"]
 
 # One subsystem at a time, for a build that wants some of them.
 syntax = ["maxgus-core/syntax", "dep:maxgus-syntax"]
 lsp = ["maxgus-core/lsp", "dep:maxgus-lsp"]
 git = ["maxgus-core/git", "dep:maxgus-git"]
+grep = ["maxgus-core/grep", "dep:maxgus-grep"]
 terminal = ["maxgus-core/terminal", "dep:maxgus-term", "dep:portable-pty"]
 
 # Everything in `full`, drawn in a window by the GPU as well as in a terminal.

@@ -27,6 +27,7 @@ jobs:
           - lsp
           - git
           - terminal
+          - grep
           - "lsp,git"
           - "syntax,lsp"
           - "git,terminal"

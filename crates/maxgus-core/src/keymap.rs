@@ -111,6 +111,10 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("M-%", "query-replace"),
     ("C-M-%", "query-replace-regexp"),
     ("M-s o", "occur"),
+    #[cfg(feature = "grep")]
+    ("M-s g", "project-grep"),
+    #[cfg(feature = "grep")]
+    ("M-s G", "project-grep-literal"),
     // ---- files ----
     ("C-x C-f", "find-file"),
     ("C-x C-v", "find-alternate-file"),
@@ -559,6 +563,48 @@ pub const BUFFERS_BINDINGS: &[(&str, &str)] = &[
     ("t s", "panel-toggle-symbols-section"),
     ("t b", "panel-toggle-buffers-section"),
 ];
+
+/// The results of a project search: read like a list, edited like a buffer.
+#[cfg(feature = "grep")]
+pub const GREP_BINDINGS: &[(&str, &str)] = &[
+    ("n", "grep-next"),
+    ("p", "grep-previous"),
+    ("<down>", "grep-next"),
+    ("<up>", "grep-previous"),
+    ("RET", "grep-visit"),
+    ("o", "grep-visit-other-window"),
+    ("g", "grep-refresh"),
+    ("q", "grep-quit"),
+    ("C-c C-p", "grep-edit"),
+    ("C-c C-e", "grep-edit"),
+    ("C-c C-c", "grep-apply"),
+    ("C-c C-k", "grep-abandon"),
+];
+
+/// The results while they are being written into: what the reading map binds
+/// to letters is left to `self-insert-command`, and only the two keys that
+/// finish the edit remain.
+#[cfg(feature = "grep")]
+pub const GREP_EDIT_BINDINGS: &[(&str, &str)] =
+    &[("C-c C-c", "grep-apply"), ("C-c C-k", "grep-abandon")];
+
+#[cfg(feature = "grep")]
+pub fn grep_edit_keymap() -> Result<Keymap> {
+    let mut map = Keymap::new(crate::commands::grep::GREP_EDIT_MODE);
+    for (keys, command) in GREP_EDIT_BINDINGS {
+        map.define_str(keys, *command)?;
+    }
+    Ok(map)
+}
+
+#[cfg(feature = "grep")]
+pub fn grep_keymap() -> Result<Keymap> {
+    let mut map = Keymap::new(crate::commands::grep::GREP_MODE);
+    for (keys, command) in GREP_BINDINGS {
+        map.define_str(keys, *command)?;
+    }
+    Ok(map)
+}
 
 pub fn symbols_keymap() -> Result<Keymap> {
     let mut map = Keymap::new(crate::commands::tree::SYMBOLS_MODE);

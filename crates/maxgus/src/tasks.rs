@@ -261,6 +261,10 @@ impl Executor {
             Task::TerminalClose { terminal } => self.close_terminal(terminal),
             #[cfg(feature = "git")]
             Task::Git { root, action } => self.git(root, action).await,
+            #[cfg(feature = "grep")]
+            Task::Grep { root, search } => self.grep(root, search).await,
+            #[cfg(feature = "grep")]
+            Task::ApplyGrep { replacements } => self.apply_grep(replacements).await,
             Task::ForgetBuffer { buffer } => self.forget(buffer),
         }
     }
@@ -1144,6 +1148,39 @@ impl Executor {
         }
     }
 
+    // ---- searching the project -----------------------------------------
+
+    /// Searches the project on a blocking thread.
+    ///
+    /// Walking a tree and reading every file in it is exactly the work tokio
+    /// asks not to be done on its own threads, and a large project would stop
+    /// every other task while it ran.
+    #[cfg(feature = "grep")]
+    async fn grep(&self, root: PathBuf, search: maxgus_grep::Search) {
+        let pattern = search.pattern.clone();
+        let outcome =
+            tokio::task::spawn_blocking(move || maxgus_grep::search(&root, &search)).await;
+        match outcome {
+            Ok(Ok(found)) => self.send(TaskResult::GrepFinished { pattern, found }),
+            Ok(Err(error)) => self.fail("search", error),
+            Err(error) => self.fail("search", error),
+        }
+    }
+
+    /// Writes edited result lines back to their files.
+    #[cfg(feature = "grep")]
+    async fn apply_grep(&self, replacements: Vec<maxgus_grep::Replacement>) {
+        let mut paths: Vec<PathBuf> = replacements.iter().map(|r| r.path.clone()).collect();
+        paths.sort();
+        paths.dedup();
+        let outcome = tokio::task::spawn_blocking(move || maxgus_grep::apply(&replacements)).await;
+        match outcome {
+            Ok(Ok(applied)) => self.send(TaskResult::GrepApplied { applied, paths }),
+            Ok(Err(error)) => self.fail("writing the results", error),
+            Err(error) => self.fail("writing the results", error),
+        }
+    }
+
     // ---- shell ---------------------------------------------------------
 
     async fn shell(
@@ -1477,7 +1514,11 @@ mod tests {
     /// `main.rs` reads the configuration and opens the log before the editor
     /// is doing anything: there is no one else to starve yet, and making that
     /// path async would buy nothing.
-    const MAY_BLOCK: &[&str] = &["maxgus/src/main.rs"];
+    ///
+    /// `maxgus-grep` blocks on purpose: walking a project and reading every
+    /// file in it is precisely the work `spawn_blocking` exists for, and it
+    /// is only ever reached that way. A second test below checks that.
+    const MAY_BLOCK: &[&str] = &["maxgus/src/main.rs", "maxgus-grep/src/lib.rs"];
 
     fn rust_files(dir: &Path, found: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -1490,6 +1531,28 @@ mod tests {
             } else if path.extension().is_some_and(|e| e == "rs") {
                 found.push(path);
             }
+        }
+    }
+
+    /// The exception above is only safe while it holds.
+    #[cfg(feature = "grep")]
+    #[test]
+    fn the_search_is_only_ever_reached_through_spawn_blocking() {
+        let source = include_str!("tasks.rs");
+        let ships = source
+            .lines()
+            .take_while(|line| !line.starts_with("#[cfg(test)]"));
+        for (n, line) in ships.enumerate() {
+            let code = line.split("//").next().unwrap_or(line);
+            if !code.contains("maxgus_grep::search") && !code.contains("maxgus_grep::apply") {
+                continue;
+            }
+            assert!(
+                code.contains("spawn_blocking"),
+                "line {}: `{}` calls into the search off a blocking thread",
+                n + 1,
+                line.trim()
+            );
         }
     }
 

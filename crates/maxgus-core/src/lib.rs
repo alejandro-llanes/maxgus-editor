@@ -15,6 +15,8 @@ pub mod editor;
 pub mod fuzzy;
 #[cfg(feature = "git")]
 pub mod git;
+#[cfg(feature = "grep")]
+pub mod grep;
 pub mod icons;
 pub mod keymap;
 pub mod minibuffer;

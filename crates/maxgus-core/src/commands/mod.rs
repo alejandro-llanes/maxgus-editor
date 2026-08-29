@@ -9,6 +9,8 @@ pub mod edit;
 pub mod file;
 #[cfg(feature = "git")]
 pub mod git;
+#[cfg(feature = "grep")]
+pub mod grep;
 pub mod help;
 #[cfg(feature = "lsp")]
 pub mod lsp;
@@ -41,6 +43,8 @@ pub fn standard_registry() -> Registry {
     panel::register(&mut registry);
     #[cfg(feature = "git")]
     git::register(&mut registry);
+    #[cfg(feature = "grep")]
+    grep::register(&mut registry);
     #[cfg(feature = "terminal")]
     terminal::register(&mut registry);
     #[cfg(feature = "git")]

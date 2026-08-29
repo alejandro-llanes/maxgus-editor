@@ -2231,6 +2231,7 @@ fn every_feature_combination_builds() {
         &["lsp", "git"],
         &["syntax", "lsp"],
         &["git", "terminal"],
+        &["grep"],
         &["full"],
         &["gui"],
     ];
@@ -2259,4 +2260,93 @@ fn every_feature_combination_builds() {
             features.join(",")
         );
     }
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn a_project_is_searched_and_the_results_are_edited_back_into_it() {
+    // The whole of it against real files: the walk, the ignore rules, the
+    // results buffer, and the rename written back to disk.
+    let fixture = Fixture::new("grep");
+    let root = fixture.path();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("target")).unwrap();
+    std::fs::write(root.join(".gitignore"), "target/\n").unwrap();
+    std::fs::write(root.join("src/one.rs"), "fn alpha() {}\nfn other() {}\n").unwrap();
+    std::fs::write(root.join("src/two.rs"), "// alpha is here\n").unwrap();
+    std::fs::write(root.join("target/built.rs"), "fn alpha() {}\n").unwrap();
+
+    let mut session = Session::start(root, &["-Q", "src/one.rs"]);
+    assert!(
+        wait_for(&mut session, "maxgus started in", 60),
+        "no startup"
+    );
+
+    // M-s g alpha RET
+    session.send(b"\x1bsg");
+    session.settle();
+    session.send(b"alpha\r");
+    assert!(
+        wait_for(&mut session, "matches for `alpha`", 100),
+        "no results:\n{:#?}",
+        session.screen()
+    );
+    let screen = session.screen();
+    let shows = |needle: &str| screen.iter().any(|l| l.contains(needle));
+    assert!(shows("one.rs"), "the first file is missing:\n{screen:#?}");
+    assert!(shows("two.rs"), "the second file is missing:\n{screen:#?}");
+    assert!(
+        !shows("built.rs"),
+        "it searched an ignored directory:\n{screen:#?}"
+    );
+
+    // Which file point starts on: the heading above the first result line.
+    // The walk decides the order, so it is read rather than assumed.
+    let first_result = screen
+        .iter()
+        .position(|l| l.trim_start().starts_with("1:"))
+        .expect("a result line");
+    let heading = screen[..first_result]
+        .iter()
+        .rev()
+        .find(|l| l.contains(".rs") && !l.trim_start().starts_with("1:"))
+        .expect("a file heading")
+        .trim()
+        .to_string();
+    let editing_one = heading.ends_with("one.rs");
+
+    // Make the results editable, replace the whole result line, and apply.
+    session.send(b"\x03\x10"); // C-c C-p
+    session.settle();
+    session.send(b"\x01\x0b"); // C-a C-k : the line, without its newline
+    session.send(b"     1:fn renamed() {}");
+    session.settle();
+    session.send(b"\x03\x03"); // C-c C-c
+    assert!(
+        wait_for(&mut session, "Wrote 1 line", 100),
+        "nothing was written:\n{:#?}",
+        session.screen()
+    );
+
+    let (edited, untouched) = match editing_one {
+        true => ("src/one.rs", "src/two.rs"),
+        false => ("src/two.rs", "src/one.rs"),
+    };
+    let written = std::fs::read_to_string(root.join(edited)).unwrap();
+    assert!(
+        written.starts_with("fn renamed() {}"),
+        "{edited} was not rewritten: {written:?}"
+    );
+    if editing_one {
+        assert!(
+            written.contains("fn other() {}"),
+            "the rest of the file was lost: {written:?}"
+        );
+    }
+    let other = std::fs::read_to_string(root.join(untouched)).unwrap();
+    assert!(
+        other.contains("alpha"),
+        "{untouched} was rewritten too: {other:?}"
+    );
+    assert_eq!(session.quit(), 0);
 }

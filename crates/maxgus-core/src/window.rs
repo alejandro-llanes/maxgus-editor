@@ -104,22 +104,27 @@ impl Window {
     ///
     /// Returns whether the scroll position moved.
     pub fn scroll_to_show(&mut self, line: usize, total_lines: usize, margin: usize) -> bool {
+        let before = self.top_line;
+        // Before anything else, and whatever the height: a window with no
+        // room still must not claim to start past the end of its buffer. A
+        // split can squeeze one to nothing and the buffer can shrink under
+        // it, and the two together leave it pointing at a line that is gone.
+        self.top_line = self.top_line.min(total_lines.saturating_sub(1));
         let height = self.text_height();
         if height == 0 {
-            return false;
+            return self.top_line != before;
         }
         // A margin larger than half the window would fight itself.
         let margin = margin.min(height.saturating_sub(1) / 2);
-        let before = self.top_line;
 
         if line < self.top_line + margin {
             self.top_line = line.saturating_sub(margin);
         } else if line + margin >= self.top_line + height {
             self.top_line = line + margin + 1 - height;
         }
-        // A bound rather than a correction: with the margin capped at half the
-        // window, the arithmetic above cannot exceed this. It is here so the
-        // guarantee holds if that cap ever changes.
+        // Again after the arithmetic: with the margin capped at half the
+        // window it cannot exceed this, and the guarantee should hold if that
+        // cap ever changes.
         self.top_line = self.top_line.min(total_lines.saturating_sub(1));
 
         self.top_line != before
@@ -1204,5 +1209,42 @@ mod tests {
                 "the column overlaps the terminal"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod scroll_tests {
+    use super::*;
+
+    fn window(height: u16) -> Window {
+        let mut window = Window::new(WindowId(1), BufferId(1));
+        window.rect = Rect::new(0, 0, 40, height);
+        window.top_line = 30;
+        window
+    }
+
+    #[test]
+    fn a_window_never_starts_past_the_end_of_its_buffer() {
+        let mut window = window(10);
+        window.scroll_to_show(0, 1, 0);
+        assert_eq!(window.top_line, 0);
+    }
+
+    #[test]
+    fn a_window_with_no_room_is_still_brought_back_into_its_buffer() {
+        // A split can squeeze a window to nothing, and the buffer it shows
+        // can shrink under it. Neither is a reason to keep pointing at a line
+        // that is no longer there.
+        let mut window = window(1);
+        assert_eq!(window.text_height(), 0, "the fixture should have no room");
+        assert!(window.scroll_to_show(0, 1, 0), "it reported no change");
+        assert_eq!(window.top_line, 0);
+    }
+
+    #[test]
+    fn an_empty_buffer_leaves_the_window_at_its_first_line() {
+        let mut window = window(10);
+        window.scroll_to_show(0, 0, 0);
+        assert_eq!(window.top_line, 0);
     }
 }

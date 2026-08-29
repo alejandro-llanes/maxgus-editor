@@ -4480,9 +4480,9 @@ fn the_readme_quotes_the_right_totals() {
 }
 
 #[cfg(feature = "full")]
-const README_BINDINGS: usize = 332;
+const README_BINDINGS: usize = 334;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 375;
+const README_COMMANDS: usize = 386;
 
 #[cfg(feature = "lsp")]
 #[test]
@@ -4905,4 +4905,318 @@ fn a_buffer_with_no_file_says_so_rather_than_opening_nothing() {
     s.keys("C-c o");
     assert!(s.echo().contains("no file"), "got `{}`", s.echo());
     assert!(s.editor.tasks.drain().is_empty(), "it ran something anyway");
+}
+
+// ---- project-wide search -------------------------------------------------
+
+#[cfg(feature = "grep")]
+fn found(hits: &[(&str, usize, &str)]) -> maxgus_grep::Found {
+    maxgus_grep::Found {
+        hits: hits
+            .iter()
+            .map(|(path, line, text)| maxgus_grep::Hit {
+                path: std::path::PathBuf::from(path),
+                line: *line,
+                column: 0,
+                length: 1,
+                text: text.to_string(),
+            })
+            .collect(),
+        files_searched: 12,
+        truncated: false,
+    }
+}
+
+#[cfg(feature = "grep")]
+fn with_grep() -> Session {
+    let mut s = tall_session("/project/src/a.rs", "fn alpha() {}\nfn beta() {}\n");
+    s.editor.tree_root = Some("/project".into());
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GrepFinished {
+            pattern: "alpha".into(),
+            found: found(&[
+                ("/project/src/a.rs", 0, "fn alpha() {}"),
+                ("/project/src/b.rs", 3, "// alpha again"),
+            ]),
+        })
+        .unwrap();
+    s.editor.tasks.drain();
+    s
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn a_search_asks_for_a_pattern_and_offers_the_word_at_point() {
+    let mut s = tall_session("/project/src/a.rs", "fn alpha() {}\n");
+    s.editor.with_current_buffer(|b| b.set_point(5));
+    s.keys("M-s g");
+    assert!(s.editor.minibuffer.is_active(), "no prompt");
+    assert!(
+        s.editor.minibuffer.prompt().contains("default alpha"),
+        "the word at point was not offered: `{}`",
+        s.editor.minibuffer.prompt()
+    );
+    // Offered, not typed in: a different search does not have to be cleared
+    // out of the prompt first.
+    assert_eq!(s.editor.minibuffer.input(), "");
+
+    // And an empty answer takes it.
+    s.editor.tree_root = Some("/project".into());
+    s.editor.tasks.drain();
+    s.keys("RET");
+    match &s.editor.tasks.drain()[..] {
+        [Task::Grep { search, .. }] => assert_eq!(search.pattern, "alpha"),
+        other => panic!("expected a search for the default, got {other:?}"),
+    }
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn a_pattern_becomes_a_search_of_the_project() {
+    let mut s = tall_session("/project/src/a.rs", "fn alpha() {}\n");
+    s.editor.tree_root = Some("/project".into());
+    s.editor.tasks.drain();
+    s.keys("M-s g");
+    s.type_text("beta");
+    s.keys("RET");
+    match &s.editor.tasks.drain()[..] {
+        [Task::Grep { root, search }] => {
+            assert_eq!(root, std::path::Path::new("/project"));
+            assert_eq!(search.pattern, "beta");
+            assert!(search.regexp, "`M-s g` searches by regexp");
+        }
+        other => panic!("expected a search, got {other:?}"),
+    }
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn the_results_are_a_buffer_of_files_and_lines() {
+    let mut s = with_grep();
+    assert_eq!(s.editor.current_buffer().name(), "*grep*");
+    let screen = s.screen();
+    let has = |needle: &str| screen.iter().any(|line| line.contains(needle));
+    assert!(has("2 matches for `alpha`"), "no summary:\n{screen:#?}");
+    assert!(has("/project/src/a.rs"), "no first file");
+    assert!(has("fn alpha() {}"), "no first line");
+    assert!(has("/project/src/b.rs"), "no second file");
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn point_starts_on_a_result_and_n_walks_them() {
+    let mut s = with_grep();
+    let line_now = |s: &Session| {
+        s.editor
+            .current_buffer()
+            .line_of(s.editor.windows.current().point)
+    };
+    let first = line_now(&s);
+    assert!(
+        matches!(
+            s.editor.grep.as_ref().unwrap().row(first),
+            Some(maxgus_core::grep::Row::Hit(_, _))
+        ),
+        "it opened on line {first}, which is not a result"
+    );
+    s.keys("n");
+    let second = line_now(&s);
+    assert!(second > first, "`n` did not move forward");
+    assert!(
+        matches!(
+            s.editor.grep.as_ref().unwrap().row(second),
+            Some(maxgus_core::grep::Row::Hit(_, _))
+        ),
+        "`n` stopped on a heading"
+    );
+    s.keys("p");
+    assert_eq!(line_now(&s), first, "`p` did not come back");
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn return_opens_the_file_at_the_line_that_matched() {
+    let mut s = with_grep();
+    s.keys("n"); // the hit in b.rs, which is not open
+    s.keys("n");
+    s.editor.tasks.drain();
+    s.keys("RET");
+    match &s.editor.tasks.drain()[..] {
+        [Task::ReadFile { path, .. }] => {
+            assert!(path.ends_with("b.rs"), "wrong file: {path:?}");
+        }
+        other => panic!("expected a read, got {other:?}"),
+    }
+    assert_eq!(
+        s.editor.pending_line.as_ref().map(|(_, line)| *line),
+        Some(3),
+        "it did not aim at the matching line"
+    );
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn return_on_a_file_already_open_goes_straight_to_it() {
+    let mut s = with_grep();
+    s.editor.tasks.drain();
+    s.keys("RET"); // the hit in a.rs, which is open
+    assert_eq!(s.editor.current_buffer().name(), "a.rs");
+    assert!(s.editor.tasks.drain().is_empty(), "it read a file it had");
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn the_results_are_read_only_until_they_are_made_editable() {
+    let mut s = with_grep();
+    s.type_text("x");
+    assert!(
+        s.echo().contains("read-only"),
+        "the results took a keystroke: `{}`",
+        s.echo()
+    );
+
+    s.keys("C-c C-p");
+    s.type_text("x");
+    assert!(
+        s.editor.current_buffer().text().contains('x'),
+        "`C-c C-p` did not make the buffer writable"
+    );
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn an_edited_line_is_written_back_to_the_file_it_came_from() {
+    let mut s = with_grep();
+    s.keys("C-c C-p");
+    let edited = s
+        .editor
+        .current_buffer()
+        .text()
+        .replace("fn alpha() {}", "fn renamed() {}");
+    let id = s.editor.current_buffer_id();
+    s.editor.replace_buffer_contents(id, &edited).unwrap();
+    s.editor.tasks.drain();
+
+    s.keys("C-c C-c");
+    match &s.editor.tasks.drain()[..] {
+        [Task::ApplyGrep { replacements }] => {
+            assert_eq!(replacements.len(), 1);
+            assert_eq!(replacements[0].now, "fn renamed() {}");
+            assert_eq!(replacements[0].line, 0);
+            assert!(replacements[0].path.ends_with("a.rs"));
+        }
+        other => panic!("expected the edits, got {other:?}"),
+    }
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn applying_with_nothing_changed_says_so_rather_than_writing() {
+    let mut s = with_grep();
+    s.keys("C-c C-p");
+    s.editor.tasks.drain();
+    s.keys("C-c C-c");
+    assert!(
+        s.echo().contains("Nothing was changed"),
+        "got `{}`",
+        s.echo()
+    );
+    assert!(s.editor.tasks.drain().is_empty(), "it wrote anyway");
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn applying_before_editing_says_which_key_to_press() {
+    let mut s = with_grep();
+    s.editor.tasks.drain();
+    s.keys("C-c C-c");
+    assert!(s.echo().contains("C-c C-p"), "got `{}`", s.echo());
+    assert!(s.editor.tasks.drain().is_empty());
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn abandoning_puts_the_results_back_as_they_were() {
+    let mut s = with_grep();
+    let before = s.editor.current_buffer().text();
+    s.keys("C-c C-p");
+    s.type_text("nonsense");
+    s.keys("C-c C-k");
+    assert_eq!(s.editor.current_buffer().text(), before);
+    s.type_text("x");
+    assert!(s.echo().contains("read-only"), "it stayed writable");
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn the_navigation_keys_become_letters_while_the_results_are_edited() {
+    // `n`, `p`, `o`, `g` and `q` move around the results while they are being
+    // read. A buffer being typed into needs them to be themselves, or a
+    // rename to `renamed` runs five commands and inserts two letters.
+    let mut s = with_grep();
+    s.keys("C-c C-p");
+    let before = s.editor.current_buffer().text();
+    s.type_text("nqgop");
+    let after = s.editor.current_buffer().text();
+    assert!(
+        after.contains("nqgop"),
+        "the letters ran commands instead of being typed:\n{after}"
+    );
+    assert_ne!(after, before);
+
+    // And they go back to being commands when the editing stops.
+    s.keys("C-c C-k");
+    let line = |s: &Session| {
+        s.editor
+            .current_buffer()
+            .line_of(s.editor.windows.current().point)
+    };
+    let start = line(&s);
+    s.type_text("n");
+    assert!(line(&s) > start, "`n` did not go back to being a command");
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn a_search_that_found_nothing_says_so_and_opens_no_buffer() {
+    let mut s = tall_session("/project/src/a.rs", "fn alpha() {}\n");
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GrepFinished {
+            pattern: "zzz".into(),
+            found: maxgus_grep::Found::default(),
+        })
+        .unwrap();
+    assert!(s.echo().contains("No matches"), "got `{}`", s.echo());
+    assert!(s.editor.buffers.find_by_name("*grep*").is_none());
+}
+
+#[cfg(feature = "grep")]
+#[test]
+fn writing_the_files_re_reads_the_buffers_that_were_showing_them() {
+    // A buffer left showing the old text of a file that was just rewritten
+    // is how an edit gets undone by the next save.
+    let mut s = with_grep();
+    let id = s
+        .editor
+        .buffers
+        .find_by_path(std::path::Path::new("/project/src/a.rs"));
+    assert!(id.is_some(), "the fixture should have a.rs open");
+    s.editor.tasks.drain();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GrepApplied {
+            applied: maxgus_grep::Applied { files: 1, lines: 1 },
+            paths: vec!["/project/src/a.rs".into()],
+        })
+        .unwrap();
+    match &s.editor.tasks.drain()[..] {
+        [
+            Task::ReadFile {
+                path, reverting, ..
+            },
+        ] => {
+            assert!(path.ends_with("a.rs"));
+            assert_eq!(*reverting, id, "it did not revert the buffer");
+        }
+        other => panic!("expected a revert, got {other:?}"),
+    }
 }

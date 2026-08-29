@@ -1,0 +1,16 @@
+[package]
+name = "maxgus-grep"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Searching a project's files, and writing the answers back."
+
+[lints]
+workspace = true
+
+[dependencies]
+ignore = "0.4.33"
+regex = "1.13.1"
+thiserror = "2.0.20"

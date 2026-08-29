@@ -90,8 +90,8 @@ $ ./target/release/maxgus
 
 ### Emacs keys, and they behave like Emacs
 
-**332 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **375 commands**. Prefix
+**334 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
+the panel, tree, magit and terminal maps, driving **386 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -237,6 +237,29 @@ The tree keeps **47 bindings and 41 commands** from treemacs' own keymap:
 paths, `t h`/`t w`/`t f`/`t g`/`t d` to toggle, `g r` to refresh. Git status
 in the gutter, follow mode, `?` for help.
 
+### Search the whole project, and edit the results
+
+`M-s g` searches every file under the project root for a regexp — `M-s G`
+takes the pattern literally. What it does *not* search is what `.gitignore`
+says not to: no `target/`, no lockfiles, no `node_modules`. Binary files are
+skipped by the same rule `grep` uses.
+
+The results are a buffer: `n` and `p` walk them, `RET` opens the line, `o`
+opens it without leaving the results, `g` searches again, `q` closes.
+
+Then the part that makes it worth more than a list. **`C-c C-p` makes the
+results writable.** Edit the lines as ordinary text — search and replace by
+hand, by macro, by rectangle, however you like — and **`C-c C-c` writes every
+changed line back to the file it came from**. That is a project-wide rename,
+done with the editor you already know instead of a dialog box. `C-c C-k` gives
+up on it.
+
+Each line carries the text it was found as, so a file that something else
+changed in the meantime is refused rather than overwritten, and no file is
+half-written when one is refused. Buffers showing the rewritten files are
+re-read, because a stale buffer over a rewritten file is how the work gets
+undone by the next save.
+
 ### Git, the way magit does it
 
 `C-x g` — or `M-x magit`, as in Emacs — opens the whole state of the
@@ -360,6 +383,7 @@ first.
 | `C-x b` | Switch buffer — lists them as it opens |
 | `C-x k` | Kill a buffer |
 | `M-x` | Run a command — a fuzzy-matched popup of all of them |
+| `M-s g` | Search the whole project |
 | `<up>` `<down>` | In a prompt: walk the candidate list |
 | `<prior>` `<next>` | In a prompt: a page of candidates at a time |
 | `C-g` | Cancel |
@@ -515,7 +539,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1727 tests.** Unit tests beside the code; session tests that press real keys
+**1771 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

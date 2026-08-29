@@ -104,9 +104,13 @@ fn build(name: &str, p: &Palette) -> Theme {
     set("region", Face::bg(p.selection));
     set("highlight", Face::bg(p.selection));
     set("shadow", Face::fg(p.comment));
-    set("fringe", Face::fg(p.comment).with_bg(p.bg));
-    set("line-number", Face::fg(p.comment).with_bg(p.bg));
-    set("line-number-current-line", Face::fg(p.yellow).with_bg(p.bg).bold());
+    // No background of their own: they take whatever `default` has. Naming
+    // this palette's background explicitly would survive a drop-in theme that
+    // changes `default`, and paint a stripe down the side of the text in the
+    // colour of the theme that was replaced.
+    set("fringe", Face::fg(p.comment));
+    set("line-number", Face::fg(p.comment));
+    set("line-number-current-line", Face::fg(p.yellow).bold());
     set("mode-line", Face::fg(p.surface_fg).with_bg(p.surface));
     set("mode-line-inactive", Face::fg(p.comment).with_bg(p.surface));
     set("mode-line-buffer-id", Face::fg(p.blue).bold());
@@ -230,6 +234,30 @@ mod tests {
                     theme.name()
                 );
             }
+        }
+    }
+
+    #[test]
+    fn a_theme_that_changes_the_background_changes_it_everywhere() {
+        // A drop-in theme sets `default` and expects the editor to follow.
+        // `line-number` and `fringe` used to carry the built-in background
+        // explicitly, which outlived the theme that chose it and showed up as
+        // a stripe beside the line numbers.
+        let mut theme = builtin("maxgus-dark").unwrap();
+        let replaced = theme.resolve("default").background.expect("a background");
+
+        let mut spec = maxgus_config::ThemeSpec::new("under-test");
+        let mut face = maxgus_config::FaceSpec::new("default");
+        face.background = Some("#123456".to_string());
+        spec.faces.push(face);
+        theme.apply_spec(&spec).expect("applies");
+
+        for name in names::all() {
+            assert_ne!(
+                theme.resolve(name).background,
+                Some(replaced),
+                "`{name}` kept the background of the theme it replaced"
+            );
         }
     }
 

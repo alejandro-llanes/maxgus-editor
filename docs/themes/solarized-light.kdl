@@ -16,9 +16,12 @@ theme "solarized-light" base="maxgus-light" {
     face "fill-column-indicator"          fg="#eee8d5"
     face "trailing-whitespace"            bg="#dc322f"
 
-    face "mode-line"                      fg="#fdf6e3" bg="#268bd2"
-    face "mode-line-inactive"             fg="#93a1a1" bg="#eee8d5"
-    face "mode-line-buffer-id"            fg="#fdf6e3" bold=#true
+    // base2 rather than a saturated blue: the mode line is painted segment by
+    // segment in the ordinary `shadow`, `success` and `warning` faces, and
+    // those are chosen to read against paper, not against blue.
+    face "mode-line"                      fg="#586e75" bg="#eee8d5"
+    face "mode-line-inactive"             fg="#93a1a1" bg="#fdf6e3"
+    face "mode-line-buffer-id"            fg="#268bd2" bold=#true
     face "minibuffer-prompt"              fg="#268bd2" bold=#true
     face "echo-area"                      fg="#586e75"
 

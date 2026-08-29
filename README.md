@@ -27,6 +27,10 @@ themes you rewrite in a config file&nbsp; ·&nbsp; a treemacs-style file tree&nb
 
 <sub><b>No Lisp interpreter. No plugin runtime.</b> ~37,000 lines · ten crates · one binary.</sub>
 
+<br><br>
+
+<img src="docs/screenshots/maxgus-dark.svg" alt="maxgus editing its own source, with the file tree open beside it" width="100%">
+
 </div>
 
 <br>
@@ -102,17 +106,7 @@ of typing, not one character.
 the moment it opens, with the key that runs each one and a line saying what it
 does, and a count of where you are in the list:
 
-```
-╭──────────────────────────────────────────────────────────────────────────────╮
-│2/11 M-x sbf                                                                  │
-│save-buffer                   C-x C-s    Save this buffer to its file.        │
-│save-buffer-anyway                       Save over a file that has changed on │
-│set-buffer-file-coding-system C-x RET f  Choose the line endings this buffer i│
-│save-buffers-kill-terminal    C-x C-c    Save and leave the editor.           │
-│save-some-buffers             C-x s      Save every buffer with unsaved change│
-│switch-to-buffer              C-x b      Display another buffer in this window│
-╰──────────────────────────────────────────────────────────────────────────────╯
-```
+<img src="docs/screenshots/command-popup.svg" alt="The M-x popup: a bordered box at the top of the frame listing commands, their key bindings and what each one does" width="100%">
 
 Matching is **fuzzy**: `sbf` finds `save-buffer`, `stb` finds
 `switch-to-buffer`. Typing an uppercase letter makes the query case-sensitive.
@@ -172,8 +166,25 @@ changes that one setting, leaving the rest of the file exactly as it was.
 **A theme is a file you drop in.** Anything in
 `~/.config/maxgus/themes/*.kdl` is picked up at startup; `set theme="nord"` is
 all the configuration it takes. Four complete ones ship in
-[`docs/themes/`](docs/themes) — Gruvbox, Nord, Dracula and Solarized Light —
-each written entirely in configuration.
+[`docs/themes/`](docs/themes), each written entirely in configuration — no
+recompiling, no Lisp:
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/gruvbox.svg" alt="The Gruvbox theme" width="100%"><div align="center"><sub><b>Gruvbox</b> · <code>docs/themes/gruvbox.kdl</code></sub></div></td>
+<td width="50%"><img src="docs/screenshots/nord.svg" alt="The Nord theme" width="100%"><div align="center"><sub><b>Nord</b> · <code>docs/themes/nord.kdl</code></sub></div></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/dracula.svg" alt="The Dracula theme" width="100%"><div align="center"><sub><b>Dracula</b> · <code>docs/themes/dracula.kdl</code></sub></div></td>
+<td width="50%"><img src="docs/screenshots/solarized-light.svg" alt="The Solarized Light theme" width="100%"><div align="center"><sub><b>Solarized Light</b> · <code>docs/themes/solarized-light.kdl</code></sub></div></td>
+</tr>
+</table>
+
+<sub>Every picture on this page is drawn by the editor itself —
+<a href="crates/maxgus/examples/screenshot.rs"><code>cargo run --example screenshot</code></a>
+runs the real redisplay over a real buffer and writes out each cell in the
+colour its face resolved to. Nerd Font glyphs are the one thing switched off
+for them, so they render in a browser without the font installed.</sub>
 
 ### A file tree modelled on treemacs
 

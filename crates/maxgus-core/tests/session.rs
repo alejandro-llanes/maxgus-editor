@@ -5568,3 +5568,174 @@ fn deleting_twice_with_several_cursors_stays_lined_up() {
     );
     assert!(!text.contains("alph"), "one was left behind: {text:?}");
 }
+
+// ---- what a project asks of a file --------------------------------------
+
+/// Delivers a file with the properties its `.editorconfig` would have given.
+fn read_with_config(
+    s: &mut Session,
+    path: &str,
+    text: &str,
+    asked: maxgus_core::task::EditorConfig,
+) {
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::FileRead {
+            path: path.into(),
+            contents: text.into(),
+            read_only: false,
+            lossy: false,
+            disk_time: None,
+            reverting: None,
+            other_window: false,
+            editor_config: asked,
+        })
+        .unwrap();
+    s.editor.tasks.drain();
+}
+
+#[test]
+fn a_projects_indent_settings_win_over_the_configuration() {
+    let mut s = tall_session("/project/main.rs", "");
+    s.editor.settings.tab_width = 8;
+    s.editor.settings.indent_with_tabs = true;
+    s.editor.apply_settings_everywhere();
+
+    read_with_config(
+        &mut s,
+        "/project/src/app.js",
+        "let x;\n",
+        maxgus_core::task::EditorConfig {
+            tab_width: Some(2),
+            indent_with_tabs: Some(false),
+            ..Default::default()
+        },
+    );
+    assert_eq!(s.editor.current_buffer().name(), "app.js");
+    assert_eq!(s.editor.current_buffer().tab_width(), 2);
+    assert!(!s.editor.current_buffer().indent_with_tabs());
+}
+
+#[test]
+fn a_file_with_nothing_to_say_keeps_the_configurations_settings() {
+    let mut s = tall_session("/project/main.rs", "");
+    s.editor.settings.tab_width = 8;
+    s.editor.apply_settings_everywhere();
+    read_with_config(
+        &mut s,
+        "/project/plain.txt",
+        "text\n",
+        maxgus_core::task::EditorConfig::default(),
+    );
+    assert_eq!(s.editor.current_buffer().tab_width(), 8);
+}
+
+#[test]
+fn the_projects_settings_survive_the_configuration_being_reapplied() {
+    // `load-theme` and friends re-apply the settings to every buffer; the
+    // file's own rules must not be flattened by that.
+    let mut s = tall_session("/project/main.rs", "");
+    s.editor.settings.tab_width = 8;
+    read_with_config(
+        &mut s,
+        "/project/src/app.js",
+        "let x;\n",
+        maxgus_core::task::EditorConfig {
+            tab_width: Some(2),
+            ..Default::default()
+        },
+    );
+    s.editor.apply_settings_everywhere();
+    assert_eq!(s.editor.current_buffer().tab_width(), 2);
+}
+
+#[test]
+fn a_project_can_ask_for_crlf_line_endings() {
+    let mut s = tall_session("/project/main.rs", "");
+    read_with_config(
+        &mut s,
+        "/project/win.bat",
+        "echo hi\n",
+        maxgus_core::task::EditorConfig {
+            crlf: Some(true),
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        s.editor.current_buffer().line_ending(),
+        maxgus_text::LineEnding::Crlf
+    );
+}
+
+#[test]
+fn a_project_can_turn_off_trimming_for_its_own_files() {
+    let mut s = tall_session("/project/main.rs", "");
+    s.editor.settings.delete_trailing_whitespace = true;
+    read_with_config(
+        &mut s,
+        "/project/keep.md",
+        "a line   \n",
+        maxgus_core::task::EditorConfig {
+            trim_trailing_whitespace: Some(false),
+            ..Default::default()
+        },
+    );
+    // A buffer with no changes is not written at all.
+    s.type_text("x");
+    s.editor.tasks.drain();
+    s.keys("C-x C-s");
+    match &s.editor.tasks.drain()[..] {
+        [Task::WriteFile { contents, .. }] => assert!(
+            contents.contains("a line   "),
+            "the trailing spaces were trimmed anyway: {contents:?}"
+        ),
+        other => panic!("expected a write, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_project_can_ask_for_a_final_newline_the_configuration_does_not() {
+    let mut s = tall_session("/project/main.rs", "");
+    s.editor.settings.require_final_newline = false;
+    read_with_config(
+        &mut s,
+        "/project/needs.txt",
+        "no newline",
+        maxgus_core::task::EditorConfig {
+            final_newline: Some(true),
+            ..Default::default()
+        },
+    );
+    s.keys("M->");
+    s.type_text("!");
+    s.editor.tasks.drain();
+    s.keys("C-x C-s");
+    match &s.editor.tasks.drain()[..] {
+        [Task::WriteFile { contents, .. }] => {
+            assert!(contents.ends_with('\n'), "no final newline: {contents:?}")
+        }
+        other => panic!("expected a write, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_projects_line_length_is_what_fill_uses() {
+    let mut s = tall_session("/project/main.rs", "");
+    s.editor.settings.fill_column = 70;
+    read_with_config(
+        &mut s,
+        "/project/narrow.md",
+        &format!("{}\n", "word ".repeat(20)),
+        maxgus_core::task::EditorConfig {
+            fill_column: Some(20),
+            ..Default::default()
+        },
+    );
+    s.keys("M-q");
+    let text = s.editor.current_buffer().text();
+    for line in text.lines() {
+        assert!(
+            line.chars().count() <= 20,
+            "a line is longer than the project asked for: {line:?}"
+        );
+    }
+}

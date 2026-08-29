@@ -118,6 +118,28 @@ impl std::fmt::Display for TerminalId {
     }
 }
 
+/// What a file's `.editorconfig` asks for.
+///
+/// Only what the editor can honour: a property it has no setting for is left
+/// out rather than carried around unused. Each is optional because
+/// `.editorconfig` files say only what they mean to change.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EditorConfig {
+    pub tab_width: Option<usize>,
+    pub indent_with_tabs: Option<bool>,
+    pub crlf: Option<bool>,
+    pub trim_trailing_whitespace: Option<bool>,
+    pub final_newline: Option<bool>,
+    pub fill_column: Option<usize>,
+}
+
+impl EditorConfig {
+    /// True when it asks for nothing, which is the usual case.
+    pub fn is_empty(&self) -> bool {
+        *self == EditorConfig::default()
+    }
+}
+
 /// What a write insists is true of the file before it goes ahead.
 ///
 /// Checking any of it means a `stat`, which is the executor's work rather than
@@ -389,6 +411,8 @@ pub enum TaskResult {
         disk_time: Option<std::time::SystemTime>,
         reverting: Option<BufferId>,
         other_window: bool,
+        /// What the file's `.editorconfig` asks for, if anything does.
+        editor_config: EditorConfig,
     },
     FileWritten {
         path: PathBuf,
@@ -681,6 +705,7 @@ mod tests {
             disk_time: None,
             reverting: None,
             other_window: false,
+            editor_config: Default::default(),
         };
         assert_eq!(read.message().unwrap(), "Read /tmp/a.rs");
 

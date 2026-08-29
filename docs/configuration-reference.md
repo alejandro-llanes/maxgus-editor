@@ -16,6 +16,26 @@ every option below.
 
 ---
 
+## `.editorconfig`
+
+A file's own project speaks first. Any `.editorconfig` between the file and
+the root is read, and what it says about that file overrides the settings
+below for that buffer alone:
+
+| Property | Overrides |
+|---|---|
+| `indent_style` | `indent-with-tabs` |
+| `indent_size` / `tab_width` | `tab-width` |
+| `end_of_line` | the buffer's line ending |
+| `trim_trailing_whitespace` | `delete-trailing-whitespace` |
+| `insert_final_newline` | `require-final-newline` |
+| `max_line_length` | `fill-column` |
+
+Nothing switches this on or off: a project either has an `.editorconfig` or
+it does not.
+
+---
+
 ## `set` — settings
 
 Written as properties on a `set` node. Several to a line, or one per line:

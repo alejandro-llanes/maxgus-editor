@@ -174,7 +174,7 @@ pub fn fill(text: &str, width: usize, indent: &str) -> String {
 
 /// Fills `first..=last`, treating them as one paragraph.
 fn fill_lines(editor: &mut Editor, first: usize, last: usize) -> Result<()> {
-    let width = editor.settings.fill_column;
+    let width = editor.fill_column_for(editor.current_buffer_id());
     let (range, indent, text) = {
         let buffer = editor.current_buffer();
         let start = buffer.line_start(first);

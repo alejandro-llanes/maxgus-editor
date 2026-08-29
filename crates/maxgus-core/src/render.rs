@@ -1378,7 +1378,7 @@ fn draw_fill_column(
     area: Rect,
     gutter: u16,
 ) {
-    let column = editor.settings.fill_column;
+    let column = editor.fill_column_for(window.buffer);
     // Nothing to mark if the column has scrolled off the left.
     let Some(offset) = column.checked_sub(window.left_column) else {
         return;

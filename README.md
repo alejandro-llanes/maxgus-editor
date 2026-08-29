@@ -237,6 +237,22 @@ The tree keeps **47 bindings and 41 commands** from treemacs' own keymap:
 paths, `t h`/`t w`/`t f`/`t g`/`t d` to toggle, `g r` to refresh. Git status
 in the gutter, follow mode, `?` for help.
 
+### It reads your project's `.editorconfig`
+
+A file's own project usually knows better than a global setting how it should
+be written. `.editorconfig` files are read on the way up from the file to the
+root — `indent_style`, `indent_size`, `tab_width`, `end_of_line`,
+`trim_trailing_whitespace`, `insert_final_newline` and `max_line_length` — and
+what they say wins over the configuration for that buffer.
+
+Nothing needs switching on. A project with no `.editorconfig` costs one failed
+lookup per file opened; one with several gets them all, in the order the
+standard specifies, because the reading is done by `ec4rs` rather than by a
+parser of my own.
+
+The rules survive `load-theme` and anything else that re-applies the
+configuration to every buffer, which a naive implementation flattens.
+
 ### Several cursors at once
 
 `C->` puts a cursor on the next occurrence of what is selected — or of the
@@ -587,7 +603,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1824 tests.** Unit tests beside the code; session tests that press real keys
+**1832 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

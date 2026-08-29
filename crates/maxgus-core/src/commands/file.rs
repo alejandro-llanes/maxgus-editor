@@ -204,7 +204,7 @@ fn find_alternate_file(editor: &mut Editor, args: &Args) -> Result<()> {
 
 /// Prepares a buffer's text for disk, applying the save-time settings.
 fn contents_for_disk(editor: &mut Editor, id: maxgus_text::BufferId) -> Result<String> {
-    if editor.settings.delete_trailing_whitespace {
+    if editor.trims_trailing_whitespace(id) {
         let cleaned: String = {
             let buffer = editor
                 .buffers
@@ -231,7 +231,7 @@ fn contents_for_disk(editor: &mut Editor, id: maxgus_text::BufferId) -> Result<S
             buffer.set_point(point.min(buffer.point_max()));
         }
     }
-    if editor.settings.require_final_newline {
+    if editor.requires_final_newline(id) {
         let buffer = editor
             .buffers
             .get_mut(id)
@@ -786,6 +786,7 @@ mod tests {
             disk_time: None,
             reverting: None,
             other_window: false,
+            editor_config: Default::default(),
         })
         .unwrap();
 
@@ -811,6 +812,7 @@ mod tests {
             disk_time: None,
             reverting: None,
             other_window: false,
+            editor_config: Default::default(),
         })
         .unwrap();
 
@@ -845,6 +847,7 @@ mod tests {
             disk_time: None,
             reverting: None,
             other_window: false,
+            editor_config: Default::default(),
         })
         .unwrap();
         assert!(e.tasks.is_empty());
@@ -873,6 +876,7 @@ mod tests {
             disk_time: None,
             reverting: None,
             other_window: true,
+            editor_config: Default::default(),
         })
         .unwrap();
         assert_eq!(e.windows.len(), 2);
@@ -1068,6 +1072,7 @@ mod tests {
             disk_time: None,
             reverting: Some(id),
             other_window: false,
+            editor_config: Default::default(),
         })
         .unwrap();
 

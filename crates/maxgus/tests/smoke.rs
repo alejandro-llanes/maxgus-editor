@@ -2350,3 +2350,66 @@ fn a_project_is_searched_and_the_results_are_edited_back_into_it() {
     );
     assert_eq!(session.quit(), 0);
 }
+
+#[test]
+fn a_real_editorconfig_decides_how_a_file_is_indented() {
+    // The parsing and the walk up the tree, against real files. What is
+    // checked is the width a tab is *drawn* at, which is the setting having
+    // an effect rather than merely being stored.
+    let fixture = Fixture::new("editorconfig");
+    let root = fixture.path();
+    std::fs::write(
+        root.join(".editorconfig"),
+        "root = true\n\
+         \n\
+         [*]\n\
+         indent_style = tab\n\
+         indent_size = 8\n\
+         \n\
+         [*.txt]\n\
+         indent_size = 3\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("narrow.txt"), "\tX\n").unwrap();
+    std::fs::write(root.join("wide.md"), "\tX\n").unwrap();
+    // Neither 3 nor 8: whichever width shows up came from the project.
+    std::fs::write(
+        root.join("config.kdl"),
+        "set tab-width=4\nset nerd-font-icons=#false\nset line-numbers=#false\n",
+    )
+    .unwrap();
+
+    let mut session = Session::start(root, &["--config", "config.kdl", "narrow.txt"]);
+    assert!(
+        wait_for(&mut session, "maxgus started in", 60),
+        "no startup"
+    );
+
+    let column_of_x = |session: &mut Session| -> usize {
+        session
+            .screen()
+            .iter()
+            .find(|line| line.trim() == "X")
+            .and_then(|line| line.find('X'))
+            .unwrap_or_else(|| panic!("no `X` on screen:\n{:#?}", session.screen()))
+    };
+    assert_eq!(
+        column_of_x(&mut session),
+        3,
+        "`[*.txt] indent_size = 3` did not take"
+    );
+
+    // The other file falls under `[*]`, which asks for eight.
+    session.send(b"\x18\x06wide.md\r"); // C-x C-f wide.md RET
+    assert!(
+        wait_for(&mut session, "wide.md", 60),
+        "the second file did not open:\n{:#?}",
+        session.screen()
+    );
+    assert_eq!(
+        column_of_x(&mut session),
+        8,
+        "`[*] indent_size = 8` did not take"
+    );
+    assert_eq!(session.quit(), 0);
+}

@@ -12,9 +12,9 @@ use maxgus_config::{LspSpec, TreeConfig};
 use maxgus_core::task::LspQuery;
 #[cfg(feature = "terminal")]
 use maxgus_core::task::TerminalId;
+use maxgus_core::task::{EditorConfig, Task, TaskResult, TreeAction};
 #[cfg(feature = "git")]
 use maxgus_core::task::{GitAction, GitSnapshot};
-use maxgus_core::task::{Task, TaskResult, TreeAction};
 #[cfg(feature = "lsp")]
 use maxgus_lsp::{Client, ServerEvent};
 #[cfg(feature = "syntax")]
@@ -292,6 +292,14 @@ impl Executor {
                         .as_ref()
                         .is_some_and(|m| m.permissions().readonly());
                 let disk_time = metadata.and_then(|m| m.modified().ok());
+                // Reading `.editorconfig` walks up the tree looking at files,
+                // which is blocking work and belongs off the runtime.
+                let asked = {
+                    let path = path.clone();
+                    tokio::task::spawn_blocking(move || Executor::editor_config(&path))
+                        .await
+                        .unwrap_or_default()
+                };
                 self.send(TaskResult::FileRead {
                     path,
                     contents,
@@ -300,11 +308,20 @@ impl Executor {
                     disk_time,
                     reverting,
                     other_window,
+                    editor_config: asked,
                 });
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 // Visiting a file that does not exist yet creates an empty
                 // buffer for it, as `find-file` does.
+                // A file that does not exist yet still belongs to a project
+                // that has an opinion about how it should be written.
+                let asked = {
+                    let path = path.clone();
+                    tokio::task::spawn_blocking(move || Executor::editor_config(&path))
+                        .await
+                        .unwrap_or_default()
+                };
                 self.send(TaskResult::FileRead {
                     path,
                     contents: String::new(),
@@ -313,6 +330,7 @@ impl Executor {
                     disk_time: None,
                     reverting,
                     other_window,
+                    editor_config: asked,
                 });
             }
             Err(error) => self.fail("find-file", error),
@@ -1146,6 +1164,52 @@ impl Executor {
                 self.stop_server(&language).await;
             }
         }
+    }
+
+    // ---- what a project asks of a file ---------------------------------
+
+    /// Reads the `.editorconfig` rules that apply to `path`.
+    ///
+    /// Only what the editor can honour: a property with no setting behind it
+    /// is left out rather than carried around. A file with no `.editorconfig`
+    /// above it — the usual case — produces nothing and costs one failed
+    /// lookup.
+    fn editor_config(path: &Path) -> EditorConfig {
+        let Ok(properties) = ec4rs::properties_of(path) else {
+            return EditorConfig::default();
+        };
+        use ec4rs::property::*;
+        let mut asked = EditorConfig::default();
+        if let Ok(style) = properties.get::<IndentStyle>() {
+            asked.indent_with_tabs = Some(matches!(style, IndentStyle::Tabs));
+        }
+        // `indent_size` is what a level of indentation costs; `tab_width` is
+        // what a tab character is drawn as. The editor has one number, and
+        // the indent size is the one a person means.
+        if let Ok(IndentSize::Value(size)) = properties.get::<IndentSize>() {
+            asked.tab_width = Some(size);
+        } else if let Ok(TabWidth::Value(width)) = properties.get::<TabWidth>() {
+            asked.tab_width = Some(width);
+        }
+        if let Ok(ending) = properties.get::<EndOfLine>() {
+            asked.crlf = match ending {
+                EndOfLine::CrLf => Some(true),
+                EndOfLine::Lf => Some(false),
+                // `cr` alone is not something the editor can hold, so it is
+                // left to whatever the file itself turns out to use.
+                _ => None,
+            };
+        }
+        if let Ok(trim) = properties.get::<TrimTrailingWs>() {
+            asked.trim_trailing_whitespace = Some(matches!(trim, TrimTrailingWs::Value(true)));
+        }
+        if let Ok(final_newline) = properties.get::<FinalNewline>() {
+            asked.final_newline = Some(matches!(final_newline, FinalNewline::Value(true)));
+        }
+        if let Ok(MaxLineLen::Value(length)) = properties.get::<MaxLineLen>() {
+            asked.fill_column = Some(length);
+        }
+        asked
     }
 
     // ---- searching the project -----------------------------------------

@@ -61,6 +61,8 @@ pub struct Editor {
     pub config_says_theme: Option<String>,
     /// A file being read, and the line point should land on when it arrives.
     pub pending_line: Option<(PathBuf, usize)>,
+    /// What each buffer's `.editorconfig` asked for.
+    pub editor_configs: std::collections::HashMap<BufferId, crate::task::EditorConfig>,
     /// Cursors besides the window's own, which every editing command is run
     /// at as well.
     pub cursors: crate::multi::Cursors,
@@ -262,6 +264,7 @@ impl Editor {
             config_path: None,
             config_says_theme: None,
             pending_line: None,
+            editor_configs: std::collections::HashMap::new(),
             cursors: crate::multi::Cursors::new(),
             undo_tree_subject: None,
             #[cfg(feature = "grep")]
@@ -385,11 +388,63 @@ impl Editor {
     /// redisplay, and a tab would be inserted as one width and drawn as
     /// another.
     pub fn apply_settings(&mut self, buffer: BufferId) {
-        let (width, tabs) = (self.settings.tab_width, self.settings.indent_with_tabs);
+        let (mut width, mut tabs) = (self.settings.tab_width, self.settings.indent_with_tabs);
+        // What the file's own `.editorconfig` said wins: it is the project
+        // speaking about this file, and the configuration is the user
+        // speaking about files in general.
+        if let Some(asked) = self.editor_configs.get(&buffer) {
+            width = asked.tab_width.unwrap_or(width);
+            tabs = asked.indent_with_tabs.unwrap_or(tabs);
+        }
         if let Some(buffer) = self.buffers.get_mut(buffer) {
             buffer.set_tab_width(width);
             buffer.set_indent_with_tabs(tabs);
         }
+    }
+
+    /// Records what a file's `.editorconfig` asked for, and applies it.
+    pub fn set_editor_config(&mut self, buffer: BufferId, asked: crate::task::EditorConfig) {
+        if asked.is_empty() {
+            self.editor_configs.remove(&buffer);
+            return;
+        }
+        if let Some(crlf) = asked.crlf
+            && let Some(target) = self.buffers.get_mut(buffer)
+        {
+            target.set_line_ending(match crlf {
+                true => maxgus_text::LineEnding::Crlf,
+                false => maxgus_text::LineEnding::Lf,
+            });
+        }
+        self.editor_configs.insert(buffer, asked);
+        self.apply_settings(buffer);
+    }
+
+    /// What a buffer's `.editorconfig` asked for, for the settings that are
+    /// read at the moment they are used rather than applied to the buffer.
+    pub fn editor_config(&self, buffer: BufferId) -> Option<&crate::task::EditorConfig> {
+        self.editor_configs.get(&buffer)
+    }
+
+    /// Whether trailing whitespace should be trimmed from `buffer` on save.
+    pub fn trims_trailing_whitespace(&self, buffer: BufferId) -> bool {
+        self.editor_config(buffer)
+            .and_then(|asked| asked.trim_trailing_whitespace)
+            .unwrap_or(self.settings.delete_trailing_whitespace)
+    }
+
+    /// Whether `buffer` should end with a newline when it is written.
+    pub fn requires_final_newline(&self, buffer: BufferId) -> bool {
+        self.editor_config(buffer)
+            .and_then(|asked| asked.final_newline)
+            .unwrap_or(self.settings.require_final_newline)
+    }
+
+    /// The column the fill commands and the indicator use for `buffer`.
+    pub fn fill_column_for(&self, buffer: BufferId) -> usize {
+        self.editor_config(buffer)
+            .and_then(|asked| asked.fill_column)
+            .unwrap_or(self.settings.fill_column)
     }
 
     /// Applies the settings to every buffer, for startup and after the
@@ -1188,6 +1243,7 @@ impl Editor {
                 disk_time,
                 reverting,
                 other_window,
+                editor_config,
             } => {
                 let id = match reverting {
                     Some(id) => {
@@ -1240,6 +1296,10 @@ impl Editor {
                 }
                 let lines = self.current_buffer().len_lines();
                 self.message_unless_error(format!("{} ({lines} lines)", path.display()));
+                // Before the highlighting and the server, so a buffer whose
+                // project says four-space indent is four-space indent from
+                // the first frame it is drawn in.
+                self.set_editor_config(id, editor_config);
                 self.request_highlighting(id);
                 #[cfg(feature = "lsp")]
                 self.request_language_server(id);

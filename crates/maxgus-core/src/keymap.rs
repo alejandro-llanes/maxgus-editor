@@ -163,6 +163,10 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-x C-x", "exchange-point-and-mark"),
     ("C-x h", "mark-whole-buffer"),
     ("C-x u", "undo"),
+    // The visualiser beside `undo` rather than over it: `C-x u` is undo in
+    // every Emacs that has not loaded undo-tree, and that is muscle memory
+    // worth more than matching a package's own binding.
+    ("C-x U", "undo-tree-visualize"),
     ("C-x C-u", "upcase-region"),
     ("C-x C-l", "downcase-region"),
     ("C-x C-t", "transpose-lines"),
@@ -601,6 +605,27 @@ pub fn grep_edit_keymap() -> Result<Keymap> {
 pub fn grep_keymap() -> Result<Keymap> {
     let mut map = Keymap::new(crate::commands::grep::GREP_MODE);
     for (keys, command) in GREP_BINDINGS {
+        map.define_str(keys, *command)?;
+    }
+    Ok(map)
+}
+
+/// The visualiser: moving in it moves the buffer.
+pub const UNDO_TREE_BINDINGS: &[(&str, &str)] = &[
+    ("p", "undo-tree-undo"),
+    ("<up>", "undo-tree-undo"),
+    ("n", "undo-tree-redo"),
+    ("<down>", "undo-tree-redo"),
+    ("b", "undo-tree-switch-branch"),
+    ("<left>", "undo-tree-switch-branch"),
+    ("<right>", "undo-tree-switch-branch"),
+    ("q", "undo-tree-quit"),
+    ("RET", "undo-tree-quit"),
+];
+
+pub fn undo_tree_keymap() -> Result<Keymap> {
+    let mut map = Keymap::new(crate::commands::undo_tree::VISUALIZER_MODE);
+    for (keys, command) in UNDO_TREE_BINDINGS {
         map.define_str(keys, *command)?;
     }
     Ok(map)

@@ -30,6 +30,7 @@ pub mod task;
 pub mod terminal;
 #[cfg(feature = "git")]
 pub mod transient;
+pub mod undo_tree;
 pub mod window;
 
 pub use buffers::{BufferList, SCRATCH_NAME};

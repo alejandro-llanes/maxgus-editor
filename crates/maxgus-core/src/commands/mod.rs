@@ -26,6 +26,7 @@ pub mod text;
 #[cfg(feature = "git")]
 pub mod transient;
 pub mod tree;
+pub mod undo_tree;
 pub mod window;
 
 use crate::command::Registry;
@@ -50,6 +51,7 @@ pub fn standard_registry() -> Registry {
     #[cfg(feature = "git")]
     transient::register(&mut registry);
     tree::register(&mut registry);
+    undo_tree::register(&mut registry);
     misc::register(&mut registry);
     help::register(&mut registry);
     register::register(&mut registry);

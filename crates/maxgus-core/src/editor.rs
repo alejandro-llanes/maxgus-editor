@@ -61,6 +61,8 @@ pub struct Editor {
     pub config_says_theme: Option<String>,
     /// A file being read, and the line point should land on when it arrives.
     pub pending_line: Option<(PathBuf, usize)>,
+    /// The buffer whose history the visualiser is showing.
+    pub undo_tree_subject: Option<BufferId>,
     /// The results of the last project search.
     #[cfg(feature = "grep")]
     pub grep: Option<crate::grep::GrepView>,
@@ -257,6 +259,7 @@ impl Editor {
             config_path: None,
             config_says_theme: None,
             pending_line: None,
+            undo_tree_subject: None,
             #[cfg(feature = "grep")]
             grep: None,
             #[cfg(feature = "grep")]
@@ -822,6 +825,9 @@ impl Editor {
                 return Some(crate::commands::git::COMMIT_MODE.to_string());
             }
         }
+        if buffer.name() == crate::commands::undo_tree::VISUALIZER_BUFFER_NAME {
+            return Some(crate::commands::undo_tree::VISUALIZER_MODE.to_string());
+        }
         #[cfg(feature = "grep")]
         if buffer.name() == crate::commands::grep::GREP_BUFFER_NAME {
             let writing = self.grep.as_ref().is_some_and(|view| view.editable);
@@ -886,6 +892,7 @@ impl Editor {
             crate::commands::grep::GREP_MODE => crate::keymap::grep_keymap().ok(),
             #[cfg(feature = "grep")]
             crate::commands::grep::GREP_EDIT_MODE => crate::keymap::grep_edit_keymap().ok(),
+            crate::commands::undo_tree::VISUALIZER_MODE => crate::keymap::undo_tree_keymap().ok(),
             crate::commands::tree::SYMBOLS_MODE => crate::keymap::symbols_keymap().ok(),
             crate::commands::tree::BUFFERS_MODE => crate::keymap::buffers_keymap().ok(),
             #[cfg(feature = "terminal")]

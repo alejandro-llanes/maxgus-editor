@@ -747,6 +747,53 @@ impl Buffer {
         Ok(true)
     }
 
+    /// The history's shape, for the visualiser to draw.
+    pub fn undo_shape(&self) -> Vec<crate::undo::TreeNode> {
+        self.undo.shape()
+    }
+
+    /// Where the history is.
+    pub fn undo_position(&self) -> usize {
+        self.undo.position()
+    }
+
+    /// How many ways forward there are from here.
+    pub fn undo_branches(&self) -> usize {
+        self.undo.branches()
+    }
+
+    /// Chooses which branch a redo takes.
+    pub fn set_undo_branch(&mut self, index: usize) -> bool {
+        self.undo.set_branch(index)
+    }
+
+    /// Moves the buffer to another node of its history.
+    ///
+    /// The route is worked out first and applied as a whole, so a move that
+    /// cannot be made leaves the buffer where it was rather than part-way.
+    pub fn undo_go_to(&mut self, node: usize) -> Result<bool> {
+        self.ensure_writable()?;
+        self.open_groups = 0;
+        self.undo.commit(self.point);
+        let Some(groups) = self.undo.path_to(node) else {
+            return Ok(false);
+        };
+        if groups.is_empty() {
+            return Ok(false);
+        }
+        let mut point = self.point;
+        for group in &groups {
+            for edit in &group.edits {
+                self.apply_raw(edit);
+            }
+            point = group.point_after;
+        }
+        self.undo.arrive_at(node);
+        self.point = self.clamp(point);
+        self.goal_column = None;
+        Ok(true)
+    }
+
     /// `undo-redo`: re-applies the most recently undone group.
     pub fn redo(&mut self) -> Result<bool> {
         self.ensure_writable()?;

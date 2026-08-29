@@ -4480,9 +4480,9 @@ fn the_readme_quotes_the_right_totals() {
 }
 
 #[cfg(feature = "full")]
-const README_BINDINGS: usize = 334;
+const README_BINDINGS: usize = 335;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 386;
+const README_COMMANDS: usize = 391;
 
 #[cfg(feature = "lsp")]
 #[test]
@@ -5219,4 +5219,172 @@ fn writing_the_files_re_reads_the_buffers_that_were_showing_them() {
         }
         other => panic!("expected a revert, got {other:?}"),
     }
+}
+
+// ---- the undo tree -------------------------------------------------------
+
+/// Reports the write the editor just asked for as having happened, which is
+/// what marks the buffer saved.
+fn deliver_write(s: &mut Session) {
+    let buffer = s.editor.current_buffer_id();
+    let path = s
+        .editor
+        .current_buffer()
+        .path()
+        .expect("a file")
+        .to_path_buf();
+    let bytes = s.editor.current_buffer().text().len();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::FileWritten {
+            path,
+            buffer,
+            bytes,
+            disk_time: None,
+        })
+        .unwrap();
+    s.editor.tasks.drain();
+}
+
+/// A buffer with two versions of its second word, one abandoned by an undo.
+fn with_two_versions() -> Session {
+    let mut s = tall_session("/project/main.rs", "");
+    s.type_text("alpha ");
+    s.keys("C-x C-s"); // a boundary, and the state on disk
+    deliver_write(&mut s);
+    s.type_text("first");
+    s.keys("C-/"); // undo, abandoning `first`
+    s.type_text("second");
+    s
+}
+
+#[test]
+fn typing_after_an_undo_keeps_the_version_it_replaced() {
+    // Linear undo throws `first` away here; a tree keeps it.
+    let mut s = with_two_versions();
+    assert!(s.editor.current_buffer().text().contains("second"));
+
+    s.keys("C-x U");
+    assert_eq!(s.editor.current_buffer().name(), "*undo-tree*");
+    let screen = s.screen();
+    assert!(
+        screen.iter().any(|line| line.contains("branches")),
+        "the tree does not show a fork:\n{screen:#?}"
+    );
+}
+
+#[test]
+fn the_visualiser_opens_beside_the_buffer_rather_than_over_it() {
+    let mut s = with_two_versions();
+    s.keys("C-x U");
+    assert!(s.editor.windows.len() >= 2, "it took the only window");
+    let showing: Vec<String> = s
+        .editor
+        .windows
+        .iter()
+        .filter_map(|w| s.editor.buffers.get(w.buffer))
+        .map(|b| b.name().to_string())
+        .collect();
+    assert!(showing.contains(&"main.rs".to_string()), "the file is gone");
+    assert!(showing.contains(&"*undo-tree*".to_string()));
+}
+
+#[test]
+fn moving_in_the_visualiser_moves_the_buffer_under_it() {
+    let mut s = with_two_versions();
+    let subject = s.editor.buffers.find_by_name("main.rs").expect("the file");
+    let text = |s: &Session| {
+        s.editor
+            .buffers
+            .get(subject)
+            .expect("the file")
+            .text()
+            .to_string()
+    };
+    s.keys("C-x U");
+    assert!(text(&s).contains("second"));
+
+    s.keys("p"); // undo
+    assert!(
+        !text(&s).contains("second"),
+        "the buffer did not move: {:?}",
+        text(&s)
+    );
+    s.keys("n"); // redo
+    assert!(text(&s).contains("second"), "it did not come back");
+}
+
+#[test]
+fn the_other_branch_is_reachable_from_the_visualiser() {
+    // The whole reason for a tree: `first` was undone past and typed over,
+    // and it is still here.
+    let mut s = with_two_versions();
+    let subject = s.editor.buffers.find_by_name("main.rs").expect("the file");
+    s.keys("C-x U");
+    s.keys("p"); // back to the fork
+    s.keys("b"); // the other way forward
+    s.keys("n"); // and along it
+    let text = s
+        .editor
+        .buffers
+        .get(subject)
+        .expect("the file")
+        .text()
+        .to_string();
+    assert!(
+        text.contains("first"),
+        "the abandoned version is gone: {text:?}"
+    );
+}
+
+#[test]
+fn the_visualiser_marks_where_the_buffer_is_and_what_is_on_disk() {
+    let mut s = with_two_versions();
+    s.keys("C-x U");
+    let screen = s.screen();
+    let text: String = screen.join("\n");
+    assert!(text.contains("← here"), "no current marker:\n{screen:#?}");
+    assert!(text.contains("(on disk)"), "no saved marker:\n{screen:#?}");
+}
+
+#[test]
+fn closing_the_visualiser_goes_back_to_the_buffer() {
+    let mut s = with_two_versions();
+    s.keys("C-x U");
+    s.keys("q");
+    assert_eq!(s.editor.current_buffer().name(), "main.rs");
+    assert!(
+        s.editor.buffers.find_by_name("*undo-tree*").is_none(),
+        "the visualiser was left behind"
+    );
+}
+
+#[test]
+fn undoing_back_to_the_saved_state_stops_calling_the_buffer_modified() {
+    let mut s = tall_session("/project/main.rs", "");
+    s.type_text("alpha");
+    s.keys("C-x C-s");
+    deliver_write(&mut s);
+    assert!(
+        !s.editor.current_buffer().is_modified(),
+        "the save did not take"
+    );
+    s.type_text(" beta");
+    assert!(s.editor.current_buffer().is_modified());
+    s.keys("C-/");
+    assert!(
+        !s.editor.current_buffer().is_modified(),
+        "it is back to what is on disk and still says otherwise"
+    );
+}
+
+#[test]
+fn the_visualiser_on_a_buffer_with_no_history_still_opens() {
+    let mut s = tall_session("/project/main.rs", "unchanged\n");
+    s.keys("C-x U");
+    assert_eq!(s.editor.current_buffer().name(), "*undo-tree*");
+    assert!(
+        s.screen().iter().any(|l| l.contains("0 change(s)")),
+        "it did not say the history is empty:\n{:#?}",
+        s.screen()
+    );
 }

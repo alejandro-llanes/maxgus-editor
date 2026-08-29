@@ -90,8 +90,8 @@ $ ./target/release/maxgus
 
 ### Emacs keys, and they behave like Emacs
 
-**334 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **386 commands**. Prefix
+**335 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
+the panel, tree, magit and terminal maps, driving **391 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -236,6 +236,32 @@ The tree keeps **47 bindings and 41 commands** from treemacs' own keymap:
 `c f`/`c d` to create, `R`, `d`, `m`, `!`, `y a`/`y r`/`y p`/`y f` to copy
 paths, `t h`/`t w`/`t f`/`t g`/`t d` to toggle, `g r` to refresh. Git status
 in the gutter, follow mode, `?` for help.
+
+### Undo that keeps what you undid
+
+Undo here is a **tree**, not a line. Linear undo throws the future away the
+moment you type after undoing: the paragraph you undid past is gone and no
+amount of redoing brings it back. This keeps it — typing after an undo starts
+a *branch* beside the one you left.
+
+`C-/`, `C-_` and `C-x u` undo; `C-M-/` redoes. **`C-x U`** opens the history
+beside the buffer:
+
+```
+Undo history for `main.rs` — 4 change(s)
+
+o 0   the file as it was opened   (on disk)   [2 branches]
+  * 3   1 change   ← here
+  o 1   1 change
+```
+
+`p` and `n` walk it, `b` takes the other branch, and **the buffer changes
+under you as you move** — the way to find the version you want is to look at
+it. `q` closes it and leaves the buffer wherever you stopped.
+
+Because the history is a tree, "modified" is exact rather than a guess:
+undoing back to the state on disk — by whatever route, along whatever branch —
+lands on the same node, and the buffer stops calling itself modified.
 
 ### Search the whole project, and edit the results
 
@@ -403,6 +429,7 @@ first.
 | `M-q` | Fill the paragraph |
 | `M-h` `C-M-h` | Mark the paragraph, the definition |
 | `C-x z` | Repeat the last command |
+| `C-x U` | Show the undo history as a tree |
 | `C-x t t` | Toggle the side panel |
 | `C-x t 1` / `2` / `3` | Select the tree, the outline, the buffer list |
 | `C-x t v` | Toggle the terminal panel |
@@ -539,7 +566,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1771 tests.** Unit tests beside the code; session tests that press real keys
+**1799 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

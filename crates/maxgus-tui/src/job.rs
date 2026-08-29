@@ -35,7 +35,9 @@ pub enum Suspension {
 /// the same session and is the thing that will run `fg`.
 ///
 /// Kept separate from the calls that supply its arguments so the rule itself
-/// can be tested without arranging real processes.
+/// can be tested without arranging real processes — on every platform, which
+/// is why this is compiled for tests even where nothing calls it.
+#[cfg(any(unix, test))]
 fn parent_can_resume(group: i32, session: i32, parent: Option<(i32, i32)>) -> bool {
     match parent {
         // A parent inside our own group stops when we do, so nothing would be

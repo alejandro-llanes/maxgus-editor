@@ -542,6 +542,13 @@ impl WindowTree {
         }
     }
 
+    /// Lets the layout decide a window's height again.
+    pub fn clear_fixed_height(&mut self, id: WindowId) {
+        if self.fixed_heights.remove(&id).is_some() {
+            self.layout(self.frame);
+        }
+    }
+
     /// Sets a bottom panel's height and re-lays out.
     pub fn set_fixed_height(&mut self, id: WindowId, height: u16) {
         if self.windows.contains_key(&id) {

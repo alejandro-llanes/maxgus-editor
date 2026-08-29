@@ -553,7 +553,7 @@ fn a_keyboard_macro_records_and_replays() {
 #[test]
 fn an_unbound_key_is_reported_rather_than_ignored() {
     let mut s = Session::editing("/project/notes.txt", "text");
-    let outcome = s.dispatcher.handle_keys(&mut s.editor, "<f9>");
+    let outcome = s.dispatcher.handle_keys(&mut s.editor, "<f12>");
     assert!(
         matches!(outcome, maxgus_core::Dispatch::Undefined { .. }),
         "got {outcome:?}"
@@ -4362,7 +4362,7 @@ fn the_configuration_file_is_opened_by_a_key() {
     s.editor.config_path = Some("/home/someone/.config/maxgus/config.kdl".into());
     s.editor.tasks.drain();
 
-    s.keys("C-c e");
+    s.keys("C-c f p");
     let tasks = s.editor.tasks.drain();
     assert!(
         tasks.iter().any(|t| matches!(t, Task::ReadFile { path, .. }
@@ -4379,7 +4379,7 @@ fn opening_the_configuration_twice_shows_the_buffer_it_already_has() {
     s.editor.buffers.visit_file(path, "set tab-width=4\n");
     s.editor.tasks.drain();
 
-    s.keys("C-c e");
+    s.keys("C-c f p");
     assert_eq!(s.editor.current_buffer().name(), "config.kdl");
     assert!(s.editor.tasks.drain().is_empty(), "it read the file again");
 }
@@ -4480,9 +4480,9 @@ fn the_readme_quotes_the_right_totals() {
 }
 
 #[cfg(feature = "full")]
-const README_BINDINGS: usize = 344;
+const README_BINDINGS: usize = 394;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 425;
+const README_COMMANDS: usize = 438;
 
 #[cfg(feature = "lsp")]
 #[test]
@@ -4637,8 +4637,11 @@ fn holding_down_walks_the_whole_list_and_comes_back_round() {
             .expect("something is highlighted")
             .to_string();
         let screen = s.screen();
+        // The name column is narrow, so a long name is drawn abbreviated;
+        // what has to be on screen is the row, not every character of it.
+        let shown: String = selected.chars().take(18).collect();
         assert!(
-            screen.iter().skip(2).any(|line| line.contains(&selected)),
+            screen.iter().skip(2).any(|line| line.contains(&shown)),
             "step {step}: `{selected}` is highlighted but not drawn:\n{screen:#?}"
         );
         s.keys("<down>");
@@ -4657,8 +4660,9 @@ fn holding_down_walks_the_whole_list_and_comes_back_round() {
             .expect("something is highlighted")
             .to_string();
         let screen = s.screen();
+        let shown: String = selected.chars().take(18).collect();
         assert!(
-            screen.iter().skip(2).any(|line| line.contains(&selected)),
+            screen.iter().skip(2).any(|line| line.contains(&shown)),
             "step {step} going up: `{selected}` is not drawn:\n{screen:#?}"
         );
     }
@@ -4885,7 +4889,7 @@ fn the_wheel_stops_at_the_ends_rather_than_scrolling_into_nothing() {
 fn a_file_is_handed_to_the_desktop_to_open() {
     let mut s = tall_session("/project/diagram.png", "");
     s.editor.tasks.drain();
-    s.keys("C-c o");
+    s.keys("C-c o b");
     let tasks = s.editor.tasks.drain();
     match &tasks[..] {
         [Task::Shell { command, .. }] => {
@@ -4902,7 +4906,7 @@ fn a_file_is_handed_to_the_desktop_to_open() {
 fn a_buffer_with_no_file_says_so_rather_than_opening_nothing() {
     let mut s = Session::new(60, 10);
     s.editor.tasks.drain();
-    s.keys("C-c o");
+    s.keys("C-c o b");
     assert!(s.echo().contains("no file"), "got `{}`", s.echo());
     assert!(s.editor.tasks.drain().is_empty(), "it ran something anyway");
 }
@@ -5464,9 +5468,9 @@ fn moving_with_several_cursors_moves_all_of_them() {
 #[test]
 fn a_cursor_can_be_put_on_the_line_below() {
     let mut s = with_three_names();
-    s.keys("C-S-<down>");
+    s.keys("C-c m <down>");
     assert_eq!(s.editor.cursors.len(), 1);
-    s.keys("C-S-<down>");
+    s.keys("C-c m <down>");
     assert_eq!(
         s.editor.cursors.len(),
         2,
@@ -5474,9 +5478,9 @@ fn a_cursor_can_be_put_on_the_line_below() {
     );
     // The buffer ends with a newline, so there is an empty last line to
     // reach; the one after that does not exist.
-    s.keys("C-S-<down>");
+    s.keys("C-c m <down>");
     assert_eq!(s.editor.cursors.len(), 3);
-    s.keys("C-S-<down>");
+    s.keys("C-c m <down>");
     assert!(s.echo().contains("No line below"), "got `{}`", s.echo());
 }
 
@@ -6359,4 +6363,224 @@ fn reloading_replaces_what_the_last_script_offered() {
         "the old command is still offered"
     );
     assert!(s.editor.command_names.iter().any(|n| n == "second-command"));
+}
+
+// ---- the bindings this editor is meant to share with Doom ----------------
+
+/// The keys Doom's non-evil scheme puts things on, and the ones this
+/// configuration adds on top of it.
+///
+/// A list rather than a description, because a binding that quietly moves is
+/// a habit that quietly stops working. Each entry is the key and the command
+/// it must reach.
+#[test]
+fn the_bindings_match_doom() {
+    let s = Session::new(80, 24);
+    let map = maxgus_core::global_keymap().expect("the global map");
+    let expected: &[(&str, &str)] = &[
+        // This configuration's own, from its `config.el`.
+        ("C-<left>", "windmove-left"),
+        ("C-<right>", "windmove-right"),
+        ("C-<up>", "windmove-up"),
+        ("C-<down>", "windmove-down"),
+        ("C-S-<up>", "shrink-window"),
+        ("C-S-<down>", "enlarge-window"),
+        ("C-S-<left>", "shrink-window-horizontally"),
+        ("C-S-<right>", "enlarge-window-horizontally"),
+        ("C-d", "duplicate-line-or-region"),
+        ("C-s-a", "treefile-toggle"),
+        ("C-s-i", "panel-toggle-buffers-section"),
+        ("C-s-p", "panel-toggle-tree-section"),
+        // Doom's own globals.
+        ("C-x b", "switch-to-buffer"),
+        ("C-x C-b", "list-buffers"),
+        ("C-x K", "kill-buffer-in-all-windows"),
+        ("C-x 4 b", "switch-to-buffer-other-window"),
+        ("<f9>", "treefile-toggle"),
+        // Doom's leader maps.
+        ("C-c f f", "find-file"),
+        ("C-c f d", "dired"),
+        ("C-c f D", "delete-this-file"),
+        ("C-c f m", "move-this-file"),
+        ("C-c f C", "copy-this-file"),
+        ("C-c f y", "yank-buffer-path"),
+        ("C-c f Y", "yank-buffer-path-relative-to-project"),
+        ("C-c c w", "delete-trailing-whitespace"),
+        ("C-c s b", "occur"),
+        ("C-c o -", "dired"),
+        ("C-c o p", "treefile-toggle"),
+        ("C-c t l", "toggle-line-numbers"),
+        ("C-c t r", "read-only-mode"),
+        ("C-c t I", "toggle-indent-style"),
+        ("C-c m n", "mark-next-like-this"),
+        ("C-c m p", "mark-previous-like-this"),
+        ("C-c m t", "mark-all-like-this"),
+        ("C-c i s", "insert-snippet"),
+        ("C-c q q", "save-buffers-kill-terminal"),
+        ("C-c q s", "save-session"),
+        ("C-c q l", "restore-session"),
+    ];
+    for (keys, command) in expected {
+        let sequence = maxgus_keys::KeySequence::parse(keys)
+            .unwrap_or_else(|_| panic!("`{keys}` does not parse"));
+        assert_eq!(
+            map.lookup(&sequence).command(),
+            Some(*command),
+            "Doom puts `{command}` on `{keys}`"
+        );
+    }
+    // `C-=` needs the grammars behind it, so it is only there in a build
+    // that has them.
+    #[cfg(feature = "syntax")]
+    {
+        let sequence = maxgus_keys::KeySequence::parse("C-=").expect("it parses");
+        assert_eq!(map.lookup(&sequence).command(), Some("expand-region"));
+    }
+    // And every one of them is a command that exists.
+    for (_, command) in expected {
+        assert!(
+            s.dispatcher.registry.get(command).is_some(),
+            "`{command}` is bound but not registered"
+        );
+    }
+}
+
+#[cfg(feature = "lsp")]
+#[test]
+fn the_language_server_lives_under_dooms_code_map() {
+    // Doom keeps `C-c l` for the localleader and puts the language server
+    // under `C-c c`. Taking `C-c l` would leave a mode's own bindings nowhere
+    // to go.
+    let map = maxgus_core::global_keymap().expect("the global map");
+    let expected = [
+        ("C-c c d", "lsp-find-definition"),
+        ("C-c c D", "lsp-find-references"),
+        ("C-c c f", "lsp-format-buffer"),
+        ("C-c c r", "lsp-rename"),
+        ("C-c c a", "lsp-code-action"),
+        ("C-c c k", "lsp-describe-thing-at-point"),
+        ("C-c c j", "lsp-workspace-symbol"),
+        ("C-'", "lsp-document-symbols"),
+    ];
+    for (keys, command) in expected {
+        let sequence = maxgus_keys::KeySequence::parse(keys).expect("it parses");
+        assert_eq!(
+            map.lookup(&sequence).command(),
+            Some(command),
+            "`{keys}` should reach `{command}`"
+        );
+    }
+}
+
+#[test]
+fn the_classic_emacs_keys_are_still_there() {
+    // Doom does not take these away, and neither does this. A leader map is
+    // an addition, not a replacement.
+    let map = maxgus_core::global_keymap().expect("the global map");
+    for (keys, command) in [
+        ("C-x C-f", "find-file"),
+        ("C-x C-s", "save-buffer"),
+        ("C-x C-c", "save-buffers-kill-terminal"),
+        ("C-s", "isearch-forward"),
+        ("C-w", "kill-region"),
+        ("M-w", "kill-ring-save"),
+        ("C-y", "yank"),
+        ("C-/", "undo"),
+        ("C-x o", "other-window"),
+        ("M-x", "execute-extended-command"),
+    ] {
+        let sequence = maxgus_keys::KeySequence::parse(keys).expect("it parses");
+        assert_eq!(
+            map.lookup(&sequence).command(),
+            Some(command),
+            "`{keys}` is not `{command}` any more"
+        );
+    }
+}
+
+#[test]
+fn the_shifted_arrows_resize_the_window() {
+    // What this configuration binds them to. A split first, because a sole
+    // window has no height of its own to change.
+    let mut s = Session::new(80, 24);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "fn main() {}\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.keys("C-x 2");
+    let height = |s: &Session| s.editor.windows.current().rect.height;
+    let before = height(&s);
+
+    s.keys("C-S-<down>");
+    assert_eq!(
+        height(&s),
+        before + 1,
+        "`C-S-<down>` did not make it taller"
+    );
+    s.keys("C-S-<up>");
+    s.keys("C-S-<up>");
+    assert_eq!(height(&s), before - 1, "`C-S-<up>` did not make it shorter");
+}
+
+#[test]
+fn the_shifted_arrows_say_so_when_there_is_nothing_to_resize() {
+    let mut s = Session::new(80, 24);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "fn main() {}\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.keys("C-S-<down>");
+    assert!(
+        s.echo().contains("layout decides"),
+        "a sole window silently did nothing: `{}`",
+        s.echo()
+    );
+}
+
+#[test]
+fn c_d_duplicates_the_line_and_then_the_region() {
+    let mut s = tall_session("/project/main.rs", "alpha\nbeta\n");
+    s.keys("C-d");
+    assert_eq!(
+        s.editor.current_buffer().text(),
+        "alpha\nalpha\nbeta\n",
+        "`C-d` did not duplicate the line"
+    );
+
+    // With a region, it is the region that is duplicated.
+    let mut s = tall_session("/project/main.rs", "abcdef\n");
+    s.editor.with_current_buffer(|b| {
+        b.set_point(0);
+        b.set_mark(0);
+        b.set_point(3);
+    });
+    s.editor.windows.current_mut().point = 3;
+    s.keys("C-d");
+    assert_eq!(s.editor.current_buffer().text(), "abcabcdef\n");
+}
+
+#[test]
+fn a_command_with_several_keys_is_shown_with_its_shortest() {
+    // `dired` is on `C-x d`, `C-c f d` and `C-c o -`. The column is narrow
+    // and the classic key is the one worth the space.
+    let mut s = Session::new(100, 16);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "fn main() {}\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.keys("M-x");
+    s.type_text("dired");
+    let row = s
+        .screen()
+        .into_iter()
+        .skip(2)
+        .find(|line| line.contains("dired") && !line.contains("M-x"))
+        .expect("a candidate row");
+    assert!(
+        row.contains("C-x d"),
+        "the shortest key is not the one shown: `{row}`"
+    );
 }

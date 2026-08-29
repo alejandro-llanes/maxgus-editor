@@ -16,6 +16,31 @@ every option below.
 
 ---
 
+## The bindings
+
+They follow **Doom Emacs' non-evil scheme**. The classic Emacs keys are
+untouched, and Doom's leader — `C-c` — carries the same maps:
+
+| Prefix | What is under it |
+|---|---|
+| `C-c c` | Code: the language server, and `w` for trailing whitespace |
+| `C-c f` | Files: `f` find, `d` dired, `D` delete, `m` move, `C` copy, `y`/`Y` copy the path, `p` this configuration |
+| `C-c s` | Search: `p` the project, `b` this buffer, `i` the symbols |
+| `C-c o` | Open: `t` terminal, `p` panel, `-` dired, `b` the desktop's viewer |
+| `C-c t` | Toggle: `l` line numbers, `r` read-only, `c` fill column, `I` tabs or spaces, `w` wrapping |
+| `C-c v` | Versioning: `g` magit, `/` its dispatch |
+| `C-c m` | Cursors: `n`/`p`/`t`, and `<up>`/`<down>` for one per line |
+| `C-c i` | Insert: `s` a snippet, `y` from the kill ring |
+| `C-c q` | Quitting, and the session: `s` save, `l` restore |
+
+`C-c l` and `C-c e` are left unbound on purpose: Doom uses them for the
+localleader and for eval, and a global binding on either would take them away
+from the modes that want them.
+
+A `keymap "global"` block rebinds any of it.
+
+---
+
 ## `init.rhai` — scripts
 
 A file beside the configuration defining commands, in

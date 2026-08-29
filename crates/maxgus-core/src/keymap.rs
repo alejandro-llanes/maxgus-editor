@@ -63,7 +63,9 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-M-o", "split-line"),
     ("TAB", "indent-for-tab-command"),
     ("DEL", "delete-backward-char"),
-    ("C-d", "delete-char"),
+    // `C-d` duplicates rather than deletes, as this configuration binds it.
+    // `<delete>` is still the forward delete.
+    ("C-d", "duplicate-line-or-region"),
     ("<delete>", "delete-char"),
     ("M-d", "kill-word"),
     ("M-DEL", "backward-kill-word"),
@@ -126,6 +128,7 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     // ---- buffers ----
     ("C-x b", "switch-to-buffer"),
     ("C-x C-b", "list-buffers"),
+    ("C-x K", "kill-buffer-in-all-windows"),
     ("C-x k", "kill-buffer"),
     ("C-x <right>", "next-buffer"),
     ("C-x <left>", "previous-buffer"),
@@ -139,6 +142,23 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-<right>", "windmove-right"),
     ("C-<up>", "windmove-up"),
     ("C-<down>", "windmove-down"),
+    // Shift with them resizes, which is what this configuration binds.
+    ("C-S-<up>", "shrink-window"),
+    ("C-S-<down>", "enlarge-window"),
+    ("C-S-<left>", "shrink-window-horizontally"),
+    ("C-S-<right>", "enlarge-window-horizontally"),
+    // The panel and its sections, on the super key.
+    ("C-s-a", "treefile-toggle"),
+    #[cfg(feature = "lsp")]
+    ("C-s-o", "panel-toggle-symbols-section"),
+    ("C-s-i", "panel-toggle-buffers-section"),
+    ("C-s-p", "panel-toggle-tree-section"),
+    #[cfg(feature = "terminal")]
+    ("s-t", "terminal-toggle"),
+    #[cfg(feature = "lsp")]
+    ("C-<tab>", "lsp-describe-thing-at-point"),
+    // Doom's own: the tree on a function key.
+    ("<f9>", "treefile-toggle"),
     ("C-x C-q", "read-only-mode"),
     ("C-x RET f", "set-buffer-file-coding-system"),
     ("C-x x g", "revert-buffer"),
@@ -165,13 +185,10 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-x d", "dired"),
     ("C-x u", "undo"),
     ("S-TAB", "snippet-previous-field"),
-    ("C-c s", "insert-snippet"),
     // Several cursors, spelled as `multiple-cursors` spells them.
     ("C->", "mark-next-like-this"),
     ("C-<", "mark-previous-like-this"),
     ("C-c C-<", "mark-all-like-this"),
-    ("C-S-<down>", "cursor-at-next-line"),
-    ("C-S-<up>", "cursor-at-previous-line"),
     ("C-c C->", "unmark-cursor"),
     // The visualiser beside `undo` rather than over it: `C-x u` is undo in
     // every Emacs that has not loaded undo-tree, and that is muscle memory
@@ -202,8 +219,6 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     // ---- the file tree ----
     #[cfg(feature = "git")]
     ("C-x g", "magit-status"),
-    ("C-c e", "edit-configuration"),
-    ("C-c o", "open-externally"),
     ("C-x t t", "treefile-toggle"),
     #[cfg(feature = "terminal")]
     ("C-x t v", "terminal-toggle"),
@@ -222,21 +237,90 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     #[cfg(feature = "lsp")]
     ("C-M-i", "completion-at-point"),
     #[cfg(feature = "lsp")]
-    ("C-c l d", "lsp-describe-thing-at-point"),
+    ("C-'", "lsp-document-symbols"),
+    // ---- the leader ----
+    //
+    // Doom's non-evil leader is `C-c`, with `C-c l` left to the localleader
+    // and `C-c e` to eval, so nothing here takes either. The language server
+    // lives under `C-c c`, which is Doom's code map, and not under `C-c l`.
+
+    // `C-c c` — code.
     #[cfg(feature = "lsp")]
-    ("C-c l r", "lsp-rename"),
+    ("C-c c d", "lsp-find-definition"),
     #[cfg(feature = "lsp")]
-    ("C-c l f", "lsp-format-buffer"),
+    ("C-c c D", "lsp-find-references"),
     #[cfg(feature = "lsp")]
-    ("C-c l a", "lsp-code-action"),
+    ("C-c c f", "lsp-format-buffer"),
     #[cfg(feature = "lsp")]
-    ("C-c l s", "lsp-workspace-symbol"),
+    ("C-c c r", "lsp-rename"),
     #[cfg(feature = "lsp")]
-    ("C-c l h", "lsp-signature-help"),
+    ("C-c c a", "lsp-code-action"),
     #[cfg(feature = "lsp")]
-    ("C-c l o", "lsp-document-symbols"),
+    ("C-c c k", "lsp-describe-thing-at-point"),
     #[cfg(feature = "lsp")]
-    ("C-c l R", "lsp-restart-server"),
+    ("C-c c j", "lsp-workspace-symbol"),
+    #[cfg(feature = "lsp")]
+    ("C-c c h", "lsp-signature-help"),
+    #[cfg(feature = "lsp")]
+    ("C-c c x", "next-error"),
+    #[cfg(feature = "lsp")]
+    ("C-c c R", "lsp-restart-server"),
+    ("C-c c w", "delete-trailing-whitespace"),
+    // `C-c f` — files.
+    ("C-c f f", "find-file"),
+    ("C-c f d", "dired"),
+    ("C-c f D", "delete-this-file"),
+    ("C-c f m", "move-this-file"),
+    ("C-c f C", "copy-this-file"),
+    ("C-c f y", "yank-buffer-path"),
+    ("C-c f Y", "yank-buffer-path-relative-to-project"),
+    ("C-c f p", "edit-configuration"),
+    // `C-c s` — search.
+    #[cfg(feature = "grep")]
+    ("C-c s p", "project-grep"),
+    #[cfg(feature = "grep")]
+    ("C-c s .", "project-grep-literal"),
+    ("C-c s b", "occur"),
+    ("C-c s s", "occur"),
+    #[cfg(feature = "lsp")]
+    ("C-c s i", "lsp-document-symbols"),
+    #[cfg(feature = "lsp")]
+    ("C-c s I", "lsp-workspace-symbol"),
+    // `C-c o` — open.
+    #[cfg(feature = "terminal")]
+    ("C-c o t", "terminal-toggle"),
+    ("C-c o p", "treefile-toggle"),
+    ("C-c o -", "dired"),
+    ("C-c o b", "open-externally"),
+    // `C-c t` — toggle.
+    ("C-c t l", "toggle-line-numbers"),
+    ("C-c t r", "read-only-mode"),
+    ("C-c t c", "toggle-fill-column-indicator"),
+    ("C-c t I", "toggle-indent-style"),
+    ("C-c t w", "toggle-truncate-lines"),
+    // `C-c v` — versioning.
+    #[cfg(feature = "git")]
+    ("C-c v g", "magit-status"),
+    #[cfg(feature = "git")]
+    ("C-c v /", "magit-dispatch"),
+    // `C-c m` — several cursors.
+    ("C-c m n", "mark-next-like-this"),
+    ("C-c m N", "unmark-cursor"),
+    ("C-c m p", "mark-previous-like-this"),
+    ("C-c m t", "mark-all-like-this"),
+    ("C-c m <down>", "cursor-at-next-line"),
+    ("C-c m <up>", "cursor-at-previous-line"),
+    // `C-c i` — insert, and `C-c &` — snippets.
+    ("C-c i s", "insert-snippet"),
+    ("C-c i y", "yank-pop"),
+    ("C-c & i", "insert-snippet"),
+    // `C-c q` — quitting, and the session.
+    ("C-c q q", "save-buffers-kill-terminal"),
+    ("C-c q s", "save-session"),
+    ("C-c q l", "restore-session"),
+    // `C-c w` — windows, where Doom also keeps the session.
+    ("C-c w s", "save-session"),
+    ("C-c w l", "restore-session"),
     // ---- help ----
     ("C-h k", "describe-key"),
     ("C-h f", "describe-function"),
@@ -787,20 +871,31 @@ mod tests {
     #[test]
     fn every_multi_key_prefix_resolves() {
         let map = global_keymap().unwrap();
-        // `C-c l` is the language server's prefix: a build without one has no
-        // reason to reserve it, and nothing to put under it.
+        // Doom's leader is `C-c`, with a map under each of these letters.
         #[cfg(feature = "lsp")]
         let prefixes = [
-            "C-x", "C-h", "C-c", "M-g", "M-s", "C-c l", "C-x r", "C-x 4", "C-x t", "C-x RET",
+            "C-x", "C-h", "C-c", "M-g", "M-s", "C-x r", "C-x 4", "C-x t", "C-x RET", "C-c c",
+            "C-c f", "C-c s", "C-c o", "C-c t", "C-c m", "C-c i", "C-c q", "C-c w",
         ];
         #[cfg(not(feature = "lsp"))]
         let prefixes = [
-            "C-x", "C-h", "C-c", "M-g", "M-s", "C-x r", "C-x 4", "C-x t", "C-x RET",
+            "C-x", "C-h", "C-c", "M-g", "M-s", "C-x r", "C-x 4", "C-x t", "C-x RET", "C-c f",
+            "C-c o", "C-c t", "C-c m", "C-c i", "C-c q", "C-c w",
         ];
         for prefix in prefixes {
             assert!(
                 map.lookup(&seq(prefix)).is_prefix(),
                 "`{prefix}` should be a prefix"
+            );
+        }
+        // `C-c l` is Doom's localleader and `C-c e` its eval key. Nothing
+        // global may take either, or a mode's own bindings have nowhere to
+        // live and a habit from Doom stops working.
+        for reserved in ["C-c l", "C-c e"] {
+            assert!(
+                !map.lookup(&seq(reserved)).is_prefix()
+                    && map.lookup(&seq(reserved)).command().is_none(),
+                "`{reserved}` is Doom's to bind, and is taken"
             );
         }
     }

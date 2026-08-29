@@ -11,6 +11,11 @@ use maxgus_text::{Motion, Range};
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
         command!(
+            "delete-trailing-whitespace",
+            "Take the spaces off the ends of every line.",
+            delete_trailing_whitespace
+        ),
+        command!(
             "comment-dwim",
             "Comment or uncomment the region, or this line.",
             comment_dwim
@@ -239,6 +244,181 @@ fn fill_region(editor: &mut Editor, _: &Args) -> Result<()> {
     };
     fill_lines(editor, first, last)?;
     editor.with_current_buffer(|b| b.deactivate_mark());
+    Ok(())
+}
+
+// ---- syntax ------------------------------------------------------------
+
+/// Registers the commands that read the syntax tree.
+#[cfg(feature = "syntax")]
+pub fn register_syntax(registry: &mut Registry) {
+    registry.register_all(&[
+        command!(
+            "describe-syntax-at-point",
+            "Say what the parser makes of the text at point.",
+            describe_syntax
+        ),
+        command!(
+            "expand-region",
+            "Extend the region to the enclosing syntactic unit.",
+            expand_region
+        ),
+    ]);
+}
+
+/// `C-h s`: reports the grammar's name for the construct under point.
+#[cfg(feature = "syntax")]
+fn describe_syntax(editor: &mut Editor, _: &Args) -> Result<()> {
+    let (kind, span) = syntax_at_point(editor)?;
+    let text = {
+        let buffer = editor.current_buffer();
+        let preview: String = buffer.slice(span).chars().take(40).collect();
+        format!("{kind}: `{}`", preview.replace('\n', "\\n"))
+    };
+    editor.message(text);
+    Ok(())
+}
+
+/// `C-=`: grows the region to the next enclosing node.
+#[cfg(feature = "syntax")]
+fn expand_region(editor: &mut Editor, _: &Args) -> Result<()> {
+    let (_, span) = syntax_at_point(editor)?;
+    editor.with_current_buffer(|buffer| {
+        buffer.set_point(span.start);
+        buffer.set_mark(span.start);
+        buffer.set_point(span.end);
+    });
+    editor.follow_point();
+    Ok(())
+}
+
+/// The node kind and span at point, from the buffer's syntax tree.
+///
+/// The tree lives in the executor, so this parses on demand. It is only for
+/// commands the user invokes deliberately, never for redisplay.
+#[cfg(feature = "syntax")]
+fn syntax_at_point(editor: &Editor) -> Result<(String, Range)> {
+    let buffer = editor.current_buffer();
+    let Some(language) = buffer.language() else {
+        return Err(crate::CoreError::Message("Buffer has no language".into()));
+    };
+    let mut highlighter = maxgus_syntax::Highlighter::new(language)
+        .map_err(|_| crate::CoreError::Message(format!("No grammar for {language}")))?;
+    let text = buffer.text();
+    highlighter
+        .parse(&text)
+        .map_err(|e| crate::CoreError::Message(e.to_string()))?;
+
+    let rope = buffer.rope();
+    // An active region asks about the node enclosing it, so repeating the
+    // command walks outward; otherwise it asks about point.
+    let bytes = match buffer.region() {
+        Some(region) if !region.is_empty() => {
+            rope.char_to_byte(region.start)..rope.char_to_byte(region.end)
+        }
+        _ => {
+            let at = rope.char_to_byte(buffer.point());
+            at..at
+        }
+    };
+    let (start, end) = highlighter
+        .enclosing_node_range(bytes)
+        .ok_or_else(|| crate::CoreError::Message("Nothing here to describe".into()))?;
+    let kind = highlighter
+        .node_kind_at(start)
+        .unwrap_or("node")
+        .to_string();
+    Ok((
+        kind,
+        Range::new(rope.byte_to_char(start), rope.byte_to_char(end)),
+    ))
+}
+
+#[cfg(feature = "syntax")]
+#[cfg(test)]
+mod syntax_tests {
+    use super::*;
+    use crate::{Dispatch, Dispatcher};
+    use maxgus_config::Settings;
+    use maxgus_faces::defaults;
+    use maxgus_tui::Rect;
+
+    fn setup(name: &str, text: &str) -> (Dispatcher, Editor) {
+        let mut editor = Editor::new(
+            Settings::default(),
+            defaults::builtin("maxgus-dark").unwrap(),
+            Rect::new(0, 0, 80, 24),
+        );
+        let id = editor.buffers.visit_file(format!("/project/{name}"), text);
+        editor.switch_to_buffer(id).unwrap();
+        editor.with_current_buffer(|b| b.set_point(0));
+        (
+            Dispatcher::new(crate::commands::standard_registry()),
+            editor,
+        )
+    }
+
+    #[test]
+    fn describing_the_syntax_names_the_construct() {
+        let (mut d, mut e) = setup("main.rs", "fn main() {\n    let x = 1;\n}\n");
+        e.with_current_buffer(|b| b.set_point(b.line_start(1) + 8));
+        let out = d.execute(&mut e, "describe-syntax-at-point", None);
+        assert!(!matches!(out, Dispatch::Failed { .. }), "{out:?}");
+        let said = e.minibuffer.display();
+        assert!(said.contains("identifier"), "got `{said}`");
+        assert!(said.contains('x'), "got `{said}`");
+    }
+
+    #[test]
+    fn expanding_the_region_covers_the_enclosing_node() {
+        let (mut d, mut e) = setup("main.rs", "fn main() {\n    let x = 1;\n}\n");
+        e.with_current_buffer(|b| b.set_point(b.line_start(1) + 8));
+
+        d.execute(&mut e, "expand-region", None);
+        let first = e.region().expect("a region was made");
+        assert_eq!(e.current_buffer().slice(first), "x");
+
+        // Again, and it takes in more.
+        d.execute(&mut e, "expand-region", None);
+        let second = e.region().expect("a region");
+        assert!(
+            second.len() > first.len(),
+            "{second:?} did not grow from {first:?}"
+        );
+        assert!(e.current_buffer().slice(second).contains("let x = 1"));
+    }
+
+    #[test]
+    fn a_buffer_with_no_grammar_says_so() {
+        let (mut d, mut e) = setup("notes.txt", "plain text\n");
+        let out = d.execute(&mut e, "describe-syntax-at-point", None);
+        assert!(matches!(out, Dispatch::Failed { .. }), "{out:?}");
+    }
+}
+
+/// `C-c c w`: trailing whitespace out of the whole buffer, now.
+///
+/// The setting of the same name does this on save; this is for a buffer that
+/// is not going to be saved yet, or one whose project has switched it off.
+fn delete_trailing_whitespace(editor: &mut Editor, _: &Args) -> Result<()> {
+    let (cleaned, before) = {
+        let buffer = editor.current_buffer();
+        let text = buffer.text();
+        let cleaned: String = text
+            .split('\n')
+            .map(str::trim_end)
+            .collect::<Vec<_>>()
+            .join("\n");
+        (cleaned, text)
+    };
+    if cleaned == before {
+        return Err(crate::CoreError::Message("No trailing whitespace".into()));
+    }
+    let removed = before.chars().count() - cleaned.chars().count();
+    let point = editor.windows.current().point;
+    editor.with_current_buffer(move |b| b.replace_all(&cleaned))?;
+    editor.move_point_to(point.min(editor.current_buffer().len_chars()));
+    editor.message(format!("Removed {removed} character(s)"));
     Ok(())
 }
 
@@ -473,154 +653,5 @@ mod tests {
             d.execute(&mut e, "fill-region", None),
             Dispatch::Failed { .. }
         ));
-    }
-}
-
-// ---- syntax ------------------------------------------------------------
-
-/// Registers the commands that read the syntax tree.
-#[cfg(feature = "syntax")]
-pub fn register_syntax(registry: &mut Registry) {
-    registry.register_all(&[
-        command!(
-            "describe-syntax-at-point",
-            "Say what the parser makes of the text at point.",
-            describe_syntax
-        ),
-        command!(
-            "expand-region",
-            "Extend the region to the enclosing syntactic unit.",
-            expand_region
-        ),
-    ]);
-}
-
-/// `C-h s`: reports the grammar's name for the construct under point.
-#[cfg(feature = "syntax")]
-fn describe_syntax(editor: &mut Editor, _: &Args) -> Result<()> {
-    let (kind, span) = syntax_at_point(editor)?;
-    let text = {
-        let buffer = editor.current_buffer();
-        let preview: String = buffer.slice(span).chars().take(40).collect();
-        format!("{kind}: `{}`", preview.replace('\n', "\\n"))
-    };
-    editor.message(text);
-    Ok(())
-}
-
-/// `C-=`: grows the region to the next enclosing node.
-#[cfg(feature = "syntax")]
-fn expand_region(editor: &mut Editor, _: &Args) -> Result<()> {
-    let (_, span) = syntax_at_point(editor)?;
-    editor.with_current_buffer(|buffer| {
-        buffer.set_point(span.start);
-        buffer.set_mark(span.start);
-        buffer.set_point(span.end);
-    });
-    editor.follow_point();
-    Ok(())
-}
-
-/// The node kind and span at point, from the buffer's syntax tree.
-///
-/// The tree lives in the executor, so this parses on demand. It is only for
-/// commands the user invokes deliberately, never for redisplay.
-#[cfg(feature = "syntax")]
-fn syntax_at_point(editor: &Editor) -> Result<(String, Range)> {
-    let buffer = editor.current_buffer();
-    let Some(language) = buffer.language() else {
-        return Err(crate::CoreError::Message("Buffer has no language".into()));
-    };
-    let mut highlighter = maxgus_syntax::Highlighter::new(language)
-        .map_err(|_| crate::CoreError::Message(format!("No grammar for {language}")))?;
-    let text = buffer.text();
-    highlighter
-        .parse(&text)
-        .map_err(|e| crate::CoreError::Message(e.to_string()))?;
-
-    let rope = buffer.rope();
-    // An active region asks about the node enclosing it, so repeating the
-    // command walks outward; otherwise it asks about point.
-    let bytes = match buffer.region() {
-        Some(region) if !region.is_empty() => {
-            rope.char_to_byte(region.start)..rope.char_to_byte(region.end)
-        }
-        _ => {
-            let at = rope.char_to_byte(buffer.point());
-            at..at
-        }
-    };
-    let (start, end) = highlighter
-        .enclosing_node_range(bytes)
-        .ok_or_else(|| crate::CoreError::Message("Nothing here to describe".into()))?;
-    let kind = highlighter
-        .node_kind_at(start)
-        .unwrap_or("node")
-        .to_string();
-    Ok((
-        kind,
-        Range::new(rope.byte_to_char(start), rope.byte_to_char(end)),
-    ))
-}
-
-#[cfg(feature = "syntax")]
-#[cfg(test)]
-mod syntax_tests {
-    use super::*;
-    use crate::{Dispatch, Dispatcher};
-    use maxgus_config::Settings;
-    use maxgus_faces::defaults;
-    use maxgus_tui::Rect;
-
-    fn setup(name: &str, text: &str) -> (Dispatcher, Editor) {
-        let mut editor = Editor::new(
-            Settings::default(),
-            defaults::builtin("maxgus-dark").unwrap(),
-            Rect::new(0, 0, 80, 24),
-        );
-        let id = editor.buffers.visit_file(format!("/project/{name}"), text);
-        editor.switch_to_buffer(id).unwrap();
-        editor.with_current_buffer(|b| b.set_point(0));
-        (
-            Dispatcher::new(crate::commands::standard_registry()),
-            editor,
-        )
-    }
-
-    #[test]
-    fn describing_the_syntax_names_the_construct() {
-        let (mut d, mut e) = setup("main.rs", "fn main() {\n    let x = 1;\n}\n");
-        e.with_current_buffer(|b| b.set_point(b.line_start(1) + 8));
-        let out = d.execute(&mut e, "describe-syntax-at-point", None);
-        assert!(!matches!(out, Dispatch::Failed { .. }), "{out:?}");
-        let said = e.minibuffer.display();
-        assert!(said.contains("identifier"), "got `{said}`");
-        assert!(said.contains('x'), "got `{said}`");
-    }
-
-    #[test]
-    fn expanding_the_region_covers_the_enclosing_node() {
-        let (mut d, mut e) = setup("main.rs", "fn main() {\n    let x = 1;\n}\n");
-        e.with_current_buffer(|b| b.set_point(b.line_start(1) + 8));
-
-        d.execute(&mut e, "expand-region", None);
-        let first = e.region().expect("a region was made");
-        assert_eq!(e.current_buffer().slice(first), "x");
-
-        // Again, and it takes in more.
-        d.execute(&mut e, "expand-region", None);
-        let second = e.region().expect("a region");
-        assert!(
-            second.len() > first.len(),
-            "{second:?} did not grow from {first:?}"
-        );
-        assert!(e.current_buffer().slice(second).contains("let x = 1"));
-    }
-
-    #[test]
-    fn a_buffer_with_no_grammar_says_so() {
-        let (mut d, mut e) = setup("notes.txt", "plain text\n");
-        let out = d.execute(&mut e, "describe-syntax-at-point", None);
-        assert!(matches!(out, Dispatch::Failed { .. }), "{out:?}");
     }
 }

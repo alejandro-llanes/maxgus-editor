@@ -18,6 +18,31 @@ use std::path::{Path, PathBuf};
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
         command!(
+            "delete-this-file",
+            "Delete the file this buffer is visiting, and the buffer with it.",
+            delete_this_file
+        ),
+        command!(
+            "move-this-file",
+            "Rename or move the file this buffer is visiting.",
+            move_this_file
+        ),
+        command!(
+            "copy-this-file",
+            "Write a copy of this file somewhere else.",
+            copy_this_file
+        ),
+        command!(
+            "yank-buffer-path",
+            "Put this file's path in the kill ring.",
+            yank_buffer_path
+        ),
+        command!(
+            "yank-buffer-path-relative-to-project",
+            "Put this file's path within the project in the kill ring.",
+            yank_relative_path
+        ),
+        command!(
             "open-externally",
             "Open this file with whatever the desktop opens it with.",
             open_externally
@@ -507,6 +532,117 @@ fn open_externally(editor: &mut Editor, _: &Args) -> Result<()> {
         insert_at: None,
     });
     editor.message(format!("Opening {path}"));
+    Ok(())
+}
+
+// ---- what Doom keeps under its file leader -------------------------------
+
+/// The file this buffer is visiting, or an explanation.
+fn this_file(editor: &Editor) -> Result<std::path::PathBuf> {
+    editor
+        .current_buffer()
+        .path()
+        .map(std::path::Path::to_path_buf)
+        .ok_or_else(|| crate::CoreError::Message("This buffer has no file".into()))
+}
+
+fn delete_this_file(editor: &mut Editor, args: &Args) -> Result<()> {
+    let path = this_file(editor)?;
+    let Some(answer) = args.input.clone() else {
+        editor.prompt_for(
+            "delete-this-file",
+            MinibufferKind::Choice,
+            format!("Delete {}? (yes or no) ", path.display()),
+            "",
+            vec!["yes".into(), "no".into()],
+        );
+        return Ok(());
+    };
+    if !answer.eq_ignore_ascii_case("yes") && !answer.eq_ignore_ascii_case("y") {
+        editor.message("Nothing deleted".to_string());
+        return Ok(());
+    }
+    editor.spawn(crate::task::Task::DiredAct {
+        action: crate::task::FileAction::Delete(vec![path]),
+    });
+    let id = editor.current_buffer_id();
+    editor.kill_buffer(id).ok();
+    Ok(())
+}
+
+fn move_this_file(editor: &mut Editor, args: &Args) -> Result<()> {
+    transfer_this_file(editor, args, false)
+}
+
+fn copy_this_file(editor: &mut Editor, args: &Args) -> Result<()> {
+    transfer_this_file(editor, args, true)
+}
+
+fn transfer_this_file(editor: &mut Editor, args: &Args, copying: bool) -> Result<()> {
+    let path = this_file(editor)?;
+    let Some(input) = args.input.clone() else {
+        let verb = match copying {
+            true => "Copy",
+            false => "Move",
+        };
+        editor.prompt_for(
+            match copying {
+                true => "copy-this-file",
+                false => "move-this-file",
+            },
+            MinibufferKind::File,
+            format!("{verb} to: "),
+            &path.display().to_string(),
+            Vec::new(),
+        );
+        return Ok(());
+    };
+    let to = std::path::PathBuf::from(input);
+    if to == path {
+        return Err(crate::CoreError::Message(
+            "That is where it already is".into(),
+        ));
+    }
+    let action = match copying {
+        true => crate::task::FileAction::Copy {
+            from: vec![path],
+            to: to.clone(),
+        },
+        false => crate::task::FileAction::Rename {
+            from: vec![path],
+            to: to.clone(),
+        },
+    };
+    editor.spawn(crate::task::Task::DiredAct { action });
+    // The buffer follows the file it is visiting, so a move does not leave it
+    // pointing at a name that no longer exists.
+    if !copying {
+        let id = editor.current_buffer_id();
+        if let Some(buffer) = editor.buffers.get_mut(id) {
+            buffer.set_path(to);
+        }
+    }
+    Ok(())
+}
+
+fn yank_buffer_path(editor: &mut Editor, _: &Args) -> Result<()> {
+    let path = this_file(editor)?.display().to_string();
+    editor.kill(&path, false);
+    editor.message(format!("Copied {path}"));
+    Ok(())
+}
+
+/// The path within the project, which is what goes in a message or a review.
+fn yank_relative_path(editor: &mut Editor, _: &Args) -> Result<()> {
+    let path = this_file(editor)?;
+    let root = editor.project_root();
+    let shown = path
+        .strip_prefix(&root)
+        .unwrap_or(&path)
+        .display()
+        .to_string();
+    editor.kill(&shown, false);
+    editor.message(format!("Copied {shown}"));
     Ok(())
 }
 

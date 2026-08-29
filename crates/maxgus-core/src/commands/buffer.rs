@@ -15,6 +15,11 @@ pub const BUFFER_LIST_NAME: &str = "*Buffer List*";
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
         command!(
+            "kill-buffer-in-all-windows",
+            "Kill this buffer, and show something else wherever it was.",
+            kill_in_all_windows
+        ),
+        command!(
             "switch-to-buffer",
             "Display another buffer in this window.",
             switch_to_buffer
@@ -318,6 +323,15 @@ fn widen(editor: &mut Editor, _: &Args) -> Result<()> {
         return Err(crate::CoreError::Message("Buffer is not narrowed".into()));
     }
     editor.follow_point();
+    Ok(())
+}
+
+/// `C-x K`: kills the buffer and leaves no window showing it.
+fn kill_in_all_windows(editor: &mut Editor, _: &Args) -> Result<()> {
+    let id = editor.current_buffer_id();
+    let name = editor.current_buffer().name().to_string();
+    editor.kill_buffer(id)?;
+    editor.message(format!("Killed {name}"));
     Ok(())
 }
 

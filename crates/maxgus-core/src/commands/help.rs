@@ -390,7 +390,7 @@ mod tests {
         assert!(e.current_buffer().text().contains("is a prefix key"));
 
         run(&mut d, &mut e, "describe-key");
-        d.handle_keys(&mut e, "<f9>");
+        d.handle_keys(&mut e, "<f12>");
         assert!(e.current_buffer().text().contains("is undefined"));
     }
 

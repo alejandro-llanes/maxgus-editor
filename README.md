@@ -90,8 +90,8 @@ $ ./target/release/maxgus
 
 ### Emacs keys, and they behave like Emacs
 
-**344 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **425 commands**. Prefix
+**394 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
+the panel, tree, magit and terminal maps, driving **438 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -319,7 +319,7 @@ Snippets live in `snippets/<mode>/` beside the configuration, one file each,
 written the way yasnippet writes them — `# key:`, `# name:`, `# --`, then the
 body with `$1`, `${2:default}` and `$0`. A set copied out of an Emacs
 configuration works unchanged. Files directly in `snippets/` belong to every
-mode. `C-c s` (`M-x insert-snippet`) picks one by name instead.
+mode. `C-c i s` (`M-x insert-snippet`) picks one by name instead.
 
 The body syntax is the language-server protocol's as well as yasnippet's,
 which is the same syntax, so a completion that arrives from a server as a
@@ -360,7 +360,7 @@ configuration to every buffer, which a naive implementation flattens.
 
 `C->` puts a cursor on the next occurrence of what is selected — or of the
 word point is on, which is what a rename starts as. `C-<` takes the previous
-one, `C-c C-<` takes them all, and `C-S-<up>`/`C-S-<down>` put one on the line
+one, `C-c C-<` takes them all, and `C-c m <up>`/`C-c m <down>` put one on the line
 above or below. Then typing types everywhere at once, `C-g` goes back to one.
 
 Every command that already exists works at every cursor, because that is
@@ -535,6 +535,13 @@ path.
 
 ## Keys worth knowing
 
+The bindings follow **Doom Emacs' non-evil scheme**: the classic Emacs keys
+are all where they have always been, and Doom's leader — `C-c` — carries the
+same maps it carries there. `C-c c` is code, `C-c f` files, `C-c s` search,
+`C-c o` open, `C-c t` toggles, `C-c v` git, `C-c m` cursors, `C-c i` insert,
+`C-c q` quitting. `C-c l` is left alone, because that is Doom's localleader,
+and so is `C-c e`, which is its eval key.
+
 The full list is `C-h b`, inside the editor. These are the ones worth knowing
 first.
 
@@ -547,7 +554,7 @@ first.
 | `C-x b` | Switch buffer — lists them as it opens |
 | `C-x k` | Kill a buffer |
 | `M-x` | Run a command — a fuzzy-matched popup of all of them |
-| `M-s g` | Search the whole project |
+| `C-c s p` | Search the whole project |
 | `<up>` `<down>` | In a prompt: walk the candidate list |
 | `<prior>` `<next>` | In a prompt: a page of candidates at a time |
 | `C-g` | Cancel |
@@ -556,6 +563,9 @@ first.
 | `C-x o` | Other window, cycling |
 | `C-<left>` `C-<right>` | The window to the left, to the right |
 | `C-<up>` `C-<down>` | The window above, below |
+| `C-S-<up>` `C-S-<down>` | Make this window shorter, taller |
+| `C-S-<left>` `C-S-<right>` | Make it narrower, wider |
+| `C-d` | Duplicate the region, or this line |
 | `C-SPC` | Set the mark |
 | `C-w` `M-w` | Kill the region, copy it |
 | `C-y` `M-y` | Yank, then cycle back through the kill ring |
@@ -571,19 +581,23 @@ first.
 | `C->` `C-<` | A cursor at the next / previous occurrence |
 | `C-c C-<` | A cursor at every occurrence |
 | `C-x d` | Open a directory as a buffer |
-| `C-x t t` | Toggle the side panel |
+| `C-x t t` `<f9>` `C-s-a` | Toggle the side panel |
 | `C-x t 1` / `2` / `3` | Select the tree, the outline, the buffer list |
 | `C-x t v` | Toggle the terminal panel |
-| `C-x g` | Git status |
+| `C-x g` `C-c v g` | Git status |
 | `M-.` `M-,` | Go to definition, come back |
-| `C-c l r` | Rename through the language server |
-| `C-c l f` | Format the buffer |
+| `C-c c r` | Rename through the language server |
+| `C-c c f` | Format the buffer |
 | `C-h b` | Every binding |
 | `C-h t` | The tutorial |
 | `C-h v` | A setting's current value |
-| `C-c e` | Edit the configuration file |
-| `C-c o` | Open this file with the desktop's own viewer |
-| `C-c s` | Insert a snippet by name |
+| `C-c t l` `C-c t I` | Toggle line numbers, tabs-or-spaces |
+| `C-c f y` `C-c f Y` | Copy this file's path, its path in the project |
+| `C-c f D` `C-c f m` | Delete this file, rename or move it |
+| `C-c c w` | Delete trailing whitespace |
+| `C-c f p` | Edit the configuration file |
+| `C-c o b` | Open this file with the desktop's own viewer |
+| `C-c i s` | Insert a snippet by name |
 
 Inside the tree, treemacs' own keys apply: `n` and `p` to move, `u` for the
 parent, `TAB` to fold, `RET` to open, `c f` and `c d` to create, `R` to rename,
@@ -637,14 +651,14 @@ What the window has that a terminal cannot:
   them and fall back to the regular one where it does not, so an emphasised
   word is never an invisible one.
 
-`C-c o` (`M-x open-externally`) hands the file being edited to whatever the
+`C-c o b` (`M-x open-externally`) hands the file being edited to whatever the
 desktop opens it with — an image viewer for an image, a reader for a PDF —
 using `xdg-open`, `open` or `start` as the platform requires. It works from
 the terminal front end too.
 
 ## Configuring it
 
-`~/.config/maxgus/config.kdl`, in [KDL](https://kdl.dev). **`C-c e`** opens
+`~/.config/maxgus/config.kdl`, in [KDL](https://kdl.dev). **`C-c f p`** opens
 that file — creating it if this is the first time — so the editor is edited
 from inside itself:
 
@@ -708,7 +722,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1921 tests.** Unit tests beside the code; session tests that press real keys
+**1928 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

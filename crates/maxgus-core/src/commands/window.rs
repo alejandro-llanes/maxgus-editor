@@ -50,6 +50,11 @@ pub fn register(registry: &mut Registry) {
             enlarge_window
         ),
         command!(
+            "shrink-window",
+            "Make the selected window shorter.",
+            shrink_window
+        ),
+        command!(
             "enlarge-window-horizontally",
             "Make the selected window wider.",
             enlarge_horizontally
@@ -248,12 +253,41 @@ fn resize(editor: &mut Editor, delta: i32) -> Result<()> {
     Ok(())
 }
 
-fn enlarge_window(editor: &mut Editor, _: &Args) -> Result<()> {
-    // Height is decided by the layout for every window the editor creates.
-    let _ = editor;
-    Err(crate::CoreError::Message(
-        "Window height is managed by the layout".into(),
-    ))
+fn enlarge_window(editor: &mut Editor, args: &Args) -> Result<()> {
+    resize_vertically(editor, args.signed_count())
+}
+
+fn shrink_window(editor: &mut Editor, args: &Args) -> Result<()> {
+    resize_vertically(editor, -args.signed_count())
+}
+
+/// Changes the selected window's height by `delta` rows.
+///
+/// Pins the height and looks at what the layout actually did with it: a
+/// window that is not one the layout gives a height to — the sole window, or
+/// one whose height comes from a split above it — is reported rather than
+/// silently doing nothing.
+fn resize_vertically(editor: &mut Editor, delta: i32) -> Result<()> {
+    let id = editor.windows.current_id();
+    let Some(window) = editor.windows.get(id) else {
+        return Err(crate::CoreError::NoSuchWindow);
+    };
+    let before = window.rect.height;
+    let wanted = (before as i32 + delta).max(2) as u16;
+    editor.windows.set_fixed_height(id, wanted);
+    let after = editor
+        .windows
+        .get(id)
+        .map(|window| window.rect.height)
+        .unwrap_or(before);
+    if after == before {
+        editor.windows.clear_fixed_height(id);
+        return Err(crate::CoreError::Message(
+            "The layout decides this window's height".into(),
+        ));
+    }
+    editor.follow_point();
+    Ok(())
 }
 
 fn enlarge_horizontally(editor: &mut Editor, args: &Args) -> Result<()> {

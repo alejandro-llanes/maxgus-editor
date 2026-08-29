@@ -17,6 +17,26 @@ pub const SHELL_OUTPUT_NAME: &str = "*Shell Command Output*";
 pub fn register(registry: &mut Registry) {
     registry.register_all(&[
         command!(
+            "toggle-line-numbers",
+            "Show or hide the line-number column.",
+            toggle_line_numbers
+        ),
+        command!(
+            "toggle-fill-column-indicator",
+            "Show or hide the rule at the fill column.",
+            toggle_fill_column_indicator
+        ),
+        command!(
+            "toggle-indent-style",
+            "Indent with tabs instead of spaces, or the other way round.",
+            toggle_indent_style
+        ),
+        command!(
+            "toggle-truncate-lines",
+            "Wrap long lines, or clip them at the edge.",
+            toggle_truncate_lines
+        ),
+        command!(
             "universal-argument",
             "Begin a prefix argument.",
             universal_argument,
@@ -510,6 +530,53 @@ pub fn macro_delimiters() -> (Vec<Key>, Vec<Key>) {
         vec![Key::ctrl('x'), Key::char('(')],
         vec![Key::ctrl('x'), Key::char(')')],
     )
+}
+
+// ---- the toggles Doom keeps under its leader -----------------------------
+
+fn toggle_line_numbers(editor: &mut Editor, _: &Args) -> Result<()> {
+    editor.settings.line_numbers = !editor.settings.line_numbers;
+    let state = on_or_off(editor.settings.line_numbers);
+    editor.message(format!("Line numbers {state}"));
+    Ok(())
+}
+
+fn toggle_fill_column_indicator(editor: &mut Editor, _: &Args) -> Result<()> {
+    editor.settings.fill_column_indicator = !editor.settings.fill_column_indicator;
+    let state = on_or_off(editor.settings.fill_column_indicator);
+    editor.message(format!("Fill-column indicator {state}"));
+    Ok(())
+}
+
+/// Tabs or spaces, for every buffer at once — which is what
+/// `doom/toggle-indent-style` means by it.
+fn toggle_indent_style(editor: &mut Editor, _: &Args) -> Result<()> {
+    editor.settings.indent_with_tabs = !editor.settings.indent_with_tabs;
+    editor.apply_settings_everywhere();
+    let style = match editor.settings.indent_with_tabs {
+        true => "tabs",
+        false => "spaces",
+    };
+    editor.message(format!("Indenting with {style}"));
+    Ok(())
+}
+
+fn toggle_truncate_lines(editor: &mut Editor, _: &Args) -> Result<()> {
+    editor.settings.truncate_lines = !editor.settings.truncate_lines;
+    let how = match editor.settings.truncate_lines {
+        true => "clipped at the edge",
+        false => "wrapped",
+    };
+    editor.follow_point();
+    editor.message(format!("Long lines {how}"));
+    Ok(())
+}
+
+fn on_or_off(on: bool) -> &'static str {
+    match on {
+        true => "on",
+        false => "off",
+    }
 }
 
 #[cfg(test)]

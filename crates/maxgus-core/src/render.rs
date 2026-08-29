@@ -1776,11 +1776,15 @@ fn column_width<'a>(entries: impl Iterator<Item = &'a str>, most: u16) -> u16 {
 fn annotate(editor: &Editor, candidate: &str) -> (String, String) {
     match editor.minibuffer.kind() {
         Some(crate::MinibufferKind::Command) => {
+            // The shortest of them. A command now often has two — the
+            // classic Emacs key and the one under Doom's leader — and the
+            // shorter is the one worth showing in a column this narrow.
             let key = editor
                 .keymaps
                 .where_is(candidate)
-                .first()
+                .iter()
                 .map(|sequence| sequence.notation())
+                .min_by_key(|notation| (notation.chars().count(), notation.clone()))
                 .unwrap_or_default();
             let doc = editor
                 .command_docs

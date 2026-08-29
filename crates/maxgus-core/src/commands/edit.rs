@@ -154,6 +154,11 @@ pub fn register(registry: &mut Registry) {
             delete_blank_lines
         ),
         command!(
+            "duplicate-line-or-region",
+            "Copy the region, or this line, and put the copy after it.",
+            duplicate_line_or_region
+        ),
+        command!(
             "indent-for-tab-command",
             "Indent the line, or insert indentation.",
             indent_for_tab
@@ -1032,6 +1037,38 @@ fn keyboard_quit(editor: &mut Editor, _: &Args) -> Result<()> {
         return Ok(());
     }
     editor.message("Quit");
+    Ok(())
+}
+
+/// `C-d`: the region again below itself, or this line again below itself.
+///
+/// One command for both because that is how it is reached: with something
+/// selected it means the selection, and without it means the line, which is
+/// what a person pressing it expects either way.
+fn duplicate_line_or_region(editor: &mut Editor, args: &Args) -> Result<()> {
+    let times = args.count().max(1);
+    let (text, at) = {
+        let buffer = editor.current_buffer();
+        match buffer.region() {
+            Some(region) if !region.is_empty() => (buffer.slice(region), region.end),
+            _ => {
+                let point = buffer.point();
+                let line = buffer.line_of(point);
+                let start = buffer.line_start(line);
+                let end = Motion::line_end(buffer.rope(), start);
+                (format!("\n{}", buffer.slice(Range::new(start, end))), end)
+            }
+        }
+    };
+    let copies = text.repeat(times);
+    let length = copies.chars().count();
+    editor.with_current_buffer(move |b| {
+        b.set_point(at);
+        b.insert_at_point(&copies)
+    })?;
+    // Point ends on the copy, which is what is about to be edited.
+    editor.move_point_to(at + length);
+    editor.follow_point();
     Ok(())
 }
 

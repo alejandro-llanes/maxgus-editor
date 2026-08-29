@@ -163,6 +163,8 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-x C-x", "exchange-point-and-mark"),
     ("C-x h", "mark-whole-buffer"),
     ("C-x u", "undo"),
+    ("S-TAB", "snippet-previous-field"),
+    ("C-c s", "insert-snippet"),
     // Several cursors, spelled as `multiple-cursors` spells them.
     ("C->", "mark-next-like-this"),
     ("C-<", "mark-previous-like-this"),

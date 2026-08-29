@@ -64,6 +64,12 @@ pub struct Editor {
     pub config_says_theme: Option<String>,
     /// A file being read, and the line point should land on when it arrives.
     pub pending_line: Option<(PathBuf, usize)>,
+    /// The snippets that have been loaded, from the configuration directory.
+    pub snippets: Vec<crate::snippet::Snippet>,
+    /// The fields of the snippet being filled in, as buffer offsets.
+    pub snippet_fields: Vec<(usize, usize)>,
+    /// Which of them point is on.
+    pub snippet_field: usize,
     /// Where a restored session wants point in each of its files.
     pub session_points: std::collections::HashMap<PathBuf, (usize, usize)>,
     /// Whether the session being restored had the panel open.
@@ -272,6 +278,9 @@ impl Editor {
             state_dir: None,
             config_says_theme: None,
             pending_line: None,
+            snippets: Vec::new(),
+            snippet_fields: Vec::new(),
+            snippet_field: 0,
             session_points: std::collections::HashMap::new(),
             session_panel: false,
             editor_configs: std::collections::HashMap::new(),
@@ -706,6 +715,71 @@ impl Editor {
             self.windows.current_mut().point = offset;
             self.with_current_buffer(move |b| b.set_point(offset));
         }
+    }
+
+    /// Moves point in the selected window and its buffer together.
+    pub fn move_point_to(&mut self, offset: usize) {
+        let offset = offset.min(self.current_buffer().len_chars());
+        self.windows.current_mut().point = offset;
+        self.with_current_buffer(move |b| b.set_point(offset));
+        self.follow_point();
+    }
+
+    /// The name of the current buffer's major mode, for the things that are
+    /// arranged by mode — snippets, and the keymaps.
+    pub fn current_mode_name(&self) -> Option<String> {
+        self.mode_keymap_name(self.current_buffer_id())
+    }
+
+    /// Moves the fields of the snippet being filled in past an edit.
+    ///
+    /// The same problem the extra cursors have: a field is an offset into
+    /// text that is being changed under it, and one that is not moved points
+    /// at the wrong characters after the first keystroke.
+    pub fn shift_snippet_fields(&mut self, at: usize, delta: isize) {
+        for (start, end) in &mut self.snippet_fields {
+            *start = crate::multi::shift_by_delta(*start, at, delta);
+            *end = crate::multi::shift_by_delta(*end, at, delta);
+        }
+    }
+
+    /// Takes out the field's default before it is typed over.
+    ///
+    /// Yasnippet's behaviour, and the reason for showing a default at all:
+    /// it is a suggestion to accept by tabbing past or replace by typing.
+    /// Vanilla Emacs has no `delete-selection-mode`, so this is scoped to a
+    /// snippet rather than turned on everywhere.
+    pub fn take_snippet_field(&mut self) -> Result<()> {
+        if !self.in_snippet() {
+            return Ok(());
+        }
+        let Some(region) = self.current_buffer().region() else {
+            return Ok(());
+        };
+        if region.is_empty() {
+            return Ok(());
+        }
+        self.with_current_buffer(move |b| -> maxgus_text::Result<()> {
+            b.delete(region)?;
+            b.set_point(region.start);
+            b.deactivate_mark();
+            Ok(())
+        })?;
+        self.windows.current_mut().point = region.start;
+        Ok(())
+    }
+
+    /// Stops filling in a snippet.
+    pub fn end_snippet(&mut self) {
+        self.snippet_fields.clear();
+        self.snippet_field = 0;
+        self.with_current_buffer(|b| b.deactivate_mark());
+    }
+
+    /// True while a snippet is being filled in, which is what makes `TAB`
+    /// move to the next field rather than indent.
+    pub fn in_snippet(&self) -> bool {
+        !self.snippet_fields.is_empty()
     }
 
     /// Shows `buffer` in the window a file is edited in, never in the panel.

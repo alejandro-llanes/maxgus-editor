@@ -256,7 +256,24 @@ impl Dispatcher {
             )
         });
 
+        // A snippet's fields are offsets into text a command is about to
+        // change, and have to move with it.
+        let snippet_before = editor.in_snippet().then(|| {
+            (
+                editor.windows.current().point,
+                editor.current_buffer().len_chars(),
+            )
+        });
+
         let outcome = self.registry.execute(editor, name, &args);
+
+        if let Some((point, length)) = snippet_before {
+            let delta = editor.current_buffer().len_chars() as isize - length as isize;
+            if delta != 0 {
+                let at = point.min(editor.windows.current().point);
+                editor.shift_snippet_fields(at, delta);
+            }
+        }
 
         // The same command again at every other cursor, from the end of the
         // buffer backwards so an edit at one cannot move the ones still to

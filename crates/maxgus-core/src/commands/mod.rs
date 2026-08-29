@@ -21,6 +21,7 @@ pub mod multi;
 pub mod panel;
 pub mod register;
 pub mod search;
+pub mod snippet;
 #[cfg(feature = "terminal")]
 pub mod terminal;
 pub mod text;
@@ -43,6 +44,7 @@ pub fn standard_registry() -> Registry {
     buffer::register(&mut registry);
     file::register(&mut registry);
     search::register(&mut registry);
+    snippet::register(&mut registry);
     panel::register(&mut registry);
     #[cfg(feature = "git")]
     git::register(&mut registry);

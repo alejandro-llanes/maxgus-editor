@@ -90,8 +90,8 @@ $ ./target/release/maxgus
 
 ### Emacs keys, and they behave like Emacs
 
-**341 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **400 commands**. Prefix
+**343 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
+the panel, tree, magit and terminal maps, driving **405 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -236,6 +236,29 @@ The tree keeps **47 bindings and 41 commands** from treemacs' own keymap:
 `c f`/`c d` to create, `R`, `d`, `m`, `!`, `y a`/`y r`/`y p`/`y f` to copy
 paths, `t h`/`t w`/`t f`/`t g`/`t d` to toggle, `g r` to refresh. Git status
 in the gutter, follow mode, `?` for help.
+
+### Snippets
+
+Type a key and press `TAB`:
+
+```
+fori⇥   →   for item in items {
+                 ▓▓▓▓
+            }
+```
+
+The first field is selected, so typing replaces it; `TAB` moves to the next,
+`S-TAB` back, `C-g` gives up. `$0` says where to be left at the end.
+
+Snippets live in `snippets/<mode>/` beside the configuration, one file each,
+written the way yasnippet writes them — `# key:`, `# name:`, `# --`, then the
+body with `$1`, `${2:default}` and `$0`. A set copied out of an Emacs
+configuration works unchanged. Files directly in `snippets/` belong to every
+mode. `C-c s` (`M-x insert-snippet`) picks one by name instead.
+
+The body syntax is the language-server protocol's as well as yasnippet's,
+which is the same syntax, so a completion that arrives from a server as a
+snippet can be inserted as one.
 
 ### It remembers where you left off
 
@@ -494,6 +517,7 @@ first.
 | `C-h v` | A setting's current value |
 | `C-c e` | Edit the configuration file |
 | `C-c o` | Open this file with the desktop's own viewer |
+| `C-c s` | Insert a snippet by name |
 
 Inside the tree, treemacs' own keys apply: `n` and `p` to move, `u` for the
 parent, `TAB` to fold, `RET` to open, `c f` and `c d` to create, `R` to rename,
@@ -618,7 +642,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1848 tests.** Unit tests beside the code; session tests that press real keys
+**1870 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

@@ -95,6 +95,9 @@ async fn main() -> Result<()> {
     // Where a chosen theme would be written, and what is written there now.
     editor.config_path = arguments.config.clone().or_else(default_config_path);
     editor.state_dir = default_state_dir();
+    // Snippets live beside the configuration, one directory per mode, the way
+    // yasnippet arranges them.
+    editor.snippets = load_snippets(editor.config_path.as_deref());
     editor.config_says_theme = Some(config.settings.theme.clone());
     apply_keymaps(&mut editor, &config);
 
@@ -339,6 +342,60 @@ fn load_theme_directory(config_path: &Path, config: &mut Config) -> Vec<maxgus_c
 }
 
 /// `~/.config/maxgus/config.kdl`, or wherever the platform puts it.
+/// Reads `snippets/<mode>/<name>` from beside the configuration file.
+///
+/// A directory per mode and a file per snippet, as yasnippet arranges them,
+/// so a set copied from an Emacs configuration works unchanged. Files
+/// directly in `snippets/` belong to every mode.
+fn load_snippets(config: Option<&std::path::Path>) -> Vec<maxgus_core::snippet::Snippet> {
+    let Some(root) = config
+        .and_then(|path| path.parent())
+        .map(|d| d.join("snippets"))
+    else {
+        return Vec::new();
+    };
+    let mut snippets = Vec::new();
+    read_snippets(&root, None, &mut snippets);
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return snippets;
+    };
+    for entry in entries.flatten() {
+        if entry.path().is_dir() {
+            let mode = entry.file_name().to_string_lossy().to_string();
+            read_snippets(&entry.path(), Some(mode), &mut snippets);
+        }
+    }
+    snippets
+}
+
+fn read_snippets(
+    directory: &std::path::Path,
+    mode: Option<String>,
+    out: &mut Vec<maxgus_core::snippet::Snippet>,
+) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let name = path
+            .file_stem()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        out.push(maxgus_core::snippet::Snippet::parse_file(
+            &source,
+            &name,
+            mode.clone(),
+        ));
+    }
+}
+
 /// Where the editor keeps what is its own business: sessions, for now.
 fn default_state_dir() -> Option<PathBuf> {
     directories::ProjectDirs::from("", "", "maxgus").map(|dirs| dirs.data_local_dir().to_path_buf())

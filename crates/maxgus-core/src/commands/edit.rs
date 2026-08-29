@@ -198,6 +198,8 @@ fn indent_unit(editor: &Editor) -> String {
 // ---- insertion ----------------------------------------------------------
 
 fn self_insert(editor: &mut Editor, args: &Args) -> Result<()> {
+    // A snippet's field is selected so that typing takes its place.
+    editor.take_snippet_field()?;
     let Some(c) = args.key.and_then(|k| k.as_char()) else {
         return Err(crate::CoreError::Message(
             "That key does not insert a character".into(),
@@ -843,7 +845,18 @@ fn delete_blank_lines(editor: &mut Editor, _: &Args) -> Result<()> {
 
 /// TAB: indents to the previous line's indentation, or inserts one level when
 /// the line already matches it.
-fn indent_for_tab(editor: &mut Editor, _: &Args) -> Result<()> {
+fn indent_for_tab(editor: &mut Editor, args: &Args) -> Result<()> {
+    // A snippet being filled in owns `TAB`: moving to the next field is what
+    // it is for, and indenting the line under a field would be nonsense.
+    if editor.in_snippet() {
+        return crate::commands::snippet::next_field_command(editor, args);
+    }
+    // Otherwise the word before point may be a snippet's key, and `TAB` is
+    // how yasnippet expands one. Nothing happens when it is not: indenting
+    // is what `TAB` does the rest of the time.
+    if crate::commands::snippet::expand_command(editor, args).is_ok() {
+        return Ok(());
+    }
     let unit = indent_unit(editor);
     let (range, target, point_was) = {
         let buffer = editor.current_buffer();
@@ -1006,6 +1019,11 @@ fn keyboard_quit(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.prefix = crate::Prefix::None;
     editor.tasks.clear();
     editor.with_current_buffer(|b| b.deactivate_mark());
+    if editor.in_snippet() {
+        editor.end_snippet();
+        editor.message("Snippet abandoned");
+        return Ok(());
+    }
     // `C-g` is how you get back to one cursor, as it is in
     // `multiple-cursors`: the alternative is typing everywhere by accident.
     if !editor.cursors.is_empty() {

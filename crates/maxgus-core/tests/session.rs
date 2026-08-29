@@ -4480,9 +4480,9 @@ fn the_readme_quotes_the_right_totals() {
 }
 
 #[cfg(feature = "full")]
-const README_BINDINGS: usize = 341;
+const README_BINDINGS: usize = 343;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 400;
+const README_COMMANDS: usize = 405;
 
 #[cfg(feature = "lsp")]
 #[test]
@@ -5837,5 +5837,163 @@ fn a_session_leaves_out_the_buffers_that_are_not_files() {
     assert!(
         session.panel_open,
         "the panel being open was not remembered"
+    );
+}
+
+// ---- snippets ------------------------------------------------------------
+
+fn with_snippets() -> Session {
+    let mut s = tall_session("/project/main.rs", "");
+    s.editor.snippets = vec![
+        maxgus_core::snippet::Snippet {
+            key: "for".into(),
+            name: "a for loop".into(),
+            mode: None,
+            body: "for ${1:item} in ${2:items} {\n    $0\n}".into(),
+        },
+        maxgus_core::snippet::Snippet {
+            key: "pr".into(),
+            name: "println".into(),
+            mode: None,
+            body: "println!(\"$1\");".into(),
+        },
+    ];
+    s
+}
+
+#[test]
+fn tab_after_a_snippet_key_expands_it() {
+    let mut s = with_snippets();
+    s.type_text("pr");
+    s.keys("TAB");
+    assert_eq!(
+        s.editor.current_buffer().text(),
+        "println!(\"\");",
+        "the key was not expanded"
+    );
+}
+
+#[test]
+fn the_first_field_is_selected_so_typing_replaces_its_default() {
+    let mut s = with_snippets();
+    s.type_text("for");
+    s.keys("TAB");
+    assert!(
+        s.editor
+            .current_buffer()
+            .text()
+            .starts_with("for item in items"),
+        "got {:?}",
+        s.editor.current_buffer().text()
+    );
+    // `item` is the region, so typing takes its place.
+    s.type_text("line");
+    assert!(
+        s.editor
+            .current_buffer()
+            .text()
+            .starts_with("for line in items"),
+        "the default was not replaced: {:?}",
+        s.editor.current_buffer().text()
+    );
+}
+
+#[test]
+fn tab_moves_to_the_next_field_and_backtab_comes_back() {
+    let mut s = with_snippets();
+    s.type_text("for");
+    s.keys("TAB");
+    // Longer than the default it replaces, so the field after it has to have
+    // moved: a replacement of the same length would not notice.
+    s.type_text("each_line");
+    s.keys("TAB"); // to `items`
+    s.type_text("lines");
+    assert!(
+        s.editor
+            .current_buffer()
+            .text()
+            .starts_with("for each_line in lines"),
+        "the second field was not reached: {:?}",
+        s.editor.current_buffer().text()
+    );
+    s.keys("S-TAB");
+    assert!(
+        s.echo().contains("Field 1"),
+        "S-TAB did not go back: `{}`",
+        s.echo()
+    );
+}
+
+#[test]
+fn the_last_tab_finishes_the_snippet_and_gives_tab_back() {
+    let mut s = with_snippets();
+    s.type_text("pr");
+    s.keys("TAB"); // expand, on field 1
+    s.keys("TAB"); // the last field, which finishes it
+    assert!(!s.editor.in_snippet(), "the snippet is still going");
+    // And `TAB` indents again.
+    let before = s.editor.current_buffer().text();
+    s.keys("TAB");
+    assert_ne!(
+        s.editor.current_buffer().text(),
+        before,
+        "`TAB` did not go back to indenting"
+    );
+}
+
+#[test]
+fn a_word_that_is_not_a_snippet_key_still_indents() {
+    let mut s = with_snippets();
+    s.type_text("notasnippet");
+    s.keys("TAB");
+    assert!(
+        s.editor.current_buffer().text().contains("notasnippet"),
+        "the word was eaten: {:?}",
+        s.editor.current_buffer().text()
+    );
+    assert!(!s.editor.in_snippet());
+}
+
+#[test]
+fn c_g_abandons_a_snippet_being_filled_in() {
+    let mut s = with_snippets();
+    s.type_text("for");
+    s.keys("TAB");
+    s.keys("C-g");
+    assert!(!s.editor.in_snippet());
+    assert!(s.echo().contains("abandoned"), "got `{}`", s.echo());
+    // The text stays: giving up on the fields is not undoing the expansion.
+    assert!(s.editor.current_buffer().text().starts_with("for item in"));
+}
+
+#[test]
+fn a_snippet_can_be_chosen_by_name() {
+    let mut s = with_snippets();
+    s.dispatcher.execute(&mut s.editor, "insert-snippet", None);
+    assert!(s.editor.minibuffer.is_active(), "no prompt");
+    s.type_text("println");
+    s.keys("RET");
+    assert!(
+        s.editor.current_buffer().text().contains("println!"),
+        "got {:?}",
+        s.editor.current_buffer().text()
+    );
+}
+
+#[test]
+fn a_snippet_for_another_mode_is_not_offered() {
+    let mut s = with_snippets();
+    s.editor.snippets.push(maxgus_core::snippet::Snippet {
+        key: "el".into(),
+        name: "an elisp thing".into(),
+        mode: Some("emacs-lisp-mode".into()),
+        body: "(defun $1 ())".into(),
+    });
+    s.type_text("el");
+    s.keys("TAB");
+    assert!(
+        !s.editor.current_buffer().text().contains("defun"),
+        "another mode's snippet was expanded: {:?}",
+        s.editor.current_buffer().text()
     );
 }

@@ -2531,3 +2531,65 @@ fn naming_a_file_means_that_file_rather_than_the_last_session() {
     );
     assert_eq!(session.quit(), 0);
 }
+
+#[test]
+fn a_snippet_file_is_found_and_expanded() {
+    // The loading from disk, in the layout yasnippet uses: a directory per
+    // mode, a file per snippet, with the header the same shape.
+    let fixture = Fixture::new("snippets");
+    let root = fixture.path();
+    let snippets = root.join("snippets/rust-mode");
+    std::fs::create_dir_all(&snippets).unwrap();
+    std::fs::write(
+        snippets.join("forloop"),
+        "# -*- mode: snippet -*-\n\
+         # name: a for loop\n\
+         # key: fori\n\
+         # --\n\
+         for ${1:item} in ${2:items} {\n    $0\n}",
+    )
+    .unwrap();
+    // One for every mode, directly in `snippets/`.
+    std::fs::write(root.join("snippets/note"), "# key: nb\n# --\nNOTE($1): ").unwrap();
+    std::fs::write(
+        root.join("config.kdl"),
+        "set nerd-font-icons=#false\nset line-numbers=#false\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("main.rs"), "").unwrap();
+
+    let mut session = Session::start(root, &["--config", "config.kdl", "main.rs"]);
+    assert!(
+        wait_for(&mut session, "maxgus started in", 60),
+        "no startup"
+    );
+
+    session.send(b"fori\t");
+    assert!(
+        wait_for(&mut session, "for item in items", 60),
+        "the snippet did not expand:\n{:#?}",
+        session.screen()
+    );
+    // The first field is selected, so typing replaces it.
+    session.send(b"line");
+    assert!(
+        wait_for(&mut session, "for line in items", 60),
+        "the default was not replaced:\n{:#?}",
+        session.screen()
+    );
+    // And the second field is a tab away.
+    session.send(b"\tlines");
+    assert!(
+        wait_for(&mut session, "for line in lines", 60),
+        "the second field was not reached:\n{:#?}",
+        session.screen()
+    );
+    // The buffer has been typed into; saving it is the simplest way to be
+    // able to leave, and the fixture is thrown away afterwards anyway.
+    session.send(b"\x18\x13"); // C-x C-s
+    assert!(
+        wait_for(&mut session, "Wrote", 60),
+        "the save did not happen"
+    );
+    assert_eq!(session.quit(), 0);
+}

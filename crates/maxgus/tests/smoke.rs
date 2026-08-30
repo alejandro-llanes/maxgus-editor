@@ -2432,16 +2432,31 @@ fn a_project_is_searched_and_the_results_are_edited_back_into_it() {
     session.send(b"     1:fn renamed() {}");
     session.settle();
     session.send(b"\x03\x03"); // C-c C-c
-    assert!(
-        wait_for(&mut session, "Wrote 1 line", 100),
-        "nothing was written:\n{:#?}",
-        session.screen()
-    );
 
     let (edited, untouched) = match editing_one {
         true => ("src/one.rs", "src/two.rs"),
         false => ("src/two.rs", "src/one.rs"),
     };
+    // Waiting on the file rather than on the echo area. "Wrote 1 line" is
+    // replaced the moment the rewritten file is read back in, so whether a
+    // test ever sees it is a race with the disk — one this lost on a slower
+    // machine while passing every time on a faster one. What was asked for
+    // is that the file changed, and that is what is waited for.
+    let mut wrote = false;
+    for _ in 0..100 {
+        if std::fs::read_to_string(root.join(edited))
+            .is_ok_and(|text| text.starts_with("fn renamed() {}"))
+        {
+            wrote = true;
+            break;
+        }
+        session.settle();
+    }
+    assert!(
+        wrote,
+        "{edited} was never rewritten:\n{:#?}",
+        session.screen()
+    );
     let written = std::fs::read_to_string(root.join(edited)).unwrap();
     assert!(
         written.starts_with("fn renamed() {}"),

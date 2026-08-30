@@ -10,5 +10,5 @@ workspace = true
 
 [dependencies]
 crossterm = "0.29.0"
-maxgus-config = { version = "0.2.1", path = "../maxgus-config" }
+maxgus-config = { version = "0.2.2", path = "../maxgus-config" }
 thiserror = "2.0.20"

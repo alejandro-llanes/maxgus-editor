@@ -55,23 +55,57 @@ checksum published beside it, and puts it in `~/.local/bin` — or
 `/usr/local/bin` where that is writable. Nothing else: no daemon, no package
 manager, no shell profile rewritten behind your back.
 
-**Three builds**, and the flag says which:
-
-| Build | What is in it | Binary | |
-|---|---|---|---|
-| `minimal` | The editor and the file tree. No grammars, no language server, no magit, no subprocess. | 4.6M | `sh -s -- --build minimal` |
-| `full` | Everything, in a terminal. **The default.** | 13M | `sh` |
-| `gui` | Everything, and a window drawn by the GPU as well as a terminal. | 20M | `sh -s -- --build gui` |
-
-[**The whole table**](#building-it-three-sizes) — every feature, and which
-builds have it — is further down.
+**Three builds**, and `--build` says which:
 
 ```console
-$ curl -fsSL https://alejandro-llanes.github.io/maxgus-editor/install.sh | sh -s -- --build gui
+$ curl -fsSL .../install.sh | sh                          # full, the default
+$ curl -fsSL .../install.sh | sh -s -- --build minimal
+$ curl -fsSL .../install.sh | sh -s -- --build gui
 ```
 
 `--prefix DIR` puts it somewhere else, `--version vX.Y.Z` fetches an older
 release, `--dry-run` says what it would do and stops.
+
+### Which build
+
+| | `minimal` | `full` *(default)* | `gui` |
+|---|:---:|:---:|:---:|
+| **Binary** | **4.6M** | **13M** | **20M** |
+| **Commands** | 294 | 443 | 443 |
+| **Needs from the system** | nothing | nothing | a window system's headers |
+| Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
+| Buffers, windows, `C-x` everything | ● | ● | ● |
+| The file tree, with treemacs' keys | ● | ● | ● |
+| The side panel — tree and buffer list | ● | ● | ● |
+| The side panel — symbol outline | ○ | ● | ● |
+| Themes, and the configuration file | ● | ● | ● |
+| which-key | ● | ● | ● |
+| beacon | ● | ● | ● |
+| Multiple cursors | ● | ● | ● |
+| The undo tree, and its visualiser | ● | ● | ● |
+| dired | ● | ● | ● |
+| Keyboard macros, registers, rectangles | ● | ● | ● |
+| isearch, `query-replace`, `occur` | ● | ● | ● |
+| Sessions, snippets, `.editorconfig` | ● | ● | ● |
+| **tree-sitter highlighting**, eleven grammars | ○ | ● | ● |
+| **Grammars from the system**, loaded at run time | ○ | ● | ● |
+| **A language-server client** | ○ | ● | ● |
+| **Autocomplete** while typing | ○ | ● | ● |
+| **lsp-ui-doc**, beside the cursor | ○ | ● | ● |
+| **magit** | ○ | ● | ● |
+| **A terminal panel**, in tabs | ○ | ● | ● |
+| **Project search**, and editing the results | ○ | ● | ● |
+| **Rhai scripting** | ○ | ● | ● |
+| **A window**: the GPU, the mouse, the clipboard, smooth scrolling | ○ | ○ | ● |
+
+`minimal` is the editor and the file tree: no grammars, no protocol, no
+subprocess, nothing to install. Everything a text editor does, and none of
+what a development environment does. It starts instantly and builds in a
+fraction of the time.
+
+`full` adds everything that talks to something else. `gui` adds a second
+front end drawn by the GPU, and is the only build that needs anything from
+the system to compile.
 
 <details>
 <summary><b>Or download an archive</b></summary>
@@ -680,50 +714,12 @@ parent, `TAB` to fold, `RET` to open, `c f` and `c d` to create, `R` to rename,
 
 ---
 
-## Building it: three sizes
+## Building it
 
-The editor is one thing; the grammars, the language server, magit, the
-terminal, project search and scripting are what get built on top of it, and
-the window is one more. There are three builds and no others.
-
-| | `minimal` | `full` *(default)* | `gui` |
-|---|:---:|:---:|:---:|
-| **Binary** | **4.6M** | **13M** | **20M** |
-| **Commands** | 294 | 443 | 443 |
-| **Needs from the system** | nothing | nothing | a window system's headers |
-| Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
-| Buffers, windows, `C-x` everything | ● | ● | ● |
-| The file tree, with treemacs' keys | ● | ● | ● |
-| The side panel — tree and buffer list | ● | ● | ● |
-| The side panel — symbol outline | ○ | ● | ● |
-| Themes, and the configuration file | ● | ● | ● |
-| which-key | ● | ● | ● |
-| beacon | ● | ● | ● |
-| Multiple cursors | ● | ● | ● |
-| The undo tree, and its visualiser | ● | ● | ● |
-| dired | ● | ● | ● |
-| Keyboard macros, registers, rectangles | ● | ● | ● |
-| isearch, `query-replace`, `occur` | ● | ● | ● |
-| Sessions, snippets, `.editorconfig` | ● | ● | ● |
-| **tree-sitter highlighting**, eleven grammars | ○ | ● | ● |
-| **Grammars from the system**, loaded at run time | ○ | ● | ● |
-| **A language-server client** | ○ | ● | ● |
-| **Autocomplete** while typing | ○ | ● | ● |
-| **lsp-ui-doc**, beside the cursor | ○ | ● | ● |
-| **magit** | ○ | ● | ● |
-| **A terminal panel**, in tabs | ○ | ● | ● |
-| **Project search**, and editing the results | ○ | ● | ● |
-| **Rhai scripting** | ○ | ● | ● |
-| **A window**: the GPU, the mouse, the clipboard, smooth scrolling | ○ | ○ | ● |
-
-`minimal` is the editor and the file tree: no grammars, no protocol, no
-subprocess, nothing to install. Everything a text editor does, and none of
-what a development environment does. It starts instantly and builds in a
-fraction of the time.
-
-`full` adds everything that talks to something else. `gui` adds a second
-front end drawn by the GPU, and is the only build that needs anything from
-the system to compile.
+The three builds are compared feature by feature [up there](#which-build).
+The tree-sitter grammars are C, and they are most of what a `full` build
+spends its time on — which is what makes `minimal` worth having rather than
+a `cfg` nobody would use.
 
 ```sh
 cargo build --release                                        # full
@@ -736,9 +732,9 @@ To try them side by side, `./scripts/build-variants.sh` builds all three into
 
 ```console
 $ ./scripts/build-variants.sh
-minimal  ok    4.6M  maxgus 0.2.1 (minimal)
-full     ok     13M  maxgus 0.2.1 (full)
-gui      ok     20M  maxgus 0.2.1 (gui)
+minimal  ok    4.6M  maxgus 0.2.2 (minimal)
+full     ok     13M  maxgus 0.2.2 (full)
+gui      ok     20M  maxgus 0.2.2 (gui)
 ```
 
 `--debug` builds them faster, `--into DIR` puts them somewhere else. Every
@@ -751,12 +747,9 @@ $ target/variants/maxgus-minimal notes.txt
 C-x g is undefined
 ```
 
-The tree-sitter grammars are C, and they are most of what a full build spends
-its time on — which is what makes `minimal` worth having rather than a `cfg`
-nobody would use. All three are built and tested by the CI, and a test holds
-every row of the table above: a command family is wholly in a build or
-wholly out of it, and `minimal` growing one would mean it had grown the crate
-behind it.
+All three are built and tested by the CI, and a test holds every row of the
+comparison: a command family is wholly in a build or wholly out of it, and
+`minimal` growing one would mean it had grown the crate behind it.
 
 ## A window, as well as a terminal
 
@@ -908,7 +901,7 @@ What changed in each release is in [CHANGELOG.md](CHANGELOG.md). Tagging is
 the whole of publishing one:
 
 ```console
-$ git tag v0.2.1 && git push origin v0.2.1
+$ git tag v0.2.2 && git push origin v0.2.2
 ```
 
 [`.github/workflows/release.yml`](.github/workflows/release.yml) builds all

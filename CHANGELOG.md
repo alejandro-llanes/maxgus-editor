@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## v0.2.2
 
+- **A feature comparison in the README**, where the build is chosen: a row
+  per feature against a column per build, and a test that holds every row —
+  a command family is wholly in a build or wholly out of it. `minimal` is
+  4.6M and 294 commands with no language server, no autocomplete and no
+  grammars in it; `full` is 13M and 443.
 - **Suggestions while typing.** `company-mode`, for a language server: after
   a couple of letters the server is asked what could follow, and a list
   appears at the cursor with each candidate's kind and type. Typing narrows

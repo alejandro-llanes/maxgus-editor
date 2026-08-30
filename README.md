@@ -732,9 +732,9 @@ To try them side by side, `./scripts/build-variants.sh` builds all three into
 
 ```console
 $ ./scripts/build-variants.sh
-minimal  ok    4.6M  maxgus 0.2.2 (minimal)
-full     ok     13M  maxgus 0.2.2 (full)
-gui      ok     20M  maxgus 0.2.2 (gui)
+minimal  ok    4.6M  maxgus 0.2.3 (minimal)
+full     ok     13M  maxgus 0.2.3 (full)
+gui      ok     20M  maxgus 0.2.3 (gui)
 ```
 
 `--debug` builds them faster, `--into DIR` puts them somewhere else. Every
@@ -901,7 +901,7 @@ What changed in each release is in [CHANGELOG.md](CHANGELOG.md). Tagging is
 the whole of publishing one:
 
 ```console
-$ git tag v0.2.2 && git push origin v0.2.2
+$ git tag v0.2.3 && git push origin v0.2.3
 ```
 
 [`.github/workflows/release.yml`](.github/workflows/release.yml) builds all

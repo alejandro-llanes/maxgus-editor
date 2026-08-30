@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.2.3
+
+- **The install line goes to the address it actually resolves to.**
+  `alejandro-llanes.github.io/maxgus-editor/...` was never going to be it:
+  the account's user site has a custom domain, so GitHub 301s every project
+  path to `http://alejandrollanes.com/...` — and to plain `http`, which is a
+  poor hop for something piped into a shell.
+
+  ```sh
+  curl -fsSL https://alejandrollanes.com/maxgus-editor/install.sh | sh
+  ```
+
+  Nothing else changed. This is a release rather than a note because the
+  README inside every v0.2.2 archive carries the old address.
+
 ## v0.2.2
 
 - **A feature comparison in the README**, where the build is chosen: a row

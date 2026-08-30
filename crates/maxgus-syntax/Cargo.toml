@@ -23,8 +23,8 @@ rust-version.workspace = true
 unsafe_code = "deny"
 
 [dependencies]
-maxgus-faces = { version = "0.2.2", path = "../maxgus-faces" }
-maxgus-text = { version = "0.2.2", path = "../maxgus-text" }
+maxgus-faces = { version = "0.2.3", path = "../maxgus-faces" }
+maxgus-text = { version = "0.2.3", path = "../maxgus-text" }
 thiserror = "2.0.20"
 tree-sitter = "0.26.13"
 # What a grammar's entry point is, before it is a `Language`.

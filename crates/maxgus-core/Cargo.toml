@@ -9,18 +9,18 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-maxgus-config = { version = "0.2.2", path = "../maxgus-config" }
-maxgus-faces = { version = "0.2.2", path = "../maxgus-faces" }
-maxgus-keys = { version = "0.2.2", path = "../maxgus-keys" }
-maxgus-lsp = { version = "0.2.2", path = "../maxgus-lsp", optional = true }
-maxgus-syntax = { version = "0.2.2", path = "../maxgus-syntax", optional = true }
-maxgus-git = { version = "0.2.2", path = "../maxgus-git", optional = true }
-maxgus-grep = { version = "0.2.2", path = "../maxgus-grep", optional = true }
-maxgus-script = { version = "0.2.2", path = "../maxgus-script", optional = true }
-maxgus-term = { version = "0.2.2", path = "../maxgus-term", optional = true }
-maxgus-text = { version = "0.2.2", path = "../maxgus-text" }
-maxgus-tree = { version = "0.2.2", path = "../maxgus-tree" }
-maxgus-tui = { version = "0.2.2", path = "../maxgus-tui" }
+maxgus-config = { version = "0.2.3", path = "../maxgus-config" }
+maxgus-faces = { version = "0.2.3", path = "../maxgus-faces" }
+maxgus-keys = { version = "0.2.3", path = "../maxgus-keys" }
+maxgus-lsp = { version = "0.2.3", path = "../maxgus-lsp", optional = true }
+maxgus-syntax = { version = "0.2.3", path = "../maxgus-syntax", optional = true }
+maxgus-git = { version = "0.2.3", path = "../maxgus-git", optional = true }
+maxgus-grep = { version = "0.2.3", path = "../maxgus-grep", optional = true }
+maxgus-script = { version = "0.2.3", path = "../maxgus-script", optional = true }
+maxgus-term = { version = "0.2.3", path = "../maxgus-term", optional = true }
+maxgus-text = { version = "0.2.3", path = "../maxgus-text" }
+maxgus-tree = { version = "0.2.3", path = "../maxgus-tree" }
+maxgus-tui = { version = "0.2.3", path = "../maxgus-tui" }
 kdl = "6.7.1"
 ropey = "1.6.1"
 serde_json = "1.0.151"

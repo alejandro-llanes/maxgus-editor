@@ -1974,8 +1974,13 @@ fn a_hunk_is_staged_through_the_running_editor() {
 
     let mut session = Session::start(repo, &["file.txt"]);
     session.send(b"\x18g"); // C-x g
+    // A longer wait than the rest, and not because 60 turns — fifteen
+    // seconds — is a tight budget for `git status` on a twenty-line repo.
+    // This failed once on a loaded machine and was not reproduced in four
+    // full runs afterwards, so what went slowly is not known. Waiting
+    // longer costs nothing when it does not have to.
     assert!(
-        wait_for(&mut session, "Unstaged changes", 60),
+        wait_for(&mut session, "Unstaged changes", 160),
         "no status view:\n{:#?}",
         session.screen()
     );

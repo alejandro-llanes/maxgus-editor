@@ -1,5 +1,60 @@
 # Changelog
 
+## v0.2.1
+
+Grammars from the system, and a different eleven built in.
+
+### Grammars the editor was not built with
+
+- **Point it at a directory and it loads them.** `libtree-sitter-<language>.so`
+  is how every package manager ships a tree-sitter grammar, and how Neovim
+  and Helix consume them; maxgus now does too. Eleven languages are built
+  in and every other one was uncoloured — now it need not be.
+
+  ```kdl
+  grammars {
+      search "/usr/lib"
+      queries "/usr/share/tree-sitter/queries"
+  }
+  ```
+
+  Nothing is loaded unless the configuration says where to look. There are
+  no default directories.
+
+- **`M-x describe-grammars`** says what is built in, what loaded, what would
+  not and why, and every directory searched.
+- **[docs/grammars.md](docs/grammars.md)** has per-platform instructions —
+  Arch, Debian, Fedora, Homebrew, Nix, Windows — how to build one yourself,
+  what each error means, and what loading a shared library into an editor
+  means for trust.
+- `maxgus-syntax` is the one crate permitted to write `unsafe`, at `deny`
+  rather than `forbid`. `dlopen`, `dlsym` and `LanguageFn::from_raw` have no
+  safe form, and `src/dynamic.rs` says at length what each assumes and what
+  is checked instead.
+
+### Built-in grammars
+
+- **Now**: c, html, ini, javascript, json, markdown, python, rust, toml,
+  xml, yaml. **Gone**: bash and css — which is why the binary is *smaller*
+  than v0.2.0's, not larger.
+- KDL and Rhai were meant to be here and are not. `tree-sitter-kdl` is bound
+  to tree-sitter 0.20, whose C runtime will not link beside 0.26's, and it
+  is a KDL **v1** grammar besides — maxgus reads v2. Rhai has no published
+  crate. `docs/grammars.md` says so rather than recommending a grammar that
+  half-parses your configuration.
+- `font-lock-heading` and `font-lock-link` are new faces, because markdown
+  and XML would otherwise have rendered almost colourless.
+
+### Also
+
+- An extension nothing knows now names its own language — `main.zig` is
+  `zig` — which is what makes a grammar findable without a table of every
+  language there has ever been.
+- An LSP request for a language with no server used to leave "Language
+  server: describing..." on screen for ever. It says so now, but only when a
+  command announced it: the symbols panel and the doc box ask while a server
+  may still be starting.
+
 ## v0.2.0
 
 Three builds to pick from, a window that works, and one line to install any

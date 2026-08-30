@@ -233,30 +233,35 @@ Grammar repositories live under
 [github.com/tree-sitter-grammars](https://github.com/tree-sitter-grammars),
 and most carry their own `queries/highlights.scm`.
 
-**KDL, in full**, because it is what this editor's own configuration is
-written in and it is not built in:
+**Rhai**, for instance, is
+[tree-sitter-rhai](https://github.com/rhaiscript/tree-sitter-rhai) through
+exactly those steps.
 
-```sh
-git clone --depth 1 https://github.com/tree-sitter-grammars/tree-sitter-kdl
-cd tree-sitter-kdl
-tree-sitter build --output libtree-sitter-kdl.so
+### A word about KDL
 
-mkdir -p ~/.local/share/maxgus/grammars/kdl
-cp libtree-sitter-kdl.so ~/.local/share/maxgus/grammars/
-cp queries/highlights.scm ~/.local/share/maxgus/grammars/kdl/
+This editor's own configuration is KDL, and there is no grammar for it worth
+installing yet. The one at
+[tree-sitter-grammars/tree-sitter-kdl](https://github.com/tree-sitter-grammars/tree-sitter-kdl)
+— including its `update` branch — is **KDL v1**, and maxgus reads **KDL v2**,
+where `#true`, `#false` and `#null` are keywords rather than syntax errors.
+It builds and loads, and then stops parsing at the first `#true`:
+
+```console
+$ printf 'a #true\n' > v2.kdl
+$ tree-sitter parse --lib-path libtree-sitter-kdl.so --lang-name kdl v2.kdl
+(document (node (identifier) (ERROR)))
 ```
 
-Then, in `config.kdl` itself:
+What that looks like in the editor is the top of the file coloured and the
+rest plain, which is worse than none of it coloured, so it is not worth
+setting up until a v2 grammar exists. Nothing breaks — a grammar that cannot
+parse a file colours what it managed and leaves the rest alone — but nothing
+is gained either.
 
-```kdl
-grammars {
-    search "~/.local/share/maxgus/grammars"
-    queries "~/.local/share/maxgus/grammars"
-}
-```
-
-Reopen the file and it colours itself. **Rhai** is the same recipe with
-[tree-sitter-rhai](https://github.com/rhaiscript/tree-sitter-rhai).
+The same caution applies generally: **a grammar has to match the dialect you
+write**. If a file colours down to a point and then stops, the grammar and
+the file disagree about the language, and the place to look is the grammar's
+version rather than this editor.
 
 The name matters. `tree-sitter build` produces a library exporting
 `tree_sitter_<name>`, where the name comes from the grammar; maxgus looks

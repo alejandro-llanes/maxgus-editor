@@ -2,7 +2,12 @@
 #
 # maxgus installer.
 #
-#     curl -fsSL https://alejandro-llanes.github.io/maxgus-editor/install.sh | sh
+#     curl -fsSL https://alejandrollanes.com/maxgus-editor/install.sh | sh
+#
+# Not the `alejandro-llanes.github.io` address: the account's user site has
+# a custom domain, so GitHub 301s every project path there — and to `http`,
+# which is a poor hop for something piped into a shell. This is where the
+# redirect lands, reached directly.
 #
 # Downloads a release archive, checks it against the checksum published
 # beside it, and puts the binary somewhere on the path. Nothing else: no

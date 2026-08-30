@@ -1,10 +1,10 @@
 name: Pages
 
 # The site at
-# https://alejandro-llanes.github.io/maxgus-editor/, and the install script
+# https://alejandrollanes.com/maxgus-editor/, and the install script
 # the front page hands out:
 #
-#     curl -fsSL https://alejandro-llanes.github.io/maxgus-editor/install.sh | sh
+#     curl -fsSL https://alejandrollanes.com/maxgus-editor/install.sh | sh
 #
 # It is static: `site/` plus the screenshots, which live in `docs/screenshots`
 # so the README and the site share one copy of each rather than drifting.

@@ -100,7 +100,7 @@ of them.
   itself:
 
   ```sh
-  curl -fsSL https://alejandro-llanes.github.io/maxgus-editor/install.sh | sh
+  curl -fsSL https://alejandrollanes.com/maxgus-editor/install.sh | sh
   ```
 
   It works out the platform, checks the download against the published

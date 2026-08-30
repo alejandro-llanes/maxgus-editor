@@ -14,7 +14,7 @@ themes you rewrite in a config file&nbsp; ·&nbsp; a treemacs-style file tree&nb
 <a href="https://github.com/alejandro-llanes/maxgus-editor/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/alejandro-llanes/maxgus-editor?style=for-the-badge&color=e05d44&display_name=tag&sort=semver"></a>
 <a href="https://www.rust-lang.org"><img alt="Rust" src="https://img.shields.io/badge/rust-stable%20·%202024-000000?style=for-the-badge&logo=rust&logoColor=white"></a>
 <a href="LICENSE"><img alt="Licence" src="https://img.shields.io/badge/licence-MIT-3d7ebb?style=for-the-badge"></a>
-<a href="https://alejandro-llanes.github.io/maxgus-editor/"><img alt="Website" src="https://img.shields.io/badge/maxgus-editor.dev-8abeb7?style=for-the-badge&logo=github&logoColor=white&label=site"></a>
+<a href="https://alejandrollanes.com/maxgus-editor/"><img alt="Website" src="https://img.shields.io/badge/alejandrollanes.com-8abeb7?style=for-the-badge&logo=github&logoColor=white&label=site"></a>
 </p>
 
 <p>
@@ -47,7 +47,7 @@ $ maxgus src/main.rs
 ## Install
 
 ```console
-$ curl -fsSL https://alejandro-llanes.github.io/maxgus-editor/install.sh | sh
+$ curl -fsSL https://alejandrollanes.com/maxgus-editor/install.sh | sh
 ```
 
 That fetches the `full` build for this machine, checks it against the

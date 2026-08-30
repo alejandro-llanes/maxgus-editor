@@ -2953,3 +2953,135 @@ fn every_build_takes_the_flag_that_asks_for_a_terminal() {
         assert!(said.contains("needs a terminal"), "got `{said}`");
     }
 }
+
+/// A grammar the editor was not built with, loaded from a shared library
+/// the way a package manager installs one.
+///
+/// Skipped where the system has no such grammar to point at, because the
+/// point of this test is that a *real* one loads — a fixture shaped to pass
+/// would prove nothing about `dlopen`.
+#[cfg(feature = "full")]
+#[test]
+fn a_grammar_from_the_system_colours_a_language_that_is_not_built_in() {
+    let Some((language, library, queries)) = system_grammar() else {
+        eprintln!("skipping: no system tree-sitter grammar to load");
+        return;
+    };
+    assert!(
+        !maxgus_syntax::supported_languages().contains(&language.as_str()),
+        "{language} is compiled in, so this would prove nothing"
+    );
+
+    let fixture = Fixture::new("grammar");
+    let root = fixture.path();
+    let source = "-- a comment\nlocal function greet(name)\n  return name\nend\n";
+    std::fs::write(root.join("demo.lua"), source).unwrap();
+    let config = with_config(
+        &fixture,
+        &format!(
+            "set idle-delay-ms=1\ngrammars {{\n    search \"{}\"\n    queries \"{}\"\n}}\n",
+            library.display(),
+            queries.display()
+        ),
+    );
+    let mut session = Session::start(root, &["--config", config, "demo.lua"]);
+    session.settle();
+
+    // The comment is coloured, which it could only be by a grammar that was
+    // loaded: nothing in this binary knows what Lua is.
+    let coloured = wait_for_colour(&mut session, "-- a comment", 60);
+    assert!(
+        coloured,
+        "the comment was never coloured, so no grammar loaded:\n{:#?}",
+        session.screen()
+    );
+    assert_eq!(session.quit(), 0);
+}
+
+/// A language with a grammar on this system that maxgus is not built with.
+#[cfg(feature = "full")]
+fn system_grammar() -> Option<(String, PathBuf, PathBuf)> {
+    let libraries = ["/usr/lib", "/usr/local/lib", "/opt/homebrew/lib"];
+    let queries = [
+        "/usr/share/tree-sitter/queries",
+        "/usr/local/share/tree-sitter/queries",
+        "/usr/share/nvim/runtime/queries",
+    ];
+    for language in ["lua", "vim", "query"] {
+        for directory in libraries {
+            let directory = PathBuf::from(directory);
+            let found = maxgus_syntax::dynamic::library_names(language)
+                .iter()
+                .any(|name| directory.join(name).is_file());
+            if !found {
+                continue;
+            }
+            for query in queries {
+                let query = PathBuf::from(query);
+                if query.join(language).join("highlights.scm").is_file() {
+                    return Some((language.to_string(), directory, query));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// True once `text` is on screen with something other than the default
+/// foreground on it.
+#[cfg(feature = "full")]
+fn wait_for_colour(session: &mut Session, text: &str, tries: usize) -> bool {
+    for _ in 0..tries {
+        // The escape sequences carry the colours; the screen reader here
+        // keeps only the characters.
+        let written = String::from_utf8_lossy(&session.output).into_owned();
+        if let Some(at) = written.find(text) {
+            // A colour was set somewhere in the hundred bytes before it.
+            let from = at.saturating_sub(100);
+            if written[from..at].contains("38;2;") {
+                return true;
+            }
+        }
+        session.settle();
+    }
+    false
+}
+
+/// `describe-grammars` is how someone finds out why their grammar is not
+/// loading, so it has to be right about what is there.
+#[cfg(feature = "full")]
+#[test]
+fn describe_grammars_says_what_is_built_in_and_what_is_not() {
+    let fixture = Fixture::new("grammarreport");
+    let config = with_config(
+        &fixture,
+        "grammars {\n    search \"/nowhere/at/all\"\n    queries \"/nowhere\"\n}\n",
+    );
+    std::fs::write(fixture.path().join("a.wombat"), "hello\n").unwrap();
+    let mut session = Session::start(fixture.path(), &["--config", config, "a.wombat"]);
+    session.settle();
+
+    session.send(b"\x1bx");
+    session.settle();
+    session.send(b"describe-grammars\r");
+    assert!(
+        wait_for(&mut session, "Compiled in", 60),
+        "no report:\n{:#?}",
+        session.screen()
+    );
+    let screen = session.screen().join("\n");
+    assert!(
+        screen.contains("rust"),
+        "the built-in list is missing:\n{screen}"
+    );
+    assert!(
+        screen.contains("/nowhere/at/all"),
+        "it does not say where it looked:\n{screen}"
+    );
+    // The buffer was opened, so a grammar for it was looked for and failed.
+    assert!(
+        screen.contains("wombat"),
+        "the failure is not reported:\n{screen}"
+    );
+    assert_eq!(session.quit(), 0);
+}

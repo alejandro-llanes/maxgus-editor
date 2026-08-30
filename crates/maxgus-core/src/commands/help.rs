@@ -33,6 +33,12 @@ pub fn register(registry: &mut Registry) {
             "List every active key binding.",
             describe_bindings
         ),
+        #[cfg(feature = "full")]
+        command!(
+            "describe-grammars",
+            "List the tree-sitter grammars this editor can reach.",
+            describe_grammars
+        ),
         command!(
             "describe-mode",
             "Describe the current buffer's mode.",
@@ -48,6 +54,18 @@ pub fn register(registry: &mut Registry) {
 }
 
 /// Shows `text` in the help buffer, without disturbing the tree window.
+/// `describe-grammars`: which languages this build can colour, and why any
+/// grammar the configuration named would not load.
+///
+/// The answer is the executor's — it holds the grammars — so this asks and
+/// the reply arrives as a [`crate::TaskResult::Grammars`].
+#[cfg(feature = "full")]
+fn describe_grammars(editor: &mut Editor, _: &Args) -> Result<()> {
+    editor.message("Grammars...");
+    editor.spawn(crate::task::Task::DescribeGrammars);
+    Ok(())
+}
+
 pub fn show_help(editor: &mut Editor, text: &str) -> Result<()> {
     let id = match editor.buffers.find_by_name(HELP_BUFFER_NAME) {
         Some(id) => {
@@ -498,11 +516,14 @@ mod tests {
     #[cfg(feature = "full")]
     #[test]
     fn describe_mode_is_honest_about_a_mode_with_no_grammar() {
+        // Markdown has a grammar now, so this needs a language that does
+        // not — one whose name comes from its extension and nothing else.
         let (mut d, mut e) = setup();
-        let id = e.buffers.visit_file("/project/notes.md", "");
+        let id = e.buffers.visit_file("/project/notes.cobol", "");
         e.switch_to_buffer(id).unwrap();
         run(&mut d, &mut e, "describe-mode");
-        assert!(e.current_buffer().text().contains("No tree-sitter grammar"));
+        let said = e.current_buffer().text();
+        assert!(said.contains("No tree-sitter grammar"), "got `{said}`");
     }
 
     #[test]

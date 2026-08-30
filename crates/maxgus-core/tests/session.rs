@@ -4506,7 +4506,7 @@ fn the_readme_quotes_the_right_totals() {
 #[cfg(feature = "full")]
 const README_BINDINGS: usize = 394;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 438;
+const README_COMMANDS: usize = 439;
 
 #[cfg(feature = "full")]
 #[test]

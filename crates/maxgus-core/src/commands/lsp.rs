@@ -114,6 +114,7 @@ fn ask(editor: &mut Editor, query: LspQuery) -> Result<()> {
         language,
         uri,
         query,
+        announced: true,
     });
     Ok(())
 }
@@ -156,7 +157,9 @@ pub fn ask_for_doc(editor: &mut Editor) {
     editor.spawn(Task::LspRequest {
         language,
         uri,
+        // Nobody asked out loud, so nothing is said if nobody answers.
         query: LspQuery::Hover(position),
+        announced: false,
     });
 }
 
@@ -1313,8 +1316,12 @@ mod tests {
 
     #[test]
     fn a_buffer_with_no_language_has_no_server_to_ask() {
+        // A file with no extension has no language to guess from. One with
+        // an extension nothing knows takes the extension as its language —
+        // that is what lets a grammar be looked for — and is turned away
+        // later, by the executor, which is what holds the server list.
         let (mut d, mut e) = setup("text");
-        let id = e.buffers.visit_file("/project/notes.unknownext", "text");
+        let id = e.buffers.visit_file("/project/NOTES", "text");
         e.switch_to_buffer(id).unwrap();
         assert!(fails(&mut d, &mut e, "lsp-find-definition").contains("no language"));
     }

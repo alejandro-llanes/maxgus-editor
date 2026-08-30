@@ -23,7 +23,7 @@ themes you rewrite in a config file&nbsp; ·&nbsp; a treemacs-style file tree&nb
 <img alt="" src="https://img.shields.io/badge/windows-333?style=flat-square&logo=windows&logoColor=white">
 <img alt="" src="https://img.shields.io/badge/freebsd-333?style=flat-square&logo=freebsd&logoColor=white">
 <img alt="Unsafe" src="https://img.shields.io/badge/unsafe-forbidden-4c9a2a?style=flat-square">
-<img alt="Tests" src="https://img.shields.io/badge/tests-1992-4c9a2a?style=flat-square">
+<img alt="Tests" src="https://img.shields.io/badge/tests-2005-4c9a2a?style=flat-square">
 </p>
 
 <sub><b>No Lisp interpreter. No plugin runtime.</b> ~56,000 lines · fifteen crates · three builds to pick from.</sub>
@@ -120,7 +120,7 @@ $ ./target/release/maxgus
 ### Emacs keys, and they behave like Emacs
 
 **394 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **438 commands**. Prefix
+the panel, tree, magit and terminal maps, driving **439 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -164,7 +164,13 @@ it matched — otherwise you could never create `notes` next to a `notes-2024.md
 
 ### Tree-sitter highlighting
 
-Grammars for **Rust, Python, JavaScript, JSON, C, Bash, HTML and CSS** compiled
+Any other language can be coloured by a grammar already installed on the
+system — [docs/grammars.md](docs/grammars.md) has the per-platform
+instructions and says what loading one means for trust. Nothing is loaded
+unless the configuration says where to look.
+
+Grammars for **Rust, Python, JavaScript, JSON, C, HTML, YAML, TOML, INI, XML
+and Markdown** compiled
 into the binary — nothing to install. Reparsing is incremental and only the
 visible region is queried, so editing a 20,000-line file costs about 18 ms per
 pause rather than a full parse. Every capture the grammars emit is checked
@@ -681,7 +687,7 @@ the window is one more. There are three builds and no others:
 |---|---|---|
 | `minimal` | The editor and the treefile. No grammars, no protocol, no subprocess. | **4.6M** |
 | `full` *(default)* | Everything: tree-sitter, the language-server client, magit, the terminal panel, project search, scripting. | **13M** |
-| `gui` | Everything in `full`, and a window drawn by the GPU as well as a terminal. | **21M** |
+| `gui` | Everything in `full`, and a window drawn by the GPU as well as a terminal. | **20M** |
 
 ```sh
 cargo build --release                                        # full
@@ -701,7 +707,7 @@ To try them side by side, `./scripts/build-variants.sh` builds all three into
 $ ./scripts/build-variants.sh
 minimal  ok    4.6M  maxgus 0.2.0 (minimal)
 full     ok     13M  maxgus 0.2.0 (full)
-gui      ok     21M  maxgus 0.2.0 (gui)
+gui      ok     20M  maxgus 0.2.0 (gui)
 ```
 
 `--debug` builds them faster, `--into DIR` puts them somewhere else. Every
@@ -838,7 +844,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1992 tests.** Unit tests beside the code; session tests that press real keys
+**2005 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

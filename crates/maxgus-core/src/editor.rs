@@ -1707,6 +1707,12 @@ impl Editor {
                 });
                 Ok(())
             }
+            #[cfg(feature = "full")]
+            TaskResult::Grammars { report } => {
+                crate::commands::help::show_help(self, &report)?;
+                self.message(String::new());
+                Ok(())
+            }
             TaskResult::TreeUpdated {
                 nodes,
                 select,
@@ -2264,6 +2270,7 @@ impl Editor {
                 language,
                 uri: maxgus_lsp::client::path_to_uri(&path),
                 query: crate::task::LspQuery::DocumentSymbols { for_panel: true },
+                announced: false,
             });
         }
     }

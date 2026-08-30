@@ -847,9 +847,45 @@ pub fn language_for_path(path: &Path) -> Option<String> {
         "kdl" => "kdl",
         "go" => "go",
         "yml" | "yaml" => "yaml",
+        // Where the language is not spelled the way the extension is.
+        "rb" => "ruby",
+        "kt" | "kts" => "kotlin",
+        "hs" => "haskell",
+        "ex" | "exs" => "elixir",
+        "erl" => "erlang",
+        "ml" | "mli" => "ocaml",
+        "cs" => "c-sharp",
+        "pl" | "pm" => "perl",
+        "clj" | "cljs" => "clojure",
+        "f90" | "f95" => "fortran",
+        // Anything else takes its own name. A tree-sitter grammar is
+        // conventionally called after the extension — `lua`, `zig`, `nix`,
+        // `julia` — so this is what lets a grammar the editor was not built
+        // with be found at all, without a table naming every language there
+        // has ever been. A name with nothing configured for it does nothing:
+        // no grammar is loaded, no server is started, no keymap applies.
+        other if is_plausible_language(other) => return Some(other.to_string()),
         _ => return None,
     };
     Some(lang.to_string())
+}
+
+/// Whether an extension could be a language name.
+///
+/// Letters and digits only, and short. `.rs` is a language; `.tar` is not
+/// worth pretending about, but it costs nothing to say it is — while a
+/// backup file's `.~` or a lock file's `.#` would be a name nothing should
+/// ever go looking for on disk.
+fn is_plausible_language(extension: &str) -> bool {
+    !extension.is_empty()
+        && extension.len() <= 16
+        && extension
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && extension
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic())
 }
 
 #[cfg(test)]
@@ -892,8 +928,30 @@ mod tests {
             language_for_path(Path::new("x.PY")).as_deref(),
             Some("python")
         );
-        assert_eq!(language_for_path(Path::new("x.unknown")), None);
+        // An extension nothing knows about names itself, which is what
+        // lets a grammar the editor was not built with be looked for. It
+        // means nothing on its own: no grammar, no server, no keymap.
+        assert_eq!(
+            language_for_path(Path::new("x.unknown")).as_deref(),
+            Some("unknown")
+        );
+        assert_eq!(
+            language_for_path(Path::new("main.lua")).as_deref(),
+            Some("lua")
+        );
+        assert_eq!(
+            language_for_path(Path::new("a.rb")).as_deref(),
+            Some("ruby"),
+            "where the language is not spelled like the extension"
+        );
+        // And things that are plainly not languages stay nothing at all.
         assert_eq!(language_for_path(Path::new("noext")), None);
+        assert_eq!(language_for_path(Path::new("x.~")), None);
+        assert_eq!(language_for_path(Path::new("x.9")), None, "not a name");
+        assert_eq!(
+            language_for_path(Path::new("x.averyverylongextension")),
+            None
+        );
     }
 
     #[test]

@@ -335,7 +335,8 @@ your `theme` blocks override.
 `font-lock-function-name`, `font-lock-variable-name`, `font-lock-type`,
 `font-lock-property`, `font-lock-number`, `font-lock-operator`,
 `font-lock-punctuation`, `font-lock-preprocessor`, `font-lock-escape`,
-`font-lock-label`, `font-lock-attribute`.
+`font-lock-label`, `font-lock-attribute`, `font-lock-heading`,
+`font-lock-link`.
 
 **Diagnostics** — `diagnostic-error`, `diagnostic-warning`, `diagnostic-info`,
 `diagnostic-hint`.

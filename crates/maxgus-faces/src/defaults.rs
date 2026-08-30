@@ -208,6 +208,8 @@ fn build(name: &str, p: &Palette) -> Theme {
     set("font-lock-preprocessor", Face::fg(p.purple));
     set("font-lock-escape", Face::fg(p.orange).bold());
     set("font-lock-label", Face::fg(p.red));
+    set("font-lock-heading", Face::fg(p.blue).bold());
+    set("font-lock-link", Face::fg(p.aqua).underline());
     set("font-lock-attribute", Face::fg(p.yellow));
 
     // ---- diagnostics ----

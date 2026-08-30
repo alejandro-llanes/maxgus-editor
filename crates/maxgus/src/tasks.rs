@@ -50,6 +50,10 @@ pub struct Executor {
     /// costs eighteen times what an incremental one does.
     #[cfg(feature = "full")]
     highlighters: HashMap<maxgus_text::BufferId, BufferSyntax>,
+    /// The grammars this editor can reach: compiled in, plus whatever the
+    /// configuration pointed it at.
+    #[cfg(feature = "full")]
+    grammars: maxgus_syntax::Grammars,
     /// Running language servers, by language.
     #[cfg(feature = "full")]
     servers: HashMap<String, Arc<Client>>,
@@ -90,10 +94,26 @@ enum PtyCommand {
 }
 
 impl Executor {
+    /// An executor that looks for no grammars beyond the compiled-in ones,
+    /// which is every caller that is not reading a configuration file.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn new(
         root: PathBuf,
         tree_config: TreeConfig,
         #[cfg_attr(not(feature = "full"), allow(unused_variables))] lsp_specs: Vec<LspSpec>,
+        results: mpsc::UnboundedSender<TaskResult>,
+    ) -> Executor {
+        Executor::with_grammars(root, tree_config, lsp_specs, Default::default(), results)
+    }
+
+    /// The same, told where to look for grammars the editor was not built
+    /// with. Nothing is looked for unless this says where.
+    pub fn with_grammars(
+        root: PathBuf,
+        tree_config: TreeConfig,
+        #[cfg_attr(not(feature = "full"), allow(unused_variables))] lsp_specs: Vec<LspSpec>,
+        #[cfg_attr(not(feature = "full"), allow(unused_variables))]
+        grammars: maxgus_config::GrammarConfig,
         results: mpsc::UnboundedSender<TaskResult>,
     ) -> Executor {
         Executor {
@@ -102,6 +122,20 @@ impl Executor {
             tree_config,
             #[cfg(feature = "full")]
             highlighters: HashMap::new(),
+            #[cfg(feature = "full")]
+            grammars: maxgus_syntax::Grammars::new(maxgus_syntax::Search {
+                libraries: grammars.search,
+                queries: grammars.queries,
+                named: grammars
+                    .named
+                    .into_iter()
+                    .map(|g| maxgus_syntax::Named {
+                        language: g.language,
+                        library: g.library,
+                        queries: g.queries,
+                    })
+                    .collect(),
+            }),
             #[cfg(feature = "full")]
             servers: HashMap::new(),
             #[cfg(feature = "full")]
@@ -165,6 +199,11 @@ impl Executor {
             } => {
                 self.reparse(buffer, &language, text, revision, range).await;
             }
+            #[cfg(feature = "full")]
+            Task::DescribeGrammars => {
+                let report = self.grammar_report();
+                self.send(TaskResult::Grammars { report });
+            }
             Task::Dired { path } => self.dired(path).await,
             Task::DiredAct { action } => self.dired_act(action).await,
             #[cfg(feature = "full")]
@@ -223,7 +262,8 @@ impl Executor {
                 language,
                 uri,
                 query,
-            } => self.lsp_request(language, uri, query),
+                announced,
+            } => self.lsp_request(language, uri, query, announced),
             #[cfg(feature = "full")]
             Task::LspRespond {
                 language,
@@ -683,6 +723,100 @@ impl Executor {
     #[cfg(feature = "full")]
     // ---- syntax --------------------------------------------------------
     #[cfg(feature = "full")]
+    /// The grammar for `language`, loading it from disk the first time if
+    /// the configuration said where to look.
+    ///
+    /// Opening a shared library reads from the disk and runs the library's
+    /// own initialisers, so it goes to a blocking thread. Doing it on the
+    /// runtime would stall every other task in the editor for as long as it
+    /// took — which is the whole reason `maxgus-syntax/src/dynamic.rs` is on
+    /// the list of files allowed to block, and why this is the only way in.
+    #[cfg(feature = "full")]
+    async fn grammar_for(&mut self, language: &str) -> Option<maxgus_syntax::SyntaxLanguage> {
+        let search = match self.grammars.ready(language) {
+            maxgus_syntax::Ready::Have(grammar) => return Some(grammar),
+            maxgus_syntax::Ready::Absent => return None,
+            maxgus_syntax::Ready::MustLoad(search) => search,
+        };
+        let name = language.to_string();
+        let outcome =
+            tokio::task::spawn_blocking(move || maxgus_syntax::dynamic::load(&name, &search))
+                .await
+                .ok()?;
+        let grammar = match &outcome {
+            Ok(grammar) => Some(grammar.clone()),
+            Err(_) => None,
+        };
+        self.grammars.remember(language, outcome);
+        grammar
+    }
+
+    /// What `describe-grammars` shows: what is built in, what was loaded,
+    /// and what would not load and why — which is the only way to find out
+    /// that a path in the configuration has a typo in it.
+    #[cfg(feature = "full")]
+    fn grammar_report(&self) -> String {
+        use std::fmt::Write as _;
+        let mut out = String::from("Tree-sitter grammars\n\n");
+        out.push_str("Compiled in\n");
+        for name in maxgus_syntax::supported_languages() {
+            let _ = writeln!(out, "  {name}");
+        }
+
+        let search = self.grammars.search();
+        out.push_str("\nLoaded from disk\n");
+        match search.is_empty() {
+            true => out.push_str(
+                "  none — no `grammars` block in the configuration, so none\n                   are looked for. See docs/grammars.md.\n",
+            ),
+            false => {
+                let loaded = self.grammars.loaded();
+                match loaded.is_empty() {
+                    true => out.push_str("  none yet\n"),
+                    false => {
+                        for name in loaded {
+                            let _ = writeln!(out, "  {name}");
+                        }
+                    }
+                }
+                let failures = self.grammars.failures();
+                if !failures.is_empty() {
+                    out.push_str("\nWould not load\n");
+                    for (name, why) in failures {
+                        let _ = writeln!(out, "  {name}: {why}");
+                    }
+                }
+                out.push_str("\nLooked for in\n");
+                for path in &search.libraries {
+                    let _ = writeln!(out, "  {}", path.display());
+                }
+                if !search.named.is_empty() {
+                    out.push_str("\nNamed outright\n");
+                    for named in &search.named {
+                        let _ = writeln!(out, "  {}: {}", named.language, named.library.display());
+                    }
+                }
+                out.push_str("\nQueries looked for in\n");
+                match search.queries.is_empty() {
+                    true => out.push_str("  nowhere — a grammar with no query cannot colour\n"),
+                    false => {
+                        for path in &search.queries {
+                            let _ = writeln!(out, "  {}/<language>/highlights.scm", path.display());
+                        }
+                    }
+                }
+            }
+        }
+        let _ = write!(
+            out,
+            "\ntree-sitter ABI {}..={} is what this build reads.\n",
+            maxgus_syntax::MIN_ABI,
+            maxgus_syntax::MAX_ABI
+        );
+        out
+    }
+
+    #[cfg(feature = "full")]
     async fn reparse(
         &mut self,
         buffer: maxgus_text::BufferId,
@@ -705,9 +839,14 @@ impl Executor {
         let mut syntax = match self.highlighters.remove(&buffer) {
             Some(syntax) => syntax,
             None => {
-                // A language with no compiled-in grammar is not an error; it
-                // simply goes unhighlighted.
-                let Ok(highlighter) = Highlighter::new(language) else {
+                // Compiled in, or loaded from where the configuration said.
+                // A language with neither is not an error; it simply goes
+                // unhighlighted, as it did before there was a grammar for
+                // anything.
+                let Some(grammar) = self.grammar_for(language).await else {
+                    return;
+                };
+                let Ok(highlighter) = Highlighter::with_grammar(language, grammar) else {
                     return;
                 };
                 BufferSyntax {
@@ -1143,6 +1282,11 @@ impl Executor {
             return;
         }
         let Some(spec) = self.spec_for(language).cloned() else {
+            // Nothing configured. Quiet on purpose: a server is started
+            // whenever a file is opened, so complaining here would put a
+            // message on the screen for every buffer in a language nobody
+            // has configured one for. A request that needed a server says
+            // so instead — see `lsp_request`.
             return;
         };
         // The project root is where the server is told to look. Walked in the
@@ -1228,8 +1372,22 @@ impl Executor {
     #[cfg(feature = "full")]
     /// Sends a request without waiting for it here, so a slow server cannot
     /// hold up the rest of the queue.
-    fn lsp_request(&self, language: String, uri: String, query: LspQuery) {
+    fn lsp_request(&self, language: String, uri: String, query: LspQuery, announced: bool) {
         let Some(client) = self.servers.get(&language).cloned() else {
+            // A request nobody can answer. Only worth saying when a command
+            // announced it: that message is on screen now and would stay
+            // there for ever. The symbols panel and the doc box ask without
+            // announcing, while a server may still be starting, and a
+            // complaint about that race would be wrong a moment later.
+            if announced {
+                self.fail(
+                    &format!("language server: {}", query.description()),
+                    match self.spec_for(&language).is_some() {
+                        true => format!("the server for `{language}` is not running yet"),
+                        false => format!("none is configured for `{language}`"),
+                    },
+                );
+            }
             return;
         };
         let results = self.results.clone();
@@ -1695,7 +1853,15 @@ mod tests {
     /// `maxgus-grep` blocks on purpose: walking a project and reading every
     /// file in it is precisely the work `spawn_blocking` exists for, and it
     /// is only ever reached that way. A second test below checks that.
-    const MAY_BLOCK: &[&str] = &["maxgus/src/main.rs", "maxgus-grep/src/lib.rs"];
+    const MAY_BLOCK: &[&str] = &[
+        "maxgus/src/main.rs",
+        "maxgus-grep/src/lib.rs",
+        // Opening a shared library is a blocking operation with no async
+        // form — `dlopen` reads the file and runs its initialisers. It is
+        // reached only through `spawn_blocking`, which the test below
+        // holds to.
+        "maxgus-syntax/src/dynamic.rs",
+    ];
 
     fn rust_files(dir: &Path, found: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -1708,6 +1874,34 @@ mod tests {
             } else if path.extension().is_some_and(|e| e == "rs") {
                 found.push(path);
             }
+        }
+    }
+
+    /// The grammar exception above is only safe while it holds.
+    #[cfg(feature = "full")]
+    #[test]
+    fn a_grammar_is_only_ever_loaded_off_a_blocking_thread() {
+        let source = include_str!("tasks.rs");
+        let ships = source
+            .lines()
+            .take_while(|line| !line.starts_with("#[cfg(test)]"))
+            .collect::<Vec<_>>();
+        let calls: Vec<(usize, &str)> = ships
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line.contains("dynamic::load"))
+            .map(|(n, line)| (n + 1, *line))
+            .collect();
+        assert!(
+            !calls.is_empty(),
+            "nothing loads a grammar any more; this test has nothing to hold"
+        );
+        for (n, line) in calls {
+            assert!(
+                line.contains("spawn_blocking"),
+                "line {n}: `{}` loads a grammar on the runtime",
+                line.trim()
+            );
         }
     }
 
@@ -2110,6 +2304,31 @@ mod tests {
         };
         assert!(nodes.iter().any(|n| n.name == "src"), "got {:?}", nodes);
         assert!(nodes.iter().any(|n| n.name == "Cargo.toml"));
+    }
+
+    #[cfg(feature = "full")]
+    #[tokio::test]
+    async fn asking_a_language_server_that_is_not_there_says_so() {
+        // The command has already said "Language server: describing..." in
+        // the echo area. Returning quietly leaves that there for ever,
+        // which is what a file in a language with no server used to do.
+        let f = Fixture::new("noserver").await;
+        let (mut e, mut rx) = executor(f.path());
+        let result = run_one(
+            &mut e,
+            &mut rx,
+            Task::LspRequest {
+                language: "wombat".into(),
+                uri: "file:///a.wombat".into(),
+                query: LspQuery::Hover(maxgus_lsp::LspPosition::ZERO),
+                announced: true,
+            },
+        )
+        .await;
+        assert!(result.is_error(), "{result:?}");
+        let said = result.message().unwrap_or_default();
+        assert!(said.contains("wombat"), "got `{said}`");
+        assert!(said.contains("none is configured"), "got `{said}`");
     }
 
     #[tokio::test]
@@ -2736,6 +2955,8 @@ mod tests {
             language: "rust".into(),
             uri: "file:///a.rs".into(),
             query: LspQuery::DocumentSymbols { for_panel: false },
+            // Not announced, so the silence below is the point.
+            announced: false,
         })
         .await;
         assert!(rx.try_recv().is_err());

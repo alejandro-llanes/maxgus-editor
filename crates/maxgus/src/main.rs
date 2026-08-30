@@ -233,7 +233,13 @@ async fn main() -> Result<()> {
 
     let (task_tx, task_rx) = mpsc::unbounded_channel();
     let (result_tx, result_rx) = mpsc::unbounded_channel();
-    let executor = tasks::Executor::new(root, config.tree.clone(), config.lsp.clone(), result_tx);
+    let executor = tasks::Executor::with_grammars(
+        root,
+        config.tree.clone(),
+        config.lsp.clone(),
+        config.grammars.clone(),
+        result_tx,
+    );
     tokio::spawn(executor.run(task_rx));
 
     #[cfg(feature = "gui")]

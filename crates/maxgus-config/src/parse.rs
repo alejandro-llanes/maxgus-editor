@@ -21,6 +21,7 @@ pub struct Config {
     pub themes: Vec<ThemeSpec>,
     pub lsp: Vec<LspSpec>,
     pub tree: TreeConfig,
+    pub grammars: crate::spec::GrammarConfig,
     /// Non-fatal complaints, in file order.
     pub warnings: Vec<Warning>,
 }
@@ -207,6 +208,8 @@ impl<'a> Parser<'a> {
                 "theme" => self.theme_node(node),
                 "lsp" => self.lsp_node(node),
                 "tree" => self.tree_node(node),
+                "grammars" => self.grammars_node(node),
+                "grammar" => self.grammar_node(node),
                 other => self.warn(node, format!("unknown node `{other}`, ignored")),
             }
         }
@@ -637,6 +640,66 @@ impl<'a> Parser<'a> {
     }
 
     /// `tree { show-hidden #true; ignore "a" "b"; width 40 }`
+    /// `grammars { search "…" …; queries "…" … }`
+    fn grammars_node(&mut self, node: &KdlNode) {
+        let Some(children) = node.children() else {
+            self.warn(node, "`grammars` has no directories in it");
+            return;
+        };
+        for child in children.nodes() {
+            let key = child.name().value().to_string();
+            let paths = string_args(child);
+            match key.as_str() {
+                "search" | "queries" if paths.is_empty() => {
+                    self.warn(child, format!("`{key}` takes one or more directories"));
+                }
+                "search" => self
+                    .config
+                    .grammars
+                    .search
+                    .extend(paths.into_iter().map(std::path::PathBuf::from)),
+                "queries" => self
+                    .config
+                    .grammars
+                    .queries
+                    .extend(paths.into_iter().map(std::path::PathBuf::from)),
+                other => self.warn(child, format!("unknown `grammars` node `{other}`, ignored")),
+            }
+        }
+    }
+
+    /// `grammar "go" library="/usr/lib/libtree-sitter-go.so" queries="…"`
+    fn grammar_node(&mut self, node: &KdlNode) {
+        let Some(language) = string_args(node).first().cloned() else {
+            self.warn(node, "`grammar` needs a language, e.g. `grammar \"go\"`");
+            return;
+        };
+        let Some(library) = self.string_property(node, "library") else {
+            self.warn(
+                node,
+                format!("`grammar \"{language}\"` needs `library=\"…\"`"),
+            );
+            return;
+        };
+        let queries = self.string_property(node, "queries");
+        self.config.grammars.named.push(crate::spec::NamedGrammar {
+            language,
+            library: library.into(),
+            queries: queries.map(std::path::PathBuf::from),
+        });
+    }
+
+    /// A `key="value"` property on a node, as a string.
+    fn string_property(&mut self, node: &KdlNode, key: &str) -> Option<String> {
+        let value = node
+            .entries()
+            .iter()
+            .find(|e| e.name().is_some_and(|n| n.value() == key))?
+            .value()
+            .clone();
+        self.string_value(node, key, &value)
+    }
+
     fn tree_node(&mut self, node: &KdlNode) {
         let Some(children) = node.children() else {
             self.warn(node, "`tree` has no settings");
@@ -1109,6 +1172,59 @@ mod tests {
                 .expect("the typescript entry")
                 .args,
             ["--stdio", "--log-level", "2"]
+        );
+    }
+
+    #[test]
+    fn grammar_directories_are_read_and_nothing_is_assumed() {
+        let config = Config::parse(
+            r#"
+            grammars {
+                search "/usr/lib" "/usr/local/lib"
+                queries "/usr/share/tree-sitter/queries"
+                queries "/usr/share/nvim/runtime/queries"
+            }
+            grammar "go" library="/opt/ts/go.so" queries="/opt/ts/go/highlights.scm"
+            grammar "zig" library="/opt/ts/zig.so"
+            "#,
+        )
+        .unwrap();
+        assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+        assert_eq!(config.grammars.search.len(), 2);
+        assert_eq!(config.grammars.queries.len(), 2, "two nodes, both kept");
+        assert_eq!(config.grammars.named.len(), 2);
+        assert_eq!(config.grammars.named[0].language, "go");
+        assert_eq!(
+            config.grammars.named[0].queries.as_deref(),
+            Some(std::path::Path::new("/opt/ts/go/highlights.scm"))
+        );
+        assert_eq!(
+            config.grammars.named[1].queries, None,
+            "without a query of its own it falls back to the search"
+        );
+    }
+
+    #[test]
+    fn a_file_that_says_nothing_looks_for_no_grammars() {
+        // Loading one means loading a shared library, so it never happens
+        // by default.
+        let config = Config::parse("set theme=\"maxgus-dark\"\n").unwrap();
+        assert!(config.grammars.search.is_empty());
+        assert!(config.grammars.queries.is_empty());
+        assert!(config.grammars.named.is_empty());
+    }
+
+    #[test]
+    fn a_grammar_without_a_library_is_reported_rather_than_half_taken() {
+        let config = Config::parse("grammar \"go\"\n").unwrap();
+        assert!(config.grammars.named.is_empty());
+        assert!(
+            config
+                .warnings
+                .iter()
+                .any(|w| w.to_string().contains("library")),
+            "{:?}",
+            config.warnings
         );
     }
 

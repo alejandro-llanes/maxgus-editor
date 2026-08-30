@@ -127,6 +127,26 @@ theme "maxgus-dark" {
     face "diagnostic-warning" inherit="warning" underline=#true
 }
 
+// ---- grammars ----
+//
+// Eleven are compiled in: c, html, ini, javascript, json, markdown, python,
+// rust, toml, xml and yaml. Any other — kdl and rhai among them — can be
+// coloured by a grammar already installed on
+// the system, but only if this says where to look — loading one means
+// loading a shared library, so it never happens by default.
+//
+// Per-platform instructions, and what you are trusting: docs/grammars.md
+// `M-x describe-grammars` says what loaded and what did not.
+grammars {
+    search "/usr/lib"                            // libtree-sitter-<lang>.so
+    queries "/usr/share/tree-sitter/queries"     // <lang>/highlights.scm
+    queries "/usr/share/nvim/runtime/queries"
+}
+
+// One that is not where those would look.
+grammar "zig" library="/home/me/grammars/libtree-sitter-zig.so" \
+              queries="/home/me/grammars/zig/highlights.scm"
+
 // ---- language servers ----
 lsp "rust" command="rust-analyzer" {
     root-markers "Cargo.toml"

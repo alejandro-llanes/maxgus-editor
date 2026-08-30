@@ -193,6 +193,10 @@ pub enum WriteGuard {
 /// A unit of asynchronous work.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Task {
+    /// Ask which grammars this editor can reach, and why any it was told
+    /// about would not load. Only the executor knows: it is what holds them.
+    #[cfg(feature = "full")]
+    DescribeGrammars,
     /// Read a file, creating or reverting a buffer with its contents.
     ReadFile {
         path: PathBuf,
@@ -264,6 +268,16 @@ pub enum Task {
         language: String,
         uri: String,
         query: LspQuery,
+        /// True when a command said "Language server: ..." in the echo area
+        /// before queuing this.
+        ///
+        /// It decides whether a request nobody can answer is reported. One
+        /// that was announced has to be: the message it put on screen would
+        /// otherwise stay there for ever. One that was not — the symbols
+        /// panel filling itself, the doc box after a pause — must not be,
+        /// because those are issued while the server is still starting and
+        /// would complain about a race that resolves itself a moment later.
+        announced: bool,
     },
     /// The answer to a request the *server* made of us.
     ///
@@ -441,6 +455,11 @@ impl LspQuery {
 /// The outcome of a [`Task`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum TaskResult {
+    /// The answer to [`Task::DescribeGrammars`], ready to be shown.
+    #[cfg(feature = "full")]
+    Grammars {
+        report: String,
+    },
     FileRead {
         path: PathBuf,
         contents: String,

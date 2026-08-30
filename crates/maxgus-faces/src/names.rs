@@ -82,6 +82,11 @@ pub const FONT_LOCK_FACES: &[&str] = &[
     "font-lock-escape",
     "font-lock-label",
     "font-lock-attribute",
+    // Markup, which arrived with markdown and XML: a heading is not a
+    // keyword and a link is not a string, and a theme should be able to say
+    // so.
+    "font-lock-heading",
+    "font-lock-link",
 ];
 
 /// Faces for language-server diagnostics.
@@ -193,6 +198,20 @@ fn exact_capture(capture: &str) -> Option<&'static str> {
         "property" | "field" | "tag.attribute" => "font-lock-property",
         "preproc" | "preprocessor" | "define" => "font-lock-preprocessor",
         "label" | "tag" => "font-lock-label",
+        // Markup, in the vocabulary markdown and XML queries use. Both the
+        // `text.*` spelling the older queries have and the `markup.*` one
+        // that replaced it.
+        "text.title" | "markup.heading" | "title" | "heading" => "font-lock-heading",
+        "text.literal" | "markup.raw" | "literal" => "font-lock-string",
+        "text.uri" | "markup.link" | "uri" | "link" => "font-lock-link",
+        "text.reference" | "reference" => "font-lock-label",
+        "text.emphasis" | "markup.italic" => "font-lock-doc",
+        "text.strong" | "markup.bold" => "font-lock-heading",
+        "markup.list" | "text.list" => "font-lock-punctuation",
+        // `markup` on its own is XML's word for a tag's content, which is
+        // ordinary text and wants no colour of its own — but it has to map
+        // to something or it reads as a face nobody wrote.
+        "markup" | "text" => "default",
         "attribute" | "annotation" | "decorator" => "font-lock-attribute",
         "error" => "error",
         "warning" => "warning",

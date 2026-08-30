@@ -5,19 +5,41 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-[lints]
-workspace = true
+# The one crate in the workspace that does not inherit `unsafe_code =
+# "forbid"`. It is `deny` here instead, which is the same prohibition with
+# one difference: `deny` can be lifted for a named block by an `#[allow]`,
+# and `forbid` cannot be lifted at all.
+#
+# That difference is the whole reason. Loading a grammar the editor was not
+# built with means `dlopen` and `dlsym`, and there is no safe formulation of
+# either: nothing can check that the file on disk really exports the
+# function it is named for, or that the pointer it returns really points at
+# a tree-sitter grammar. See `src/dynamic.rs`, where the three `unsafe`
+# operations live, each with what has to be true for it to be sound.
+#
+# Every other crate keeps `forbid`, and this one still denies it everywhere
+# except that module.
+[lints.rust]
+unsafe_code = "deny"
 
 [dependencies]
 maxgus-faces = { version = "0.2.0", path = "../maxgus-faces" }
 maxgus-text = { version = "0.2.0", path = "../maxgus-text" }
 thiserror = "2.0.20"
 tree-sitter = "0.26.13"
-tree-sitter-bash = "0.25.1"
+# What a grammar's entry point is, before it is a `Language`.
+tree-sitter-language = "0.1.7"
+# `dlopen` and `dlsym`, and the Windows and macOS equivalents, behind one
+# interface that at least gets the lifetimes right.
+libloading = "0.9.0"
 tree-sitter-c = "0.24.2"
-tree-sitter-css = "0.25.0"
 tree-sitter-html = "0.23.2"
+tree-sitter-ini = "1.4.0"
 tree-sitter-javascript = "0.25.0"
 tree-sitter-json = "0.24.8"
+tree-sitter-md = "0.5.3"
 tree-sitter-python = "0.25.0"
 tree-sitter-rust = "0.24.2"
+tree-sitter-toml-ng = "0.7.0"
+tree-sitter-xml = "0.7.0"
+tree-sitter-yaml = "0.7.2"

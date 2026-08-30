@@ -32,6 +32,12 @@ impl Highlighter {
     pub fn new(language: &str) -> Result<Highlighter> {
         let lang = languages::language(language)
             .ok_or_else(|| SyntaxError::UnknownLanguage(language.to_string()))?;
+        Highlighter::with_grammar(language, lang)
+    }
+
+    /// The same, for a grammar that has already been resolved — which is how
+    /// one loaded from disk gets here.
+    pub fn with_grammar(language: &str, lang: SyntaxLanguage) -> Result<Highlighter> {
         let mut parser = Parser::new();
         parser
             .set_language(&lang.language)
@@ -40,7 +46,7 @@ impl Highlighter {
                 source,
             })?;
         let query =
-            Query::new(&lang.language, lang.highlights).map_err(|source| SyntaxError::Query {
+            Query::new(&lang.language, &lang.highlights).map_err(|source| SyntaxError::Query {
                 language: language.to_string(),
                 source: Box::new(source),
             })?;
@@ -59,7 +65,7 @@ impl Highlighter {
     }
 
     pub fn language(&self) -> &str {
-        self.language.name
+        &self.language.name
     }
 
     /// True once the buffer has been parsed at least once.
@@ -422,7 +428,13 @@ mod tests {
     /// `embedded` marks a span written in *another* language — `${…}` inside a
     /// template string, `$(…)` in a shell script. Painting it would colour
     /// over whatever the inner language should be showing there.
-    const UNMAPPED_ON_PURPOSE: &[&str] = &["embedded"];
+    const UNMAPPED_ON_PURPOSE: &[&str] = &[
+        "embedded", // `@spell` marks prose for a spell checker, not for a colour.
+        "spell",
+        // `@none` is markdown's way of saying "clear whatever was here",
+        // which is what having no face already does.
+        "none",
+    ];
 
     #[test]
     fn every_capture_the_grammars_use_maps_to_a_real_face() {
@@ -433,7 +445,7 @@ mod tests {
         let mut missing: Vec<String> = Vec::new();
         for name in languages::supported_languages() {
             let l = languages::language(name).expect("listed");
-            let query = tree_sitter::Query::new(&l.language, l.highlights).expect("compiles");
+            let query = tree_sitter::Query::new(&l.language, &l.highlights).expect("compiles");
             for capture in query.capture_names() {
                 // A leading underscore is the tree-sitter convention for a
                 // capture used by the query itself and never highlighted.
@@ -493,9 +505,12 @@ mod tests {
             ("javascript", "function f(x) { return x + 1; }"),
             ("json", r#"{"key": "value", "n": 1}"#),
             ("c", "int main(void) { return 0; }"),
-            ("bash", "echo \"hello\"\n"),
             ("html", "<p class=\"x\">hi</p>"),
-            ("css", "body { color: red; }"),
+            ("yaml", "key: value\nlist:\n  - one\n"),
+            ("toml", "[table]\nkey = \"value\"\nn = 1\n"),
+            ("ini", "[section]\nkey = value\n"),
+            ("xml", "<?xml version=\"1.0\"?><a href=\"x\">hi</a>"),
+            ("markdown", "# Heading\n\nA paragraph, and `code`.\n"),
         ];
         for (lang, src) in samples {
             let mut h = Highlighter::new(lang).unwrap_or_else(|e| panic!("`{lang}`: {e}"));

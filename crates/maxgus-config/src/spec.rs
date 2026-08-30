@@ -7,6 +7,33 @@
 
 use maxgus_keys::{KeySequence, Keymap};
 
+/// The `grammars { … }` block: where to find tree-sitter grammars the
+/// editor was not built with.
+///
+/// Empty by default, and empty means none are looked for. Loading a grammar
+/// means loading a shared library, so it happens only where a configuration
+/// file has said where to look.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GrammarConfig {
+    /// Directories holding `libtree-sitter-<language>.so` and its kin.
+    pub search: Vec<std::path::PathBuf>,
+    /// Directories holding `<language>/highlights.scm`.
+    pub queries: Vec<std::path::PathBuf>,
+    /// Grammars named outright, for one that is not where the search
+    /// directories would look.
+    pub named: Vec<NamedGrammar>,
+}
+
+/// One `grammar "go" library="…" queries="…"` node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamedGrammar {
+    pub language: String,
+    pub library: std::path::PathBuf,
+    /// The query to colour it with. Without one, the `queries` directories
+    /// are searched as they are for a discovered grammar.
+    pub queries: Option<std::path::PathBuf>,
+}
+
 /// One `keymap "name" { … }` block.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeymapSpec {

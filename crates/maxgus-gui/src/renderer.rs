@@ -7,7 +7,6 @@
 use crate::quads::{Frame, Rect, Sprite};
 use anyhow::{Context, Result};
 use std::sync::Arc;
-use wgpu::util::DeviceExt as _;
 
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
@@ -33,10 +32,42 @@ struct AtlasTexture {
     height: u32,
 }
 
+/// What a frame's worth of instances needs from the buffer holding them.
+///
+/// Pure, and apart from the device, because the arithmetic is where this went
+/// wrong: a buffer was once allocated to fit the frame that grew it while the
+/// capacity recorded beside it said `next_power_of_two`, and the first larger
+/// frame after that wrote past the end of it. The invariant is one line —
+/// the bytes allocated are the capacity's worth, not the frame's — and a
+/// test can hold it without a GPU.
+#[derive(Debug, PartialEq)]
+enum Need {
+    /// It fits: write into the buffer that is already there.
+    Fits,
+    /// A new buffer of `bytes`, which then holds `capacity` instances.
+    Grow { capacity: usize, bytes: u64 },
+}
+
+fn need(capacity: usize, instances: usize, stride: usize) -> Need {
+    if instances <= capacity {
+        return Need::Fits;
+    }
+    // Doubling rather than fitting exactly: a window being resized would
+    // otherwise reallocate on every frame of the drag.
+    let capacity = instances.next_power_of_two();
+    Need::Grow {
+        capacity,
+        bytes: (capacity * stride) as u64,
+    }
+}
+
 /// An instance buffer that grows to fit and is rewritten each frame.
 struct Instances {
     buffer: wgpu::Buffer,
+    /// How many instances the buffer can hold — which is to say, its size in
+    /// bytes divided by the stride, and never anything else.
     capacity: usize,
+    stride: usize,
     count: u32,
 }
 
@@ -51,6 +82,7 @@ impl Instances {
                 mapped_at_creation: false,
             }),
             capacity,
+            stride,
             count: 0,
         }
     }
@@ -66,16 +98,14 @@ impl Instances {
         if data.is_empty() {
             return;
         }
-        if data.len() > self.capacity {
-            // Doubling rather than fitting exactly: a window being resized
-            // would otherwise reallocate on every frame of the drag.
-            self.capacity = data.len().next_power_of_two();
-            self.buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        if let Need::Grow { capacity, bytes } = need(self.capacity, data.len(), self.stride) {
+            self.capacity = capacity;
+            self.buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
-                contents: bytemuck::cast_slice(data),
+                size: bytes,
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
             });
-            return;
         }
         queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(data));
     }
@@ -448,4 +478,45 @@ fn pipeline(
         multiview_mask: None,
         cache: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const STRIDE: usize = std::mem::size_of::<Rect>();
+
+    #[test]
+    fn a_frame_that_fits_reuses_the_buffer() {
+        assert_eq!(need(4096, 4096, STRIDE), Need::Fits);
+        assert_eq!(need(4096, 1, STRIDE), Need::Fits);
+    }
+
+    #[test]
+    fn a_grown_buffer_is_as_big_as_the_capacity_beside_it_claims() {
+        // The bug this is here for: the buffer was allocated to fit the
+        // frame that grew it, while the capacity recorded beside it was
+        // rounded up. Every later frame between the two wrote off the end.
+        for instances in [4097, 5000, 8191, 100_000] {
+            let Need::Grow { capacity, bytes } = need(4096, instances, STRIDE) else {
+                panic!("{instances} instances should not fit in 4096");
+            };
+            assert!(capacity >= instances, "{capacity} cannot hold {instances}");
+            assert_eq!(
+                bytes,
+                (capacity * STRIDE) as u64,
+                "a buffer of {bytes} bytes does not hold {capacity} instances"
+            );
+        }
+    }
+
+    #[test]
+    fn growing_leaves_room_rather_than_growing_again_next_frame() {
+        let Need::Grow { capacity, .. } = need(4096, 4097, STRIDE) else {
+            panic!("it should have grown");
+        };
+        assert_eq!(capacity, 8192);
+        // And the frame after, one instance larger again, now fits.
+        assert_eq!(need(capacity, 4098, STRIDE), Need::Fits);
+    }
 }

@@ -577,8 +577,12 @@ impl Executor {
             return;
         };
 
-        // Whatever the action, the cursor should end up somewhere sensible.
-        let mut select = tree.selected_path().map(Path::to_path_buf);
+        // Where the cursor should end up, when the action is one that moves
+        // it. `None` leaves it where the user put it — which is nearly
+        // always, and which used to be the executor's own idea of what was
+        // selected: stale, usually the root, and the reason expanding a
+        // directory sent the cursor back to the top of the tree.
+        let mut select: Option<PathBuf> = None;
         let outcome: Result<(), maxgus_tree::TreeError> = match action {
             TreeAction::Refresh => tree.refresh().await,
             TreeAction::Toggle(path) => tree.toggle(&path).await.map(|_| ()),
@@ -2106,6 +2110,49 @@ mod tests {
         };
         assert!(nodes.iter().any(|n| n.name == "src"), "got {:?}", nodes);
         assert!(nodes.iter().any(|n| n.name == "Cargo.toml"));
+    }
+
+    #[tokio::test]
+    async fn expanding_a_directory_leaves_the_cursor_on_it() {
+        // The bug this is here for: the result carried the executor's own
+        // idea of what was selected, which nothing had ever set, so every
+        // expansion sent the editor's cursor back to the root of the tree.
+        let f = Fixture::new("treecursor").await;
+        let (mut e, mut rx) = executor(f.path());
+        run_one(&mut e, &mut rx, Task::Tree(TreeAction::Refresh)).await;
+        let result = run_one(
+            &mut e,
+            &mut rx,
+            Task::Tree(TreeAction::Expand(f.path().join("src"))),
+        )
+        .await;
+        let TaskResult::TreeUpdated { select, .. } = result else {
+            panic!("{result:?}")
+        };
+        assert_eq!(
+            select, None,
+            "expanding asked the editor to move its cursor to {select:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn revealing_a_file_does_move_the_cursor_to_it() {
+        // The other half: `select` is for the actions that genuinely move
+        // the cursor, and emptying it everywhere would break those.
+        let f = Fixture::new("treereveal").await;
+        let (mut e, mut rx) = executor(f.path());
+        run_one(&mut e, &mut rx, Task::Tree(TreeAction::Refresh)).await;
+        let wanted = f.path().join("src").join("main.rs");
+        let result = run_one(
+            &mut e,
+            &mut rx,
+            Task::Tree(TreeAction::Reveal(wanted.clone())),
+        )
+        .await;
+        let TaskResult::TreeUpdated { select, .. } = result else {
+            panic!("{result:?}")
+        };
+        assert_eq!(select, Some(wanted));
     }
 
     #[tokio::test]

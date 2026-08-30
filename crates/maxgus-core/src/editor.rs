@@ -712,22 +712,47 @@ impl Editor {
     /// a wheel means: the text moves and the cursor stays where it is on the
     /// screen until it would leave it.
     pub fn scroll_lines(&mut self, lines: isize) {
-        let total = self.current_buffer().len_lines();
-        let window = self.windows.current_mut();
+        self.scroll_window_lines(self.windows.current_id(), lines);
+    }
+
+    /// Scrolls a window that is not necessarily the selected one.
+    ///
+    /// A wheel turned over a window scrolls that window, whether or not it
+    /// is the one being typed into — which is what every other program does,
+    /// and what stops a turn of the wheel over the file tree from moving the
+    /// code beside it.
+    pub fn scroll_window_lines(&mut self, id: crate::window::WindowId, lines: isize) {
+        let Some(buffer_id) = self.windows.get(id).map(|window| window.buffer) else {
+            return;
+        };
+        let Some(total) = self.buffers.get(buffer_id).map(|b| b.len_lines()) else {
+            return;
+        };
+        let Some(window) = self.windows.get_mut(id) else {
+            return;
+        };
         let top = window.top_line as isize + lines;
         window.top_line = top.clamp(0, total.saturating_sub(1) as isize) as usize;
         let top_line = window.top_line;
         let height = window.rect.height.saturating_sub(1) as usize;
+        let point = window.point;
         // Point stays on screen: a wheel that has scrolled past it drags it
         // along rather than leaving it somewhere nobody can see.
-        let point_line = {
-            let buffer = self.current_buffer();
-            buffer.line_of(self.windows.current().point)
+        let Some(buffer) = self.buffers.get(buffer_id) else {
+            return;
         };
+        let point_line = buffer.line_of(point);
         let wanted = point_line.clamp(top_line, top_line + height.saturating_sub(1));
-        if wanted != point_line {
-            let offset = self.current_buffer().line_start(wanted);
-            self.windows.current_mut().point = offset;
+        if wanted == point_line {
+            return;
+        }
+        let offset = buffer.line_start(wanted);
+        if let Some(window) = self.windows.get_mut(id) {
+            window.point = offset;
+        }
+        // The buffer's own point belongs to whichever window is selected, so
+        // scrolling somebody else's window leaves it alone.
+        if id == self.windows.current_id() {
             self.with_current_buffer(move |b| b.set_point(offset));
         }
     }
@@ -1664,10 +1689,20 @@ impl Editor {
                 select,
                 show_hidden,
             } => {
+                // The node the cursor was on, before the tree it indexes into
+                // is replaced. Expanding a directory adds lines below it and
+                // collapsing one takes lines away, so the line number the
+                // cursor is on means something different afterwards; the
+                // node it was on does not.
+                let was = self.tree_selection().map(|node| node.path.clone());
                 self.tree = nodes;
                 self.tree_shows_hidden = show_hidden;
                 self.render_panel_buffer();
-                if let Some(path) = select {
+                // A node that is no longer there — one just deleted, or one
+                // inside a directory that was collapsed — leaves the cursor
+                // on the line it was on, which is the nearest thing to where
+                // it was.
+                if let Some(path) = select.or(was) {
                     self.select_tree_path(&path);
                 }
                 Ok(())

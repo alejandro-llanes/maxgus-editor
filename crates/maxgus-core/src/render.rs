@@ -15,6 +15,69 @@ use maxgus_faces::{Face, Theme};
 use maxgus_text::{Buffer, Range};
 use maxgus_tui::{Rect, Surface};
 
+/// The text area of a window, in cells: what it draws its buffer into, which
+/// is its own rectangle without the mode line and without the echo area.
+///
+/// Public because a window that can draw a fraction of a line needs to know
+/// which fraction of the screen is allowed to move, and deriving that twice
+/// is how the two come to disagree.
+pub fn text_area(editor: &Editor, id: crate::window::WindowId) -> Option<Rect> {
+    let window = editor.windows.get(id)?;
+    let (body, _) = editor.frame.split_bottom(1);
+    Some(window.rect.intersect(&body)?.split_bottom(1).0)
+}
+
+/// The line just beyond the edge of the current window, drawn as that window
+/// would draw it.
+///
+/// Smooth scrolling needs it. The window's text is drawn a fraction of a line
+/// out of place, so a fraction of a line opens up at one edge, and what
+/// belongs there is the line arriving — which the editor did not draw,
+/// because it is not in the window yet. `direction` is which edge: `1` for
+/// the line arriving at the bottom, `-1` for the one at the top.
+///
+/// `scratch` is somewhere to draw into, kept by the caller so this does not
+/// allocate a screen every frame. Returns nothing at the ends of a buffer,
+/// where the gap really is empty.
+pub fn edge_row(
+    editor: &mut Editor,
+    id: crate::window::WindowId,
+    direction: isize,
+    scratch: &mut Surface,
+) -> Option<Vec<maxgus_tui::Cell>> {
+    let area = text_area(editor, id)?;
+    if area.height == 0 || area.width == 0 {
+        return None;
+    }
+    let window = editor.windows.get(id)?;
+    let (was, buffer_id) = (window.top_line, window.buffer);
+    let moved = was.checked_add_signed(direction)?;
+    // Past the last line there is nothing arriving, and drawing it would only
+    // produce the blank the gap already is.
+    let lines = editor.buffers.get(buffer_id).map_or(0, |b| b.len_lines());
+    if direction > 0 && moved + area.height as usize > lines {
+        return None;
+    }
+    editor.windows.get_mut(id)?.top_line = moved;
+    if scratch.size() != editor.frame.size() {
+        scratch.resize(editor.frame.size());
+    }
+    draw(editor, scratch);
+    if let Some(window) = editor.windows.get_mut(id) {
+        window.top_line = was;
+    }
+
+    let row = match direction > 0 {
+        true => area.y + area.height - 1,
+        false => area.y,
+    };
+    Some(
+        (area.x..area.x + area.width)
+            .map(|x| scratch.get(x, row).cloned().unwrap_or_default())
+            .collect(),
+    )
+}
+
 /// Paints the whole frame.
 pub fn draw(editor: &Editor, surface: &mut Surface) {
     let theme = &editor.theme;

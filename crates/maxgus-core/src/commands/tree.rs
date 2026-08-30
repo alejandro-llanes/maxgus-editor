@@ -1541,6 +1541,57 @@ mod tests {
     }
 
     #[test]
+    fn the_cursor_stays_on_its_node_when_the_tree_around_it_changes() {
+        // Keeping the *line* is not enough: expanding a directory above the
+        // cursor pushes everything below it down, and the line the cursor
+        // was on is then a different node.
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(4);
+        assert_eq!(selected(&e), "docs");
+
+        // `src` grows two more children, above where the cursor is.
+        let mut grown = snapshot();
+        grown.insert(4, node("/project/src/a.rs", "a.rs", 2, false, false));
+        grown.insert(5, node("/project/src/b.rs", "b.rs", 2, false, false));
+        e.apply_task_result(crate::TaskResult::TreeUpdated {
+            nodes: grown,
+            select: None,
+            show_hidden: false,
+        })
+        .unwrap();
+        assert_eq!(
+            selected(&e),
+            "docs",
+            "the cursor followed the line rather than the node"
+        );
+    }
+
+    #[test]
+    fn a_cursor_on_a_node_that_is_gone_keeps_its_place_in_the_list() {
+        // Deleting what the cursor was on has to leave it somewhere, and
+        // the line it was on is the nearest thing to where it was.
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        e.move_tree_cursor_to_line(3);
+        assert_eq!(selected(&e), "lib.rs");
+
+        let mut without = snapshot();
+        without.remove(3);
+        e.apply_task_result(crate::TaskResult::TreeUpdated {
+            nodes: without,
+            select: None,
+            show_hidden: false,
+        })
+        .unwrap();
+        assert_eq!(
+            selected(&e),
+            "docs",
+            "it should not have jumped to the root"
+        );
+    }
+
+    #[test]
     fn a_result_can_ask_for_a_particular_node_to_be_selected() {
         let (mut d, mut e) = setup();
         with_tree(&mut d, &mut e);

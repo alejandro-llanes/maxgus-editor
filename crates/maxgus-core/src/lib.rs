@@ -48,7 +48,7 @@ pub use minibuffer::{Completion, Minibuffer, MinibufferKind};
 #[cfg(feature = "full")]
 pub use position::{offset_of_position, position_of_offset};
 pub use prefix::Prefix;
-pub use render::draw;
+pub use render::{draw, edge_row, text_area};
 #[cfg(feature = "full")]
 pub use task::LspQuery;
 pub use task::{Task, TaskQueue, TaskResult, TreeAction, WriteGuard};

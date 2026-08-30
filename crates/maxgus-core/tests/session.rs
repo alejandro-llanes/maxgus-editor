@@ -4892,6 +4892,40 @@ fn the_wheel_moves_the_view_and_drags_point_along_when_it_has_to() {
 }
 
 #[test]
+fn the_wheel_scrolls_the_window_it_is_over_rather_than_the_one_being_typed_in() {
+    // What a window with a mouse in it has to do: a turn of the wheel over
+    // the file tree moves the file tree, not the code beside it.
+    let long: String = (1..=100).map(|n| format!("line {n}\n")).collect();
+    let mut s = Session::new(80, 20);
+    let one = s.editor.buffers.visit_file("/project/one.rs", &long);
+    s.editor.switch_to_buffer(one).unwrap();
+    s.keys("C-x 2");
+    let other = s.editor.windows.current_id();
+    let two = s.editor.buffers.visit_file("/project/two.rs", &long);
+    s.editor.switch_to_buffer(two).unwrap();
+    s.keys("C-x o");
+    let selected = s.editor.windows.current_id();
+    assert_ne!(selected, other, "the split did not leave two windows");
+
+    s.editor.scroll_window_lines(other, 20);
+    assert_eq!(
+        s.editor.windows.get(other).unwrap().top_line,
+        20,
+        "the window under the pointer did not move"
+    );
+    assert_eq!(
+        s.editor.windows.get(selected).unwrap().top_line,
+        0,
+        "it scrolled the selected window instead"
+    );
+    assert_eq!(
+        s.editor.windows.current_id(),
+        selected,
+        "scrolling a window selected it"
+    );
+}
+
+#[test]
 fn the_wheel_stops_at_the_ends_rather_than_scrolling_into_nothing() {
     let mut s = Session::new(60, 12);
     let id = s

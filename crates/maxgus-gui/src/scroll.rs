@@ -76,6 +76,15 @@ impl Scroll {
         self.offset
     }
 
+    /// The whole lines still owed, for an animation that is being cut short.
+    ///
+    /// A keystroke in the middle of one ends it, and ending it by throwing
+    /// away the distance left would leave the view short of where the wheel
+    /// asked for it.
+    pub fn remaining(&self, line_height: f32) -> isize {
+        ((self.target - self.offset) / line_height).round() as isize
+    }
+
     /// True while there is still movement owed, which is what tells the event
     /// loop to ask for another frame.
     pub fn is_moving(&self) -> bool {
@@ -153,6 +162,25 @@ mod tests {
             lines += scroll.step(LINE);
         }
         assert_eq!(lines, 1, "ten tenths of a line is one line");
+    }
+
+    #[test]
+    fn what_is_left_of_a_journey_can_be_taken_in_one_step() {
+        // A keystroke in the middle of an animation ends it, and ending it
+        // by dropping the distance left would leave the view short of where
+        // the wheel asked for it.
+        let mut scroll = Scroll::new();
+        scroll.nudge(3.0 * LINE);
+        let mut crossed = scroll.step(LINE);
+        assert!(crossed < 3, "it arrived in one frame, so there is no test");
+        crossed += scroll.remaining(LINE);
+        assert_eq!(crossed, 3, "the rest of the journey was lost");
+    }
+
+    #[test]
+    fn a_settled_view_owes_nothing() {
+        let scroll = Scroll::new();
+        assert_eq!(scroll.remaining(LINE), 0);
     }
 
     #[test]

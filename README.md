@@ -694,12 +694,23 @@ What the window has that a terminal cannot:
 
 - **Smooth scrolling.** A terminal scrolls by whole lines because it cannot
   draw half of one. The window keeps a pixel offset and eases towards it, so a
-  wheel notch slides three lines instead of jumping them.
+  wheel notch slides three lines instead of jumping them. Only the window
+  being scrolled moves — its mode line, the echo area and the file tree hold
+  still — and the line arriving is drawn into the fraction of a row that
+  opens up at the edge, clipped where the window ends.
 - **The mouse.** Click to put point where you clicked, drag to select, middle
-  button to paste, wheel to scroll. A click in another window selects it.
+  button to paste, wheel to scroll. A click in another window selects it; a
+  turn of the wheel over one scrolls it without selecting it, so the wheel
+  over the file tree moves the file tree.
 - **The system clipboard**, rather than a terminal's guess at one.
+- **A window that behaves like one.** Its title is the buffer being edited,
+  with a `*` while there is unsaved work in it; the close button runs the
+  same command `C-x C-c` does, so it refuses to throw that work away; and it
+  sleeps when nothing is happening rather than redrawing a still screen
+  sixty times a second.
 - **Any font on the system**, at any size: `set gui-font` and
-  `set gui-font-size`. Bold and italic are separate faces where the system has
+  `set gui-font-size`. Sized in physical pixels, so it is the same size on a
+  display that reports a scale as on one that does not. Bold and italic are separate faces where the system has
   them and fall back to the regular one where it does not, so an emphasised
   word is never an invisible one.
 
@@ -774,7 +785,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1957 tests.** Unit tests beside the code; session tests that press real keys
+**1973 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

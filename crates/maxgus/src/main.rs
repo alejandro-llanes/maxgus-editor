@@ -264,7 +264,6 @@ mod gui {
     use anyhow::Result;
     use maxgus_config::Config;
     use maxgus_core::{Dispatcher, Editor, Task, TaskResult};
-    use maxgus_faces::Color;
     use maxgus_gui::quads::Palette;
     use tokio::sync::mpsc;
 
@@ -301,31 +300,9 @@ mod gui {
             title: "maxgus".into(),
             font: config.settings.gui_font.clone(),
             font_size: config.settings.gui_font_size as f32,
-            palette: palette(&editor),
+            palette: Palette::of(&editor.theme),
         };
         maxgus_gui::run(editor, dispatcher, settings, task_tx, result_rx)
-    }
-
-    /// The colours a terminal would have supplied: the theme's own default
-    /// face, and the sixteen it may name by index.
-    fn palette(editor: &Editor) -> Palette {
-        let default = editor.theme.resolve("default");
-        let rgb = |color: Option<Color>, fallback: [f32; 4]| match color {
-            Some(Color::Rgb(r, g, b)) => {
-                [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0]
-            }
-            _ => fallback,
-        };
-        let mut ansi = [[0.0, 0.0, 0.0, 1.0]; 16];
-        for (index, slot) in ansi.iter_mut().enumerate() {
-            let (r, g, b) = maxgus_faces::xterm_palette_rgb(index as u8);
-            *slot = [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0];
-        }
-        Palette {
-            foreground: rgb(default.foreground, [0.85, 0.87, 0.9, 1.0]),
-            background: rgb(default.background, [0.09, 0.10, 0.12, 1.0]),
-            ansi,
-        }
     }
 }
 

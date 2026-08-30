@@ -368,6 +368,13 @@ pub enum TreeAction {
     ExpandRecursively(PathBuf),
     /// Expand whatever it takes to show `path`, and select it.
     Reveal(PathBuf),
+    /// Draw the tree from `path` down, instead of from wherever it was.
+    ///
+    /// The tree's root only. The project root — what the language server is
+    /// told about, what a project search walks — does not move, because
+    /// looking at a subdirectory is not the same as working in a different
+    /// project.
+    SetRoot(PathBuf),
     /// Show or hide dotfiles.
     ToggleHidden,
     /// Show directories before files, or sort strictly by name.

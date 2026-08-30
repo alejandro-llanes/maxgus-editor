@@ -636,6 +636,21 @@ impl Executor {
                 select = Some(path.clone());
                 tree.reveal(&path).await.map(|_| ())
             }
+            TreeAction::SetRoot(path) => {
+                let config = self.tree_config.clone();
+                match FileTree::open(path.clone(), config).await {
+                    Ok(fresh) => {
+                        self.tree = Some(fresh);
+                        // The new root is what the cursor should be on: it
+                        // is the thing that just moved, and starting at the
+                        // top of a tree nobody has looked at yet is where
+                        // anyone would look first anyway.
+                        select = Some(path);
+                        Ok(())
+                    }
+                    Err(error) => Err(error),
+                }
+            }
             TreeAction::ToggleHidden => tree.toggle_show_hidden().await,
             TreeAction::ToggleDirectoriesFirst => {
                 self.tree_config.directories_first = !self.tree_config.directories_first;

@@ -28,6 +28,14 @@ pub const TREEMACS_BINDINGS: &[(&str, &str)] = &[
     ("<right>", "treefile-expand-node"),
     ("H", "treefile-collapse-parent"),
     ("C-c C-p", "treefile-expand-recursively"),
+    // The root, under one prefix: down into the directory the cursor is
+    // on, up one, or back to where the tree opened. treemacs calls the
+    // first two `treemacs-root-down` and `treemacs-root-up` and leaves
+    // them unbound; `<` and `>` are the width here, so they get their own
+    // letter in the style of `c f`, `y a` and `t h`.
+    ("r d", "treefile-root-down"),
+    ("r u", "treefile-root-up"),
+    ("r r", "treefile-root-reset"),
     // ---- visiting ----
     ("o o", "treefile-visit-node"),
     ("o v", "treefile-visit-node-vertical-split"),

@@ -4517,9 +4517,9 @@ fn the_readme_quotes_the_right_totals() {
 }
 
 #[cfg(feature = "full")]
-const README_BINDINGS: usize = 394;
+const README_BINDINGS: usize = 397;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 443;
+const README_COMMANDS: usize = 446;
 
 #[cfg(feature = "full")]
 #[test]
@@ -7088,4 +7088,88 @@ fn each_build_has_the_families_the_table_promises_it() {
             "`{family}` is in the wrong build"
         );
     }
+}
+
+/// A tree taller than the panel has to scroll with the cursor.
+///
+/// It did not: the tree drew from the window's `top_line` and nothing ever
+/// moved it, so walking down a project with more files than the panel is
+/// tall took the cursor off the bottom and left it there — invisible, and
+/// with no way to see where it was.
+#[cfg(feature = "full")]
+#[test]
+fn the_file_tree_follows_its_cursor_off_the_bottom() {
+    use maxgus_tree::{NodeKind, VisibleNode};
+
+    let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
+    s.keys("C-x t t");
+    // Sixty files in a panel that shows a couple of dozen rows at most.
+    let nodes: Vec<VisibleNode> = (0..60)
+        .map(|n| VisibleNode {
+            path: format!("/project/file{n:02}.rs").into(),
+            name: format!("file{n:02}.rs"),
+            depth: 1,
+            kind: NodeKind::File,
+            expanded: false,
+            expandable: false,
+            git: None,
+            is_root: false,
+        })
+        .collect();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::TreeUpdated {
+            nodes,
+            select: None,
+            show_hidden: false,
+        })
+        .unwrap();
+
+    let tree_window = s.editor.tree_window.expect("the tree is open");
+    let height = s
+        .editor
+        .windows
+        .get(tree_window)
+        .expect("the window")
+        .text_height();
+    assert!(height > 2 && height < 60, "the panel is {height} rows");
+
+    // Down past the bottom of the panel.
+    for _ in 0..height + 5 {
+        s.editor
+            .move_tree_cursor_to_line(s.editor.tree_cursor_line() + 1);
+    }
+    let cursor = s.editor.tree_cursor_line();
+    let top = s
+        .editor
+        .windows
+        .get(tree_window)
+        .expect("the window")
+        .top_line;
+    assert!(
+        cursor >= top && cursor < top + height,
+        "the cursor is on line {cursor} and the panel shows {top}..{}",
+        top + height
+    );
+    assert!(top > 0, "the panel never scrolled");
+
+    // And back up to the top, which has to scroll the other way.
+    for _ in 0..cursor {
+        s.editor
+            .move_tree_cursor_to_line(s.editor.tree_cursor_line().saturating_sub(1));
+    }
+    let top = s
+        .editor
+        .windows
+        .get(tree_window)
+        .expect("the window")
+        .top_line;
+    assert_eq!(top, 0, "it did not come back");
+
+    // What is drawn agrees: the selected row is on the screen.
+    s.editor.move_tree_cursor_to_line(50);
+    let screen = s.screen().join("\n");
+    assert!(
+        screen.contains("file50.rs"),
+        "line 50 is selected and not drawn:\n{screen}"
+    );
 }

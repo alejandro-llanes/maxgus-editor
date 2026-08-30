@@ -199,6 +199,10 @@ pub struct Editor {
     pub tree_shows_hidden: bool,
     /// The directory the tree is rooted at.
     pub tree_root: Option<PathBuf>,
+    /// Where it was rooted when it opened, which is what
+    /// `treefile-root-reset` comes back to after walking into a
+    /// subdirectory. Kept separately so root-down cannot lose it.
+    pub tree_home: Option<PathBuf>,
     /// The tree window's width in columns.
     pub tree_width: u16,
     /// True while the width is pinned against the resize commands.
@@ -388,6 +392,7 @@ impl Editor {
             tree: Vec::new(),
             tree_shows_hidden: false,
             tree_root: None,
+            tree_home: None,
             tree_width: 32,
             tree_width_locked: false,
             tree_follow: true,
@@ -2206,9 +2211,20 @@ impl Editor {
         let Some(offset) = self.buffers.get(id).map(|b| b.line_start(line)) else {
             return;
         };
+        // The window has to follow. Setting the point alone let the cursor
+        // walk off the bottom of a panel and stay there: the tree drew from
+        // `top_line` and nothing had moved it, so a project with more files
+        // than the panel is tall could be scrolled into and never out of.
+        //
+        // Every panel goes through here — the file tree, the symbol
+        // outline, the buffer list, dired and the undo tree — so all of
+        // them followed their cursor the moment one of them did.
+        let total = self.buffers.get(id).map_or(0, |b| b.len_lines());
+        let margin = self.settings.scroll_margin;
         for window in self.windows.showing(id) {
             if let Some(window) = self.windows.get_mut(window) {
                 window.point = offset;
+                window.scroll_to_show(line, total, margin);
             }
         }
         if let Some(buffer) = self.buffers.get_mut(id) {

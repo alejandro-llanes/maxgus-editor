@@ -111,6 +111,21 @@ pub fn register(registry: &mut Registry) {
             non_interactive
         ),
         command!(
+            "treefile-root-down",
+            "Draw the tree from the selected directory.",
+            root_down
+        ),
+        command!(
+            "treefile-root-up",
+            "Draw the tree from one directory further out.",
+            root_up
+        ),
+        command!(
+            "treefile-root-reset",
+            "Draw the tree from where it opened.",
+            root_reset
+        ),
+        command!(
             "treefile-expand-recursively",
             "Expand everything below here.",
             expand_recursively,
@@ -311,6 +326,8 @@ fn act(editor: &mut Editor, action: TreeAction) {
 pub fn open(editor: &mut Editor, root: PathBuf) -> Result<()> {
     use crate::panel::PanelSection;
     editor.tree_root = Some(root.clone());
+    // Where `r r` comes back to, whatever `r d` does afterwards.
+    editor.tree_home = Some(root.clone());
 
     // The configured heights, cut down to what the frame can actually give.
     // A twelve-row outline in a ten-row frame would leave the tree nothing at
@@ -455,6 +472,7 @@ fn kill(editor: &mut Editor, _: &Args) -> Result<()> {
     }
     editor.tree.clear();
     editor.tree_root = None;
+    editor.tree_home = None;
     Ok(())
 }
 
@@ -583,6 +601,59 @@ fn collapse_parent(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.move_tree_cursor_to_line(line);
     act(editor, TreeAction::Collapse(path));
     Ok(())
+}
+
+// ---- the root ----------------------------------------------------------
+
+/// `treefile-root-down`: draw the tree from the selected directory instead.
+///
+/// treemacs' `treemacs-root-down`. Only the tree moves — the project root
+/// that a language server is told about and that a project search walks
+/// stays where it was, because looking into a subdirectory is not the same
+/// as working in a different project.
+fn root_down(editor: &mut Editor, _: &Args) -> Result<()> {
+    let node = selection(editor)?;
+    if !node.expandable {
+        return Err(crate::CoreError::Message(
+            "Only a directory can be the root".into(),
+        ));
+    }
+    set_root(editor, node.path);
+    Ok(())
+}
+
+/// `treefile-root-up`: one directory further out.
+fn root_up(editor: &mut Editor, _: &Args) -> Result<()> {
+    let Some(root) = editor.tree_root.clone() else {
+        return Err(crate::CoreError::Message("There is no tree".into()));
+    };
+    let Some(parent) = root.parent().map(std::path::Path::to_path_buf) else {
+        return Err(crate::CoreError::Message(
+            "Already at the top of the filesystem".into(),
+        ));
+    };
+    set_root(editor, parent);
+    Ok(())
+}
+
+/// `treefile-root-reset`: back to where the tree opened.
+fn root_reset(editor: &mut Editor, _: &Args) -> Result<()> {
+    let Some(home) = editor.tree_home.clone() else {
+        return Err(crate::CoreError::Message("There is no tree".into()));
+    };
+    if editor.tree_root.as_ref() == Some(&home) {
+        return Err(crate::CoreError::Message(
+            "Already at the project root".into(),
+        ));
+    }
+    set_root(editor, home);
+    Ok(())
+}
+
+fn set_root(editor: &mut Editor, path: PathBuf) {
+    editor.message(format!("Tree root: {}", path.display()));
+    editor.tree_root = Some(path.clone());
+    act(editor, TreeAction::SetRoot(path));
 }
 
 fn expand_recursively(editor: &mut Editor, _: &Args) -> Result<()> {

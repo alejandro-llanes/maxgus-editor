@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **The file tree scrolls with its cursor.** It drew from the window's
+  `top_line` and nothing ever moved it, so walking down a project with more
+  files than the panel is tall took the cursor off the bottom and left it
+  there — invisible, with no way to see where it had got to. Every panel
+  went through the same call, so the symbol outline, the buffer list, dired
+  and the undo tree were all doing it, and all of them follow their cursor
+  now.
+- **The tree's root can be moved.** `r d` draws it from the directory under
+  the cursor, `r u` from one further out, `r r` from where it opened —
+  treemacs' `treemacs-root-down` and `treemacs-root-up`, which it leaves
+  unbound. Only the tree moves: the project root a language server is told
+  about, and that a project search walks, stays where it was, because
+  looking into a subdirectory is not the same as working in a different
+  project.
+
 ## v0.2.4
 
 - **A configuration to start from.** The install script writes `config.kdl`,

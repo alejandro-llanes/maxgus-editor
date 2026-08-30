@@ -3257,3 +3257,60 @@ fn a_release_archive_carries_the_configuration_and_the_desktop_entry() {
         );
     }
 }
+
+/// Walking the tree's root into a subdirectory and back out, against real
+/// directories.
+#[cfg(feature = "full")]
+#[test]
+fn the_tree_root_can_be_moved_into_a_subdirectory_and_back() {
+    let fixture = Fixture::new("treeroot");
+    let root = fixture.path();
+    std::fs::create_dir_all(root.join("engine/parser")).unwrap();
+    std::fs::write(root.join("engine/parser/lexer.rs"), "// lexer\n").unwrap();
+    std::fs::write(root.join("top-level.txt"), "at the top\n").unwrap();
+
+    let mut session = Session::start(root, &["-Q", "top-level.txt"]);
+    assert!(
+        wait_for(&mut session, "maxgus started in", 60),
+        "no startup"
+    );
+    session.send(b"\x18tt"); // C-x t t : the panel
+    assert!(
+        wait_for(&mut session, "engine", 100),
+        "no tree:\n{:#?}",
+        session.screen()
+    );
+    session.send(b"\x18o"); // C-x o : into the tree
+
+    // Follow mode has put the cursor on the file being edited, so this
+    // starts from the top: `C-a` is the first line, the root, and `n` is
+    // the first thing under it — directories before files, alphabetically,
+    // which makes it `engine`.
+    session.send(b"\x01");
+    session.send(b"n");
+    session.settle();
+    session.send(b"rd");
+    assert!(
+        wait_for(&mut session, "parser", 100),
+        "the root did not move into `engine`:\n{:#?}",
+        session.screen()
+    );
+    // What was above the new root is gone. `hello.txt` sits at the old
+    // root and is not open, so the tree is the only thing that could be
+    // showing it — unlike `top-level.txt`, which is the buffer being
+    // edited and appears in the buffer list whatever the tree is rooted at.
+    assert!(
+        !session.shows("hello.txt"),
+        "the tree still shows what is outside its root:\n{:#?}",
+        session.screen()
+    );
+
+    // `r r` comes back to where it opened.
+    session.send(b"rr");
+    assert!(
+        wait_for(&mut session, "top-level.txt", 100),
+        "`r r` did not come back:\n{:#?}",
+        session.screen()
+    );
+    assert_eq!(session.quit(), 0);
+}

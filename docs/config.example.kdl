@@ -57,9 +57,9 @@ set panel-buffers-height=8
 // `$SHELL` says, which is a choice the user has already made once.
 set shell="/bin/bash"
 
-// The window, when maxgus was built with `--features gui` and started
-// with `--gui`. The terminal front end ignores both: what it draws with
-// is whatever the terminal is configured to use.
+// The window, when maxgus was built with `--features gui`. The terminal
+// front end ignores both — including a windowed build started with `-nw`:
+// what a terminal draws with is whatever the terminal is configured to use.
 set gui-font="JetBrainsMono Nerd Font"
 set gui-font-size=16
 

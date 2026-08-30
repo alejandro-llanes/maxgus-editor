@@ -147,7 +147,7 @@ KDL spells booleans `#true` and `#false`, and null `#null`.
 | `beacon-blink-when-window-changes` | bool | `#true` | Light it when another window is selected. |
 | `beacon-blink-when-point-moves-vertically` | integer | `0` | Lines point must move for a light; `0` never. Off by default because ordinary editing would light it constantly. |
 | `session` | bool | `#false` | Remember what is open when the editor leaves, and open it again when it is next started in the same project with no file named. Kept under the state directory, keyed by the project's path. |
-| `gui-font` | string | `"JetBrainsMono Nerd Font"` | The family the window draws with. Falls through a list of installed monospace families when it is not there. Only read by a `--features gui` build started with `--gui`. |
+| `gui-font` | string | `"JetBrainsMono Nerd Font"` | The family the window draws with. Falls through a list of installed monospace families when it is not there. Only read by a `--features gui` build drawing into a window, which is what one does unless started with `-nw`. |
 | `gui-font-size` | integer | `16` | Its size in pixels, clamped to 6–96. |
 | `shell` | string | `$SHELL` | The program a terminal tab starts. |
 

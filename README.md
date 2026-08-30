@@ -677,11 +677,18 @@ none of them rots.
 
 `--features gui` adds a second front end. It is the *same* editor — the same
 commands, the same keymaps, the same redisplay — drawn into a window by wgpu
-rather than into a terminal by escape sequences:
+rather than into a terminal by escape sequences.
+
+A build with a window in it is a desktop program, so that is what it opens:
 
 ```sh
-maxgus --gui src/main.rs
+maxgus src/main.rs        # a window
+maxgus -nw src/main.rs    # the terminal, spelled the way Emacs spells it
 ```
+
+`-nw`, `--no-window-system` and `--tty` are the same flag. With no session to
+draw into — over ssh, say — a windowed build starts in the terminal by itself
+rather than failing; `--gui` overrides that and insists on a window.
 
 What the window has that a terminal cannot:
 
@@ -767,7 +774,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1955 tests.** Unit tests beside the code; session tests that press real keys
+**1957 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

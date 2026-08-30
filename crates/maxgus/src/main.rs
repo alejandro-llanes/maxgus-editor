@@ -1,4 +1,4 @@
-//! `maxgus` — a very small Emacs for the terminal.
+//! `maxgus` — a very small Emacs. In a window, or in the terminal.
 
 mod app;
 mod tasks;
@@ -32,7 +32,7 @@ static VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 #[command(
     name = "maxgus",
     version = VERSION.as_str(),
-    about = "A very small Emacs for the terminal"
+    about = "A very small Emacs"
 )]
 struct Arguments {
     /// Files to visit on startup.
@@ -50,10 +50,45 @@ struct Arguments {
     #[arg(long, value_name = "DIR")]
     directory: Option<PathBuf>,
 
-    /// Open a window rather than taking over the terminal.
+    /// Open a window, even where one would not be opened by default.
     #[cfg(feature = "gui")]
     #[arg(long)]
     gui: bool,
+
+    /// Take over the terminal rather than opening a window. Also `-nw`.
+    ///
+    /// Every build accepts it, so that the habit works everywhere; only a
+    /// `gui` build has a window for it to turn off.
+    #[arg(long = "no-window-system", visible_alias = "tty")]
+    no_window_system: bool,
+}
+
+/// Whether a window can be opened here at all.
+///
+/// A `gui` build run over ssh, or on a machine with no session, has nothing
+/// to draw into. Emacs starts in the terminal in that case rather than
+/// failing, and so does this — `--gui` overrides it and lets the failure
+/// happen, which is what someone who passed it wants to see.
+#[cfg(feature = "gui")]
+fn display_available() -> bool {
+    if cfg!(any(target_os = "macos", target_os = "windows")) {
+        return true;
+    }
+    std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some()
+}
+
+/// `-nw`, spelled the way Emacs spells it.
+///
+/// A single dash in front of two letters is not a form any argument parser
+/// offers, and it is the form thirty years of muscle memory types, so it is
+/// translated before the parser ever sees it.
+fn argv_with_emacs_spellings() -> Vec<std::ffi::OsString> {
+    std::env::args_os()
+        .map(|argument| match argument.to_str() {
+            Some("-nw") => std::ffi::OsString::from("--no-window-system"),
+            _ => argument,
+        })
+        .collect()
 }
 
 #[tokio::main]
@@ -62,7 +97,7 @@ async fn main() -> Result<()> {
     // the editor took rather than the time it took to measure itself. The
     // dynamic loader's work is already done by now and cannot be counted.
     let started = std::time::Instant::now();
-    let arguments = Arguments::parse();
+    let arguments = Arguments::parse_from(argv_with_emacs_spellings());
 
     // Traces go to a file: stderr belongs to the editor's own display.
     if let Ok(path) = std::env::var("MAXGUS_LOG")
@@ -82,12 +117,21 @@ async fn main() -> Result<()> {
     warnings.extend(unknown_face_warnings(&config));
     let root = project_root(&arguments);
 
+    // A build with a window in it is a desktop program: it opens one unless
+    // told not to, or unless there is nothing to open it into. A build
+    // without a window in it never has the choice.
+    //
     // In a window the frame is decided by the font and the window's size,
     // which are not known until it opens; a nominal one gets the editor built.
     #[cfg(feature = "gui")]
-    let windowed = arguments.gui;
+    let windowed = !arguments.no_window_system && (arguments.gui || display_available());
     #[cfg(not(feature = "gui"))]
-    let windowed = false;
+    let windowed = {
+        // Read so that it is not a lie: this build has no window, so the
+        // flag asking for no window is already satisfied.
+        let _ = arguments.no_window_system;
+        false
+    };
 
     // The terminal is claimed before anything can panic inside it: the panic
     // hook is what puts the user's shell back if something goes wrong.

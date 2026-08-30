@@ -63,7 +63,7 @@ Run one:
 
     $into/maxgus-minimal FILE
     $into/maxgus-full FILE
-    $into/maxgus-gui --gui FILE
+    $into/maxgus-gui FILE       # a window; -nw for the terminal
 
 The same editor with different parts left out; \`--version\` says which. A
 key that is not in a build reports itself as undefined rather than doing

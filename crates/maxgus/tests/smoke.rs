@@ -102,6 +102,9 @@ impl Session {
         };
         let mut command = Command::new(env!("CARGO_BIN_EXE_maxgus"));
         command
+            // This is the terminal front end under test. A `gui` build would
+            // open a window and leave the pseudo-terminal empty.
+            .arg("--no-window-system")
             .args(arguments)
             .current_dir(directory)
             .env("TERM", "xterm-256color")
@@ -557,6 +560,10 @@ fn the_help_flag_prints_usage_without_a_terminal() {
 fn starting_without_a_terminal_fails_with_an_explanation() {
     let output = Command::new(env!("CARGO_BIN_EXE_maxgus"))
         .arg("-Q")
+        // A `gui` build would open a window instead, and then wait in it
+        // forever. This is a question about the terminal.
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
         .stdin(Stdio::null())
         .output()
         .expect("the binary runs");
@@ -2741,4 +2748,93 @@ fn the_version_says_which_build_this_is() {
         said.contains(expected),
         "`--version` says {said:?}, and this build is {expected}"
     );
+}
+
+/// A build with a window in it is a desktop program.
+///
+/// It was not, for a while: `maxgus-gui` took over the terminal like every
+/// other build unless `--gui` was passed, which is not what someone who
+/// installed the windowed build asked for.
+///
+/// Which path was taken is legible in which failure comes back, since
+/// neither one can finish here: the terminal path complains about the
+/// terminal, and the window path complains about the display.
+#[cfg(feature = "gui")]
+#[test]
+fn a_window_is_what_a_gui_build_opens() {
+    /// Runs the editor with the display environment set exactly, and
+    /// returns what it said before giving up.
+    fn attempt(arguments: &[&str], display: Option<&str>) -> String {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_maxgus"));
+        command.args(arguments).arg("-Q").stdin(Stdio::null());
+        command.env_remove("WAYLAND_DISPLAY");
+        match display {
+            // A display that is not there: enough to choose the window,
+            // not enough to open one, which is what makes it observable.
+            Some(display) => command.env("DISPLAY", display),
+            None => command.env_remove("DISPLAY"),
+        };
+        let output = command.output().expect("the binary runs");
+        String::from_utf8_lossy(&output.stderr).into_owned()
+    }
+    let terminal = "needs a terminal";
+
+    // A session to draw into, and no flags: a window.
+    let said = attempt(&[], Some(":99"));
+    assert!(
+        !said.contains(terminal),
+        "a gui build took over the terminal instead of opening a window: {said}"
+    );
+    assert!(
+        said.contains("X server"),
+        "it did not try to open one: {said}"
+    );
+
+    // Nothing to draw into — over ssh, say. Emacs starts in the terminal
+    // rather than failing, and so does this.
+    let said = attempt(&[], None);
+    assert!(
+        said.contains(terminal),
+        "with no display it should fall back to the terminal: {said}"
+    );
+
+    // `-nw`, spelled the way Emacs spells it, and `--no-window-system`,
+    // spelled the way an argument parser does.
+    for spelling in ["-nw", "--no-window-system", "--tty"] {
+        let said = attempt(&[spelling], Some(":99"));
+        assert!(
+            said.contains(terminal),
+            "`{spelling}` should have chosen the terminal: {said}"
+        );
+    }
+
+    // `--gui` still forces one where the default would not.
+    let said = attempt(&["--gui"], None);
+    assert!(
+        !said.contains(terminal),
+        "`--gui` should open a window even with no display to open it in: {said}"
+    );
+}
+
+/// `-nw` is a habit, and a habit that errors on two builds out of three is
+/// worse than no habit. Every build takes it; only one has a window to turn
+/// off with it.
+#[test]
+fn every_build_takes_the_flag_that_asks_for_a_terminal() {
+    for spelling in ["-nw", "--no-window-system", "--tty"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_maxgus"))
+            .args([spelling, "-Q"])
+            .env_remove("WAYLAND_DISPLAY")
+            .env_remove("DISPLAY")
+            .stdin(Stdio::null())
+            .output()
+            .expect("the binary runs");
+        let said = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !said.contains("unexpected argument"),
+            "`{spelling}` was rejected by this build: {said}"
+        );
+        // It got as far as wanting a terminal, which is the point of it.
+        assert!(said.contains("needs a terminal"), "got `{said}`");
+    }
 }

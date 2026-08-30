@@ -7033,3 +7033,59 @@ fn a_long_list_shows_a_window_of_it_and_says_where_in_it_you_are() {
     let shown = labels.iter().filter(|l| screen.contains(*l)).count();
     assert_eq!(shown, maxgus_core::autocomplete::ROWS, "got {shown} rows");
 }
+
+/// The table in the README says what is in each build. This is what keeps
+/// it true.
+///
+/// By family rather than by count: a count needs editing every time a
+/// command is added, which is how a number in a document becomes a number
+/// nobody believes. What matters is that the whole of a feature is in or
+/// out, and that is what is checked.
+#[test]
+fn each_build_has_the_families_the_table_promises_it() {
+    let s = tall_session("/project/main.rs", "");
+    let names = s.dispatcher.registry.interactive_names();
+    let has = |prefix: &str| names.iter().any(|n| n.starts_with(prefix));
+
+    // In every build, and the reason `minimal` is an editor rather than a
+    // demonstration.
+    for family in [
+        "find-file",
+        "switch-to-buffer",
+        "treefile-",
+        "dired",
+        "undo-tree-",
+        "mark-next-like-this",
+        "kmacro-",
+        "query-replace",
+        "load-theme",
+        "save-session",
+        "snippet-",
+        "describe-bindings",
+    ] {
+        assert!(has(family), "`{family}` should be in every build");
+    }
+
+    // In `full` and `gui` only. A `minimal` build that grew one of these
+    // has grown the crate behind it, and the whole point of `minimal` is
+    // that it did not.
+    let extras = [
+        "lsp-",
+        "autocomplete-",
+        "completion-at-point",
+        "magit-",
+        "terminal-",
+        "grep-",
+        "project-grep",
+        "describe-grammars",
+        "reload-scripts",
+        "expand-region",
+    ];
+    for family in extras {
+        assert_eq!(
+            has(family),
+            cfg!(feature = "full"),
+            "`{family}` is in the wrong build"
+        );
+    }
+}

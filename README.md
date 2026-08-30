@@ -23,7 +23,7 @@ themes you rewrite in a config file&nbsp; ·&nbsp; a treemacs-style file tree&nb
 <img alt="" src="https://img.shields.io/badge/windows-333?style=flat-square&logo=windows&logoColor=white">
 <img alt="" src="https://img.shields.io/badge/freebsd-333?style=flat-square&logo=freebsd&logoColor=white">
 <img alt="Unsafe" src="https://img.shields.io/badge/unsafe-forbidden-4c9a2a?style=flat-square">
-<img alt="Tests" src="https://img.shields.io/badge/tests-2031-4c9a2a?style=flat-square">
+<img alt="Tests" src="https://img.shields.io/badge/tests-2032-4c9a2a?style=flat-square">
 </p>
 
 <sub><b>No Lisp interpreter. No plugin runtime.</b> ~56,000 lines · fifteen crates · three builds to pick from.</sub>
@@ -59,9 +59,12 @@ manager, no shell profile rewritten behind your back.
 
 | Build | What is in it | Binary | |
 |---|---|---|---|
-| `minimal` | The editor and the file tree. No grammars, no protocol, no subprocess. | 4.6M | `sh -s -- --build minimal` |
+| `minimal` | The editor and the file tree. No grammars, no language server, no magit, no subprocess. | 4.6M | `sh -s -- --build minimal` |
 | `full` | Everything, in a terminal. **The default.** | 13M | `sh` |
-| `gui` | Everything, and a window drawn by the GPU as well as a terminal. | 21M | `sh -s -- --build gui` |
+| `gui` | Everything, and a window drawn by the GPU as well as a terminal. | 20M | `sh -s -- --build gui` |
+
+[**The whole table**](#building-it-three-sizes) — every feature, and which
+builds have it — is further down.
 
 ```console
 $ curl -fsSL https://alejandro-llanes.github.io/maxgus-editor/install.sh | sh -s -- --build gui
@@ -681,24 +684,52 @@ parent, `TAB` to fold, `RET` to open, `c f` and `c d` to create, `R` to rename,
 
 The editor is one thing; the grammars, the language server, magit, the
 terminal, project search and scripting are what get built on top of it, and
-the window is one more. There are three builds and no others:
+the window is one more. There are three builds and no others.
 
-| Feature | What it builds | Binary |
-|---|---|---|
-| `minimal` | The editor and the treefile. No grammars, no protocol, no subprocess. | **4.6M** |
-| `full` *(default)* | Everything: tree-sitter, the language-server client, magit, the terminal panel, project search, scripting. | **13M** |
-| `gui` | Everything in `full`, and a window drawn by the GPU as well as a terminal. | **20M** |
+| | `minimal` | `full` *(default)* | `gui` |
+|---|:---:|:---:|:---:|
+| **Binary** | **4.6M** | **13M** | **20M** |
+| **Commands** | 294 | 443 | 443 |
+| **Needs from the system** | nothing | nothing | a window system's headers |
+| Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
+| Buffers, windows, `C-x` everything | ● | ● | ● |
+| The file tree, with treemacs' keys | ● | ● | ● |
+| The side panel — tree and buffer list | ● | ● | ● |
+| The side panel — symbol outline | ○ | ● | ● |
+| Themes, and the configuration file | ● | ● | ● |
+| which-key | ● | ● | ● |
+| beacon | ● | ● | ● |
+| Multiple cursors | ● | ● | ● |
+| The undo tree, and its visualiser | ● | ● | ● |
+| dired | ● | ● | ● |
+| Keyboard macros, registers, rectangles | ● | ● | ● |
+| isearch, `query-replace`, `occur` | ● | ● | ● |
+| Sessions, snippets, `.editorconfig` | ● | ● | ● |
+| **tree-sitter highlighting**, eleven grammars | ○ | ● | ● |
+| **Grammars from the system**, loaded at run time | ○ | ● | ● |
+| **A language-server client** | ○ | ● | ● |
+| **Autocomplete** while typing | ○ | ● | ● |
+| **lsp-ui-doc**, beside the cursor | ○ | ● | ● |
+| **magit** | ○ | ● | ● |
+| **A terminal panel**, in tabs | ○ | ● | ● |
+| **Project search**, and editing the results | ○ | ● | ● |
+| **Rhai scripting** | ○ | ● | ● |
+| **A window**: the GPU, the mouse, the clipboard, smooth scrolling | ○ | ○ | ● |
+
+`minimal` is the editor and the file tree: no grammars, no protocol, no
+subprocess, nothing to install. Everything a text editor does, and none of
+what a development environment does. It starts instantly and builds in a
+fraction of the time.
+
+`full` adds everything that talks to something else. `gui` adds a second
+front end drawn by the GPU, and is the only build that needs anything from
+the system to compile.
 
 ```sh
 cargo build --release                                        # full
 cargo build --release --no-default-features --features minimal
 cargo build --release --features gui
 ```
-
-Only the `gui` build needs anything from the system — a window system's
-headers — and only it pays the eight megabytes and the compile time that wgpu
-and winit cost. That is the whole reason it is a build of its own rather than
-part of `full`.
 
 To try them side by side, `./scripts/build-variants.sh` builds all three into
 `target/variants/`:
@@ -722,8 +753,10 @@ C-x g is undefined
 
 The tree-sitter grammars are C, and they are most of what a full build spends
 its time on — which is what makes `minimal` worth having rather than a `cfg`
-nobody would use. All three are built and tested by the CI, and by a test, so
-none of them rots.
+nobody would use. All three are built and tested by the CI, and a test holds
+every row of the table above: a command family is wholly in a build or
+wholly out of it, and `minimal` growing one would mean it had grown the crate
+behind it.
 
 ## A window, as well as a terminal
 
@@ -856,7 +889,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**2031 tests.** Unit tests beside the code; session tests that press real keys
+**2032 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

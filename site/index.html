@@ -243,6 +243,8 @@ footer .sp { margin-left: auto; }
     The same editor with different parts left out. Every binary's
     <code>--version</code> says which one it is, and a key a build does not
     have reports itself as undefined rather than doing nothing.
+    <a href="https://github.com/alejandro-llanes/maxgus-editor#building-it-three-sizes">The
+    whole table</a> lists every feature against every build.
   </p>
   <div class="builds">
 
@@ -252,9 +254,11 @@ footer .sp { margin-left: auto; }
          of the time, and fits anywhere.</p>
       <ul>
         <li>Emacs keys, buffers, windows</li>
-        <li>The file tree</li>
+        <li>The file tree, dired, macros</li>
+        <li>which-key, beacon, multiple cursors</li>
         <li>Themes, and the configuration file</li>
-        <li class="no">tree-sitter, LSP, magit</li>
+        <li class="no">tree-sitter, LSP, autocomplete</li>
+        <li class="no">magit, terminal, project search</li>
       </ul>
       <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh -s -- \
     --build minimal</pre>
@@ -266,8 +270,8 @@ footer .sp { margin-left: auto; }
          install line above gives you.</p>
       <ul>
         <li>Everything in <code>minimal</code></li>
-        <li>tree-sitter highlighting</li>
-        <li>A language-server client</li>
+        <li>tree-sitter highlighting, and grammars from the system</li>
+        <li>A language server: autocomplete, lsp-ui-doc, the lot</li>
         <li>magit, a terminal panel, project search, scripting</li>
       </ul>
       <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh</pre>

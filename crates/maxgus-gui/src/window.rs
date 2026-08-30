@@ -20,6 +20,19 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::ModifiersState;
 use winit::window::{Window, WindowId};
 
+/// How much time an animation is advanced by, given how long it has been.
+///
+/// The loop sleeps when nothing is happening, so the gap before the frame
+/// that follows a keystroke is however long the editor was left alone.
+/// Feeding that to an animation runs it to its end before it has been seen:
+/// the first notch of the wheel would teleport, and the light beside the
+/// cursor would be over before it was ever drawn. A gap longer than a few
+/// frames is a wait rather than a frame, and counts as one.
+pub fn frame_time(since: std::time::Duration) -> std::time::Duration {
+    const LONGEST: std::time::Duration = std::time::Duration::from_millis(50);
+    since.min(LONGEST)
+}
+
 /// How the editor is set up before the window opens.
 pub struct Settings {
     pub title: String,
@@ -478,8 +491,9 @@ impl ApplicationHandler for App {
                     self.settle();
                     self.scrolling = under;
                 }
+                let per_notch = self.editor.settings.mouse_wheel_lines;
                 self.scroll
-                    .nudge(crate::mouse::wheel_pixels(delta, metrics.height));
+                    .nudge(crate::mouse::wheel_pixels(delta, metrics.height, per_notch));
                 self.dirty = true;
             }
             WindowEvent::RedrawRequested => {
@@ -507,10 +521,11 @@ impl ApplicationHandler for App {
         self.pump();
         // The light beside the cursor, by however long the last frame took.
         let now = std::time::Instant::now();
-        let since = self
-            .last_frame
-            .map(|last| now.duration_since(last))
-            .unwrap_or_default();
+        let since = frame_time(
+            self.last_frame
+                .map(|last| now.duration_since(last))
+                .unwrap_or_default(),
+        );
         self.last_frame = Some(now);
         if self.editor.advance_beacon(since) {
             self.dirty = true;
@@ -519,7 +534,8 @@ impl ApplicationHandler for App {
         // window the way `C-v` would, and the remainder is drawn as a shift.
         let moving = self.scroll.is_moving() || self.scroll.pixels() != 0.0;
         if moving {
-            let lines = self.scroll.step(self.metrics().height);
+            let settle = self.editor.settings.smooth_scroll_ms;
+            let lines = self.scroll.step(self.metrics().height, since, settle);
             if lines != 0 {
                 let id = self
                     .scrolling
@@ -539,5 +555,33 @@ impl ApplicationHandler for App {
         {
             window.request_redraw();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn an_ordinary_frame_is_taken_at_its_word() {
+        for frame in [1u64, 7, 16, 33, 50] {
+            let since = Duration::from_millis(frame);
+            assert_eq!(frame_time(since), since, "{frame}ms is a frame");
+        }
+    }
+
+    #[test]
+    fn the_wait_before_the_first_frame_is_not_a_frame() {
+        // The window sleeps when nothing is happening. Handing the sleep to
+        // an animation as though it were a frame ran the animation out
+        // before anyone saw it: the first turn of the wheel jumped, and the
+        // beacon was over by the time it was drawn.
+        let slept = frame_time(Duration::from_secs(30));
+        assert!(
+            slept <= Duration::from_millis(50),
+            "half a minute of idling counted as a frame of {slept:?}"
+        );
+        assert!(slept > Duration::ZERO, "and it is still a frame");
     }
 }

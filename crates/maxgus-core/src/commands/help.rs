@@ -207,6 +207,8 @@ fn setting_value(editor: &Editor, name: &str) -> Option<String> {
         "session" => s.session.to_string(),
         "gui-font" => s.gui_font.clone(),
         "gui-font-size" => s.gui_font_size.to_string(),
+        "mouse-wheel-lines" => s.mouse_wheel_lines.to_string(),
+        "smooth-scroll-ms" => s.smooth_scroll_ms.to_string(),
         "shell" => s.shell.clone().unwrap_or_else(|| "(from $SHELL)".into()),
         _ => return None,
     })

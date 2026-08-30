@@ -21,16 +21,16 @@ pub struct Scroll {
 }
 
 impl Scroll {
-    /// How much of the remaining distance is covered each frame.
-    ///
-    /// Chosen for 60Hz: a notch is most of the way there in about four frames
-    /// and settled in ten, which reads as movement rather than as a jump or
-    /// as a slide.
-    const EASING: f32 = 0.35;
-
     /// Below this the animation is over: a fraction of a pixel is not worth a
     /// frame, and floating point would otherwise never quite arrive.
     const SETTLED: f32 = 0.5;
+
+    /// How many time constants of an exponential ease count as arrived.
+    ///
+    /// After four of them a fiftieth of the distance is left, which is where
+    /// the eye stops seeing movement — so `smooth-scroll-ms` can name the
+    /// whole slide and mean it.
+    const CONSTANTS: f32 = 4.0;
 
     pub fn new() -> Scroll {
         Scroll::default()
@@ -51,17 +51,25 @@ impl Scroll {
         self.target = 0.0;
     }
 
-    /// Advances the animation one frame and returns the whole lines that have
-    /// been crossed, which is what the window's `top_line` moves by.
+    /// Advances the animation by however long the last frame took, and
+    /// returns the whole lines that have been crossed, which is what the
+    /// window's `top_line` moves by.
     ///
     /// The remainder stays in `offset` as the sub-line shift the renderer
     /// draws with, so a line that is half scrolled is drawn half scrolled.
-    pub fn step(&mut self, line_height: f32) -> isize {
+    ///
+    /// `settle` is `smooth-scroll-ms`: how long the whole slide should take.
+    /// Zero arrives at once. Advancing by real time rather than by a frame
+    /// means the same setting means the same speed on a 60Hz display and on
+    /// a 144Hz one.
+    pub fn step(&mut self, line_height: f32, elapsed: std::time::Duration, settle: usize) -> isize {
         let distance = self.target - self.offset;
-        if distance.abs() < Scroll::SETTLED {
+        if settle == 0 || distance.abs() < Scroll::SETTLED {
             self.offset = self.target;
         } else {
-            self.offset += distance * Scroll::EASING;
+            let tau = settle as f32 / Scroll::CONSTANTS / 1000.0;
+            let covered = 1.0 - (-elapsed.as_secs_f32() / tau).exp();
+            self.offset += distance * covered.clamp(0.0, 1.0);
         }
         let lines = (self.offset / line_height).trunc();
         if lines != 0.0 {
@@ -97,12 +105,69 @@ mod tests {
     use super::*;
 
     const LINE: f32 = 20.0;
+    /// A frame at 60Hz, which is what these are counted in.
+    const FRAME: std::time::Duration = std::time::Duration::from_micros(16_667);
+    /// The default `smooth-scroll-ms`.
+    const SETTLE: usize = 120;
+
+    #[test]
+    fn the_setting_is_how_long_the_slide_takes() {
+        // The point of `smooth-scroll-ms`: it names a duration, and the
+        // slide takes about that long whatever the frame rate.
+        for settle in [60usize, 120, 400] {
+            let mut scroll = Scroll::new();
+            scroll.nudge(3.0 * LINE);
+            let mut spent = std::time::Duration::ZERO;
+            while scroll.is_moving() {
+                scroll.step(LINE, FRAME, settle);
+                spent += FRAME;
+                assert!(spent.as_millis() < 4_000, "it never settled");
+            }
+            let took = spent.as_millis() as usize;
+            assert!(
+                took >= settle / 2 && took <= settle * 2,
+                "{settle}ms of scrolling took {took}ms"
+            );
+        }
+    }
+
+    #[test]
+    fn the_same_setting_is_the_same_speed_at_any_frame_rate() {
+        // Advancing by a fixed fraction each frame made a fast display
+        // scroll faster, which is not a thing anybody asked it to do.
+        let ran_for = |frame: std::time::Duration| {
+            let mut scroll = Scroll::new();
+            scroll.nudge(3.0 * LINE);
+            let mut spent = std::time::Duration::ZERO;
+            while scroll.is_moving() && spent.as_millis() < 4_000 {
+                scroll.step(LINE, frame, SETTLE);
+                spent += frame;
+            }
+            spent.as_millis() as i64
+        };
+        let sixty = ran_for(std::time::Duration::from_micros(16_667));
+        let one_forty_four = ran_for(std::time::Duration::from_micros(6_944));
+        assert!(
+            (sixty - one_forty_four).abs() < 25,
+            "60Hz took {sixty}ms and 144Hz took {one_forty_four}ms"
+        );
+    }
+
+    #[test]
+    fn nothing_at_all_arrives_at_once() {
+        // `smooth-scroll-ms=0` is how someone turns the animation off.
+        let mut scroll = Scroll::new();
+        scroll.nudge(3.0 * LINE);
+        assert_eq!(scroll.step(LINE, FRAME, 0), 3);
+        assert!(!scroll.is_moving());
+        assert_eq!(scroll.pixels(), 0.0);
+    }
 
     #[test]
     fn a_still_view_asks_for_no_frames() {
         let mut scroll = Scroll::new();
         assert!(!scroll.is_moving());
-        assert_eq!(scroll.step(LINE), 0);
+        assert_eq!(scroll.step(LINE, FRAME, SETTLE), 0);
         assert_eq!(scroll.pixels(), 0.0);
     }
 
@@ -113,11 +178,11 @@ mod tests {
         let mut lines = 0;
         let mut frames = 0;
         while scroll.is_moving() {
-            lines += scroll.step(LINE);
+            lines += scroll.step(LINE, FRAME, SETTLE);
             frames += 1;
             assert!(frames < 100, "the animation never settled");
         }
-        lines += scroll.step(LINE);
+        lines += scroll.step(LINE, FRAME, SETTLE);
         assert_eq!(lines, 3, "it did not arrive where it was sent");
         assert!(frames > 1, "it arrived in one frame, which is a jump");
         assert!(frames < 30, "it took {frames} frames, which is a crawl");
@@ -129,7 +194,7 @@ mod tests {
         // drawn, not nothing drawn and then a jump.
         let mut scroll = Scroll::new();
         scroll.nudge(LINE / 2.0);
-        scroll.step(LINE);
+        scroll.step(LINE, FRAME, SETTLE);
         assert!(
             scroll.pixels() > 0.0 && scroll.pixels() < LINE,
             "no sub-line offset: {}",
@@ -143,7 +208,7 @@ mod tests {
         scroll.nudge(-2.0 * LINE);
         let mut lines = 0;
         for _ in 0..60 {
-            lines += scroll.step(LINE);
+            lines += scroll.step(LINE, FRAME, SETTLE);
         }
         assert_eq!(lines, -2);
     }
@@ -156,10 +221,10 @@ mod tests {
         let mut lines = 0;
         for _ in 0..10 {
             scroll.nudge(LINE / 10.0);
-            lines += scroll.step(LINE);
+            lines += scroll.step(LINE, FRAME, SETTLE);
         }
         for _ in 0..40 {
-            lines += scroll.step(LINE);
+            lines += scroll.step(LINE, FRAME, SETTLE);
         }
         assert_eq!(lines, 1, "ten tenths of a line is one line");
     }
@@ -171,7 +236,7 @@ mod tests {
         // the wheel asked for it.
         let mut scroll = Scroll::new();
         scroll.nudge(3.0 * LINE);
-        let mut crossed = scroll.step(LINE);
+        let mut crossed = scroll.step(LINE, FRAME, SETTLE);
         assert!(crossed < 3, "it arrived in one frame, so there is no test");
         crossed += scroll.remaining(LINE);
         assert_eq!(crossed, 3, "the rest of the journey was lost");
@@ -187,10 +252,14 @@ mod tests {
     fn settling_forgets_where_it_was_going() {
         let mut scroll = Scroll::new();
         scroll.nudge(10.0 * LINE);
-        scroll.step(LINE);
+        scroll.step(LINE, FRAME, SETTLE);
         scroll.settle();
         assert!(!scroll.is_moving());
         assert_eq!(scroll.pixels(), 0.0);
-        assert_eq!(scroll.step(LINE), 0, "it kept going after being stopped");
+        assert_eq!(
+            scroll.step(LINE, FRAME, SETTLE),
+            0,
+            "it kept going after being stopped"
+        );
     }
 }

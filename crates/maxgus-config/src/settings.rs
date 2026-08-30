@@ -95,6 +95,19 @@ pub struct Settings {
     pub gui_font: String,
     /// `gui-font-size`: its size in pixels.
     pub gui_font_size: usize,
+    /// `mouse-wheel-lines`: how far one notch of the wheel moves the view.
+    ///
+    /// Three is what most programs do with a notch. A touchpad reports the
+    /// pixels it moved and is not affected by this.
+    pub mouse_wheel_lines: usize,
+    /// `smooth-scroll-ms`: roughly how long the view takes to come to rest
+    /// after the wheel asks it to move.
+    ///
+    /// The window can draw a fraction of a line, so a wheel notch slides
+    /// rather than jumping; this is how long the slide lasts. Lower is
+    /// brisker, `0` turns it off and the view arrives at once. A terminal
+    /// cannot draw a fraction of a line and ignores it.
+    pub smooth_scroll_ms: usize,
 }
 
 impl Default for Settings {
@@ -140,6 +153,8 @@ impl Default for Settings {
             session: false,
             gui_font: "JetBrainsMono Nerd Font".into(),
             gui_font_size: 16,
+            mouse_wheel_lines: 3,
+            smooth_scroll_ms: 120,
             shell: None,
         }
     }
@@ -186,6 +201,8 @@ pub const SETTING_NAMES: &[&str] = &[
     "session",
     "gui-font",
     "gui-font-size",
+    "mouse-wheel-lines",
+    "smooth-scroll-ms",
 ];
 
 /// Every attribute a `face` node may carry.

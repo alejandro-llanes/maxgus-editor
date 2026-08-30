@@ -148,7 +148,9 @@ KDL spells booleans `#true` and `#false`, and null `#null`.
 | `beacon-blink-when-point-moves-vertically` | integer | `0` | Lines point must move for a light; `0` never. Off by default because ordinary editing would light it constantly. |
 | `session` | bool | `#false` | Remember what is open when the editor leaves, and open it again when it is next started in the same project with no file named. Kept under the state directory, keyed by the project's path. |
 | `gui-font` | string | `"JetBrainsMono Nerd Font"` | The family the window draws with. Falls through a list of installed monospace families when it is not there. Only read by a `--features gui` build drawing into a window, which is what one does unless started with `-nw`. |
-| `gui-font-size` | integer | `16` | Its size in pixels, clamped to 6–96. |
+| `gui-font-size` | integer | `16` | Its size in pixels, clamped to 6–96. Physical pixels, so it is the same size on a display that reports a scale as on one that does not. |
+| `mouse-wheel-lines` | integer | `3` | How far one notch of the wheel moves the view, in lines, clamped to 1–50. A touchpad reports the pixels it moved and is unaffected. Only a `--features gui` build drawing into a window reads it. |
+| `smooth-scroll-ms` | integer | `120` | Roughly how long the view takes to come to rest after the wheel asks it to move, capped at 1000. Lower is brisker; `0` turns the animation off and the view arrives at once. A terminal cannot draw a fraction of a line and ignores it. |
 | `shell` | string | `$SHELL` | The program a terminal tab starts. |
 
 ### Searching

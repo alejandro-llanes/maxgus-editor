@@ -26,12 +26,18 @@ pub fn cell_at(
 
 /// How far a wheel event moves the view, in pixels.
 ///
-/// A mouse reports whole notches and a touchpad reports pixels; a notch is
-/// three lines, which is what every other application does with one.
-pub fn wheel_pixels(delta: winit::event::MouseScrollDelta, line_height: f32) -> f32 {
+/// A mouse reports whole notches and a touchpad reports pixels. A notch is
+/// `mouse-wheel-lines` lines — three by default, which is what every other
+/// program does with one; a touchpad already said how far it moved and is
+/// taken at its word.
+pub fn wheel_pixels(
+    delta: winit::event::MouseScrollDelta,
+    line_height: f32,
+    per_notch: usize,
+) -> f32 {
     use winit::event::MouseScrollDelta;
     match delta {
-        MouseScrollDelta::LineDelta(_, lines) => -lines * line_height * 3.0,
+        MouseScrollDelta::LineDelta(_, lines) => -lines * line_height * per_notch as f32,
         MouseScrollDelta::PixelDelta(position) => -position.y as f32,
     }
 }
@@ -70,16 +76,22 @@ mod tests {
     }
 
     #[test]
-    fn a_wheel_notch_is_three_lines() {
-        let pixels = wheel_pixels(MouseScrollDelta::LineDelta(0.0, -1.0), 20.0);
+    fn a_wheel_notch_is_three_lines_unless_told_otherwise() {
+        let pixels = wheel_pixels(MouseScrollDelta::LineDelta(0.0, -1.0), 20.0, 3);
         assert_eq!(pixels, 60.0, "one notch down is three lines down");
-        let up = wheel_pixels(MouseScrollDelta::LineDelta(0.0, 1.0), 20.0);
+        let up = wheel_pixels(MouseScrollDelta::LineDelta(0.0, 1.0), 20.0, 3);
         assert_eq!(up, -60.0);
+        // `mouse-wheel-lines` is how far a notch goes.
+        let further = wheel_pixels(MouseScrollDelta::LineDelta(0.0, -1.0), 20.0, 8);
+        assert_eq!(further, 160.0, "eight lines a notch is eight lines");
     }
 
     #[test]
     fn a_touchpad_reports_the_pixels_it_moved() {
+        // It already said how far the fingers went; multiplying that by a
+        // line count would make a touchpad unusable.
         let delta = MouseScrollDelta::PixelDelta((0.0, -7.5).into());
-        assert_eq!(wheel_pixels(delta, 20.0), 7.5);
+        assert_eq!(wheel_pixels(delta, 20.0, 3), 7.5);
+        assert_eq!(wheel_pixels(delta, 20.0, 12), 7.5);
     }
 }

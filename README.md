@@ -694,8 +694,9 @@ What the window has that a terminal cannot:
 
 - **Smooth scrolling.** A terminal scrolls by whole lines because it cannot
   draw half of one. The window keeps a pixel offset and eases towards it, so a
-  wheel notch slides three lines instead of jumping them. Only the window
-  being scrolled moves — its mode line, the echo area and the file tree hold
+  wheel notch slides three lines instead of jumping them — `mouse-wheel-lines`
+  is how far a notch goes and `smooth-scroll-ms` is how long the slide takes,
+  `0` for none. Only the window being scrolled moves — its mode line, the echo area and the file tree hold
   still — and the line arriving is drawn into the fraction of a row that
   opens up at the edge, clipped where the window ends.
 - **The mouse.** Click to put point where you clicked, drag to select, middle
@@ -785,7 +786,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1973 tests.** Unit tests beside the code; session tests that press real keys
+**1979 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

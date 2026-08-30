@@ -420,6 +420,18 @@ impl<'a> Parser<'a> {
                     self.config.settings.gui_font_size = n.clamp(6, 96);
                 }
             }
+            "mouse-wheel-lines" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.mouse_wheel_lines = n.clamp(1, 50);
+                }
+            }
+            "smooth-scroll-ms" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    // Past a second it is no longer scrolling, it is an
+                    // animation being watched.
+                    self.config.settings.smooth_scroll_ms = n.min(1000);
+                }
+            }
             "blink-cursor" => {
                 if let Some(b) = self.bool_value(node, key, value) {
                     self.config.settings.blink_cursor = b;
@@ -1100,6 +1112,24 @@ mod tests {
         assert!(
             missing.is_empty(),
             "settings the example never shows: {missing:?}"
+        );
+    }
+
+    #[test]
+    fn the_reference_documents_every_setting() {
+        // The example shows how to write them; the reference is where the
+        // type, the default and the clamping are written down. Only the
+        // example was checked, so the reference could — and did — fall
+        // behind it.
+        let source = include_str!("../../../docs/configuration-reference.md");
+        let missing: Vec<&str> = crate::settings::SETTING_NAMES
+            .iter()
+            .copied()
+            .filter(|name| !source.contains(&format!("| `{name}` |")))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "settings the reference never documents: {missing:?}"
         );
     }
 

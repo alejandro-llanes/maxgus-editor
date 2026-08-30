@@ -63,6 +63,13 @@ set shell="/bin/bash"
 set gui-font="JetBrainsMono Nerd Font"
 set gui-font-size=16
 
+// The wheel, in a window. A window can draw a fraction of a line, so a
+// notch slides rather than jumping; these are how far it goes and how
+// long it takes. `smooth-scroll-ms=0` turns the slide off. A touchpad
+// reports the pixels it moved and ignores `mouse-wheel-lines`.
+set mouse-wheel-lines=3
+set smooth-scroll-ms=120
+
 // ---- key bindings ----
 //
 // The command names are the ones M-x offers and C-h b lists.

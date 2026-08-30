@@ -620,6 +620,11 @@ fn every_key_the_readme_documents_is_really_bound() {
 }
 
 /// The commands the README names in its feature list must exist.
+///
+/// The README describes the whole editor, so this is a claim about the full
+/// build: a minimal one does not have `lsp-format-buffer` and does not
+/// pretend to.
+#[cfg(feature = "full")]
 #[test]
 fn every_command_the_readme_names_is_registered() {
     let readme = include_str!("../../../README.md");

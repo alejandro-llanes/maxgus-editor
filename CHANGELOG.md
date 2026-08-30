@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.2.5
 
 - **The file tree scrolls with its cursor.** It drew from the window's
   `top_line` and nothing ever moved it, so walking down a project with more

@@ -64,6 +64,30 @@ pub struct Settings {
     /// The program a terminal tab starts. Unset means whatever `$SHELL` says,
     /// which is what a user has already chosen once.
     pub shell: Option<String>,
+    /// `beacon`: shine a light beside the cursor after it jumps, so the eye
+    /// finds it again. The names below are `beacon`'s own, so a setting
+    /// copied from an Emacs configuration means what it meant there.
+    pub beacon: bool,
+    /// `beacon-size`: how many cells the light covers.
+    pub beacon_size: usize,
+    /// `beacon-blink-delay-ms`: how long it stays before it fades.
+    pub beacon_blink_delay_ms: usize,
+    /// `beacon-blink-duration-ms`: how long the fade takes.
+    pub beacon_blink_duration_ms: usize,
+    /// `beacon-color`: a colour, or a number from 0 to 1 meaning a grey
+    /// chosen against the background — light on a dark theme, dark on a
+    /// light one.
+    pub beacon_color: String,
+    /// `beacon-blink-when-buffer-changes`.
+    pub beacon_blink_when_buffer_changes: bool,
+    /// `beacon-blink-when-window-scrolls`.
+    pub beacon_blink_when_window_scrolls: bool,
+    /// `beacon-blink-when-window-changes`.
+    pub beacon_blink_when_window_changes: bool,
+    /// `beacon-blink-when-point-moves-vertically`: the lines point must move
+    /// for a light, or `0` for never — which is `beacon`'s own default,
+    /// because ordinary editing would otherwise light it constantly.
+    pub beacon_blink_when_point_moves_vertically: usize,
     /// `session`: remember what is open, and open it again next time.
     pub session: bool,
     /// `gui-font`: the family the window draws with. Ignored by the terminal
@@ -104,6 +128,15 @@ impl Default for Settings {
             // A Nerd Font by default because the tree and the mode line draw
             // glyphs from one; the loader falls through to whatever monospace
             // font is installed when it is not there.
+            beacon: false,
+            beacon_size: 40,
+            beacon_blink_delay_ms: 300,
+            beacon_blink_duration_ms: 300,
+            beacon_color: "0.5".into(),
+            beacon_blink_when_buffer_changes: true,
+            beacon_blink_when_window_scrolls: true,
+            beacon_blink_when_window_changes: true,
+            beacon_blink_when_point_moves_vertically: 0,
             session: false,
             gui_font: "JetBrainsMono Nerd Font".into(),
             gui_font_size: 16,
@@ -141,6 +174,15 @@ pub const SETTING_NAMES: &[&str] = &[
     "panel-symbols-height",
     "panel-buffers-height",
     "shell",
+    "beacon",
+    "beacon-size",
+    "beacon-blink-delay-ms",
+    "beacon-blink-duration-ms",
+    "beacon-color",
+    "beacon-blink-when-buffer-changes",
+    "beacon-blink-when-window-scrolls",
+    "beacon-blink-when-window-changes",
+    "beacon-blink-when-point-moves-vertically",
     "session",
     "gui-font",
     "gui-font-size",

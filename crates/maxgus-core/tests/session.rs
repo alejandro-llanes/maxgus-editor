@@ -6584,3 +6584,185 @@ fn a_command_with_several_keys_is_shown_with_its_shortest() {
         "the shortest key is not the one shown: `{row}`"
     );
 }
+
+// ---- the light beside the cursor -----------------------------------------
+
+/// A session with the beacon on, and a file long enough to jump about in.
+fn with_beacon() -> Session {
+    let text: String = (1..=200)
+        .map(|n| format!("line {n} of the file\n"))
+        .collect();
+    let mut s = Session::new(80, 24);
+    let id = s.editor.buffers.visit_file("/project/main.rs", &text);
+    s.editor.switch_to_buffer(id).unwrap();
+    s.editor.settings.beacon = true;
+    s.editor.settings.beacon_size = 12;
+    s.editor.settings.beacon_blink_delay_ms = 300;
+    s.editor.settings.beacon_blink_duration_ms = 300;
+    s.editor.quench_beacon();
+    s
+}
+
+#[test]
+fn a_jump_lights_the_beacon() {
+    let mut s = with_beacon();
+    assert!(
+        s.editor.beacon.is_none(),
+        "it was lit before anything moved"
+    );
+    s.keys("M->"); // to the end of the buffer, which scrolls
+    assert!(
+        s.editor.beacon.is_some(),
+        "a jump to the end of the file did not light it"
+    );
+}
+
+#[test]
+fn typing_does_not_light_it() {
+    // The setting that would make it unbearable is off by default, as it is
+    // in beacon: ordinary editing must leave it alone, and that includes
+    // moving between lines, which is most of what editing is.
+    let mut s = with_beacon();
+    s.type_text("hello");
+    s.keys("C-f");
+    s.keys("C-b");
+    s.keys("C-n");
+    s.keys("C-n");
+    s.keys("C-p");
+    s.keys("RET");
+    assert!(
+        s.editor.beacon.is_none(),
+        "ordinary editing lit it, which would make it unbearable"
+    );
+}
+
+#[test]
+fn a_prompt_being_open_keeps_it_dark() {
+    // Beacon's own `window-minibuffer-p` guard. With a prompt open the cursor
+    // is in the prompt, so a light in the buffer behind would be pointing at
+    // a cursor that is not there.
+    let mut s = with_beacon();
+    let before = s.editor.beacon_watch();
+    s.keys("M-x");
+    assert!(s.editor.minibuffer.is_active(), "no prompt");
+
+    // A move that would light it if the prompt were not there.
+    s.editor.windows.current_mut().top_line = 40;
+    s.editor.consider_beacon(&before);
+    assert!(s.editor.beacon.is_none(), "it lit while a prompt was open");
+
+    // And the same move without the prompt does light it.
+    s.keys("C-g");
+    assert!(!s.editor.minibuffer.is_active());
+    s.editor.consider_beacon(&before);
+    assert!(
+        s.editor.beacon.is_some(),
+        "it did not light without the prompt"
+    );
+}
+
+#[test]
+fn switching_buffer_lights_it() {
+    let mut s = with_beacon();
+    s.editor
+        .buffers
+        .visit_file("/project/other.rs", "elsewhere\n");
+    let other = s
+        .editor
+        .buffers
+        .find_by_name("other.rs")
+        .expect("the buffer");
+    s.dispatcher.execute(&mut s.editor, "next-buffer", None);
+    let _ = other;
+    assert!(s.editor.beacon.is_some(), "another buffer did not light it");
+}
+
+#[test]
+fn the_beacon_is_drawn_beside_the_cursor_and_fades_along_its_length() {
+    let mut s = with_beacon();
+    s.keys("M->");
+    let beacon = s.editor.beacon.expect("a beacon");
+    let (line, column) = {
+        let buffer = s.editor.current_buffer();
+        let line = buffer.line_of(beacon.offset);
+        (line, beacon.offset - buffer.line_start(line))
+    };
+    let row = (line - s.editor.windows.current().top_line) as u16;
+    let gutter = 0;
+    let head = s.face_at(gutter + column as u16, row).background;
+    let along = s.face_at(gutter + column as u16 + 6, row).background;
+    let past = s.face_at(gutter + column as u16 + 11 + 4, row).background;
+    assert_ne!(head, past, "the beacon is not on screen at all");
+    assert_ne!(head, along, "it does not fade along its length");
+}
+
+#[test]
+fn the_beacon_shortens_as_it_fades_and_then_goes() {
+    let mut s = with_beacon();
+    s.keys("M->");
+    let shape = s.editor.beacon_shape();
+
+    // Nothing happens during the delay.
+    assert!(
+        s.editor
+            .advance_beacon(std::time::Duration::from_millis(200))
+    );
+    assert_eq!(
+        shape.consumed(s.editor.beacon.expect("a beacon").elapsed),
+        0,
+        "it started fading during the delay"
+    );
+
+    // Then it is eaten a cell at a time.
+    assert!(
+        s.editor
+            .advance_beacon(std::time::Duration::from_millis(150))
+    );
+    assert!(
+        shape.consumed(s.editor.beacon.expect("a beacon").elapsed) > 0,
+        "it did not start fading"
+    );
+
+    // And it goes.
+    assert!(!s.editor.advance_beacon(std::time::Duration::from_secs(1)));
+    assert!(s.editor.beacon.is_none(), "it outlived its lifetime");
+}
+
+#[test]
+fn a_beacon_that_is_off_never_lights() {
+    let mut s = with_beacon();
+    s.editor.settings.beacon = false;
+    s.keys("M->");
+    assert!(s.editor.beacon.is_none());
+}
+
+#[test]
+fn a_prompt_is_not_somewhere_the_cursor_gets_lost() {
+    let mut s = with_beacon();
+    s.keys("M-x");
+    s.type_text("save");
+    assert!(s.editor.beacon.is_none(), "the minibuffer lit it");
+}
+
+#[test]
+fn the_colour_is_read_the_way_beacon_reads_it() {
+    let mut s = with_beacon();
+    // A number is a grade against the background.
+    s.editor.settings.beacon_color = "0.7".into();
+    assert!(matches!(
+        s.editor.beacon_light(),
+        maxgus_core::beacon::Light::Grade(_)
+    ));
+    // A name or a hex string is that colour.
+    s.editor.settings.beacon_color = "#ff0066".into();
+    assert!(matches!(
+        s.editor.beacon_light(),
+        maxgus_core::beacon::Light::Colour(_)
+    ));
+    // And a spelling that is neither still shines.
+    s.editor.settings.beacon_color = "not a colour".into();
+    assert!(matches!(
+        s.editor.beacon_light(),
+        maxgus_core::beacon::Light::Grade(_)
+    ));
+}

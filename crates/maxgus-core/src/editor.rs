@@ -64,6 +64,8 @@ pub struct Editor {
     pub config_says_theme: Option<String>,
     /// A file being read, and the line point should land on when it arrives.
     pub pending_line: Option<(PathBuf, usize)>,
+    /// The light beside the cursor, while one is showing.
+    pub beacon: Option<crate::beacon::Beacon>,
     /// The loaded script, and where it came from.
     #[cfg(feature = "script")]
     pub script: Option<maxgus_script::Script>,
@@ -285,6 +287,7 @@ impl Editor {
             state_dir: None,
             config_says_theme: None,
             pending_line: None,
+            beacon: None,
             #[cfg(feature = "script")]
             script: None,
             #[cfg(feature = "script")]
@@ -828,6 +831,103 @@ impl Editor {
         self.command_names.sort();
         self.script = Some(script);
         self.message(format!("{count} command(s) from the script"));
+    }
+
+    // ---- the light beside the cursor -----------------------------------
+
+    /// What the beacon watches: which buffer, which window, and where in it.
+    pub fn beacon_watch(&self) -> crate::beacon::Watch {
+        let window = self.windows.current();
+        let line = self
+            .buffers
+            .get(window.buffer)
+            .map(|buffer| buffer.line_of(window.point.min(buffer.len_chars())))
+            .unwrap_or(0);
+        crate::beacon::Watch {
+            buffer: window.buffer,
+            window: window.id,
+            top_line: window.top_line,
+            line,
+        }
+    }
+
+    /// How the beacon is drawn and how long it lasts, from the settings.
+    pub fn beacon_shape(&self) -> crate::beacon::Shape {
+        crate::beacon::Shape {
+            size: self.settings.beacon_size.max(1),
+            delay: std::time::Duration::from_millis(self.settings.beacon_blink_delay_ms as u64),
+            duration: std::time::Duration::from_millis(
+                self.settings.beacon_blink_duration_ms.max(1) as u64,
+            ),
+        }
+    }
+
+    /// The colour the light is, as `beacon-color` gives it.
+    ///
+    /// A number is a grade against the background; anything else is read as a
+    /// colour, and a spelling that is not one falls back to the middle grade
+    /// rather than refusing to shine.
+    pub fn beacon_light(&self) -> crate::beacon::Light {
+        let written = self.settings.beacon_color.trim();
+        if let Ok(grade) = written.parse::<f32>() {
+            return crate::beacon::Light::Grade(grade);
+        }
+        match maxgus_faces::Color::parse(written) {
+            Ok(colour) => crate::beacon::Light::Colour(colour),
+            Err(_) => crate::beacon::Light::Grade(0.5),
+        }
+    }
+
+    /// Which movements light it, from the settings.
+    pub fn beacon_triggers(&self) -> crate::beacon::Triggers {
+        crate::beacon::Triggers {
+            on: self.settings.beacon,
+            buffer_changes: self.settings.beacon_blink_when_buffer_changes,
+            window_scrolls: self.settings.beacon_blink_when_window_scrolls,
+            window_changes: self.settings.beacon_blink_when_window_changes,
+            point_moves_vertically: self.settings.beacon_blink_when_point_moves_vertically,
+        }
+    }
+
+    /// Lights the beacon if the move from `before` deserves one.
+    ///
+    /// Called after every command, which is where `beacon` hangs its own
+    /// hook. The minibuffer is left alone, as it is there: a prompt is not
+    /// somewhere the cursor gets lost.
+    pub fn consider_beacon(&mut self, before: &crate::beacon::Watch) {
+        if self.minibuffer.is_active() {
+            return;
+        }
+        let after = self.beacon_watch();
+        if !crate::beacon::should_blink(&self.beacon_triggers(), before, &after) {
+            return;
+        }
+        self.beacon = Some(crate::beacon::Beacon::new(
+            after.window,
+            self.windows.current().point,
+        ));
+    }
+
+    /// Moves the beacon on by `elapsed`, putting it out when it is spent.
+    ///
+    /// Returns whether there is still one to draw, which is what tells the
+    /// event loop whether another frame is owed.
+    pub fn advance_beacon(&mut self, elapsed: std::time::Duration) -> bool {
+        let shape = self.beacon_shape();
+        let Some(beacon) = self.beacon.as_mut() else {
+            return false;
+        };
+        beacon.elapsed += elapsed;
+        if shape.is_over(beacon.elapsed) {
+            self.beacon = None;
+            return false;
+        }
+        true
+    }
+
+    /// Puts the beacon out now.
+    pub fn quench_beacon(&mut self) {
+        self.beacon = None;
     }
 
     /// Shows `buffer` in the window a file is edited in, never in the panel.

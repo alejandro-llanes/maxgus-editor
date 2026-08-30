@@ -358,6 +358,53 @@ impl<'a> Parser<'a> {
                     self.config.settings.shell = Some(text);
                 }
             }
+            "beacon" => {
+                if let Some(on) = self.bool_value(node, key, value) {
+                    self.config.settings.beacon = on;
+                }
+            }
+            "beacon-size" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.beacon_size = n.clamp(1, 500);
+                }
+            }
+            "beacon-blink-delay-ms" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.beacon_blink_delay_ms = n.min(10_000);
+                }
+            }
+            "beacon-blink-duration-ms" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.beacon_blink_duration_ms = n.clamp(1, 10_000);
+                }
+            }
+            "beacon-color" => {
+                if let Some(text) = self.string_value(node, key, value) {
+                    self.config.settings.beacon_color = text;
+                }
+            }
+            "beacon-blink-when-buffer-changes" => {
+                if let Some(on) = self.bool_value(node, key, value) {
+                    self.config.settings.beacon_blink_when_buffer_changes = on;
+                }
+            }
+            "beacon-blink-when-window-scrolls" => {
+                if let Some(on) = self.bool_value(node, key, value) {
+                    self.config.settings.beacon_blink_when_window_scrolls = on;
+                }
+            }
+            "beacon-blink-when-window-changes" => {
+                if let Some(on) = self.bool_value(node, key, value) {
+                    self.config.settings.beacon_blink_when_window_changes = on;
+                }
+            }
+            "beacon-blink-when-point-moves-vertically" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config
+                        .settings
+                        .beacon_blink_when_point_moves_vertically = n;
+                }
+            }
             "session" => {
                 if let Some(on) = self.bool_value(node, key, value) {
                     self.config.settings.session = on;

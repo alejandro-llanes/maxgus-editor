@@ -30,6 +30,19 @@ set nerd-font-icons=#true        // glyphs in the tree and mode line
 set session=#false               // reopen what was open, when started with
                                  // no file named
 
+// A light beside the cursor after it jumps, so the eye finds it again.
+// `beacon` for Emacs, with its settings under their own names.
+set beacon=#false
+set beacon-size=40                       // cells the light covers
+set beacon-blink-delay-ms=300            // how long before it fades
+set beacon-blink-duration-ms=300         // how long the fade takes
+set beacon-color="0.5"                   // a grade against the background,
+                                         // or a colour like "#ff0066"
+set beacon-blink-when-buffer-changes=#true
+set beacon-blink-when-window-scrolls=#true
+set beacon-blink-when-window-changes=#true
+set beacon-blink-when-point-moves-vertically=0   // 0 is never
+
 // The side panel is a column of three windows. Any of them can be
 // switched off; the symbol outline additionally hides itself when there
 // is no language server running to ask for one.

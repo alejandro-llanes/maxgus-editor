@@ -58,6 +58,7 @@ pub fn run(
         selecting: false,
         clipboard: arboard::Clipboard::new().ok(),
         failure: None,
+        last_frame: None,
     };
     event_loop.run_app(&mut app)?;
     match app.failure.take() {
@@ -84,6 +85,9 @@ struct App {
     /// Set when something went wrong badly enough to stop, and reported once
     /// the event loop has given control back.
     failure: Option<anyhow::Error>,
+    /// When the last frame was, so the beacon is advanced by real time
+    /// rather than by a frame count that depends on the machine.
+    last_frame: Option<std::time::Instant>,
 }
 
 impl App {
@@ -333,6 +337,14 @@ impl ApplicationHandler for App {
         }
         // Whatever the executor finished while the window was quiet.
         self.pump();
+        // The light beside the cursor, by however long the last frame took.
+        let now = std::time::Instant::now();
+        let since = self
+            .last_frame
+            .map(|last| now.duration_since(last))
+            .unwrap_or_default();
+        self.last_frame = Some(now);
+        self.editor.advance_beacon(since);
         // The scroll animation, a frame at a time. Crossing a line moves the
         // window the way `C-v` would, and the remainder is drawn as a shift.
         let lines = self.scroll.step(self.metrics().height);

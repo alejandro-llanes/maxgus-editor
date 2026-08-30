@@ -193,6 +193,17 @@ fn setting_value(editor: &Editor, name: &str) -> Option<String> {
         "panel-at-startup" => s.panel_at_startup.to_string(),
         "panel-symbols-height" => s.panel_symbols_height.to_string(),
         "panel-buffers-height" => s.panel_buffers_height.to_string(),
+        "beacon" => s.beacon.to_string(),
+        "beacon-size" => s.beacon_size.to_string(),
+        "beacon-blink-delay-ms" => s.beacon_blink_delay_ms.to_string(),
+        "beacon-blink-duration-ms" => s.beacon_blink_duration_ms.to_string(),
+        "beacon-color" => s.beacon_color.clone(),
+        "beacon-blink-when-buffer-changes" => s.beacon_blink_when_buffer_changes.to_string(),
+        "beacon-blink-when-window-scrolls" => s.beacon_blink_when_window_scrolls.to_string(),
+        "beacon-blink-when-window-changes" => s.beacon_blink_when_window_changes.to_string(),
+        "beacon-blink-when-point-moves-vertically" => {
+            s.beacon_blink_when_point_moves_vertically.to_string()
+        }
         "session" => s.session.to_string(),
         "gui-font" => s.gui_font.clone(),
         "gui-font-size" => s.gui_font_size.to_string(),

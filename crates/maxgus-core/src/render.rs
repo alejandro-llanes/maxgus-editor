@@ -1063,6 +1063,49 @@ fn draw_text(editor: &Editor, surface: &mut Surface, window: &Window, buffer: &B
         cell.face = face;
         surface.set(x, y, cell);
     }
+
+    draw_beacon(editor, surface, window, buffer, &LineArea { area, gutter });
+}
+
+/// Paints the light beside the cursor, when one is lit.
+///
+/// Over the text rather than instead of it: the characters stay readable and
+/// only their background changes, which is what `beacon` does with an overlay.
+fn draw_beacon(
+    editor: &Editor,
+    surface: &mut Surface,
+    window: &Window,
+    buffer: &Buffer,
+    area: &LineArea,
+) {
+    let Some(beacon) = editor.beacon.filter(|beacon| beacon.window == window.id) else {
+        return;
+    };
+    let shape = editor.beacon_shape();
+    let consumed = shape.consumed(beacon.elapsed);
+    let light = editor.beacon_light();
+    let background = editor
+        .theme
+        .resolve("default")
+        .background
+        .and_then(maxgus_faces::Color::to_rgb)
+        .unwrap_or((0, 0, 0));
+    let Some((x, y)) = cell_of(beacon.offset, buffer, window, area) else {
+        return;
+    };
+    for index in 0..shape.size {
+        let Some(colour) = crate::beacon::cell_colour(&shape, &light, background, index, consumed)
+        else {
+            break;
+        };
+        let column = x + index as u16;
+        if column >= area.area.right() {
+            break;
+        }
+        let mut cell = surface.get(column, y).copied().unwrap_or_default();
+        cell.face.background = Some(maxgus_faces::Color::Rgb(colour.0, colour.1, colour.2));
+        surface.set(column, y, cell);
+    }
 }
 
 /// The screen cell an offset is drawn in, or `None` when it is not on screen.

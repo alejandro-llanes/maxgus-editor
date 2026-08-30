@@ -7,6 +7,7 @@
 //! [`task::TaskResult`]. That keeps every command deterministically testable
 //! while all real input and output stays asynchronous.
 
+pub mod beacon;
 pub mod buffers;
 pub mod command;
 pub mod commands;

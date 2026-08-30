@@ -325,6 +325,31 @@ The body syntax is the language-server protocol's as well as yasnippet's,
 which is the same syntax, so a completion that arrives from a server as a
 snippet can be inserted as one.
 
+### A light where the cursor went
+
+`set beacon=#true`, and after the cursor jumps — a new buffer, a scroll,
+another window — a short bright trail appears beside it and fades away, so the
+eye is led to it rather than having to search:
+
+```
+line 96 of the file
+line 97 of the file
+▓▒░ line 98 of the file          ← the light, brightest at the cursor
+line 99 of the file
+```
+
+This is [beacon](https://melpa.org/#/beacon) replicated: the same shape — a
+gradient of `beacon-size` cells from point rightwards, from the beacon's
+colour to the buffer's background — and the same timing, held at full length
+for `beacon-blink-delay-ms` and then eaten one cell at a time over
+`beacon-blink-duration-ms`, so it shortens and dims together. The settings
+carry beacon's own names and defaults, including `beacon-color` as a number
+meaning a grey chosen against the background.
+
+It stays dark for ordinary editing, as beacon does: moving between lines only
+lights it if `beacon-blink-when-point-moves-vertically` is set, and a prompt
+being open keeps it dark, because the cursor is in the prompt.
+
 ### It remembers where you left off
 
 `set session=#true`, and starting maxgus in a project with no file named opens
@@ -722,7 +747,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1928 tests.** Unit tests beside the code; session tests that press real keys
+**1954 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

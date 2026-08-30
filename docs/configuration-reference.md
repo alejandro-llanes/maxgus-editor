@@ -137,6 +137,15 @@ KDL spells booleans `#true` and `#false`, and null `#null`.
 | `panel-at-startup` | bool | `#false` | Open the side panel as soon as the editor starts. |
 | `panel-symbols-height` | integer | `12` | Rows the symbol outline's window takes. The tree takes whatever the others leave. |
 | `panel-buffers-height` | integer | `8` | Rows the buffer list's window takes. |
+| `beacon` | bool | `#false` | Shine a light beside the cursor after it jumps, so the eye finds it again. The settings below are `beacon`'s own, under the same names, so a line copied from an Emacs configuration means what it meant there. |
+| `beacon-size` | integer | `40` | Cells the light covers, counting the one point is on. |
+| `beacon-blink-delay-ms` | integer | `300` | How long it stays at full length before it starts to fade. |
+| `beacon-blink-duration-ms` | integer | `300` | How long the fade takes. It is eaten one cell at a time over this, so it shortens and dims together. |
+| `beacon-color` | string | `"0.5"` | A number from 0 to 1 is a grey chosen against the background — light on a dark theme, dark on a light one — so one number is right either way. Anything else is read as a colour, such as `"#ff0066"`. |
+| `beacon-blink-when-buffer-changes` | bool | `#true` | Light it when the buffer changes. |
+| `beacon-blink-when-window-scrolls` | bool | `#true` | Light it when the window scrolls. |
+| `beacon-blink-when-window-changes` | bool | `#true` | Light it when another window is selected. |
+| `beacon-blink-when-point-moves-vertically` | integer | `0` | Lines point must move for a light; `0` never. Off by default because ordinary editing would light it constantly. |
 | `session` | bool | `#false` | Remember what is open when the editor leaves, and open it again when it is next started in the same project with no file named. Kept under the state directory, keyed by the project's path. |
 | `gui-font` | string | `"JetBrainsMono Nerd Font"` | The family the window draws with. Falls through a list of installed monospace families when it is not there. Only read by a `--features gui` build started with `--gui`. |
 | `gui-font-size` | integer | `16` | Its size in pixels, clamped to 6–96. |

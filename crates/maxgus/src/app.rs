@@ -9,7 +9,7 @@ use anyhow::Result;
 use futures_util::StreamExt;
 use maxgus_core::{Dispatcher, Editor, Task, TaskResult};
 use maxgus_tui::{Rect, Size, Surface, Suspension, Terminal, TuiEvent, render::Renderer};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 /// Drives the editor until it is asked to leave.
@@ -28,6 +28,9 @@ pub struct App {
     /// The half-typed key sequence, held back until the user has hesitated
     /// long enough for showing it to be helpful rather than distracting.
     unechoed_prefix: Option<String>,
+    /// When the beacon was last moved on, so a frame knows how much time it
+    /// is advancing it by.
+    beacon_drawn: Option<Instant>,
     /// True until the startup time has been announced or given up on.
     ///
     /// The measurement is taken before the loop starts; only the saying of it
@@ -61,6 +64,7 @@ impl App {
             idle_owed: false,
             unechoed_prefix: None,
             greeting_owed: true,
+            beacon_drawn: None,
         }
     }
 
@@ -110,6 +114,11 @@ impl App {
         tokio::pin!(echo);
         let greeting = tokio::time::sleep(App::GREETING_DELAY);
         tokio::pin!(greeting);
+        // The beacon's own frame timer. Parked at a day when nothing is lit,
+        // as the others are: a timer that fires when there is nothing to draw
+        // is a wakeup for no reason.
+        let beacon = tokio::time::sleep(Duration::from_secs(86_400));
+        tokio::pin!(beacon);
 
         while !self.editor.quit {
             tokio::select! {
@@ -140,6 +149,24 @@ impl App {
                     );
                 }
                 () = &mut greeting, if self.greeting_owed => self.announce_startup(),
+                () = &mut beacon, if self.editor.beacon.is_some() => {
+                    let now = Instant::now();
+                    let since = self
+                        .beacon_drawn
+                        .map(|last| now.duration_since(last))
+                        .unwrap_or_else(|| self.editor.beacon_shape().tick());
+                    self.beacon_drawn = Some(now);
+                    if self.editor.advance_beacon(since) {
+                        beacon.as_mut().reset(
+                            tokio::time::Instant::now() + self.editor.beacon_shape().tick(),
+                        );
+                    } else {
+                        self.beacon_drawn = None;
+                        beacon.as_mut().reset(
+                            tokio::time::Instant::now() + Duration::from_secs(86_400),
+                        );
+                    }
+                }
                 () = &mut idle, if self.idle_owed => {
                     self.on_idle();
                     // Park the timer until something changes again.
@@ -148,6 +175,13 @@ impl App {
                     );
                 }
                 else => break,
+            }
+            // A command may have lit the beacon; its frames start now.
+            if self.editor.beacon.is_some() && self.beacon_drawn.is_none() {
+                self.beacon_drawn = Some(Instant::now());
+                beacon
+                    .as_mut()
+                    .reset(tokio::time::Instant::now() + self.editor.beacon_shape().tick());
             }
             self.after_turn()?;
         }

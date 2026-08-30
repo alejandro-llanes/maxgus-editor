@@ -256,6 +256,10 @@ impl Dispatcher {
             )
         });
 
+        // Where the cursor was, so the beacon can tell whether it jumped.
+        // This is where `beacon` hangs its own `post-command-hook`.
+        let beacon_before = editor.settings.beacon.then(|| editor.beacon_watch());
+
         // A snippet's fields are offsets into text a command is about to
         // change, and have to move with it.
         let snippet_before = editor.in_snippet().then(|| {
@@ -304,6 +308,10 @@ impl Dispatcher {
             editor.prefix = Prefix::None;
         }
         editor.last_command = editor.this_command.take();
+
+        if let Some(before) = beacon_before {
+            editor.consider_beacon(&before);
+        }
 
         let mut result = match outcome {
             Ok(()) => Dispatch::Executed {

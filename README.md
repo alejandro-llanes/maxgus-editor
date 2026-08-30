@@ -14,6 +14,7 @@ themes you rewrite in a config file&nbsp; ·&nbsp; a treemacs-style file tree&nb
 <a href="https://github.com/alejandro-llanes/maxgus-editor/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/alejandro-llanes/maxgus-editor?style=for-the-badge&color=e05d44&display_name=tag&sort=semver"></a>
 <a href="https://www.rust-lang.org"><img alt="Rust" src="https://img.shields.io/badge/rust-stable%20·%202024-000000?style=for-the-badge&logo=rust&logoColor=white"></a>
 <a href="LICENSE"><img alt="Licence" src="https://img.shields.io/badge/licence-MIT-3d7ebb?style=for-the-badge"></a>
+<a href="https://alejandro-llanes.github.io/maxgus-editor/"><img alt="Website" src="https://img.shields.io/badge/maxgus-editor.dev-8abeb7?style=for-the-badge&logo=github&logoColor=white&label=site"></a>
 </p>
 
 <p>
@@ -22,10 +23,10 @@ themes you rewrite in a config file&nbsp; ·&nbsp; a treemacs-style file tree&nb
 <img alt="" src="https://img.shields.io/badge/windows-333?style=flat-square&logo=windows&logoColor=white">
 <img alt="" src="https://img.shields.io/badge/freebsd-333?style=flat-square&logo=freebsd&logoColor=white">
 <img alt="Unsafe" src="https://img.shields.io/badge/unsafe-forbidden-4c9a2a?style=flat-square">
-<img alt="Tests" src="https://img.shields.io/badge/tests-1650-4c9a2a?style=flat-square">
+<img alt="Tests" src="https://img.shields.io/badge/tests-1992-4c9a2a?style=flat-square">
 </p>
 
-<sub><b>No Lisp interpreter. No plugin runtime.</b> ~53,000 lines · twelve crates · one binary.</sub>
+<sub><b>No Lisp interpreter. No plugin runtime.</b> ~56,000 lines · fifteen crates · three builds to pick from.</sub>
 
 <br><br>
 
@@ -45,38 +46,66 @@ $ maxgus src/main.rs
 
 ## Install
 
-Every [release](https://github.com/alejandro-llanes/maxgus-editor/releases/latest) carries a binary for
-Linux (glibc, musl and aarch64), macOS (Intel and Apple Silicon), Windows and
-FreeBSD, each with a `.sha256` beside it.
-
 ```console
-$ curl -fsSL https://github.com/alejandro-llanes/maxgus-editor/releases/latest/download/maxgus-linux-x86_64.tar.gz | tar xz
-$ ./maxgus-linux-x86_64/maxgus
+$ curl -fsSL https://alejandro-llanes.github.io/maxgus-editor/install.sh | sh
 ```
 
+That fetches the `full` build for this machine, checks it against the
+checksum published beside it, and puts it in `~/.local/bin` — or
+`/usr/local/bin` where that is writable. Nothing else: no daemon, no package
+manager, no shell profile rewritten behind your back.
+
+**Three builds**, and the flag says which:
+
+| Build | What is in it | Binary | |
+|---|---|---|---|
+| `minimal` | The editor and the file tree. No grammars, no protocol, no subprocess. | 4.6M | `sh -s -- --build minimal` |
+| `full` | Everything, in a terminal. **The default.** | 13M | `sh` |
+| `gui` | Everything, and a window drawn by the GPU as well as a terminal. | 21M | `sh -s -- --build gui` |
+
+```console
+$ curl -fsSL https://alejandro-llanes.github.io/maxgus-editor/install.sh | sh -s -- --build gui
+```
+
+`--prefix DIR` puts it somewhere else, `--version vX.Y.Z` fetches an older
+release, `--dry-run` says what it would do and stops.
+
 <details>
-<summary><b>The other builds</b></summary>
+<summary><b>Or download an archive</b></summary>
 
-| Platform | Archive |
+Every [release](https://github.com/alejandro-llanes/maxgus-editor/releases/latest)
+carries all three builds for Linux (glibc, musl and aarch64), macOS (Intel and
+Apple Silicon), Windows and FreeBSD, each with a `.sha256` beside it. The
+archives are named `maxgus-<build>-<platform>`:
+
+| Platform | Builds |
 |---|---|
-| Linux x86_64 (glibc) | `maxgus-linux-x86_64.tar.gz` |
-| Linux x86_64 (static, musl) | `maxgus-linux-x86_64-musl.tar.gz` |
-| Linux aarch64 | `maxgus-linux-aarch64.tar.gz` |
-| macOS Intel | `maxgus-macos-x86_64.tar.gz` |
-| macOS Apple Silicon | `maxgus-macos-aarch64.tar.gz` |
-| Windows x86_64 | `maxgus-windows-x86_64.zip` |
-| FreeBSD x86_64 | `maxgus-freebsd-x86_64.tar.gz` |
+| Linux x86_64 (glibc) | `minimal` `full` `gui` |
+| Linux x86_64 (static, musl) | `minimal` `full` |
+| Linux aarch64 | `minimal` `full` |
+| macOS Intel | `minimal` `full` `gui` |
+| macOS Apple Silicon | `minimal` `full` `gui` |
+| Windows x86_64 | `minimal` `full` `gui` (`.zip`) |
+| FreeBSD x86_64 | `minimal` `full` |
 
-Each is `https://github.com/alejandro-llanes/maxgus-editor/releases/latest/download/<archive>`.
+There is no `gui` for musl or for the cross-compiled targets: a static binary
+cannot load a window system, and cross-compiling against one needs a sysroot
+the release does not have.
+
+```console
+$ curl -fsSL https://github.com/alejandro-llanes/maxgus-editor/releases/latest/download/maxgus-full-linux-x86_64.tar.gz | tar xz
+$ ./maxgus-full-linux-x86_64/maxgus
+```
 
 </details>
 
-**Or build it** — Rust stable, edition 2024, no system dependencies beyond a
-terminal:
+**Or build it** — Rust stable, edition 2024. `minimal` and `full` need
+nothing but a terminal; `gui` needs a window system's headers
+(`libwayland-dev` and `libxkbcommon-dev` on Debian and its relatives):
 
 ```console
 $ git clone https://github.com/alejandro-llanes/maxgus-editor
-$ cd maxgus-editor && cargo build --release
+$ cd maxgus-editor && cargo build --release          # full
 $ ./target/release/maxgus
 ```
 
@@ -565,14 +594,7 @@ the next key can be — `which-key`, which is how Doom's leader is meant to be
 learned rather than memorised. Keys that open another map are shown as the
 group they open (`+file`, `+code`) rather than listed one row per binding.
 
-```
-╭──────────────────────────────────────────────────────────────╮
-│c → +code           o → +open           C-< → mark-all-like…  │
-│d → lsp-describe…   q → +quit           C-> → unmark-cursor   │
-│f → lsp-format-b…   s → +search                               │
-╰──────────────────────────────────────────────────────────────╯
-C-c
-```
+<img src="docs/screenshots/which-key.svg" alt="A panel along the bottom of the editor listing every key that can follow C-c, with the ones that open another map shown as +code, +file and so on" width="100%">
 
 `set which-key=#false` turns it off, `set which-key-delay-ms=` changes how
 long the pause is. It is in both builds.
@@ -649,43 +671,43 @@ parent, `TAB` to fold, `RET` to open, `c f` and `c d` to create, `R` to rename,
 
 ---
 
-## Building it: two sizes
+## Building it: three sizes
 
 The editor is one thing; the grammars, the language server, magit, the
-terminal, project search and scripting are what get built on top of it. There
-are two builds and no others:
+terminal, project search and scripting are what get built on top of it, and
+the window is one more. There are three builds and no others:
 
 | Feature | What it builds | Binary |
 |---|---|---|
-| `minimal` | The editor and the treefile, in a terminal. No grammars, no protocol, no subprocess, no window. | **4.6M** |
-| `full` *(default)* | Everything: tree-sitter, the language-server client, magit, the terminal panel, project search, scripting — and a window as well as a terminal. | **21M** |
+| `minimal` | The editor and the treefile. No grammars, no protocol, no subprocess. | **4.6M** |
+| `full` *(default)* | Everything: tree-sitter, the language-server client, magit, the terminal panel, project search, scripting. | **13M** |
+| `gui` | Everything in `full`, and a window drawn by the GPU as well as a terminal. | **21M** |
 
 ```sh
 cargo build --release                                        # full
 cargo build --release --no-default-features --features minimal
+cargo build --release --features gui
 ```
 
-Which front end a full build opens is decided when it starts, not when it is
-compiled — the way `emacs` and `emacs -nw` decide it:
+Only the `gui` build needs anything from the system — a window system's
+headers — and only it pays the eight megabytes and the compile time that wgpu
+and winit cost. That is the whole reason it is a build of its own rather than
+part of `full`.
 
-```sh
-maxgus src/main.rs        # a window
-maxgus -nw src/main.rs    # the terminal
-```
-
-To try them side by side, `./scripts/build-variants.sh` builds both into
+To try them side by side, `./scripts/build-variants.sh` builds all three into
 `target/variants/`:
 
 ```console
 $ ./scripts/build-variants.sh
 minimal  ok    4.6M  maxgus 0.1.0 (minimal)
-full     ok     21M  maxgus 0.1.0 (full)
+full     ok     13M  maxgus 0.1.0 (full)
+gui      ok     21M  maxgus 0.1.0 (gui)
 ```
 
 `--debug` builds them faster, `--into DIR` puts them somewhere else. Every
-binary's `--version` names which of the two it is, because they look identical
-and are not — and a key a build does not have reports itself as undefined
-rather than doing nothing:
+binary's `--version` names which of the three it is, because they look
+identical and are not — and a key a build does not have reports itself as
+undefined rather than doing nothing:
 
 ```console
 $ target/variants/maxgus-minimal notes.txt
@@ -694,15 +716,15 @@ C-x g is undefined
 
 The tree-sitter grammars are C, and they are most of what a full build spends
 its time on — which is what makes `minimal` worth having rather than a `cfg`
-nobody would use. Both are built and tested by the CI, and by a test, so
-neither rots.
+nobody would use. All three are built and tested by the CI, and by a test, so
+none of them rots.
 
 ## A window, as well as a terminal
 
-The full build has a second front end in it. It is the *same* editor — the
-same commands, the same keymaps, the same redisplay — drawn into a window by
-wgpu rather than into a terminal by escape sequences, and which one it opens
-is decided when it starts:
+`--features gui` adds a second front end. It is the *same* editor — the same
+commands, the same keymaps, the same redisplay — drawn into a window by wgpu
+rather than into a terminal by escape sequences, and which one it opens is
+decided when it starts:
 
 ```sh
 maxgus src/main.rs        # a window
@@ -731,7 +753,9 @@ What the window has that a terminal cannot:
 - **A box beside the symbol under the cursor**, once it has rested there,
   saying what the language server knows about it, the way lsp-ui-doc does.
   `set lsp-doc=#false` turns it off; `C-c c k` asks for it either way. The
-  terminal front end draws the same box.
+  terminal front end draws the same box:
+
+  <img src="docs/screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and its documentation, from clangd" width="100%">
 - **A window that behaves like one.** Its title is the buffer being edited,
   with a `*` while there is unsaved work in it; the close button runs the
   same command `C-x C-c` does, so it refuses to throw that work away; and it

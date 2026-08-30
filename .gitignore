@@ -1,1 +1,5 @@
 /target
+
+# The site's screenshots are copies of docs/screenshots, made when it is
+# published and when it is previewed. One home for each picture.
+/site/screenshots/

@@ -1,8 +1,8 @@
 name: Features
 
-# The editor ships in two sizes, and a `#[cfg]` that only ever gets built one
-# way rots quietly. This builds both on every push, which is what stops the
-# minimal build from failing the first time someone asks for it.
+# The editor ships in three sizes, and a `#[cfg]` that only ever gets built
+# one way rots quietly. This builds all three on every push, which is what
+# stops the minimal build from failing the first time someone asks for it.
 on:
   push:
     branches: ["main"]
@@ -30,17 +30,28 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.features }}
-      # The full build has a window in it, and a window needs system
-      # libraries a terminal does not. Harmless for the minimal build,
-      # which simply does not use them.
+      - name: Build
+        run: cargo build --workspace --no-default-features --features ${{ matrix.features }}
+      - name: Test
+        run: cargo test --workspace --no-default-features --features ${{ matrix.features }}
+
+  # The window needs system libraries the other two do not, so it is its own
+  # job rather than another row of the matrix.
+  gui:
+    name: gui
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Install what a window needs
         run: |
           sudo apt-get update
           sudo apt-get install -y libwayland-dev libxkbcommon-dev
       - name: Build
-        run: cargo build --workspace --no-default-features --features ${{ matrix.features }}
+        run: cargo build -p maxgus --features gui
       - name: Test
-        run: cargo test --workspace --no-default-features --features ${{ matrix.features }}
+        run: cargo test -p maxgus-gui --features full
 
   lint:
     name: clippy and fmt

@@ -47,14 +47,12 @@ required-features = ["full"]
 [features]
 default = ["full"]
 
-# The editor and the treefile in a terminal: no tree-sitter grammars, no
-# language server, no magit, no terminal panel, no project search, no
-# scripting, and no window. Builds in a fraction of the time and makes a
-# much smaller binary.
+# The editor and the treefile: no tree-sitter grammars, no language server,
+# no magit, no terminal, no project search, no scripting. Builds in a
+# fraction of the time and makes a much smaller binary.
 minimal = ["maxgus-core/minimal"]
 
-# Everything, and a window as well as a terminal. Which one it opens is
-# decided when it starts, the way `emacs` and `emacs -nw` decide it.
+# Everything, in a terminal.
 full = [
     "maxgus-core/full",
     "dep:maxgus-syntax",
@@ -63,6 +61,10 @@ full = [
     "dep:maxgus-grep",
     "dep:maxgus-term",
     "dep:portable-pty",
-    "dep:maxgus-gui",
-    "maxgus-gui/full",
 ]
+
+# Everything, and a window drawn by the GPU as well as a terminal. Which one
+# it opens is decided when it starts, the way `emacs` and `emacs -nw` decide
+# it — but only this build has the choice, and only this build pays for it:
+# eight more megabytes, and a window system's headers to compile against.
+gui = ["full", "dep:maxgus-gui", "maxgus-gui/full"]

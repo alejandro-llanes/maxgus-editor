@@ -1,109 +1,151 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1019" height="568" viewBox="0 0 1019 568" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="14" role="img" aria-label="maxgus">
 <rect width="1019" height="568" rx="10" fill="#1d1f21"/>
-<rect x="224.0" y="50.0" width="571.2" height="18" fill="#373b41"/>
-<rect x="14.0" y="104.0" width="201.6" height="18" fill="#373b41"/>
-<rect x="14.0" y="266.0" width="201.6" height="18" fill="#282a2e"/>
-<rect x="14.0" y="284.0" width="201.6" height="18" fill="#373b41"/>
+<rect x="14.0" y="104.0" width="268.8" height="18" fill="#373b41"/>
+<rect x="14.0" y="266.0" width="268.8" height="18" fill="#282a2e"/>
+<rect x="14.0" y="284.0" width="268.8" height="18" fill="#373b41"/>
 <rect x="14.0" y="392.0" width="268.8" height="18" fill="#282a2e"/>
 <rect x="14.0" y="410.0" width="268.8" height="18" fill="#373b41"/>
+<rect x="618.8" y="446.0" width="8.4" height="18" fill="#808080"/>
+<rect x="627.2" y="446.0" width="8.4" height="18" fill="#7d7d7d"/>
+<rect x="635.6" y="446.0" width="8.4" height="18" fill="#7a7a7a"/>
+<rect x="644.0" y="446.0" width="8.4" height="18" fill="#777778"/>
+<rect x="652.4" y="446.0" width="8.4" height="18" fill="#747575"/>
+<rect x="660.8" y="446.0" width="8.4" height="18" fill="#717272"/>
+<rect x="669.2" y="446.0" width="8.4" height="18" fill="#6f6f6f"/>
+<rect x="677.6" y="446.0" width="8.4" height="18" fill="#6c6c6c"/>
+<rect x="686.0" y="446.0" width="8.4" height="18" fill="#69696a"/>
+<rect x="694.4" y="446.0" width="8.4" height="18" fill="#666667"/>
+<rect x="702.8" y="446.0" width="8.4" height="18" fill="#636364"/>
+<rect x="711.2" y="446.0" width="8.4" height="18" fill="#606161"/>
+<rect x="719.6" y="446.0" width="8.4" height="18" fill="#5d5e5e"/>
+<rect x="728.0" y="446.0" width="8.4" height="18" fill="#5a5b5c"/>
+<rect x="736.4" y="446.0" width="8.4" height="18" fill="#575859"/>
+<rect x="744.8" y="446.0" width="8.4" height="18" fill="#545556"/>
+<rect x="753.2" y="446.0" width="8.4" height="18" fill="#515253"/>
+<rect x="761.6" y="446.0" width="8.4" height="18" fill="#4f5051"/>
+<rect x="770.0" y="446.0" width="8.4" height="18" fill="#4c4d4e"/>
+<rect x="778.4" y="446.0" width="8.4" height="18" fill="#494a4b"/>
+<rect x="786.8" y="446.0" width="8.4" height="18" fill="#464748"/>
+<rect x="795.2" y="446.0" width="8.4" height="18" fill="#434445"/>
+<rect x="803.6" y="446.0" width="8.4" height="18" fill="#404143"/>
+<rect x="812.0" y="446.0" width="8.4" height="18" fill="#3d3e40"/>
+<rect x="820.4" y="446.0" width="8.4" height="18" fill="#3a3c3d"/>
+<rect x="828.8" y="446.0" width="8.4" height="18" fill="#37393a"/>
+<rect x="837.2" y="446.0" width="8.4" height="18" fill="#343637"/>
+<rect x="845.6" y="446.0" width="8.4" height="18" fill="#313335"/>
+<rect x="854.0" y="446.0" width="8.4" height="18" fill="#2e3032"/>
+<rect x="862.4" y="446.0" width="8.4" height="18" fill="#2c2d2f"/>
+<rect x="870.8" y="446.0" width="8.4" height="18" fill="#292a2c"/>
+<rect x="879.2" y="446.0" width="8.4" height="18" fill="#262829"/>
+<rect x="887.6" y="446.0" width="8.4" height="18" fill="#232527"/>
+<rect x="896.0" y="446.0" width="8.4" height="18" fill="#202224"/>
 <rect x="14.0" y="518.0" width="991.2" height="18" fill="#282a2e"/>
 <text x="14.0" y="27.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
 <text x="30.8" y="27.3" fill="#b294bb" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">maxgus</text>
-<text x="215.6" y="27.3" fill="#373b41" textLength="588.0" lengthAdjust="spacing" xml:space="preserve">╭────────────────────────────────────────────────────────────────────╮</text>
+<text x="282.8" y="27.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 1 </text>
+<text x="308.0" y="27.3" fill="#969896" font-style="italic" textLength="386.4" lengthAdjust="spacing" xml:space="preserve">//! Fuzzy matching for the completion prompts.</text>
 <text x="30.8" y="45.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
 <text x="47.6" y="45.3" fill="#81a2be" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">crates</text>
-<text x="215.6" y="45.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="224.0" y="45.3" fill="#de935f" font-weight="bold" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">1/13 </text>
-<text x="266.0" y="45.3" fill="#81a2be" font-weight="bold" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">M-x </text>
-<text x="299.6" y="45.3" fill="#c5c8c6" textLength="495.6" lengthAdjust="spacing" xml:space="preserve">sbf                                                        </text>
-<text x="795.2" y="45.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="282.8" y="45.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 2 </text>
+<text x="308.0" y="45.3" fill="#969896" font-style="italic" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">//!</text>
 <text x="47.6" y="63.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
 <text x="64.4" y="63.3" fill="#81a2be" font-weight="bold" textLength="92.4" lengthAdjust="spacing" xml:space="preserve">maxgus-core</text>
-<text x="215.6" y="63.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="224.0" y="63.3" fill="#c5c8c6" font-weight="bold" textLength="571.2" lengthAdjust="spacing" xml:space="preserve">save-buffer                   C-x C-s    Save this buffer to its fil</text>
-<text x="795.2" y="63.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="803.6" y="63.3" fill="#969896" font-style="italic" textLength="109.2" lengthAdjust="spacing" xml:space="preserve">in order, not</text>
+<text x="282.8" y="63.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 3 </text>
+<text x="308.0" y="63.3" fill="#969896" font-style="italic" textLength="604.8" lengthAdjust="spacing" xml:space="preserve">//! A query matches a candidate when its characters appear in order, not</text>
 <text x="64.4" y="81.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
 <text x="81.2" y="81.3" fill="#81a2be" font-weight="bold" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">src</text>
-<text x="215.6" y="81.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="224.0" y="81.3" fill="#c5c8c6" textLength="344.4" lengthAdjust="spacing" xml:space="preserve">save-buffer-anyway                       </text>
-<text x="568.4" y="81.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Save over a file that has c</text>
-<text x="795.2" y="81.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="803.6" y="81.3" fill="#969896" font-style="italic" textLength="126.0" lengthAdjust="spacing" xml:space="preserve">g is what makes</text>
-<text x="98.0" y="99.3" fill="#c5c8c6" textLength="117.6" lengthAdjust="spacing" xml:space="preserve">editor.rs     </text>
-<text x="215.6" y="99.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="224.0" y="99.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">set-buffer-file-coding-system </text>
-<text x="476.0" y="99.3" fill="#8abeb7" textLength="75.6" lengthAdjust="spacing" xml:space="preserve">C-x RET f</text>
-<text x="568.4" y="99.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Choose the line endings thi</text>
-<text x="795.2" y="99.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="98.0" y="117.3" fill="#c5c8c6" font-weight="bold" textLength="117.6" lengthAdjust="spacing" xml:space="preserve">fuzzy.rs      </text>
-<text x="215.6" y="117.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="224.0" y="117.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">save-buffers-kill-terminal    </text>
-<text x="476.0" y="117.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-c q q</text>
-<text x="568.4" y="117.3" fill="#969896" font-style="italic" textLength="218.4" lengthAdjust="spacing" xml:space="preserve">Save and leave the editor.</text>
-<text x="795.2" y="117.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="98.0" y="135.3" fill="#c5c8c6" textLength="117.6" lengthAdjust="spacing" xml:space="preserve">render.rs     </text>
-<text x="215.6" y="135.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="224.0" y="135.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">save-some-buffers             </text>
-<text x="476.0" y="135.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">C-x s</text>
-<text x="568.4" y="135.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Save every buffer with unsa</text>
-<text x="795.2" y="135.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="803.6" y="135.3" fill="#969896" font-style="italic" textLength="126.0" lengthAdjust="spacing" xml:space="preserve">oes not at all.</text>
+<text x="282.8" y="81.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 4 </text>
+<text x="308.0" y="81.3" fill="#969896" font-style="italic" textLength="621.6" lengthAdjust="spacing" xml:space="preserve">//! necessarily together: `sbf` finds `save-buffer`. Scoring is what makes</text>
+<text x="98.0" y="99.3" fill="#c5c8c6" textLength="184.8" lengthAdjust="spacing" xml:space="preserve">editor.rs             </text>
+<text x="282.8" y="99.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 5 </text>
+<text x="308.0" y="99.3" fill="#969896" font-style="italic" textLength="386.4" lengthAdjust="spacing" xml:space="preserve">//! that useful rather than merely permissive.</text>
+<text x="98.0" y="117.3" fill="#c5c8c6" font-weight="bold" textLength="168.0" lengthAdjust="spacing" xml:space="preserve">fuzzy.rs            </text>
+<text x="266.0" y="117.3" fill="#b5bd68" font-weight="bold" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">+</text>
+<text x="282.8" y="117.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 6 </text>
+<text x="98.0" y="135.3" fill="#c5c8c6" textLength="168.0" lengthAdjust="spacing" xml:space="preserve">render.rs           </text>
+<text x="266.0" y="135.3" fill="#f0c674" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">M</text>
+<text x="282.8" y="135.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 7 </text>
+<text x="308.0" y="135.3" fill="#969896" font-style="italic" textLength="621.6" lengthAdjust="spacing" xml:space="preserve">/// How well `query` matches `candidate`, or `None` if it does not at all.</text>
 <text x="47.6" y="153.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
 <text x="64.4" y="153.3" fill="#81a2be" font-weight="bold" textLength="100.8" lengthAdjust="spacing" xml:space="preserve">maxgus-faces</text>
-<text x="215.6" y="153.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="224.0" y="153.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">switch-to-buffer              </text>
-<text x="476.0" y="153.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">C-x b</text>
-<text x="568.4" y="153.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Display another buffer in t</text>
-<text x="795.2" y="153.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="282.8" y="153.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 8 </text>
+<text x="308.0" y="153.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">pub</text>
+<text x="341.6" y="153.3" fill="#b294bb" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">fn</text>
+<text x="366.8" y="153.3" fill="#81a2be" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">score</text>
+<text x="408.8" y="153.3" fill="#c5c8c6" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">(</text>
+<text x="417.2" y="153.3" fill="#cc6666" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">query</text>
+<text x="459.2" y="153.3" fill="#c5c8c6" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">: </text>
+<text x="476.0" y="153.3" fill="#8abeb7" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">&amp;str</text>
+<text x="509.6" y="153.3" fill="#c5c8c6" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">, </text>
+<text x="526.4" y="153.3" fill="#cc6666" textLength="75.6" lengthAdjust="spacing" xml:space="preserve">candidate</text>
+<text x="602.0" y="153.3" fill="#c5c8c6" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">: </text>
+<text x="618.8" y="153.3" fill="#8abeb7" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">&amp;str</text>
+<text x="652.4" y="153.3" fill="#c5c8c6" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">) -&gt; </text>
+<text x="694.4" y="153.3" fill="#f0c674" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">Option</text>
+<text x="744.8" y="153.3" fill="#c5c8c6" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">&lt;</text>
+<text x="753.2" y="153.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">i32</text>
+<text x="778.4" y="153.3" fill="#c5c8c6" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">&gt; {                        </text>
 <text x="47.6" y="171.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
 <text x="64.4" y="171.3" fill="#81a2be" font-weight="bold" textLength="109.2" lengthAdjust="spacing" xml:space="preserve">maxgus-syntax</text>
-<text x="215.6" y="171.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="224.0" y="171.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">switch-to-buffer-other-window </text>
-<text x="476.0" y="171.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-x 4 b</text>
-<text x="568.4" y="171.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Display another buffer in a</text>
-<text x="795.2" y="171.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="282.8" y="171.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 9 </text>
+<text x="341.6" y="171.3" fill="#b294bb" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">if</text>
+<text x="358.4" y="171.3" fill="#c5c8c6" textLength="58.8" lengthAdjust="spacing" xml:space="preserve"> query.</text>
+<text x="417.2" y="171.3" fill="#8abeb7" textLength="67.2" lengthAdjust="spacing" xml:space="preserve">is_empty</text>
+<text x="484.4" y="171.3" fill="#c5c8c6" textLength="520.8" lengthAdjust="spacing" xml:space="preserve">() {                                                          </text>
 <text x="47.6" y="189.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
 <text x="64.4" y="189.3" fill="#81a2be" font-weight="bold" textLength="92.4" lengthAdjust="spacing" xml:space="preserve">maxgus-tree</text>
-<text x="215.6" y="189.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="224.0" y="189.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">panel-select-buffers          </text>
-<text x="476.0" y="189.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-x t 3</text>
-<text x="568.4" y="189.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Select the buffer list wind</text>
-<text x="795.2" y="189.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="282.8" y="189.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">10 </text>
+<text x="375.2" y="189.3" fill="#b294bb" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">return</text>
+<text x="434.0" y="189.3" fill="#81a2be" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">Some</text>
+<text x="467.6" y="189.3" fill="#c5c8c6" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">(</text>
+<text x="476.0" y="189.3" fill="#de935f" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">0</text>
+<text x="484.4" y="189.3" fill="#c5c8c6" textLength="520.8" lengthAdjust="spacing" xml:space="preserve">);                                                            </text>
 <text x="30.8" y="207.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
 <text x="47.6" y="207.3" fill="#81a2be" font-weight="bold" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">docs</text>
-<text x="215.6" y="207.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="224.0" y="207.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">list-buffers                  </text>
-<text x="476.0" y="207.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-x C-b</text>
-<text x="568.4" y="207.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Show a list of every buffer</text>
-<text x="795.2" y="207.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="282.8" y="207.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">11 </text>
+<text x="308.0" y="207.3" fill="#c5c8c6" textLength="697.2" lengthAdjust="spacing" xml:space="preserve">    }                                                                              </text>
 <text x="47.6" y="225.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
 <text x="64.4" y="225.3" fill="#81a2be" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">themes</text>
-<text x="215.6" y="225.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="224.0" y="225.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">describe-function             </text>
-<text x="476.0" y="225.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">C-h f</text>
-<text x="568.4" y="225.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Show a command's documentat</text>
-<text x="795.2" y="225.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="803.6" y="225.3" fill="#969896" font-style="italic" textLength="109.2" lengthAdjust="spacing" xml:space="preserve">es it matter.</text>
-<text x="81.2" y="243.3" fill="#c5c8c6" textLength="134.4" lengthAdjust="spacing" xml:space="preserve">dracula.kdl     </text>
-<text x="215.6" y="243.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="224.0" y="243.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">previous-buffer               </text>
-<text x="476.0" y="243.3" fill="#8abeb7" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">C-x &lt;left&gt;</text>
-<text x="568.4" y="243.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Display the previous buffer</text>
-<text x="795.2" y="243.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="81.2" y="261.3" fill="#c5c8c6" textLength="134.4" lengthAdjust="spacing" xml:space="preserve">gruvbox.kdl     </text>
-<text x="215.6" y="261.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="224.0" y="261.3" fill="#c5c8c6" textLength="252.0" lengthAdjust="spacing" xml:space="preserve">lsp-format-buffer             </text>
-<text x="476.0" y="261.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-c c f</text>
-<text x="568.4" y="261.3" fill="#969896" font-style="italic" textLength="176.4" lengthAdjust="spacing" xml:space="preserve">Reformat this buffer.</text>
-<text x="795.2" y="261.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="14.0" y="279.3" fill="#969896" textLength="201.6" lengthAdjust="spacing" xml:space="preserve"> %% 280 *treefile*  6:0 </text>
-<text x="215.6" y="279.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
-<text x="224.0" y="279.3" fill="#c5c8c6" textLength="344.4" lengthAdjust="spacing" xml:space="preserve">magit-process-buffer                     </text>
-<text x="568.4" y="279.3" fill="#969896" font-style="italic" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">Show what git has been aske</text>
-<text x="795.2" y="279.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="282.8" y="225.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">12 </text>
+<text x="341.6" y="225.3" fill="#969896" font-style="italic" textLength="571.2" lengthAdjust="spacing" xml:space="preserve">// An all-lowercase query ignores case; one capital makes it matter.</text>
+<text x="81.2" y="243.3" fill="#c5c8c6" textLength="201.6" lengthAdjust="spacing" xml:space="preserve">dracula.kdl             </text>
+<text x="282.8" y="243.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">13 </text>
+<text x="341.6" y="243.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">let</text>
+<text x="366.8" y="243.3" fill="#c5c8c6" textLength="126.0" lengthAdjust="spacing" xml:space="preserve"> fold = !query.</text>
+<text x="492.8" y="243.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">chars</text>
+<text x="534.8" y="243.3" fill="#c5c8c6" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">().</text>
+<text x="560.0" y="243.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">any</text>
+<text x="585.2" y="243.3" fill="#c5c8c6" textLength="420.0" lengthAdjust="spacing" xml:space="preserve">(char::is_uppercase);                             </text>
+<text x="81.2" y="261.3" fill="#c5c8c6" textLength="201.6" lengthAdjust="spacing" xml:space="preserve">gruvbox.kdl             </text>
+<text x="282.8" y="261.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">14 </text>
+<text x="341.6" y="261.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">let</text>
+<text x="366.8" y="261.3" fill="#c5c8c6" textLength="58.8" lengthAdjust="spacing" xml:space="preserve"> text: </text>
+<text x="425.6" y="261.3" fill="#f0c674" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">Vec</text>
+<text x="450.8" y="261.3" fill="#c5c8c6" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">&lt;</text>
+<text x="459.2" y="261.3" fill="#8abeb7" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">char</text>
+<text x="492.8" y="261.3" fill="#c5c8c6" textLength="117.6" lengthAdjust="spacing" xml:space="preserve">&gt; = candidate.</text>
+<text x="610.4" y="261.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">chars</text>
+<text x="652.4" y="261.3" fill="#c5c8c6" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">().</text>
+<text x="677.6" y="261.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">collect</text>
+<text x="736.4" y="261.3" fill="#c5c8c6" textLength="268.8" lengthAdjust="spacing" xml:space="preserve">();                             </text>
+<text x="14.0" y="279.3" fill="#969896" textLength="294.0" lengthAdjust="spacing" xml:space="preserve"> %% 280 *treefile*  6:0  All    15 </text>
+<text x="341.6" y="279.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">let</text>
+<text x="375.2" y="279.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">mut</text>
+<text x="400.4" y="279.3" fill="#c5c8c6" textLength="75.6" lengthAdjust="spacing" xml:space="preserve"> score = </text>
+<text x="476.0" y="279.3" fill="#de935f" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">0</text>
+<text x="484.4" y="279.3" fill="#c5c8c6" textLength="520.8" lengthAdjust="spacing" xml:space="preserve">;                                                             </text>
 <text x="47.6" y="297.3" fill="#81a2be" font-weight="bold" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">score</text>
-<text x="215.6" y="297.3" fill="#373b41" textLength="588.0" lengthAdjust="spacing" xml:space="preserve">╰────────────────────────────────────────────────────────────────────╯</text>
+<text x="257.6" y="297.3" fill="#969896" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">fn</text>
+<text x="282.8" y="297.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">16 </text>
+<text x="341.6" y="297.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">let</text>
+<text x="375.2" y="297.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">mut</text>
+<text x="400.4" y="297.3" fill="#c5c8c6" textLength="92.4" lengthAdjust="spacing" xml:space="preserve"> previous: </text>
+<text x="492.8" y="297.3" fill="#f0c674" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">Option</text>
+<text x="543.2" y="297.3" fill="#c5c8c6" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">&lt;</text>
+<text x="551.6" y="297.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">usize</text>
+<text x="593.6" y="297.3" fill="#c5c8c6" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">&gt; = </text>
+<text x="627.2" y="297.3" fill="#81a2be" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">None</text>
+<text x="660.8" y="297.3" fill="#c5c8c6" textLength="344.4" lengthAdjust="spacing" xml:space="preserve">;                                        </text>
 <text x="30.8" y="315.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
 <text x="47.6" y="315.3" fill="#f0c674" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">Match</text>
 <text x="224.0" y="315.3" fill="#969896" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">struct</text>

@@ -1,0 +1,70 @@
+name: Pages
+
+# The site at
+# https://alejandro-llanes.github.io/maxgus-editor/, and the install script
+# the front page hands out:
+#
+#     curl -fsSL https://alejandro-llanes.github.io/maxgus-editor/install.sh | sh
+#
+# It is static: `site/` plus the screenshots, which live in `docs/screenshots`
+# so the README and the site share one copy of each rather than drifting.
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "site/**"
+      - "docs/screenshots/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One publish at a time, and a run already going is not worth cancelling.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Assemble the site
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          cp -r site/. _site/
+          mkdir -p _site/screenshots
+          cp docs/screenshots/* _site/screenshots/
+          # Every picture the page asks for has to be there: a gallery of
+          # broken images is worse than no gallery.
+          missing=0
+          for src in $(grep -o 'screenshots/[A-Za-z0-9._-]*' site/index.html | sort -u); do
+            if [ ! -f "_site/$src" ]; then
+              echo "the page wants $src, which is not there" >&2
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ] || exit 1
+          # The install script has to be valid sh, since it is piped into one.
+          sh -n _site/install.sh
+          ls -lh _site _site/screenshots
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

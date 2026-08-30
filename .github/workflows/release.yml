@@ -37,28 +37,38 @@ jobs:
           - name: linux-x86_64
             runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            builds: minimal full gui
           # Statically linked, so it runs on distributions older than the one
           # that built it.
           - name: linux-x86_64-musl
             runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
             cross: true
+            # No window: a static binary and a window system's shared
+            # libraries do not go together.
+            builds: minimal full
           - name: linux-aarch64
             runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             cross: true
+            # Cross-compiling a window means cross-compiling against a
+            # window system, which is a sysroot this does not have.
+            builds: minimal full
           # Both macOS slices are built on Apple Silicon: the Xcode toolchain
           # there targets x86_64 as well, and the Intel runners queue for
           # tens of minutes when they are available at all.
           - name: macos-x86_64
             runner: macos-latest
             target: x86_64-apple-darwin
+            builds: minimal full gui
           - name: macos-aarch64
             runner: macos-latest
             target: aarch64-apple-darwin
+            builds: minimal full gui
           - name: windows-x86_64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
+            builds: minimal full gui
           # No FreeBSD runner exists, so this one is cross-compiled. The
           # tree-sitter grammars are C, which is why it needs `cross` and its
           # sysroot rather than a bare `rustup target add`.
@@ -66,6 +76,7 @@ jobs:
             runner: ubuntu-latest
             target: x86_64-unknown-freebsd
             cross: true
+            builds: minimal full
 
     steps:
       - name: Work out which tag is being built
@@ -91,51 +102,66 @@ jobs:
         with:
           tool: cross
 
-      - name: Build
+      # Only where a window is being built, and only on Linux: macOS and
+      # Windows have their window systems already.
+      - name: Install what a window needs
+        if: runner.os == 'Linux' && contains(matrix.builds, 'gui')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev
+
+      # One archive per build, because the three are what someone is
+      # choosing between: the editor alone, the editor with everything, and
+      # the editor with a window as well as a terminal.
+      - name: Build and package
+        id: package
         shell: bash
         run: |
           set -euo pipefail
           builder=cargo
           if [ "${{ matrix.cross || false }}" = "true" ]; then builder=cross; fi
-          "$builder" build --release --locked --bin maxgus --target "${{ matrix.target }}"
+          mkdir -p dist
+          for build in ${{ matrix.builds }}; do
+            "$builder" build --release --locked --bin maxgus \
+              --no-default-features --features "$build" \
+              --target "${{ matrix.target }}"
 
-      - name: Package
-        id: package
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Deliberately unversioned: it is what makes
-          # `releases/latest/download/maxgus-linux-x86_64.tar.gz` a stable URL
-          # the README can hand out.
-          stem="maxgus-${{ matrix.name }}"
-          mkdir -p "dist/$stem"
-          cp README.md LICENSE "dist/$stem/"
-          cp -r docs "dist/$stem/"
+            # Deliberately unversioned: it is what makes
+            # `releases/latest/download/maxgus-full-linux-x86_64.tar.gz` a
+            # stable URL the install script and the README can hand out.
+            stem="maxgus-$build-${{ matrix.name }}"
+            mkdir -p "dist/$stem"
+            cp README.md LICENSE "dist/$stem/"
+            cp -r docs "dist/$stem/"
 
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp "target/${{ matrix.target }}/release/maxgus.exe" "dist/$stem/"
-            (cd dist && 7z a -mx=9 "$stem.zip" "$stem" >/dev/null)
-            asset="dist/$stem.zip"
-          else
-            cp "target/${{ matrix.target }}/release/maxgus" "dist/$stem/"
-            tar -czf "dist/$stem.tar.gz" -C dist "$stem"
-            asset="dist/$stem.tar.gz"
-          fi
+            if [ "${{ runner.os }}" = "Windows" ]; then
+              cp "target/${{ matrix.target }}/release/maxgus.exe" "dist/$stem/"
+              (cd dist && 7z a -mx=9 "$stem.zip" "$stem" >/dev/null)
+              asset="dist/$stem.zip"
+            else
+              cp "target/${{ matrix.target }}/release/maxgus" "dist/$stem/"
+              tar -czf "dist/$stem.tar.gz" -C dist "$stem"
+              asset="dist/$stem.tar.gz"
+            fi
 
-          # A checksum beside every archive, so a download can be verified.
-          if command -v sha256sum >/dev/null; then
-            sha256sum "$asset" | awk '{print $1}' > "$asset.sha256"
-          else
-            shasum -a 256 "$asset" | awk '{print $1}' > "$asset.sha256"
-          fi
-          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+            # A checksum beside every archive, so a download can be verified
+            # — which the install script does, every time.
+            if command -v sha256sum >/dev/null; then
+              sha256sum "$asset" | awk '{print $1}' > "$asset.sha256"
+            else
+              shasum -a 256 "$asset" | awk '{print $1}' > "$asset.sha256"
+            fi
+            rm -rf "dist/$stem"
+          done
+          ls -lh dist
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
           path: |
-            ${{ steps.package.outputs.asset }}
-            ${{ steps.package.outputs.asset }}.sha256
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
           if-no-files-found: error
 
   publish:

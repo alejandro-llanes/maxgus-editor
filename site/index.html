@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>maxgus — a very small Emacs</title>
+<meta name="description" content="A lightweight editor inspired by Emacs, written in Rust. Emacs keys, tree-sitter highlighting, a language-server client, magit, a file tree, and a window as well as a terminal.">
+<meta property="og:title" content="maxgus — a very small Emacs">
+<meta property="og:description" content="Emacs keys, tree-sitter highlighting, a language-server client, magit and a file tree. One binary, no Lisp interpreter.">
+<meta property="og:image" content="screenshots/gui-editor.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%231d1f21'/><text y='72' x='50' text-anchor='middle' font-size='62' font-family='monospace' fill='%238abeb7'>m</text></svg>">
+<style>
+:root {
+  --bg: #1d1f21;
+  --surface: #282a2e;
+  --selection: #373b41;
+  --fg: #c5c8c6;
+  --comment: #969896;
+  --red: #cc6666;
+  --orange: #de935f;
+  --yellow: #f0c674;
+  --green: #b5bd68;
+  --aqua: #8abeb7;
+  --blue: #81a2be;
+  --purple: #b294bb;
+  --mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
+          "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+          Arial, sans-serif;
+  --radius: 10px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--aqua); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, kbd, pre { font-family: var(--mono); }
+.wrap { width: min(1080px, 92vw); margin: 0 auto; }
+
+/* ---- navigation ---- */
+nav {
+  position: sticky; top: 0; z-index: 20;
+  background: rgba(29, 31, 33, .88);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--selection);
+}
+nav .wrap { display: flex; align-items: center; gap: 1.6rem; height: 58px; }
+nav .brand {
+  font-family: var(--mono); font-weight: 700; font-size: 1.1rem;
+  color: var(--fg); margin-right: auto; letter-spacing: -.02em;
+}
+nav .brand span { color: var(--aqua); }
+nav a.link { color: var(--comment); font-size: .95rem; }
+nav a.link:hover { color: var(--fg); text-decoration: none; }
+@media (max-width: 720px) {
+  nav .wrap { gap: 1rem; overflow-x: auto; }
+  nav a.link { white-space: nowrap; }
+}
+
+/* ---- hero ---- */
+header { padding: 4.5rem 0 3rem; text-align: center; }
+h1 {
+  font-family: var(--mono);
+  font-size: clamp(2.6rem, 8vw, 4.2rem);
+  margin: 0 0 .4rem; letter-spacing: -.04em; font-weight: 700;
+}
+h1 .cursor {
+  display: inline-block; width: .55em; height: .95em;
+  background: var(--aqua); vertical-align: -.12em; margin-left: .06em;
+  animation: blink 1.2s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { h1 .cursor { animation: none; } }
+.tagline { font-size: clamp(1.05rem, 2.6vw, 1.3rem); color: var(--comment); margin: 0 auto 2rem; max-width: 34em; }
+.tagline b { color: var(--fg); font-weight: 600; }
+
+/* ---- the install line ---- */
+.install {
+  display: flex; align-items: stretch; gap: 0;
+  max-width: 840px; margin: 0 auto 1rem;
+  background: var(--surface); border: 1px solid var(--selection);
+  border-radius: var(--radius); overflow: hidden; text-align: left;
+}
+.install code {
+  flex: 1; padding: .95rem 1.1rem; font-size: .86rem;
+  overflow-x: auto; white-space: nowrap; color: var(--fg);
+}
+.install code .p { color: var(--green); user-select: none; }
+.install button {
+  border: 0; border-left: 1px solid var(--selection);
+  background: transparent; color: var(--comment);
+  font-family: var(--sans); font-size: .85rem; padding: 0 1.1rem;
+  cursor: pointer; transition: color .15s, background .15s;
+}
+.install button:hover { color: var(--bg); background: var(--aqua); }
+.install button.done { color: var(--bg); background: var(--green); }
+.under { color: var(--comment); font-size: .88rem; margin: 0 0 2rem; }
+.under code { color: var(--fg); }
+
+.buttons { display: flex; gap: .8rem; justify-content: center; flex-wrap: wrap; }
+.btn {
+  display: inline-block; padding: .6rem 1.4rem; border-radius: var(--radius);
+  border: 1px solid var(--selection); color: var(--fg); font-size: .95rem;
+}
+.btn:hover { border-color: var(--aqua); color: var(--aqua); text-decoration: none; }
+.btn.primary { background: var(--aqua); border-color: var(--aqua); color: var(--bg); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.1); color: var(--bg); }
+
+/* ---- sections ---- */
+section { padding: 3.5rem 0; border-top: 1px solid var(--selection); }
+section > .wrap > h2 {
+  font-family: var(--mono); font-size: 1.5rem; margin: 0 0 .4rem;
+  letter-spacing: -.02em;
+}
+section > .wrap > h2::before { content: "## "; color: var(--purple); }
+.lede { color: var(--comment); margin: 0 0 2rem; max-width: 46em; }
+
+/* ---- the three builds ---- */
+.builds { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); }
+.build {
+  background: var(--surface); border: 1px solid var(--selection);
+  border-radius: var(--radius); padding: 1.4rem;
+  display: flex; flex-direction: column;
+}
+.build.pick { border-color: var(--aqua); }
+.build h3 {
+  font-family: var(--mono); margin: 0 0 .1rem; font-size: 1.15rem;
+  display: flex; align-items: baseline; gap: .6rem;
+}
+.build .size { color: var(--comment); font-size: .85rem; font-weight: 400; margin-left: auto; }
+.build .tag { display: inline-block; font-size: .7rem; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--bg); background: var(--aqua);
+  padding: .1rem .45rem; border-radius: 4px; vertical-align: .15em; }
+.build p { color: var(--comment); font-size: .93rem; margin: .5rem 0 1rem; flex: 1; }
+.build ul { margin: 0 0 1.1rem; padding-left: 1.1rem; color: var(--comment); font-size: .9rem; }
+.build ul li { margin: .15rem 0; }
+.build ul li.no { color: #6a6d70; text-decoration: line-through; }
+.build pre {
+  margin: 0; background: var(--bg); border: 1px solid var(--selection);
+  border-radius: 7px; padding: .6rem .8rem; font-size: .78rem;
+  overflow-x: auto; color: var(--fg);
+}
+.build pre .p { color: var(--green); }
+
+/* ---- screenshot gallery ---- */
+.tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: 1.1rem; }
+.tabs button {
+  font-family: var(--mono); font-size: .85rem; padding: .4rem .9rem;
+  background: transparent; color: var(--comment);
+  border: 1px solid var(--selection); border-radius: 7px; cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.tabs button:hover { color: var(--fg); }
+.tabs button[aria-selected="true"] { color: var(--bg); background: var(--aqua); border-color: var(--aqua); }
+.shot {
+  border: 1px solid var(--selection); border-radius: var(--radius);
+  overflow: hidden; background: var(--bg);
+}
+.shot img { display: block; width: 100%; height: auto; }
+.shot figcaption {
+  padding: .7rem 1rem; color: var(--comment); font-size: .88rem;
+  border-top: 1px solid var(--selection); background: var(--surface);
+}
+.shot[hidden] { display: none; }
+
+/* ---- features ---- */
+.features { display: grid; gap: 1.6rem 2rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.feature h3 { font-family: var(--mono); font-size: 1rem; margin: 0 0 .3rem; color: var(--fg); }
+.feature h3::before { content: "▸ "; color: var(--green); }
+.feature p { margin: 0; color: var(--comment); font-size: .93rem; }
+.feature .new { color: var(--orange); font-size: .7rem; text-transform: uppercase;
+  letter-spacing: .08em; margin-left: .4rem; }
+
+/* ---- config ---- */
+.two { display: grid; gap: 1.6rem; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: start; }
+pre.block {
+  background: var(--surface); border: 1px solid var(--selection);
+  border-radius: var(--radius); padding: 1rem 1.2rem; overflow-x: auto;
+  font-size: .84rem; line-height: 1.6; margin: 0;
+}
+pre.block .c { color: var(--comment); }
+pre.block .k { color: var(--purple); }
+pre.block .s { color: var(--green); }
+pre.block .n { color: var(--orange); }
+kbd {
+  background: var(--surface); border: 1px solid var(--selection);
+  border-bottom-width: 2px; border-radius: 5px; padding: .05em .4em;
+  font-size: .85em; color: var(--fg);
+}
+
+/* ---- footer ---- */
+footer { border-top: 1px solid var(--selection); padding: 2.5rem 0 3.5rem; color: var(--comment); font-size: .9rem; }
+footer .wrap { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: center; }
+footer .sp { margin-left: auto; }
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <span class="brand">max<span>gus</span></span>
+  <a class="link" href="#install">Install</a>
+  <a class="link" href="#builds">Builds</a>
+  <a class="link" href="#screenshots">Screenshots</a>
+  <a class="link" href="#features">Features</a>
+  <a class="link" href="https://github.com/alejandro-llanes/maxgus-editor">GitHub</a>
+</div></nav>
+
+<header><div class="wrap">
+  <h1>maxgus<span class="cursor"></span></h1>
+  <p class="tagline">
+    A very small Emacs, written in Rust. <b>Emacs keys</b>, tree-sitter
+    highlighting, a language-server client, magit and a file tree —
+    in a terminal, or in a window.
+  </p>
+
+  <div class="install" id="install">
+    <code id="cmd"><span class="p">$ </span>curl -fsSL https://alejandro-llanes.github.io/maxgus-editor/install.sh | sh</code>
+    <button id="copy" type="button">Copy</button>
+  </div>
+  <p class="under">
+    Installs the <code>full</code> build. Add <code>-s -- --build gui</code> for the
+    window, <code>--build minimal</code> for the small one.
+  </p>
+
+  <div class="buttons">
+    <a class="btn primary" href="https://github.com/alejandro-llanes/maxgus-editor/releases/latest">Download a binary</a>
+    <a class="btn" href="https://github.com/alejandro-llanes/maxgus-editor">Source on GitHub</a>
+  </div>
+</div></header>
+
+<section id="builds"><div class="wrap">
+  <h2>Three builds</h2>
+  <p class="lede">
+    The same editor with different parts left out. Every binary's
+    <code>--version</code> says which one it is, and a key a build does not
+    have reports itself as undefined rather than doing nothing.
+  </p>
+  <div class="builds">
+
+    <div class="build">
+      <h3>minimal <span class="size">4.6 MB</span></h3>
+      <p>The editor and the file tree. Starts instantly, builds in a fraction
+         of the time, and fits anywhere.</p>
+      <ul>
+        <li>Emacs keys, buffers, windows</li>
+        <li>The file tree</li>
+        <li>Themes, and the configuration file</li>
+        <li class="no">tree-sitter, LSP, magit</li>
+      </ul>
+      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh -s -- \
+    --build minimal</pre>
+    </div>
+
+    <div class="build pick">
+      <h3>full <span class="tag">default</span> <span class="size">13 MB</span></h3>
+      <p>Everything, in a terminal. What most people want, and what the
+         install line above gives you.</p>
+      <ul>
+        <li>Everything in <code>minimal</code></li>
+        <li>tree-sitter highlighting</li>
+        <li>A language-server client</li>
+        <li>magit, a terminal panel, project search, scripting</li>
+      </ul>
+      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh</pre>
+    </div>
+
+    <div class="build">
+      <h3>gui <span class="size">21 MB</span></h3>
+      <p>Everything, and a window drawn by the GPU as well as a terminal.
+         Which one it opens is decided when it starts.</p>
+      <ul>
+        <li>Everything in <code>full</code></li>
+        <li>Smooth, sub-line scrolling</li>
+        <li>Mouse, system clipboard, any font</li>
+        <li><code>maxgus -nw</code> for the terminal</li>
+      </ul>
+      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh -s -- \
+    --build gui</pre>
+    </div>
+
+  </div>
+</div></section>
+
+<section id="screenshots"><div class="wrap">
+  <h2>What it looks like</h2>
+  <p class="lede">
+    Not mock-ups. Every one of these is the editor's own redisplay — the
+    terminal pictures are drawn by the same <code>draw</code> a session runs,
+    and the window pictures are photographs of it running.
+  </p>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-shot="s-editor">the editor</button>
+    <button role="tab" aria-selected="false" data-shot="s-which">which-key</button>
+    <button role="tab" aria-selected="false" data-shot="s-doc">lsp-ui-doc</button>
+    <button role="tab" aria-selected="false" data-shot="s-magit">magit</button>
+    <button role="tab" aria-selected="false" data-shot="s-beacon">beacon</button>
+    <button role="tab" aria-selected="false" data-shot="s-popup">M-x</button>
+    <button role="tab" aria-selected="false" data-shot="s-themes">themes</button>
+  </div>
+
+  <figure class="shot" id="s-editor">
+    <img src="screenshots/gui-editor.png" alt="maxgus editing its own source, with the file tree and buffer list down the left" loading="lazy">
+    <figcaption>The window: a file open beside the side panel, which stacks
+      the file tree, the symbols in the buffer and the open buffers.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-which" hidden>
+    <img src="screenshots/gui-which-key.png" alt="A panel along the bottom listing what can follow C-c" loading="lazy">
+    <figcaption>Stop in the middle of <kbd>C-c</kbd> and a panel says what the
+      next key can be. Keys that open another map are shown as the group they
+      open. In all three builds.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-doc" hidden>
+    <img src="screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and documentation from clangd" loading="lazy">
+    <figcaption>Rest the cursor on a symbol and the language server's answer
+      appears beside it, not over it — real output from clangd.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-magit" hidden>
+    <img src="screenshots/gui-magit.png" alt="The magit status view, with staged and unstaged sections and recent commits" loading="lazy">
+    <figcaption>magit: stage a hunk, write a commit, read a diff, without
+      leaving the editor.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-beacon" hidden>
+    <img src="screenshots/beacon.svg" alt="A light beside the cursor after it jumped, fading out to the right" loading="lazy">
+    <figcaption>A light where the cursor landed after a jump, so the eye finds
+      it again — beacon, for Emacs.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-popup" hidden>
+    <img src="screenshots/command-popup.svg" alt="The M-x popup, listing commands with their keys and one line of documentation each" loading="lazy">
+    <figcaption><kbd>M-x</kbd> fuzzy-matches every command, with its key and a
+      line of documentation beside it.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-themes" hidden>
+    <img src="screenshots/gruvbox.svg" alt="The same editor under the gruvbox theme" loading="lazy">
+    <figcaption>Themes are files you can rewrite. Five ship with it —
+      gruvbox here, plus dracula, nord, solarized-light and the built-in one.</figcaption>
+  </figure>
+</div></section>
+
+<section id="features"><div class="wrap">
+  <h2>What is in it</h2>
+  <div class="features">
+    <div class="feature">
+      <h3>Emacs keys, and Doom's</h3>
+      <p>The classic bindings, and Doom's leader scheme under <kbd>C-c</kbd>.
+         Prefix arguments, keyboard macros, registers, rectangles, the mark
+         ring.</p>
+    </div>
+    <div class="feature">
+      <h3>which-key <span class="new">new</span></h3>
+      <p>Pause mid-sequence and a panel says what can follow it, so the
+         leader is learned rather than memorised.</p>
+    </div>
+    <div class="feature">
+      <h3>tree-sitter highlighting</h3>
+      <p>Real parse trees, re-parsed incrementally as you type, for every
+         language a grammar is built in for.</p>
+    </div>
+    <div class="feature">
+      <h3>A language-server client</h3>
+      <p>Diagnostics, go to definition, references, rename, code actions,
+         formatting, completion — and a doc box beside the cursor.</p>
+    </div>
+    <div class="feature">
+      <h3>lsp-ui-doc <span class="new">new</span></h3>
+      <p>Rest on a symbol and what the server knows appears beside the line
+         it is about, rather than in a window over the code.</p>
+    </div>
+    <div class="feature">
+      <h3>magit</h3>
+      <p>Status, staging by hunk, commits, branches, stashes, log, blame,
+         and the transient menus they hang off.</p>
+    </div>
+    <div class="feature">
+      <h3>A file tree</h3>
+      <p>treemacs' keys, git status in the margin, and a side panel that
+         stacks the tree, the symbol outline and the buffer list.</p>
+    </div>
+    <div class="feature">
+      <h3>A window, as well as a terminal <span class="new">new</span></h3>
+      <p>The same editor drawn by the GPU: smooth sub-line scrolling, the
+         mouse, the system clipboard, and any font on the system.</p>
+    </div>
+    <div class="feature">
+      <h3>beacon <span class="new">new</span></h3>
+      <p>A light where the cursor lands after a jump. Off by default;
+         <code>set beacon=#true</code> turns it on.</p>
+    </div>
+    <div class="feature">
+      <h3>A terminal panel</h3>
+      <p>A real pseudo-terminal along the bottom, in tabs, running whatever
+         <code>$SHELL</code> says.</p>
+    </div>
+    <div class="feature">
+      <h3>Project search, and editing the results</h3>
+      <p>grep the project, then edit the matches in place and write them all
+         back — wgrep.</p>
+    </div>
+    <div class="feature">
+      <h3>No Lisp interpreter</h3>
+      <p>Configuration is a small declarative file. Scripting, where you want
+         it, is Rhai. One binary, no runtime to install.</p>
+    </div>
+  </div>
+</div></section>
+
+<section id="configure"><div class="wrap">
+  <h2>Configured in one file</h2>
+  <p class="lede">
+    <code>~/.config/maxgus/config.kdl</code>. Every node is optional, anything
+    left out keeps its default, and a node it does not recognise is reported
+    with a line number and skipped — so a file written for a newer version
+    still starts an older one.
+  </p>
+  <div class="two">
+    <pre class="block"><span class="c">// ---- settings ----</span>
+<span class="k">set</span> theme=<span class="s">"maxgus-dark"</span>
+<span class="k">set</span> line-numbers=<span class="n">#true</span>
+<span class="k">set</span> scroll-margin=<span class="n">3</span>
+<span class="k">set</span> which-key=<span class="n">#true</span>
+<span class="k">set</span> lsp-doc=<span class="n">#true</span>
+<span class="k">set</span> beacon=<span class="n">#true</span>
+
+<span class="c">// ---- keys ----</span>
+<span class="k">keymap</span> <span class="s">"global"</span> {
+    <span class="k">bind</span> <span class="s">"C-c f"</span> <span class="s">"lsp-format-buffer"</span>
+    <span class="k">unbind</span> <span class="s">"C-z"</span>
+}</pre>
+    <pre class="block"><span class="c">// ---- faces ----</span>
+<span class="k">theme</span> <span class="s">"maxgus-dark"</span> {
+    <span class="k">face</span> <span class="s">"font-lock-comment"</span> fg=<span class="s">"#5f6b73"</span> italic=<span class="n">#true</span>
+    <span class="k">face</span> <span class="s">"region"</span> bg=<span class="s">"#3a4048"</span>
+}
+
+<span class="c">// ---- language servers ----</span>
+<span class="k">lsp</span> <span class="s">"rust"</span> command=<span class="s">"rust-analyzer"</span> {
+    <span class="k">root-markers</span> <span class="s">"Cargo.toml"</span>
+}</pre>
+  </div>
+</div></section>
+
+<section id="start"><div class="wrap">
+  <h2>Getting going</h2>
+  <div class="two">
+    <div>
+      <p>Open a file and press <kbd>C-h t</kbd> for a guided tour, or
+         <kbd>C-h b</kbd> to list every binding. <kbd>C-x C-c</kbd> leaves.</p>
+      <p>If <kbd>C-c</kbd> is a prefix you do not know yet, hold it: the panel
+         will tell you what is under it.</p>
+      <p><a href="https://github.com/alejandro-llanes/maxgus-editor#readme">The README</a>
+         is the long version;
+         <a href="https://github.com/alejandro-llanes/maxgus-editor/blob/main/docs/configuration-reference.md">the reference</a>
+         lists every setting, face and key.</p>
+    </div>
+    <pre class="block"><span class="p">$</span> maxgus src/main.rs         <span class="c"># a terminal</span>
+<span class="p">$</span> maxgus -nw src/main.rs     <span class="c"># a terminal, from a gui build</span>
+<span class="p">$</span> maxgus --version
+maxgus 0.1.0 (full)
+
+<span class="c"># Install somewhere else, or an older release:</span>
+<span class="p">$</span> curl -fsSL …/install.sh | sh -s -- \
+    --prefix /usr/local/bin --version v0.1.0</pre>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  <span>maxgus — MIT licensed</span>
+  <a href="https://github.com/alejandro-llanes/maxgus-editor">GitHub</a>
+  <a href="https://github.com/alejandro-llanes/maxgus-editor/issues">Issues</a>
+  <a href="install.sh">install.sh</a>
+  <span class="sp">Written in Rust, edition 2024. No unsafe code.</span>
+</div></footer>
+
+<script>
+// Copy the install line, without the prompt.
+document.getElementById("copy").addEventListener("click", function () {
+  var text = document.getElementById("cmd").textContent.replace(/^\$\s*/, "");
+  var done = (function (self) {
+    return function () {
+      self.textContent = "Copied";
+      self.classList.add("done");
+      setTimeout(function () {
+        self.textContent = "Copy";
+        self.classList.remove("done");
+      }, 1600);
+    };
+  })(this);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, function () {});
+  } else {
+    var box = document.createElement("textarea");
+    box.value = text;
+    document.body.appendChild(box);
+    box.select();
+    try { document.execCommand("copy"); done(); } catch (e) {}
+    document.body.removeChild(box);
+  }
+});
+
+// The screenshot gallery. Without JavaScript every picture is simply shown,
+// which is a worse gallery and a perfectly good page.
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll(".tabs button"));
+  var shots = tabs.map(function (tab) { return document.getElementById(tab.dataset.shot); });
+  tabs.forEach(function (tab, n) {
+    tab.addEventListener("click", function () {
+      tabs.forEach(function (other, m) {
+        other.setAttribute("aria-selected", String(m === n));
+        shots[m].hidden = m !== n;
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

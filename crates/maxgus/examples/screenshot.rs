@@ -131,6 +131,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     dispatcher.handle_keys(&mut editor, "?");
     write(&out.join("magit-menu.svg"), &render(&editor))?;
     println!("docs/screenshots/magit-menu.svg");
+
+    // `C-c` held long enough for the panel to say what can follow it.
+    let mut editor = scene(themes[0].1.clone(), false);
+    editor.which_key = Some("C-c".into());
+    editor.pending_keys = Some("C-c".into());
+    write(&out.join("which-key.svg"), &render(&editor))?;
+    println!("docs/screenshots/which-key.svg");
+
+    // What the language server knows about the symbol the cursor is on.
+    let mut editor = scene(themes[0].1.clone(), false);
+    let line = {
+        let point = editor.windows.current().point;
+        editor.current_buffer().line_of(point)
+    };
+    editor.doc = Some(maxgus_core::Doc {
+        text: "pub fn score(query: &str, candidate: &str) -> Option<i32>\n\n\
+               How well `query` matches `candidate`, or `None`\n\
+               when it does not match at all. Consecutive\n\
+               characters score higher than scattered ones."
+            .into(),
+        line,
+        window: editor.windows.current_id(),
+    });
+    write(&out.join("lsp-doc.svg"), &render(&editor))?;
+    println!("docs/screenshots/lsp-doc.svg");
+
+    // The light that says where the cursor just landed.
+    let mut editor = scene(themes[0].1.clone(), false);
+    editor.settings.beacon = true;
+    editor.settings.beacon_size = 34;
+    let (window, offset) = (editor.windows.current_id(), editor.windows.current().point);
+    editor.beacon = Some(maxgus_core::beacon::Beacon::new(window, offset));
+    write(&out.join("beacon.svg"), &render(&editor))?;
+    println!("docs/screenshots/beacon.svg");
     Ok(())
 }
 

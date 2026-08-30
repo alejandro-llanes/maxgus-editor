@@ -141,14 +141,15 @@ fn draw_doc(editor: &Editor, surface: &mut Surface, body: Rect, doc: &crate::Doc
     if text_area.width < 20 || text_area.height < 6 {
         return;
     }
-    // Half the window's width at most, and never wider than it needs.
+    // Three fifths of the window at most, and never wider than it needs. Half
+    // was tidier and wrapped every signature worth reading onto three lines.
     let widest = doc
         .text
         .lines()
         .map(|line| line.chars().count())
         .max()
         .unwrap_or(0);
-    let width = (widest + 4).clamp(20, (text_area.width as usize / 2).max(20)) as u16;
+    let width = (widest + 4).clamp(20, (text_area.width as usize * 3 / 5).max(20)) as u16;
     let width = width.min(text_area.width);
     let lines: Vec<&str> = doc
         .text

@@ -2340,14 +2340,14 @@ fn the_startup_time_is_reported_when_the_editor_opens() {
     assert_eq!(session.quit(), 0);
 }
 
-/// Both builds have to build, not just the one being worked on.
+/// All three builds have to build, not just the one being worked on.
 ///
 /// Ignored by default because it is a build rather than a test — it takes
 /// minutes. `cargo test -- --ignored` runs it, and so does the CI.
 #[test]
 #[ignore]
-fn both_builds_build() {
-    for features in [Some("minimal"), Some("full")] {
+fn every_build_builds() {
+    for features in [Some("minimal"), Some("full"), Some("gui")] {
         let mut command = std::process::Command::new(env!("CARGO"));
         command.args(["build", "-q", "-p", "maxgus", "--no-default-features"]);
         if let Some(features) = features {
@@ -2837,9 +2837,12 @@ fn the_version_says_which_build_this_is() {
         .expect("it runs");
     let said = String::from_utf8_lossy(&output.stdout);
     assert!(said.starts_with("maxgus "), "got {said:?}");
-    let expected = match cfg!(feature = "full") {
-        true => "(full)",
-        false => "(minimal)",
+    let expected = if cfg!(feature = "gui") {
+        "(gui)"
+    } else if cfg!(feature = "full") {
+        "(full)"
+    } else {
+        "(minimal)"
     };
     assert!(
         said.contains(expected),
@@ -2847,7 +2850,7 @@ fn the_version_says_which_build_this_is() {
     );
 }
 
-/// The full build is a desktop program.
+/// A build with a window in it is a desktop program.
 ///
 /// It was not, for a while: `maxgus-gui` took over the terminal like every
 /// other build unless `--gui` was passed, which is not what someone who
@@ -2856,9 +2859,9 @@ fn the_version_says_which_build_this_is() {
 /// Which path was taken is legible in which failure comes back, since
 /// neither one can finish here: the terminal path complains about the
 /// terminal, and the window path complains about the display.
-#[cfg(feature = "full")]
+#[cfg(feature = "gui")]
 #[test]
-fn a_window_is_what_the_full_build_opens() {
+fn a_window_is_what_a_gui_build_opens() {
     /// Runs the editor with the display environment set exactly, and
     /// returns what it said before giving up.
     fn attempt(arguments: &[&str], display: Option<&str>) -> String {
@@ -2880,7 +2883,7 @@ fn a_window_is_what_the_full_build_opens() {
     let said = attempt(&[], Some(":99"));
     assert!(
         !said.contains(terminal),
-        "it took over the terminal instead of opening a window: {said}"
+        "a gui build took over the terminal instead of opening a window: {said}"
     );
     assert!(
         said.contains("X server"),
@@ -2913,8 +2916,8 @@ fn a_window_is_what_the_full_build_opens() {
     );
 }
 
-/// `-nw` is a habit, and a habit that errors on one build out of two is
-/// worse than no habit. Both builds take it; only one has a window to turn
+/// `-nw` is a habit, and a habit that errors on two builds out of three is
+/// worse than no habit. Every build takes it; only one has a window to turn
 /// off with it.
 #[test]
 fn every_build_takes_the_flag_that_asks_for_a_terminal() {

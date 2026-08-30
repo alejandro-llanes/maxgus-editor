@@ -12,14 +12,17 @@ use maxgus_tui::{Rect, Terminal};
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
-/// Which of the two builds this is, for `--version`.
+/// Which of the three builds this is, for `--version`.
 ///
 /// They look identical and are not, and which one is running is the first
 /// thing to know when one of them does not do what was expected.
 static VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    let build = match cfg!(feature = "full") {
-        true => "full",
-        false => "minimal",
+    let build = if cfg!(feature = "gui") {
+        "gui"
+    } else if cfg!(feature = "full") {
+        "full"
+    } else {
+        "minimal"
     };
     format!("{} ({build})", env!("CARGO_PKG_VERSION"))
 });
@@ -48,7 +51,7 @@ struct Arguments {
     directory: Option<PathBuf>,
 
     /// Open a window, even where one would not be opened by default.
-    #[cfg(feature = "full")]
+    #[cfg(feature = "gui")]
     #[arg(long)]
     gui: bool,
 
@@ -66,7 +69,7 @@ struct Arguments {
 /// to draw into. Emacs starts in the terminal in that case rather than
 /// failing, and so does this — `--gui` overrides it and lets the failure
 /// happen, which is what someone who passed it wants to see.
-#[cfg(feature = "full")]
+#[cfg(feature = "gui")]
 fn display_available() -> bool {
     if cfg!(any(target_os = "macos", target_os = "windows")) {
         return true;
@@ -120,9 +123,9 @@ async fn main() -> Result<()> {
     //
     // In a window the frame is decided by the font and the window's size,
     // which are not known until it opens; a nominal one gets the editor built.
-    #[cfg(feature = "full")]
+    #[cfg(feature = "gui")]
     let windowed = !arguments.no_window_system && (arguments.gui || display_available());
-    #[cfg(not(feature = "full"))]
+    #[cfg(not(feature = "gui"))]
     let windowed = {
         // Read so that it is not a lie: this build has no window, so the
         // flag asking for no window is already satisfied.
@@ -233,7 +236,7 @@ async fn main() -> Result<()> {
     let executor = tasks::Executor::new(root, config.tree.clone(), config.lsp.clone(), result_tx);
     tokio::spawn(executor.run(task_rx));
 
-    #[cfg(feature = "full")]
+    #[cfg(feature = "gui")]
     if windowed {
         return gui::run(
             editor,
@@ -256,7 +259,7 @@ async fn main() -> Result<()> {
 }
 
 /// Starting the editor in a window rather than in the terminal.
-#[cfg(feature = "full")]
+#[cfg(feature = "gui")]
 mod gui {
     use anyhow::Result;
     use maxgus_config::Config;

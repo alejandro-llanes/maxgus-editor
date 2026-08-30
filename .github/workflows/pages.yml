@@ -54,12 +54,11 @@ jobs:
           sh -n _site/install.sh
           ls -lh _site _site/screenshots
 
-      # Turns Pages on the first time this runs, rather than asking someone
-      # to find the setting. It needs the `pages: write` permission above,
-      # which is the same one the deploy needs.
+      # Pages has to be switched to the Actions source once, by hand, at
+      # Settings → Pages. `enablement: true` here looks like it would do
+      # that and does not: creating a Pages site needs admin, which the
+      # workflow's own token is never given.
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

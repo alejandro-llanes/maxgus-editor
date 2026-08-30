@@ -12,11 +12,37 @@ use maxgus_tui::{Rect, Terminal};
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
+/// What this build has in it, for `--version`.
+///
+/// A binary built `--no-default-features --features minimal` is a different
+/// editor from one built `--features gui`, and looks identical until it is
+/// asked to do something it cannot. Saying so up front is cheaper than
+/// finding out.
+static VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let features: Vec<&str> = [
+        ("syntax", cfg!(feature = "syntax")),
+        ("lsp", cfg!(feature = "lsp")),
+        ("git", cfg!(feature = "git")),
+        ("terminal", cfg!(feature = "terminal")),
+        ("grep", cfg!(feature = "grep")),
+        ("script", cfg!(feature = "script")),
+        ("gui", cfg!(feature = "gui")),
+    ]
+    .into_iter()
+    .filter(|(_, on)| *on)
+    .map(|(name, _)| name)
+    .collect();
+    match features.is_empty() {
+        true => format!("{} (minimal)", env!("CARGO_PKG_VERSION")),
+        false => format!("{} ({})", env!("CARGO_PKG_VERSION"), features.join(" ")),
+    }
+});
+
 /// Command-line arguments.
 #[derive(Debug, Parser)]
 #[command(
     name = "maxgus",
-    version,
+    version = VERSION.as_str(),
     about = "A very small Emacs for the terminal"
 )]
 struct Arguments {

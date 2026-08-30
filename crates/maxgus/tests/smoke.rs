@@ -2738,3 +2738,40 @@ fn a_script_beside_the_configuration_defines_a_real_command() {
     );
     assert_eq!(session.quit(), 0);
 }
+
+#[test]
+fn the_version_says_which_build_this_is() {
+    // Ten binaries that look identical and are not. Which one is running is
+    // the first thing to know when one of them does not do what is expected.
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_maxgus"))
+        .arg("--version")
+        .output()
+        .expect("it runs");
+    let said = String::from_utf8_lossy(&output.stdout);
+    assert!(said.starts_with("maxgus "), "got {said:?}");
+    for (feature, on) in [
+        ("syntax", cfg!(feature = "syntax")),
+        ("lsp", cfg!(feature = "lsp")),
+        ("git", cfg!(feature = "git")),
+        ("terminal", cfg!(feature = "terminal")),
+        ("grep", cfg!(feature = "grep")),
+        ("script", cfg!(feature = "script")),
+    ] {
+        assert_eq!(
+            said.contains(feature),
+            on,
+            "`--version` says {said:?}, which is wrong about `{feature}`"
+        );
+    }
+    // A build with nothing in it says so rather than showing empty brackets.
+    if !cfg!(any(
+        feature = "syntax",
+        feature = "lsp",
+        feature = "git",
+        feature = "terminal",
+        feature = "grep",
+        feature = "script"
+    )) {
+        assert!(said.contains("minimal"), "got {said:?}");
+    }
+}

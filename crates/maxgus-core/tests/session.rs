@@ -624,17 +624,36 @@ fn every_key_the_readme_documents_is_really_bound() {
 fn every_command_the_readme_names_is_registered() {
     let readme = include_str!("../../../README.md");
     let registry = maxgus_core::standard_registry();
+    let mut checked = 0;
+    let mut check = |word: &str| {
+        if word.starts_with("lsp-") || word.starts_with("treefile-") {
+            assert!(
+                registry.contains(word),
+                "the README names `{word}`, which is not a command"
+            );
+            checked += 1;
+        }
+    };
     for line in readme.lines() {
-        for word in line.split('`') {
-            // Command names in the configuration examples.
-            if word.starts_with("lsp-") || word.starts_with("treefile-") {
-                assert!(
-                    registry.contains(word),
-                    "the README names `{word}`, which is not a command"
-                );
-            }
+        // Names in the configuration examples, which are quoted because that
+        // is how a `bind` names a command.
+        for quoted in line.split('"').skip(1).step_by(2) {
+            check(quoted);
+        }
+        // And names written in prose, in backticks. A console transcript is
+        // neither of those, which is why it is not scanned: a line of one
+        // can begin with `lsp-` without naming a command.
+        for span in line.split('`').skip(1).step_by(2) {
+            check(span);
         }
     }
+    // The README names two, both `lsp-format-buffer`: one in the scripting
+    // example and one in the configuration example. The floor is there to
+    // catch the scan breaking, not to require a number of mentions.
+    assert!(
+        checked >= 2,
+        "only {checked} were checked; the scan has stopped finding them"
+    );
 }
 
 #[test]

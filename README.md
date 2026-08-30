@@ -647,6 +647,33 @@ cargo build --release --no-default-features --features minimal
 cargo build --release --features gui
 ```
 
+To try them side by side, `./scripts/build-variants.sh` builds every
+combination into `target/variants/`:
+
+```console
+$ ./scripts/build-variants.sh
+minimal    [minimal]                ok     4.6M  maxgus 0.1.0 (minimal)
+syntax     [syntax]                 ok     8.9M  maxgus 0.1.0 (syntax)
+lsp        [lsp]                    ok     5.2M  maxgus 0.1.0 (lsp)
+git        [git]                    ok     4.9M  maxgus 0.1.0 (git)
+terminal   [terminal]               ok     4.8M  maxgus 0.1.0 (terminal)
+grep       [grep]                   ok     5.0M  maxgus 0.1.0 (grep)
+script     [script]                 ok     6.9M  maxgus 0.1.0 (script)
+lsp-git    [lsp,git]                ok     5.6M  maxgus 0.1.0 (lsp git)
+full       [full]                   ok      13M  maxgus 0.1.0 (syntax lsp git terminal grep script)
+gui        [gui]                    ok      21M  maxgus 0.1.0 (… gui)
+```
+
+`--debug` builds them faster, `--into DIR` puts them somewhere else. Every
+binary's `--version` names what is in it, because ten of them look identical
+and are not — and a key a build does not have reports itself as undefined
+rather than doing nothing:
+
+```console
+$ target/variants/maxgus-minimal notes.txt
+C-x g is undefined
+```
+
 The tree-sitter grammars are C, and they are most of what a full build spends
 its time on — which is what makes leaving them out worth a feature rather than
 a `cfg` nobody would use. The subsystems can also be taken one at a time:
@@ -747,7 +774,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1954 tests.** Unit tests beside the code; session tests that press real keys
+**1955 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

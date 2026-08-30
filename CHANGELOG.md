@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Suggestions while typing.** `company-mode`, for a language server: after
+  a couple of letters the server is asked what could follow, and a list
+  appears at the cursor with each candidate's kind and type. Typing narrows
+  it — fuzzily, the way `M-x` does — `C-n`/`C-p` move, `RET` or `TAB` takes
+  one, `C-g` puts it away, and every other key goes into the buffer.
+
+  An idle pause never inserts anything on its own; `C-M-i` on a single
+  candidate still completes it outright, the way it always did.
+  `set autocomplete=#false`, `set autocomplete-min-chars=`.
 - **The doc box reads like a document.** Hover replies are markdown, and
   were drawn as the markdown they are — `### function \`add\`` and a row of
   hyphens, which is worse than plain prose because the punctuation is in the

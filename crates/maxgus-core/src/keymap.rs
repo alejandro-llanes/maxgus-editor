@@ -686,6 +686,32 @@ pub const GREP_BINDINGS: &[(&str, &str)] = &[
 pub const GREP_EDIT_BINDINGS: &[(&str, &str)] =
     &[("C-c C-c", "grep-apply"), ("C-c C-k", "grep-abandon")];
 
+/// The keys the suggestion list takes while it is on screen.
+///
+/// Everything else falls through to whatever it normally does — typing a
+/// letter types it, and the list narrows to what is now written. Only the
+/// keys that mean something to a list are taken.
+#[cfg(feature = "full")]
+pub const AUTOCOMPLETE_BINDINGS: &[(&str, &str)] = &[
+    ("C-n", "autocomplete-next"),
+    ("<down>", "autocomplete-next"),
+    ("C-p", "autocomplete-previous"),
+    ("<up>", "autocomplete-previous"),
+    ("RET", "autocomplete-accept"),
+    ("TAB", "autocomplete-accept"),
+    ("C-g", "autocomplete-abort"),
+    ("ESC", "autocomplete-abort"),
+];
+
+#[cfg(feature = "full")]
+pub fn autocomplete_keymap() -> Result<Keymap> {
+    let mut map = Keymap::new("autocomplete-mode");
+    for (keys, command) in AUTOCOMPLETE_BINDINGS {
+        map.define_str(keys, *command)?;
+    }
+    Ok(map)
+}
+
 #[cfg(feature = "full")]
 pub fn grep_edit_keymap() -> Result<Keymap> {
     let mut map = Keymap::new(crate::commands::grep::GREP_EDIT_MODE);

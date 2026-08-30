@@ -423,6 +423,16 @@ impl<'a> Parser<'a> {
                     self.config.settings.gui_font_size = n.clamp(6, 96);
                 }
             }
+            "autocomplete" => {
+                if let Some(b) = self.bool_value(node, key, value) {
+                    self.config.settings.autocomplete = b;
+                }
+            }
+            "autocomplete-min-chars" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.autocomplete_min_chars = n.clamp(1, 10);
+                }
+            }
             "lsp-doc" => {
                 if let Some(b) = self.bool_value(node, key, value) {
                     self.config.settings.lsp_doc = b;

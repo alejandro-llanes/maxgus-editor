@@ -105,6 +105,16 @@ pub struct Settings {
     ///
     /// `lsp-ui-doc` for Emacs. `C-c c k` asks for it whatever this says.
     pub lsp_doc: bool,
+    /// `autocomplete`: offer suggestions while typing, without being asked.
+    ///
+    /// `company-mode` for Emacs. `C-M-i` asks for them whatever this says.
+    pub autocomplete: bool,
+    /// `autocomplete-min-chars`: how much of a word has to be typed before
+    /// suggestions are offered for it.
+    ///
+    /// One would offer them for every letter of every word, which is a list
+    /// of everything the server knows and no help at all.
+    pub autocomplete_min_chars: usize,
     /// `which-key`: after a pause mid-sequence, show what the next key can be.
     ///
     /// Doom's whole leader scheme is meant to be discovered this way rather
@@ -168,6 +178,8 @@ impl Default for Settings {
             session: false,
             gui_font: "JetBrainsMono Nerd Font".into(),
             gui_font_size: 16,
+            autocomplete: true,
+            autocomplete_min_chars: 2,
             lsp_doc: true,
             which_key: true,
             which_key_delay_ms: 400,
@@ -219,6 +231,8 @@ pub const SETTING_NAMES: &[&str] = &[
     "session",
     "gui-font",
     "gui-font-size",
+    "autocomplete",
+    "autocomplete-min-chars",
     "lsp-doc",
     "which-key",
     "which-key-delay-ms",

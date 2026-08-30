@@ -238,6 +238,13 @@ pub struct Editor {
     pub frame: Rect,
     /// The half-typed key sequence, echoed so the user can see where they are.
     pub pending_keys: Option<String>,
+    /// The suggestions on screen, if any.
+    #[cfg(feature = "full")]
+    pub autocomplete: Option<crate::autocomplete::Autocomplete>,
+    /// Where point was when the suggestions now showing were asked for, so
+    /// an idle pause in the same place does not ask again.
+    #[cfg(feature = "full")]
+    pub completions_asked_at: Option<(maxgus_text::BufferId, usize)>,
     /// What the language server said about the symbol under point, and
     /// which line it was about, so the box can sit beside it.
     ///
@@ -401,6 +408,10 @@ impl Editor {
             frame,
             pending_keys: None,
             which_key: None,
+            #[cfg(feature = "full")]
+            autocomplete: None,
+            #[cfg(feature = "full")]
+            completions_asked_at: None,
             #[cfg(feature = "full")]
             doc: None,
             #[cfg(feature = "full")]
@@ -779,6 +790,33 @@ impl Editor {
             self.with_current_buffer(move |b| b.set_point(offset));
         }
     }
+
+    /// Puts a list of suggestions on screen and gives it the keys it needs.
+    ///
+    /// A minor keymap rather than a mode: `C-n` and `RET` mean the list
+    /// while it is up and mean what they always mean the moment it is not,
+    /// which is the whole behaviour someone expects of a popup.
+    #[cfg(feature = "full")]
+    pub fn open_autocomplete(&mut self, list: crate::autocomplete::Autocomplete) {
+        if self.autocomplete.is_none() {
+            self.push_minor_map(
+                crate::keymap::autocomplete_keymap()
+                    .expect("the built-in autocomplete map is well formed"),
+            );
+        }
+        self.autocomplete = Some(list);
+    }
+
+    /// Takes it away, and the keys with it.
+    #[cfg(feature = "full")]
+    pub fn close_autocomplete(&mut self) {
+        if self.autocomplete.take().is_some() {
+            self.remove_minor_map("autocomplete-mode");
+        }
+    }
+
+    #[cfg(not(feature = "full"))]
+    pub fn close_autocomplete(&mut self) {}
 
     /// Moves point in the selected window and its buffer together.
     pub fn move_point_to(&mut self, offset: usize) {

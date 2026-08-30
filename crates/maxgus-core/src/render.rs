@@ -109,6 +109,13 @@ pub fn draw(editor: &Editor, surface: &mut Surface) {
     if let Some(doc) = editor.doc.as_ref() {
         draw_doc(editor, surface, body, doc);
     }
+    // And what could follow what is being typed, at the cursor. Drawn after
+    // the doc box, because a list you are choosing from matters more than a
+    // description of what you have already written.
+    #[cfg(feature = "full")]
+    if let Some(list) = editor.autocomplete.as_ref() {
+        draw_autocomplete(editor, surface, body, list);
+    }
     // What the next key can be, when someone has stopped in the middle of a
     // sequence. Over the windows like the popup, and under the echo area,
     // which is still showing the keys typed so far.
@@ -122,6 +129,133 @@ pub fn draw(editor: &Editor, surface: &mut Surface) {
         }
         None => draw_echo_area(editor, surface, echo),
     }
+}
+
+/// The list of suggestions, at the cursor.
+///
+/// Below the line being typed where there is room and above it where there
+/// is not, and lined up with the word rather than centred, so the list sits
+/// where the eye already is.
+#[cfg(feature = "full")]
+fn draw_autocomplete(
+    editor: &Editor,
+    surface: &mut Surface,
+    body: Rect,
+    list: &crate::autocomplete::Autocomplete,
+) {
+    let window = editor.windows.current();
+    let Some(area) = window.rect.intersect(&body) else {
+        return;
+    };
+    let (text_area, _) = area.split_bottom(1);
+    if text_area.width < 16 || text_area.height < 4 {
+        return;
+    }
+    let (top, shown) = list.visible();
+    let rows: Vec<&crate::autocomplete::Item> = shown.collect();
+    if rows.is_empty() {
+        return;
+    }
+
+    // Wide enough for the widest row, and never more than half the window:
+    // the code being written is the thing being looked at.
+    let widest = rows
+        .iter()
+        .map(|item| item.label.chars().count() + label_extra(item))
+        .max()
+        .unwrap_or(1);
+    let width = (widest + 4).clamp(16, (text_area.width as usize / 2).max(16)) as u16;
+    let width = width.min(text_area.width);
+    let height = rows.len() as u16 + 2;
+
+    // At the cursor, and below it unless the bottom of the window is nearer
+    // than the list is tall.
+    let (cursor_x, cursor_y) = editor.cursor_position();
+    let below = cursor_y.saturating_add(1);
+    let y = match below + height <= text_area.bottom() {
+        true => below,
+        false => cursor_y.saturating_sub(height).max(text_area.y),
+    };
+    // Lined up with the start of the word, pulled back where it would spill
+    // off the right edge.
+    let x = cursor_x
+        .min(text_area.right().saturating_sub(width))
+        .max(text_area.x);
+    let box_area = Rect::new(x, y, width, height.min(text_area.height));
+
+    let theme = &editor.theme;
+    let plain = theme.resolve("default");
+    surface.clear_rect(box_area, plain);
+    draw_border(surface, box_area, theme.resolve("completion-border"));
+    let inner = box_area.inset(1);
+    let selected_face = theme.resolve("completion-selected");
+    let kind_face = theme.resolve("completion-annotation");
+    let detail_face = theme.resolve("shadow");
+
+    for (n, item) in rows.iter().enumerate() {
+        let y = inner.y + n as u16;
+        // `selected_row` counts from the first row on show, which is what
+        // `n` counts too.
+        let chosen = n == list.selected_row();
+        // The selected row is painted across the whole width, so it reads
+        // as a row rather than as a coloured word.
+        if chosen {
+            surface.clear_rect(Rect::new(inner.x, y, inner.width, 1), selected_face);
+        }
+        let base = match chosen {
+            true => selected_face,
+            false => plain,
+        };
+        let mut at = surface.set_string(inner.x + 1, y, &item.label, base, inner.width);
+        // The kind, then whatever of the type fits after it.
+        if !item.kind.is_empty() {
+            let kind = format!(" {}", item.kind);
+            let face = match chosen {
+                true => selected_face,
+                false => kind_face,
+            };
+            at = surface.set_string(at, y, &kind, face, inner.right().saturating_sub(at));
+        }
+        if !item.detail.is_empty() {
+            let face = match chosen {
+                true => selected_face,
+                false => detail_face,
+            };
+            let room = inner.right().saturating_sub(at + 1);
+            if room > 3 {
+                surface.set_string(at, y, &format!(" {}", item.detail), face, room);
+            }
+        }
+    }
+    // How much of the list is off the bottom, so a long one says so.
+    if list.len() > rows.len() {
+        let count = format!("{}/{}", top + list.selected_row() + 1, list.len());
+        let x = inner
+            .right()
+            .saturating_sub(count.chars().count() as u16 + 1);
+        surface.set_string(
+            x,
+            box_area.bottom().saturating_sub(1),
+            &count,
+            theme.resolve("completion-count"),
+            count.chars().count() as u16,
+        );
+    }
+}
+
+/// How much room a row wants beyond its label.
+#[cfg(feature = "full")]
+fn label_extra(item: &crate::autocomplete::Item) -> usize {
+    let kind = match item.kind.is_empty() {
+        true => 0,
+        false => item.kind.chars().count() + 1,
+    };
+    let detail = match item.detail.is_empty() {
+        true => 0,
+        // A long type is cut rather than making the list as wide as it is.
+        false => item.detail.chars().count().min(24) + 1,
+    };
+    kind + detail
 }
 
 /// The box holding what the language server said about a symbol.

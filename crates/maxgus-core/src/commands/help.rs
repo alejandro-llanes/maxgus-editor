@@ -225,6 +225,8 @@ fn setting_value(editor: &Editor, name: &str) -> Option<String> {
         "session" => s.session.to_string(),
         "gui-font" => s.gui_font.clone(),
         "gui-font-size" => s.gui_font_size.to_string(),
+        "autocomplete" => s.autocomplete.to_string(),
+        "autocomplete-min-chars" => s.autocomplete_min_chars.to_string(),
         "lsp-doc" => s.lsp_doc.to_string(),
         "which-key" => s.which_key.to_string(),
         "which-key-delay-ms" => s.which_key_delay_ms.to_string(),

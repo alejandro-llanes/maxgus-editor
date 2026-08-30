@@ -401,7 +401,16 @@ pub enum LspQuery {
     Definition(LspPosition),
     References(LspPosition),
     Hover(LspPosition),
-    Completion(LspPosition),
+    Completion {
+        position: LspPosition,
+        /// True when a key asked for it rather than a pause in typing.
+        ///
+        /// A pause must never insert anything on its own — text nobody
+        /// typed is the worst thing an editor can do — so the automatic
+        /// path always offers a list, while `C-M-i` on a single candidate
+        /// still completes it outright, the way Emacs does.
+        manual: bool,
+    },
     SignatureHelp(LspPosition),
     Rename {
         position: LspPosition,
@@ -435,7 +444,7 @@ impl LspQuery {
             LspQuery::Definition(_) => "finding definition",
             LspQuery::References(_) => "finding references",
             LspQuery::Hover(_) => "describing",
-            LspQuery::Completion(_) => "completing",
+            LspQuery::Completion { .. } => "completing",
             LspQuery::SignatureHelp(_) => "signature help",
             LspQuery::Rename { .. } => "renaming",
             LspQuery::Format { .. } => "formatting",
@@ -885,7 +894,10 @@ mod tests {
             LspQuery::Definition(LspPosition::ZERO),
             LspQuery::References(LspPosition::ZERO),
             LspQuery::Hover(LspPosition::ZERO),
-            LspQuery::Completion(LspPosition::ZERO),
+            LspQuery::Completion {
+                position: LspPosition::ZERO,
+                manual: true,
+            },
             LspQuery::SignatureHelp(LspPosition::ZERO),
             LspQuery::Rename {
                 position: LspPosition::ZERO,

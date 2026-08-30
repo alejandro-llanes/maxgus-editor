@@ -149,6 +149,8 @@ KDL spells booleans `#true` and `#false`, and null `#null`.
 | `session` | bool | `#false` | Remember what is open when the editor leaves, and open it again when it is next started in the same project with no file named. Kept under the state directory, keyed by the project's path. |
 | `gui-font` | string | `"JetBrainsMono Nerd Font"` | The family the window draws with. Falls through a list of installed monospace families when it is not there. Only read when drawing into a window, which a `full` build does unless started with `-nw`. |
 | `gui-font-size` | integer | `16` | Its size in pixels, clamped to 6–96. Physical pixels, so it is the same size on a display that reports a scale as on one that does not. |
+| `autocomplete` | boolean | `#true` | Offer suggestions from the language server while typing, without being asked — `company-mode`. `C-M-i` asks for them whatever this says. `C-n`/`C-p` or the arrows move, `RET` or `TAB` takes one, `C-g` puts them away; every other key goes into the buffer and narrows the list. |
+| `autocomplete-min-chars` | integer | `2` | How much of a word has to be typed before suggestions are offered for it, clamped to 1–10. One would offer them for every letter of every word. |
 | `lsp-doc` | boolean | `#true` | Show what the language server knows about the symbol under point, in a box beside it, once the cursor has rested there — `lsp-ui-doc`. `C-c c k` asks for it whatever this says. |
 | `which-key` | boolean | `#true` | After a pause in the middle of a key sequence, show what the next key can be. |
 | `which-key-delay-ms` | integer | `400` | How long that pause is, capped at 10000. |

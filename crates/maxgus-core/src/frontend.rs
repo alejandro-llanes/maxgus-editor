@@ -18,27 +18,7 @@ use crate::{dispatch::Dispatcher, editor::Editor};
 pub fn after_key(editor: &mut Editor, dispatcher: &mut Dispatcher) {
     replay_macro(editor, dispatcher);
     follow_tree(editor);
-    dismiss_the_doc(editor);
 }
-
-/// The doc box goes as soon as the hand moves.
-///
-/// It reappears by itself once the cursor has rested somewhere new, which is
-/// what makes it a thing that follows the cursor rather than a window that
-/// has to be closed.
-#[cfg(feature = "full")]
-fn dismiss_the_doc(editor: &mut Editor) {
-    let here = (editor.current_buffer_id(), editor.windows.current().point);
-    // Except when the key did not move it — the reply may still be on its
-    // way, and a box that flickers off on every keystroke is worse than one
-    // that stays.
-    if editor.doc_asked_at != Some(here) {
-        editor.doc = None;
-    }
-}
-
-#[cfg(not(feature = "full"))]
-fn dismiss_the_doc(_: &mut Editor) {}
 
 /// Replays the last keyboard macro, if a command asked for it.
 fn replay_macro(editor: &mut Editor, dispatcher: &mut Dispatcher) {
@@ -94,6 +74,50 @@ pub fn on_idle(editor: &mut Editor) {
     editor.sync_language_server(id);
     #[cfg(feature = "full")]
     ask_about_the_symbol_under_point(editor, id);
+    #[cfg(feature = "full")]
+    ask_what_could_follow(editor, id);
+}
+
+/// Asks the language server what could follow what is being typed.
+///
+/// Once per place, like the doc box: an idle pause where nothing has moved
+/// has already been answered. The list that comes back is offered, never
+/// inserted — a pause in typing must not put text in a buffer.
+#[cfg(feature = "full")]
+fn ask_what_could_follow(editor: &mut Editor, id: maxgus_text::BufferId) {
+    if !editor.settings.autocomplete || !editor.settings.lsp_enabled {
+        return;
+    }
+    if !server_running(editor) {
+        return;
+    }
+    let point = editor.windows.current().point;
+    if editor.completions_asked_at == Some((id, point)) {
+        return;
+    }
+    // Enough of a word to be worth asking about. Without this every space
+    // bar asks for the whole of what the server knows.
+    let text = editor.current_buffer().text();
+    let start = crate::autocomplete::word_start(&text, point);
+    if point.saturating_sub(start) < editor.settings.autocomplete_min_chars.max(1) {
+        // And the list that was up is for a word that is no longer there.
+        editor.close_autocomplete();
+        return;
+    }
+    editor.completions_asked_at = Some((id, point));
+    crate::commands::lsp::ask_for_completions(editor);
+}
+
+/// Whether a server has started for this buffer's language — it records the
+/// encoding it negotiated — rather than merely being configured.
+#[cfg(feature = "full")]
+fn server_running(editor: &Editor) -> bool {
+    editor.current_buffer().language().is_some_and(|language| {
+        editor
+            .lsp_encodings
+            .iter()
+            .any(|(name, _)| name == language)
+    })
 }
 
 /// Asks the language server what the symbol under point is, once the cursor
@@ -107,16 +131,9 @@ fn ask_about_the_symbol_under_point(editor: &mut Editor, id: maxgus_text::Buffer
     if !editor.settings.lsp_doc || !editor.settings.lsp_enabled {
         return;
     }
-    // Only where a server has actually started — it records the encoding it
-    // negotiated — or every pause in a plain text file queues a request for
-    // nobody to answer.
-    let running = editor.current_buffer().language().is_some_and(|language| {
-        editor
-            .lsp_encodings
-            .iter()
-            .any(|(name, _)| name == language)
-    });
-    if !running {
+    // Only where a server has actually started, or every pause in a plain
+    // text file queues a request for nobody to answer.
+    if !server_running(editor) {
         return;
     }
     let point = editor.windows.current().point;

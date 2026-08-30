@@ -66,6 +66,26 @@ pub fn register(registry: &mut Registry) {
             restart_server
         ),
         command!(
+            "autocomplete-next",
+            "Move to the next suggestion.",
+            autocomplete_next
+        ),
+        command!(
+            "autocomplete-previous",
+            "Move to the previous suggestion.",
+            autocomplete_previous
+        ),
+        command!(
+            "autocomplete-accept",
+            "Insert the suggestion under the cursor.",
+            autocomplete_accept
+        ),
+        command!(
+            "autocomplete-abort",
+            "Put the suggestions away without taking one.",
+            autocomplete_abort
+        ),
+        command!(
             "completion-at-point",
             "Complete the symbol at point.",
             completion_at_point
@@ -172,7 +192,34 @@ fn describe_thing(editor: &mut Editor, _: &Args) -> Result<()> {
 
 fn completion_at_point(editor: &mut Editor, _: &Args) -> Result<()> {
     let position = point_position(editor, encoding(editor));
-    ask(editor, LspQuery::Completion(position))
+    ask(
+        editor,
+        LspQuery::Completion {
+            position,
+            manual: true,
+        },
+    )
+}
+
+/// Asks what could follow, without saying so.
+///
+/// The idle path into the same question `C-M-i` asks out loud: nobody
+/// pressed anything, so nothing is announced and an answer of "nothing"
+/// passes in silence.
+pub fn ask_for_completions(editor: &mut Editor) {
+    let position = point_position(editor, encoding(editor));
+    let Ok((language, uri)) = document(editor) else {
+        return;
+    };
+    editor.spawn(Task::LspRequest {
+        language,
+        uri,
+        query: LspQuery::Completion {
+            position,
+            manual: false,
+        },
+        announced: false,
+    });
 }
 
 fn rename(editor: &mut Editor, args: &Args) -> Result<()> {
@@ -337,7 +384,7 @@ pub fn apply_response(editor: &mut Editor, query: &LspQuery, result: &serde_json
         LspQuery::Definition(_) => apply_definition(editor, result),
         LspQuery::References(_) => list_locations(editor, "References", result),
         LspQuery::Hover(_) => apply_hover(editor, result),
-        LspQuery::Completion(_) => apply_completion(editor, result),
+        LspQuery::Completion { manual, .. } => apply_completion(editor, result, *manual),
         LspQuery::SignatureHelp(_) => apply_signature_help(editor, result),
         LspQuery::Rename { .. } => {
             apply_workspace_edit(editor, result);
@@ -496,53 +543,192 @@ fn hover_text(result: &serde_json::Value) -> Option<String> {
     (!trimmed.is_empty()).then_some(trimmed)
 }
 
-fn apply_completion(editor: &mut Editor, result: &serde_json::Value) {
+fn apply_completion(editor: &mut Editor, result: &serde_json::Value, manual: bool) {
     // The reply is either a list or an object holding one.
-    let items = result
+    let raw = result
         .get("items")
         .and_then(|v| v.as_array())
         .or_else(|| result.as_array())
         .cloned()
         .unwrap_or_default();
-    let labels: Vec<String> = items
-        .iter()
-        .filter_map(|item| {
-            // `insertText` is what to type; `label` is what to show.
-            item.get("insertText")
-                .or_else(|| item.get("label"))
+    let items: Vec<crate::autocomplete::Item> = raw.iter().filter_map(completion_item).collect();
+    if items.is_empty() {
+        editor.close_autocomplete();
+        if manual {
+            editor.error("No completions");
+        }
+        return;
+    }
+
+    // What has been typed so far, and where it began. The list narrows to
+    // it, and accepting replaces it.
+    editor.sync_to_buffer();
+    let point = editor.current_buffer().point();
+    let start = {
+        let buffer = editor.current_buffer();
+        crate::autocomplete::word_start(&buffer.text(), point)
+    };
+    let prefix: String = {
+        let text = editor.current_buffer().text();
+        text.chars().skip(start).take(point - start).collect()
+    };
+    let buffer = editor.current_buffer_id();
+    let list = crate::autocomplete::Autocomplete::new(buffer, start, &prefix, items);
+    if list.is_empty() {
+        editor.close_autocomplete();
+        if manual {
+            editor.error("No matching completions");
+        }
+        return;
+    }
+    // One candidate and a key that asked for it: complete it and be done.
+    // A pause in typing never inserts anything on its own.
+    if manual && list.len() == 1 {
+        let only = list.selected().expect("one").insert.clone();
+        insert_completion(editor, &prefix, &only);
+        editor.message(format!("Completed to `{only}`"));
+        editor.close_autocomplete();
+        return;
+    }
+    if manual {
+        editor.message(String::new());
+    }
+    editor.open_autocomplete(list);
+}
+
+/// One `CompletionItem` from the wire.
+fn completion_item(item: &serde_json::Value) -> Option<crate::autocomplete::Item> {
+    let label = item.get("label")?.as_str()?.trim().to_string();
+    if label.is_empty() {
+        return None;
+    }
+    // `textEdit` is what a server would rather have typed, then
+    // `insertText`, then the label itself.
+    let insert = item
+        .get("textEdit")
+        .and_then(|e| e.get("newText"))
+        .or_else(|| item.get("insertText"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| label.clone());
+    // The type or signature beside it, wherever this server put it.
+    let detail = item
+        .get("detail")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            item.get("labelDetails")
+                .and_then(|d| d.get("detail"))
                 .and_then(|v| v.as_str())
-                .map(str::to_string)
         })
-        .collect();
-    if labels.is_empty() {
-        editor.error("No completions");
-        return;
+        .unwrap_or_default()
+        .replace('\n', " ")
+        .trim()
+        .to_string();
+    Some(crate::autocomplete::Item {
+        label,
+        insert,
+        kind: completion_kind(item.get("kind").and_then(serde_json::Value::as_u64)),
+        detail,
+    })
+}
+
+/// `CompletionItemKind`, as a word rather than a number.
+fn completion_kind(kind: Option<u64>) -> &'static str {
+    match kind {
+        Some(1) => "text",
+        Some(2) | Some(3) => "function",
+        Some(4) => "constructor",
+        Some(5) => "field",
+        Some(6) => "variable",
+        Some(7) => "class",
+        Some(8) => "interface",
+        Some(9) => "module",
+        Some(10) => "property",
+        Some(11) => "unit",
+        Some(12) => "value",
+        Some(13) => "enum",
+        Some(14) => "keyword",
+        Some(15) => "snippet",
+        Some(16) => "colour",
+        Some(17) => "file",
+        Some(18) => "reference",
+        Some(19) => "folder",
+        Some(21) => "constant",
+        Some(22) => "struct",
+        Some(23) => "event",
+        Some(24) => "operator",
+        Some(25) => "type",
+        _ => "",
     }
-    let prefix = symbol_at_point(editor);
-    let matching: Vec<String> = labels
-        .into_iter()
-        .filter(|l| l.starts_with(&prefix))
-        .collect();
-    if matching.is_empty() {
-        editor.error("No matching completions");
-        return;
+}
+
+fn autocomplete_next(editor: &mut Editor, _: &Args) -> Result<()> {
+    match editor.autocomplete.as_mut() {
+        Some(list) => list.next(),
+        None => return Err(crate::CoreError::Message("No suggestions".into())),
     }
-    // One candidate is inserted outright; several are offered.
-    if matching.len() == 1 {
-        insert_completion(editor, &prefix, &matching[0]);
-        editor.message(format!("Completed to `{}`", matching[0]));
-        return;
+    Ok(())
+}
+
+fn autocomplete_previous(editor: &mut Editor, _: &Args) -> Result<()> {
+    match editor.autocomplete.as_mut() {
+        Some(list) => list.previous(),
+        None => return Err(crate::CoreError::Message("No suggestions".into())),
     }
-    let common = longest_common_prefix(&matching);
-    if common.len() > prefix.len() {
-        insert_completion(editor, &prefix, &common);
+    Ok(())
+}
+
+/// Puts the selected suggestion in, in place of the word being typed.
+fn autocomplete_accept(editor: &mut Editor, _: &Args) -> Result<()> {
+    let Some(list) = editor.autocomplete.as_ref() else {
+        return Err(crate::CoreError::Message("No suggestions".into()));
+    };
+    let Some(item) = list.selected() else {
+        editor.close_autocomplete();
+        return Err(crate::CoreError::Message("No suggestions".into()));
+    };
+    let (start, insert) = (list.start, item.insert.clone());
+    editor.close_autocomplete();
+    editor.sync_to_buffer();
+    let point = editor.current_buffer().point();
+    if start > point {
+        return Ok(());
     }
-    editor.message(format!(
-        "{} completions: {}",
-        matching.len(),
-        preview(&matching)
-    ));
-    editor.completion_candidates = matching;
+    // The whole word goes and the suggestion takes its place, rather than
+    // the tail being appended to what is already there.
+    if editor
+        .with_current_buffer(|b| {
+            b.delete(maxgus_text::Range::new(start, point))?;
+            b.set_point(start);
+            b.insert_at_point(&insert)
+        })
+        .is_err()
+    {
+        editor.error("Buffer is read-only");
+        return Ok(());
+    }
+    editor.sync_from_buffer();
+    editor.follow_point();
+    // Point is now sitting on a word, which is exactly what the idle pause
+    // looks for — so without this it would offer to complete the thing that
+    // has just been completed, a moment after taking it. Marking the place
+    // as asked keeps it quiet until the cursor moves or more is typed.
+    let here = editor.windows.current().point;
+    editor.completions_asked_at = Some((editor.current_buffer_id(), here));
+    Ok(())
+}
+
+fn autocomplete_abort(editor: &mut Editor, _: &Args) -> Result<()> {
+    match editor.autocomplete.is_some() {
+        true => {
+            editor.close_autocomplete();
+            // `C-g` means "not now", not "ask me again in a moment".
+            let here = editor.windows.current().point;
+            editor.completions_asked_at = Some((editor.current_buffer_id(), here));
+            Ok(())
+        }
+        false => Err(crate::CoreError::Message("No suggestions".into())),
+    }
 }
 
 /// Replaces the partial symbol at point with `completion`.
@@ -559,32 +745,6 @@ fn insert_completion(editor: &mut Editor, prefix: &str, completion: &str) {
         return;
     }
     editor.follow_point();
-}
-
-/// The first few of a list, for a one-line message.
-fn preview(items: &[String]) -> String {
-    let shown: Vec<&str> = items.iter().take(5).map(String::as_str).collect();
-    let mut text = shown.join(", ");
-    if items.len() > shown.len() {
-        text.push_str(", ...");
-    }
-    text
-}
-
-fn longest_common_prefix(items: &[String]) -> String {
-    let Some(first) = items.first() else {
-        return String::new();
-    };
-    let mut prefix: Vec<char> = first.chars().collect();
-    for item in &items[1..] {
-        let shared = prefix
-            .iter()
-            .zip(item.chars())
-            .take_while(|(a, b)| **a == *b)
-            .count();
-        prefix.truncate(shared);
-    }
-    prefix.into_iter().collect()
 }
 
 fn apply_signature_help(editor: &mut Editor, result: &serde_json::Value) {
@@ -1129,7 +1289,13 @@ mod tests {
         assert_eq!(queued(&mut e), LspQuery::Hover(LspPosition::new(1, 4)));
 
         run(&mut d, &mut e, "completion-at-point");
-        assert_eq!(queued(&mut e), LspQuery::Completion(LspPosition::new(1, 4)));
+        assert_eq!(
+            queued(&mut e),
+            LspQuery::Completion {
+                position: LspPosition::new(1, 4),
+                manual: true,
+            }
+        );
     }
 
     #[test]
@@ -1549,15 +1715,24 @@ mod tests {
             ),
             (LspQuery::Hover(LspPosition::ZERO), serde_json::Value::Null),
             (
-                LspQuery::Completion(LspPosition::ZERO),
+                LspQuery::Completion {
+                    position: LspPosition::ZERO,
+                    manual: true,
+                },
                 serde_json::json!([{"label": "fnamed"}]),
             ),
             (
-                LspQuery::Completion(LspPosition::ZERO),
+                LspQuery::Completion {
+                    position: LspPosition::ZERO,
+                    manual: true,
+                },
                 serde_json::json!([{"label": "fnalpha"}, {"label": "fnbeta"}]),
             ),
             (
-                LspQuery::Completion(LspPosition::ZERO),
+                LspQuery::Completion {
+                    position: LspPosition::ZERO,
+                    manual: true,
+                },
                 serde_json::json!([]),
             ),
             (
@@ -1645,13 +1820,15 @@ mod tests {
                 query.description()
             );
             // An empty echo area is only allowed when the answer went
-            // somewhere the user can see instead.
+            // somewhere the user can see instead: the doc box, or the list
+            // of suggestions.
             if shown.is_empty() {
-                assert!(
-                    matches!(query, LspQuery::Hover(_)) && e.doc.is_some(),
-                    "`{}` said nothing at all",
-                    query.description()
-                );
+                let elsewhere = match query {
+                    LspQuery::Hover(_) => e.doc.is_some(),
+                    LspQuery::Completion { .. } => e.autocomplete.is_some(),
+                    _ => false,
+                };
+                assert!(elsewhere, "`{}` said nothing at all", query.description());
             }
         }
     }

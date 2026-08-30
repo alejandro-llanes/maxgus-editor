@@ -23,7 +23,7 @@ themes you rewrite in a config file&nbsp; ·&nbsp; a treemacs-style file tree&nb
 <img alt="" src="https://img.shields.io/badge/windows-333?style=flat-square&logo=windows&logoColor=white">
 <img alt="" src="https://img.shields.io/badge/freebsd-333?style=flat-square&logo=freebsd&logoColor=white">
 <img alt="Unsafe" src="https://img.shields.io/badge/unsafe-forbidden-4c9a2a?style=flat-square">
-<img alt="Tests" src="https://img.shields.io/badge/tests-2017-4c9a2a?style=flat-square">
+<img alt="Tests" src="https://img.shields.io/badge/tests-2031-4c9a2a?style=flat-square">
 </p>
 
 <sub><b>No Lisp interpreter. No plugin runtime.</b> ~56,000 lines · fifteen crates · three builds to pick from.</sub>
@@ -120,7 +120,7 @@ $ ./target/release/maxgus
 ### Emacs keys, and they behave like Emacs
 
 **394 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **439 commands**. Prefix
+the panel, tree, magit and terminal maps, driving **443 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -756,6 +756,14 @@ What the window has that a terminal cannot:
   turn of the wheel over one scrolls it without selecting it, so the wheel
   over the file tree moves the file tree.
 - **The system clipboard**, rather than a terminal's guess at one.
+- **Suggestions while you type.** After a couple of letters of a word the
+  language server is asked what could follow, and a list appears at the
+  cursor with each candidate's kind and type beside it. Typing narrows it,
+  `C-n`/`C-p` or the arrows move, `RET` or `TAB` takes one, `C-g` puts it
+  away — and every other key goes into the buffer, which is what makes the
+  list something you type through rather than something you escape from. A
+  pause never inserts anything on its own; only `C-M-i` on a single
+  candidate does that. `set autocomplete=#false` turns it off.
 - **A box beside the symbol under the cursor**, once it has rested there,
   saying what the language server knows about it, the way lsp-ui-doc does.
   What arrives is markdown — a heading, a rule, the parameters, the prose,
@@ -848,7 +856,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**2017 tests.** Unit tests beside the code; session tests that press real keys
+**2031 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

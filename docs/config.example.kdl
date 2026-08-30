@@ -24,6 +24,12 @@ set lsp-enabled=#true
 set lsp-doc=#true                // a box beside the symbol under the cursor,
                                  // once it has rested there; lsp-ui-doc
 
+// Suggestions while typing, from the language server. `C-M-i` asks for
+// them whatever this says; `C-n`/`C-p` move, `RET` or `TAB` takes one,
+// `C-g` puts them away.
+set autocomplete=#true
+set autocomplete-min-chars=2     // letters typed before a list is offered
+
 // After a pause in the middle of `C-x` or `C-c`, a panel says what the
 // next key can be — which is how the leader is meant to be learned.
 set which-key=#true

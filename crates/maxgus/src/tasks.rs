@@ -1396,7 +1396,7 @@ impl Executor {
                 LspQuery::Definition(p) => client.definition(&uri, *p).await,
                 LspQuery::References(p) => client.references(&uri, *p).await,
                 LspQuery::Hover(p) => client.hover(&uri, *p).await,
-                LspQuery::Completion(p) => client.completion(&uri, *p).await,
+                LspQuery::Completion { position, .. } => client.completion(&uri, *position).await,
                 LspQuery::SignatureHelp(p) => client.signature_help(&uri, *p).await,
                 LspQuery::Rename { position, new_name } => {
                     client.rename(&uri, *position, new_name).await

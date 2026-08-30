@@ -2293,16 +2293,29 @@ fn return_on_an_untouched_command_prompt_runs_the_highlighted_one() {
     // `M-x` is the one completing prompt with no default to fall back on: an
     // empty command name answers nothing, so what is highlighted is the only
     // useful reading of `RET`. The prompts that do name a default keep it.
+    // Which command sorts first is not the point and used to be written
+    // down here, so adding one broke this test rather than anything real.
+    // What is asked is that `RET` runs *whatever* is highlighted.
     let mut s = Session::editing("/project/main.rs", "    indented\n");
     s.keys("M-x");
-    assert_eq!(
-        s.editor.minibuffer.completion().current(),
-        Some("back-to-indentation"),
-        "this test runs whatever `M-x` highlights first; teach it the new one"
-    );
+    let highlighted = s
+        .editor
+        .minibuffer
+        .completion()
+        .current()
+        .map(str::to_string)
+        .expect("something is highlighted on an empty prompt");
 
     s.keys("RET");
-    assert_eq!(s.point(), 4, "the highlighted command did not run");
+    assert!(
+        s.editor.minibuffer.completion().is_empty(),
+        "the prompt is still open"
+    );
+    assert_eq!(
+        s.editor.last_command.as_deref(),
+        Some(highlighted.as_str()),
+        "`RET` ran something other than what was highlighted"
+    );
 }
 
 #[test]
@@ -4506,7 +4519,7 @@ fn the_readme_quotes_the_right_totals() {
 #[cfg(feature = "full")]
 const README_BINDINGS: usize = 394;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 439;
+const README_COMMANDS: usize = 443;
 
 #[cfg(feature = "full")]
 #[test]
@@ -6898,4 +6911,125 @@ fn a_doc_near_the_bottom_of_the_window_goes_above_the_line() {
         "the box ran into the echo area at row {bottom}"
     );
     assert!(top < bottom, "the box is upside down");
+}
+
+/// A suggestion list, driven the way someone drives one.
+#[cfg(feature = "full")]
+fn with_suggestions(s: &mut Session, labels: &[&str]) {
+    let items: Vec<maxgus_core::autocomplete::Item> = labels
+        .iter()
+        .map(|l| maxgus_core::autocomplete::Item::new(*l))
+        .collect();
+    let point = s.editor.windows.current().point;
+    let text = s.editor.current_buffer().text();
+    let start = maxgus_core::autocomplete::word_start(&text, point);
+    let prefix: String = text.chars().skip(start).take(point - start).collect();
+    let buffer = s.editor.current_buffer_id();
+    let list = maxgus_core::autocomplete::Autocomplete::new(buffer, start, &prefix, items);
+    s.editor.open_autocomplete(list);
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn the_suggestions_are_drawn_at_the_cursor_and_taken_with_return() {
+    let mut s = Session::editing("/project/main.rs", "");
+    s.type_text("let x = pu");
+    with_suggestions(&mut s, &["push", "push_str", "pop"]);
+
+    let screen = s.screen().join("\n");
+    assert!(screen.contains("push_str"), "no list:\n{screen}");
+    // Beside what is being typed, not in the echo area.
+    let row = s
+        .screen()
+        .iter()
+        .position(|l| l.contains("push_str"))
+        .expect("a row");
+    assert!(row <= 3, "the list is not near the cursor, at row {row}");
+
+    // `C-n` moves, `RET` takes it, and the word being typed is replaced
+    // rather than added to.
+    s.keys("C-n");
+    s.keys("RET");
+    assert_eq!(s.text(), "let x = push_str", "got `{}`", s.text());
+    assert!(
+        s.editor.autocomplete.is_none(),
+        "the list stayed up after being used"
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn typing_narrows_the_list_and_typing_past_it_puts_it_away() {
+    let mut s = Session::editing("/project/main.rs", "");
+    s.type_text("pu");
+    with_suggestions(&mut s, &["push", "push_str", "pop"]);
+    assert_eq!(s.editor.autocomplete.as_ref().map(|l| l.len()), Some(2));
+
+    // A letter goes into the buffer *and* narrows the list: the map takes
+    // only the keys a list needs.
+    s.type_text("s");
+    assert_eq!(s.text(), "pus");
+    assert_eq!(
+        s.editor.autocomplete.as_ref().map(|l| l.len()),
+        Some(2),
+        "`pus` still finds both by subsequence"
+    );
+    s.type_text("h_");
+    assert_eq!(
+        s.editor.autocomplete.as_ref().map(|l| l.len()),
+        Some(1),
+        "`push_` is only one of them"
+    );
+
+    // A space ends the word, and the list with it.
+    s.type_text(" ");
+    assert!(
+        s.editor.autocomplete.is_none(),
+        "the list outlived its word"
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn nothing_matching_puts_the_list_away_rather_than_leaving_it_empty() {
+    let mut s = Session::editing("/project/main.rs", "");
+    s.type_text("pu");
+    with_suggestions(&mut s, &["push", "pop"]);
+    s.type_text("zzz");
+    assert!(s.editor.autocomplete.is_none());
+    assert_eq!(s.text(), "puzzz", "the letters still went in");
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn the_list_gives_its_keys_back_when_it_goes() {
+    // `RET` means the list while it is up and means a newline the moment it
+    // is not. A minor map that outlived the list would eat every `RET`.
+    let mut s = Session::editing("/project/main.rs", "");
+    s.type_text("pu");
+    with_suggestions(&mut s, &["push"]);
+    s.keys("C-g");
+    assert!(s.editor.autocomplete.is_none());
+    s.keys("RET");
+    assert_eq!(s.text(), "pu\n", "`RET` did not insert a newline");
+    s.keys("C-n");
+    assert_eq!(s.text(), "pu\n", "`C-n` typed something instead of moving");
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_long_list_shows_a_window_of_it_and_says_where_in_it_you_are() {
+    let labels: Vec<String> = (0..30).map(|n| format!("item{n:02}")).collect();
+    let borrowed: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let mut s = Session::editing("/project/main.rs", "");
+    s.type_text("it");
+    with_suggestions(&mut s, &borrowed);
+
+    let screen = s.screen().join("\n");
+    assert!(
+        screen.contains("1/30"),
+        "no position in the list:\n{screen}"
+    );
+    let shown = labels.iter().filter(|l| screen.contains(*l)).count();
+    assert_eq!(shown, maxgus_core::autocomplete::ROWS, "got {shown} rows");
 }

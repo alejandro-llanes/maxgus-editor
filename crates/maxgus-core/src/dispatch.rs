@@ -327,6 +327,13 @@ impl Dispatcher {
             }
         };
 
+        // The popups that follow the cursor: the doc box and the list of
+        // suggestions. Here rather than in a front end because they respond
+        // to the command, not to the drawing — a window that forgot to call
+        // them would have a list that never narrowed, and there would be
+        // nothing in the editor to notice.
+        follow_the_cursor(editor);
+
         // A command may hand control straight to another — accepting a prompt
         // re-enters whatever opened it. The chain is bounded so a command that
         // defers to itself cannot spin.
@@ -353,6 +360,68 @@ impl Dispatcher {
         last
     }
 }
+
+/// Keeps the transient popups in step with the buffer, after any command.
+fn follow_the_cursor(editor: &mut Editor) {
+    dismiss_the_doc(editor);
+    narrow_the_suggestions(editor);
+}
+
+/// The doc box goes as soon as the hand moves.
+///
+/// It reappears by itself once the cursor has rested somewhere new, which is
+/// what makes it a thing that follows the cursor rather than a window that
+/// has to be closed.
+#[cfg(feature = "full")]
+fn dismiss_the_doc(editor: &mut Editor) {
+    let here = (editor.current_buffer_id(), editor.windows.current().point);
+    // Except when the command did not move it — the reply may still be on
+    // its way, and a box that flickers off on every keystroke is worse than
+    // one that stays.
+    if editor.doc_asked_at != Some(here) {
+        editor.doc = None;
+    }
+}
+
+#[cfg(not(feature = "full"))]
+fn dismiss_the_doc(_: &mut Editor) {}
+
+/// Keeps the suggestion list in step with what has been typed.
+///
+/// The list stays up while a word is being written and narrows to it —
+/// which is the whole behaviour, and the reason its keymap takes only the
+/// keys a list needs and lets every letter through to the buffer. It goes
+/// when the word does: point left the word, another buffer was selected, or
+/// nothing the server offered survives.
+#[cfg(feature = "full")]
+fn narrow_the_suggestions(editor: &mut Editor) {
+    let Some(list) = editor.autocomplete.as_ref() else {
+        return;
+    };
+    let (buffer, start) = (list.buffer, list.start);
+    if buffer != editor.current_buffer_id() {
+        editor.close_autocomplete();
+        return;
+    }
+    let point = editor.windows.current().point;
+    // Behind where the word began, or off the end of a word that has since
+    // been broken by a space.
+    let text = editor.current_buffer().text();
+    if point < start || crate::autocomplete::word_start(&text, point) != start {
+        editor.close_autocomplete();
+        return;
+    }
+    let prefix: String = text.chars().skip(start).take(point - start).collect();
+    if let Some(list) = editor.autocomplete.as_mut() {
+        list.narrow(&prefix);
+    }
+    if editor.autocomplete.as_ref().is_some_and(|l| l.is_empty()) {
+        editor.close_autocomplete();
+    }
+}
+
+#[cfg(not(feature = "full"))]
+fn narrow_the_suggestions(_: &mut Editor) {}
 
 #[cfg(test)]
 mod tests {

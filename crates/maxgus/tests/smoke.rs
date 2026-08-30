@@ -3090,3 +3090,68 @@ fn describe_grammars_says_what_is_built_in_and_what_is_not() {
     );
     assert_eq!(session.quit(), 0);
 }
+
+/// Suggestions from a real language server, offered without being asked
+/// for, narrowed by typing, and taken with `RET`.
+#[cfg(feature = "full")]
+#[test]
+fn a_language_server_offers_suggestions_while_typing() {
+    if !available("clangd") {
+        eprintln!("skipping: clangd is not installed");
+        return;
+    }
+    let fixture = Fixture::new("autocomplete");
+    let root = fixture.path();
+    std::fs::write(
+        root.join("compile_commands.json"),
+        format!(
+            r#"[{{"directory":"{}","command":"cc -c main.c","file":"main.c"}}]"#,
+            root.display()
+        ),
+    )
+    .unwrap();
+    // A function with a long, distinctive name, and a `main` that is about
+    // to call it.
+    std::fs::write(
+        root.join("main.c"),
+        "int wombat_population(int year) { return year; }\n\nint main(void) {\n    int n = \n}\n",
+    )
+    .unwrap();
+    let config = with_config(
+        &fixture,
+        "set idle-delay-ms=60\nset autocomplete=#true\nset autocomplete-min-chars=2\n         lsp \"c\" command=\"clangd\" {\n    root-markers \"compile_commands.json\"\n}\n",
+    );
+    let mut session = Session::start(root, &["--config", config, "main.c"]);
+    assert!(
+        wait_for(&mut session, "maxgus started in", 60),
+        "no startup"
+    );
+
+    // To the end of `int n = `, then type enough of the name to ask.
+    session.send(b"\x1b>"); // M-> , end of buffer
+    session.send(b"\x10\x10\x05"); // C-p C-p C-e : the end of the `int n =` line
+    session.settle();
+    session.send(b"womb");
+
+    // The list arrives on its own, with the function in it.
+    assert!(
+        wait_for(&mut session, "wombat_population", 200),
+        "nothing was offered:\n{:#?}",
+        session.screen()
+    );
+
+    // `RET` takes it. What was typed is replaced rather than added to, so
+    // the line reads `wombat_population` and not `wombwombat_population`.
+    session.send(b"\r");
+    let taken = wait_for(&mut session, "= wombat_population", 100);
+    let screen = session.screen().join("\n");
+    assert!(taken, "the suggestion was not taken:\n{screen}");
+    assert!(
+        !screen.contains("wombwombat"),
+        "it was appended to what was typed:\n{screen}"
+    );
+    // The buffer has unsaved changes now, so leaving takes the prefix that
+    // says to leave anyway.
+    session.send(b"\x15"); // C-u
+    assert_eq!(session.quit(), 0);
+}

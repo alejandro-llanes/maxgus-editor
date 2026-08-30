@@ -613,7 +613,7 @@ fn wait_for(session: &mut Session, needle: &str, tries: usize) -> bool {
     false
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn a_language_server_reports_diagnostics_and_follows_edits() {
     // The only test that exercises the whole language-server path against a
@@ -1788,7 +1788,7 @@ fn m_x_draws_a_popup_at_the_top_of_a_real_terminal() {
     assert_eq!(session.quit(), 0);
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn a_real_shell_runs_in_the_terminal_panel() {
     // Everything else about the terminal is tested against an emulator fed
@@ -1828,7 +1828,7 @@ fn a_real_shell_runs_in_the_terminal_panel() {
 }
 
 /// Runs git in a directory and returns its output.
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 fn git_in(directory: &std::path::Path, args: &[&str]) -> String {
     let output = std::process::Command::new("git")
         .args(args)
@@ -1838,7 +1838,7 @@ fn git_in(directory: &std::path::Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn a_hunk_is_staged_through_the_running_editor() {
     // The whole chain, with nothing faked: a real repository, the real
@@ -1924,7 +1924,7 @@ fn a_hunk_is_staged_through_the_running_editor() {
     assert_eq!(session.quit(), 0);
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_git_menus_are_driven_from_the_keyboard() {
     // The menus are how magit is used, and a menu that does not take the
@@ -1989,7 +1989,7 @@ fn the_git_menus_are_driven_from_the_keyboard() {
     assert_eq!(session.quit(), 0);
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn a_commit_is_shown_in_full_from_the_log() {
     let fixture = Fixture::new("magit-log");
@@ -2117,7 +2117,7 @@ fn the_panels_windows_are_reached_with_the_ordinary_window_keys() {
     assert_eq!(session.quit(), 0);
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn the_outline_fills_from_a_real_server_without_disturbing_anything() {
     // The panel and `M-x lsp-document-symbols` ask the same question of the
@@ -2233,57 +2233,39 @@ fn the_startup_time_is_reported_when_the_editor_opens() {
     assert_eq!(session.quit(), 0);
 }
 
-/// Every feature combination has to build, not just the two the CI names.
+/// All three builds have to build, not just the one being worked on.
 ///
 /// Ignored by default because it is a build rather than a test — it takes
-/// minutes and needs the network the first time. `cargo test -- --ignored`
-/// runs it, and so does the release workflow.
+/// minutes. `cargo test -- --ignored` runs it, and so does the CI.
 #[test]
 #[ignore]
-fn every_feature_combination_builds() {
-    let combinations: &[&[&str]] = &[
-        &[],
-        &["minimal"],
-        &["syntax"],
-        &["lsp"],
-        &["git"],
-        &["terminal"],
-        &["lsp", "git"],
-        &["syntax", "lsp"],
-        &["git", "terminal"],
-        &["grep"],
-        &["script"],
-        &["full"],
-        &["gui"],
-    ];
-    for features in combinations {
-        let output = std::process::Command::new(env!("CARGO"))
-            .args(["build", "-q", "-p", "maxgus", "--no-default-features"])
-            .args(if features.is_empty() {
-                Vec::new()
-            } else {
-                vec!["--features".to_string(), features.join(",")]
-            })
+fn every_build_builds() {
+    for features in [Some("minimal"), Some("full"), Some("gui")] {
+        let mut command = std::process::Command::new(env!("CARGO"));
+        command.args(["build", "-q", "-p", "maxgus", "--no-default-features"]);
+        if let Some(features) = features {
+            command.args(["--features", features]);
+        }
+        let output = command
             .current_dir(env!("CARGO_MANIFEST_DIR"))
             .output()
             .expect("cargo runs");
         let complaints = String::from_utf8_lossy(&output.stderr);
+        let named = features.unwrap_or("none");
         assert!(
             output.status.success(),
-            "`--features {}` does not build:\n{complaints}",
-            features.join(",")
+            "`--features {named}` does not build:\n{complaints}"
         );
-        // A build that only compiles by accident of a warning is not a build
-        // anyone wants to ship.
+        // A build that only compiles by accident of a warning is not one
+        // anyone should ship.
         assert!(
             !complaints.contains("warning:"),
-            "`--features {}` builds with warnings:\n{complaints}",
-            features.join(",")
+            "`--features {named}` builds with warnings:\n{complaints}"
         );
     }
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn a_project_is_searched_and_the_results_are_edited_back_into_it() {
     // The whole of it against real files: the walk, the ignore rules, the
@@ -2668,7 +2650,7 @@ fn dired_lists_a_real_directory_and_acts_on_what_is_marked() {
     assert_eq!(session.quit(), 0);
 }
 
-#[cfg(feature = "script")]
+#[cfg(feature = "full")]
 #[test]
 fn a_script_beside_the_configuration_defines_a_real_command() {
     // The file being found, loaded, offered by `M-x` and run.
@@ -2741,37 +2723,22 @@ fn a_script_beside_the_configuration_defines_a_real_command() {
 
 #[test]
 fn the_version_says_which_build_this_is() {
-    // Ten binaries that look identical and are not. Which one is running is
-    // the first thing to know when one of them does not do what is expected.
+    // Three binaries that look identical and are not.
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_maxgus"))
         .arg("--version")
         .output()
         .expect("it runs");
     let said = String::from_utf8_lossy(&output.stdout);
     assert!(said.starts_with("maxgus "), "got {said:?}");
-    for (feature, on) in [
-        ("syntax", cfg!(feature = "syntax")),
-        ("lsp", cfg!(feature = "lsp")),
-        ("git", cfg!(feature = "git")),
-        ("terminal", cfg!(feature = "terminal")),
-        ("grep", cfg!(feature = "grep")),
-        ("script", cfg!(feature = "script")),
-    ] {
-        assert_eq!(
-            said.contains(feature),
-            on,
-            "`--version` says {said:?}, which is wrong about `{feature}`"
-        );
-    }
-    // A build with nothing in it says so rather than showing empty brackets.
-    if !cfg!(any(
-        feature = "syntax",
-        feature = "lsp",
-        feature = "git",
-        feature = "terminal",
-        feature = "grep",
-        feature = "script"
-    )) {
-        assert!(said.contains("minimal"), "got {said:?}");
-    }
+    let expected = if cfg!(feature = "gui") {
+        "(gui)"
+    } else if cfg!(feature = "full") {
+        "(full)"
+    } else {
+        "(minimal)"
+    };
+    assert!(
+        said.contains(expected),
+        "`--version` says {said:?}, and this build is {expected}"
+    );
 }

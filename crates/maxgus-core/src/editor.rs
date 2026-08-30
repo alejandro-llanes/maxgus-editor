@@ -47,7 +47,7 @@ pub struct Editor {
     pub pending_overwrite: Option<BufferId>,
     /// The branch the project is on, for the mode line. `None` until the
     /// executor has been able to ask git, and when it is not a repository.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub git_branch: Option<String>,
     /// The theme that was in use before `visit-theme` started previewing, so
     /// abandoning the prompt puts it back.
@@ -67,9 +67,9 @@ pub struct Editor {
     /// The light beside the cursor, while one is showing.
     pub beacon: Option<crate::beacon::Beacon>,
     /// The loaded script, and where it came from.
-    #[cfg(feature = "script")]
+    #[cfg(feature = "full")]
     pub script: Option<maxgus_script::Script>,
-    #[cfg(feature = "script")]
+    #[cfg(feature = "full")]
     pub script_path: Option<PathBuf>,
     /// The directory listing, when one is open.
     pub dired: Option<crate::dired::DiredView>,
@@ -91,13 +91,13 @@ pub struct Editor {
     /// The buffer whose history the visualiser is showing.
     pub undo_tree_subject: Option<BufferId>,
     /// The results of the last project search.
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     pub grep: Option<crate::grep::GrepView>,
     /// The search that produced them, so `g` can run it again.
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     pub grep_search: Option<maxgus_grep::Search>,
     /// What an empty answer at the search prompt means.
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     pub grep_default: Option<String>,
     /// How long the editor took to be ready, measured by whoever started it.
     pub startup_time: Option<std::time::Duration>,
@@ -130,7 +130,7 @@ pub struct Editor {
     /// and popped as the minibuffer, isearch and the tree take over input.
     pub keymaps: KeymapSet,
     /// Diagnostics from every language server, keyed by document URI.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     pub diagnostics: maxgus_lsp::DiagnosticSet,
     /// The incremental search in progress, if any.
     pub isearch: Option<crate::commands::search::Isearch>,
@@ -150,50 +150,50 @@ pub struct Editor {
     pub symbols_height: u16,
     pub buffers_height: u16,
     /// The state of the repository, as the status view shows it.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub git: crate::git::GitView,
     /// The repository the status view is about.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub git_root: Option<PathBuf>,
     /// Branches, for the checkout and merge prompts.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub git_branches: Vec<String>,
     /// Every reference, with what kind it is, for the references view.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub git_references: Vec<maxgus_git::Reference>,
     /// The diff and revision buffers, by name.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub git_diffs: std::collections::HashMap<String, crate::git::DiffView>,
     /// The log, references and process buffers, by name.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub git_lists: std::collections::HashMap<String, crate::git::ListView>,
     /// What git has been asked to do this session, for the process buffer.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub git_history: Vec<(String, String)>,
     /// Which buffer the answer being waited for belongs in.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub git_pending_view: Option<&'static str>,
     /// True while the commit buffer is amending rather than committing.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub committing_amend: bool,
     /// The switches the commit menu had on, kept until the message is done.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub committing_arguments: Vec<String>,
     /// The menu showing, if one is.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub transient: Option<crate::transient::Active>,
     /// Switches the menu was holding when it ran a command, for that command
     /// to read. Cleared when the next menu opens.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub transient_arguments: Vec<String>,
     /// Terminal tabs, and which of them is showing.
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     pub terminals: crate::terminal::Terminals,
     /// The window the terminal panel is drawn in, when it is open.
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     pub terminal_window: Option<WindowId>,
     /// How tall the terminal panel is, in rows.
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     pub terminal_height: u16,
     /// Whether the tree is showing dotfiles, for the header line.
     pub tree_shows_hidden: bool,
@@ -221,14 +221,14 @@ pub struct Editor {
     /// Command documentation, for `describe-function`.
     pub command_docs: Vec<(String, String)>,
     /// The position encoding each running language server negotiated.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     pub lsp_encodings: Vec<(String, maxgus_lsp::PositionEncoding)>,
     /// The buffer revision each language server was last told about, so a
     /// change notification is sent exactly when the document has moved on.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     pub lsp_versions: std::collections::HashMap<BufferId, u64>,
     /// A jump waiting on a file to be read, applied once it arrives.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     pub pending_jump: Option<(PathBuf, maxgus_lsp::LspPosition)>,
     /// Keymaps defined for a major mode by the configuration, activated when
     /// a buffer of that mode is selected.
@@ -247,7 +247,7 @@ pub struct Editor {
     ///
     /// A stale entry is still drawn — colours a keystroke behind are better
     /// than none — and replaced when the re-parse comes back.
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     pub highlights: std::collections::HashMap<
         BufferId,
         (u64, std::ops::Range<usize>, Vec<maxgus_syntax::Highlight>),
@@ -280,7 +280,7 @@ impl Editor {
             theme,
             theme_specs: Vec::new(),
             pending_overwrite: None,
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             git_branch: None,
             theme_before_preview: None,
             config_path: None,
@@ -288,9 +288,9 @@ impl Editor {
             config_says_theme: None,
             pending_line: None,
             beacon: None,
-            #[cfg(feature = "script")]
+            #[cfg(feature = "full")]
             script: None,
-            #[cfg(feature = "script")]
+            #[cfg(feature = "full")]
             script_path: None,
             dired: None,
             snippets: Vec::new(),
@@ -301,11 +301,11 @@ impl Editor {
             editor_configs: std::collections::HashMap::new(),
             cursors: crate::multi::Cursors::new(),
             undo_tree_subject: None,
-            #[cfg(feature = "grep")]
+            #[cfg(feature = "full")]
             grep: None,
-            #[cfg(feature = "grep")]
+            #[cfg(feature = "full")]
             grep_search: None,
-            #[cfg(feature = "grep")]
+            #[cfg(feature = "full")]
             grep_default: None,
             startup_time: None,
             tasks: TaskQueue::new(),
@@ -322,41 +322,41 @@ impl Editor {
             panel_windows: Vec::new(),
             symbols_height,
             buffers_height,
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             git: crate::git::GitView::new(),
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             git_root: None,
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             git_branches: Vec::new(),
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             git_references: Vec::new(),
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             git_diffs: std::collections::HashMap::new(),
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             git_lists: std::collections::HashMap::new(),
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             git_history: Vec::new(),
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             git_pending_view: None,
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             committing_amend: false,
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             committing_arguments: Vec::new(),
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             transient: None,
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             transient_arguments: Vec::new(),
-            #[cfg(feature = "terminal")]
+            #[cfg(feature = "full")]
             terminals: crate::terminal::Terminals::new(),
-            #[cfg(feature = "terminal")]
+            #[cfg(feature = "full")]
             terminal_window: None,
-            #[cfg(feature = "terminal")]
+            #[cfg(feature = "full")]
             terminal_height: 14,
             deferred: None,
             keymaps: KeymapSet::new(
                 crate::keymap::global_keymap().expect("the built-in global map is well formed"),
             ),
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             diagnostics: maxgus_lsp::DiagnosticSet::new(),
             isearch: None,
             query_replace: None,
@@ -373,17 +373,17 @@ impl Editor {
             suspend: false,
             command_names: Vec::new(),
             command_docs: Vec::new(),
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             lsp_encodings: Vec::new(),
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             lsp_versions: std::collections::HashMap::new(),
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             pending_jump: None,
             mode_keymaps: Vec::new(),
             frame,
             pending_keys: None,
             text_cache: None,
-            #[cfg(feature = "syntax")]
+            #[cfg(feature = "full")]
             highlights: std::collections::HashMap::new(),
         };
         editor.sync_from_buffer();
@@ -610,11 +610,11 @@ impl Editor {
     /// ask — which one is the file being edited in — need the same answer
     /// either way rather than a `cfg` at each of them.
     pub fn terminal_pane(&self) -> Option<WindowId> {
-        #[cfg(feature = "terminal")]
+        #[cfg(feature = "full")]
         {
             self.terminal_window
         }
-        #[cfg(not(feature = "terminal"))]
+        #[cfg(not(feature = "full"))]
         {
             None
         }
@@ -798,7 +798,7 @@ impl Editor {
     }
 
     /// True when a script defined a command by this name.
-    #[cfg(feature = "script")]
+    #[cfg(feature = "full")]
     pub fn has_script_command(&self, name: &str) -> bool {
         self.script
             .as_ref()
@@ -806,7 +806,7 @@ impl Editor {
     }
 
     /// Takes a freshly loaded script, and offers its commands to `M-x`.
-    #[cfg(feature = "script")]
+    #[cfg(feature = "full")]
     pub fn set_script(&mut self, script: maxgus_script::Script) {
         // Whatever the last script offered is no longer on offer.
         if let Some(previous) = self.script.take() {
@@ -1037,7 +1037,7 @@ impl Editor {
         let window = self.windows.current();
         // A terminal draws its own cursor position, which is the program's
         // rather than a buffer's — and in reading mode it is the reader's.
-        #[cfg(feature = "terminal")]
+        #[cfg(feature = "full")]
         if Some(window.id) == self.terminal_window
             && let Some(terminal) = self.terminals.current()
         {
@@ -1107,7 +1107,7 @@ impl Editor {
         // Every magit buffer shares one keymap, as magit's do: `q`, `g`, `n`
         // and the menus mean the same thing in all of them, and the commands
         // that differ ask which buffer they are in.
-        #[cfg(feature = "git")]
+        #[cfg(feature = "full")]
         {
             if crate::commands::git::MAGIT_BUFFERS.contains(&buffer.name()) {
                 return Some(crate::commands::git::GIT_MODE.to_string());
@@ -1122,7 +1122,7 @@ impl Editor {
         if buffer.name() == crate::commands::undo_tree::VISUALIZER_BUFFER_NAME {
             return Some(crate::commands::undo_tree::VISUALIZER_MODE.to_string());
         }
-        #[cfg(feature = "grep")]
+        #[cfg(feature = "full")]
         if buffer.name() == crate::commands::grep::GREP_BUFFER_NAME {
             let writing = self.grep.as_ref().is_some_and(|view| view.editable);
             return Some(
@@ -1135,7 +1135,7 @@ impl Editor {
         }
         // A terminal has two: one where the keys go to the shell, and one
         // where they move a cursor over what the shell has already written.
-        #[cfg(feature = "terminal")]
+        #[cfg(feature = "full")]
         if buffer.name() == crate::commands::terminal::TERMINAL_BUFFER_NAME {
             let reading = self.terminals.current().is_some_and(|t| t.in_copy_mode());
             return Some(
@@ -1178,21 +1178,21 @@ impl Editor {
         // The built-in maps, which configuration adds to rather than replaces
         // — rebinding one key should not cost every other binding in the mode.
         let built_in = match name {
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             crate::commands::git::GIT_MODE => crate::keymap::magit_keymap().ok(),
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             crate::commands::git::COMMIT_MODE => crate::keymap::commit_keymap().ok(),
-            #[cfg(feature = "grep")]
+            #[cfg(feature = "full")]
             crate::commands::grep::GREP_MODE => crate::keymap::grep_keymap().ok(),
-            #[cfg(feature = "grep")]
+            #[cfg(feature = "full")]
             crate::commands::grep::GREP_EDIT_MODE => crate::keymap::grep_edit_keymap().ok(),
             crate::commands::dired::DIRED_MODE => crate::keymap::dired_keymap().ok(),
             crate::commands::undo_tree::VISUALIZER_MODE => crate::keymap::undo_tree_keymap().ok(),
             crate::commands::tree::SYMBOLS_MODE => crate::keymap::symbols_keymap().ok(),
             crate::commands::tree::BUFFERS_MODE => crate::keymap::buffers_keymap().ok(),
-            #[cfg(feature = "terminal")]
+            #[cfg(feature = "full")]
             crate::commands::terminal::TERMINAL_MODE => crate::keymap::terminal_keymap().ok(),
-            #[cfg(feature = "terminal")]
+            #[cfg(feature = "full")]
             crate::commands::terminal::TERMINAL_COPY_MODE => {
                 crate::keymap::terminal_copy_keymap().ok()
             }
@@ -1415,7 +1415,7 @@ impl Editor {
         self.follow_point();
         // A program in a terminal has to be told, or it goes on drawing to
         // the shape the window used to be.
-        #[cfg(feature = "terminal")]
+        #[cfg(feature = "full")]
         self.resize_terminals();
     }
 
@@ -1432,7 +1432,7 @@ impl Editor {
     /// The project's root: what git calls the top of the tree, else the
     /// directory the file tree is rooted at, else where the editor started.
     pub fn project_root(&self) -> PathBuf {
-        #[cfg(feature = "git")]
+        #[cfg(feature = "full")]
         if let Some(root) = self.git_root.clone() {
             return root;
         }
@@ -1577,7 +1577,7 @@ impl Editor {
                 {
                     self.go_to_line(line);
                 }
-                #[cfg(feature = "lsp")]
+                #[cfg(feature = "full")]
                 if let Some((waiting, position)) = self.pending_jump.take() {
                     if waiting == path {
                         let offset = crate::position::offset_of_position(
@@ -1611,7 +1611,7 @@ impl Editor {
                 // the first frame it is drawn in.
                 self.set_editor_config(id, editor_config);
                 self.request_highlighting(id);
-                #[cfg(feature = "lsp")]
+                #[cfg(feature = "full")]
                 self.request_language_server(id);
                 Ok(())
             }
@@ -1623,7 +1623,7 @@ impl Editor {
             } => {
                 // A save is as good a moment as any to notice the branch has
                 // moved — a checkout between edits is the usual way it does.
-                #[cfg(feature = "git")]
+                #[cfg(feature = "full")]
                 if let Some(root) = self.tree_root.clone() {
                     self.spawn(crate::task::Task::GitBranch { root });
                 }
@@ -1684,14 +1684,14 @@ impl Editor {
                 self.message(format!("Theme {theme}, written to {}", path.display()));
                 Ok(())
             }
-            #[cfg(feature = "grep")]
+            #[cfg(feature = "full")]
             TaskResult::GrepFinished { pattern, found } => {
                 if let Err(error) = crate::commands::grep::show(self, &pattern, found) {
                     self.error(error.to_string());
                 }
                 Ok(())
             }
-            #[cfg(feature = "grep")]
+            #[cfg(feature = "full")]
             TaskResult::GrepApplied { applied, paths } => {
                 // The buffers for the files that were written are stale now,
                 // and a buffer showing an old copy of a file that has just
@@ -1722,7 +1722,7 @@ impl Editor {
                 self.spawn(crate::task::Task::Dired { path: relist });
                 Ok(())
             }
-            #[cfg(feature = "script")]
+            #[cfg(feature = "full")]
             TaskResult::ScriptRead { source, path } => {
                 self.script_path = Some(path);
                 match maxgus_script::Script::load(&source) {
@@ -1741,12 +1741,12 @@ impl Editor {
                 self.message(format!("Session saved to {}", path.display()));
                 Ok(())
             }
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             TaskResult::GitBranch { branch } => {
                 self.git_branch = branch;
                 Ok(())
             }
-            #[cfg(feature = "syntax")]
+            #[cfg(feature = "full")]
             TaskResult::Reparsed {
                 buffer,
                 revision,
@@ -1764,7 +1764,7 @@ impl Editor {
                 }
                 Ok(())
             }
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             TaskResult::LanguageServerStarted { language, encoding } => {
                 // Which servers are up is not idle bookkeeping: the panel's
                 // symbol section is hidden entirely when there is nothing to
@@ -1778,7 +1778,7 @@ impl Editor {
                 self.sync_panel_sections();
                 Ok(())
             }
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             TaskResult::LanguageServerStopped { language } => {
                 self.lsp_encodings.retain(|(name, _)| *name != language);
                 if !self.symbols_available() {
@@ -1788,7 +1788,7 @@ impl Editor {
                 }
                 Ok(())
             }
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             TaskResult::GitRefreshed(snapshot) => {
                 let snapshot = *snapshot;
                 self.git_root = Some(snapshot.root);
@@ -1809,7 +1809,7 @@ impl Editor {
                 self.render_git_buffer();
                 Ok(())
             }
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             TaskResult::GitLog { title, commits } => {
                 let view = crate::git::ListView::from_log(title, &commits);
                 let name = self
@@ -1818,7 +1818,7 @@ impl Editor {
                     .unwrap_or(crate::commands::git::LOG_BUFFER_NAME);
                 self.open_git_list(name, view)
             }
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             TaskResult::GitDiff {
                 title,
                 preamble,
@@ -1835,7 +1835,7 @@ impl Editor {
                     .unwrap_or(crate::commands::git::DIFF_BUFFER_NAME);
                 self.open_git_diff(name, view)
             }
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             TaskResult::GitDone {
                 action,
                 command,
@@ -1850,7 +1850,7 @@ impl Editor {
                 });
                 Ok(())
             }
-            #[cfg(feature = "terminal")]
+            #[cfg(feature = "full")]
             TaskResult::TerminalOutput { terminal, bytes } => {
                 if let Some(tab) = self.terminals.get_mut(terminal) {
                     tab.receive(&bytes);
@@ -1867,7 +1867,7 @@ impl Editor {
                 }
                 Ok(())
             }
-            #[cfg(feature = "terminal")]
+            #[cfg(feature = "full")]
             TaskResult::TerminalExited { terminal, status } => {
                 if let Some(tab) = self.terminals.get_mut(terminal) {
                     tab.exited = Some(status);
@@ -1878,7 +1878,7 @@ impl Editor {
                 }
                 Ok(())
             }
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             TaskResult::Diagnostics { uri, diagnostics } => {
                 self.diagnostics.replace(uri, diagnostics);
                 Ok(())
@@ -1896,7 +1896,7 @@ impl Editor {
         }
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     /// Folds a language server's answer into editor state.
     pub fn apply_lsp_response(&mut self, result: crate::task::TaskResult) {
         match result {
@@ -1945,7 +1945,7 @@ impl Editor {
             .unwrap_or_default()
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     /// The highlight spans for `buffer`, empty when none have been computed.
     pub fn highlights_for(&self, buffer: BufferId) -> &[maxgus_syntax::Highlight] {
         self.highlights
@@ -1953,7 +1953,7 @@ impl Editor {
             .map_or(&[], |(_, _, spans)| spans.as_slice())
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     /// True when the highlighting for `buffer` is behind its contents, or does
     /// not reach as far as the window now shows.
     pub fn highlights_are_stale(&self, buffer: BufferId) -> bool {
@@ -2006,7 +2006,7 @@ impl Editor {
     /// Forgets a buffer's highlighting, as killing it should.
     pub fn forget_highlights(&mut self, buffer: BufferId) {
         let _ = buffer;
-        #[cfg(feature = "syntax")]
+        #[cfg(feature = "full")]
         {
             self.highlights.remove(&buffer);
         }
@@ -2131,7 +2131,7 @@ impl Editor {
     /// Always false in a build with no language server in it, so the panel
     /// leaves the outline window out without having to know why.
     pub fn symbols_available(&self) -> bool {
-        #[cfg(feature = "lsp")]
+        #[cfg(feature = "full")]
         {
             let Some(buffer) = self.editing_buffer() else {
                 return false;
@@ -2143,7 +2143,7 @@ impl Editor {
                 .language()
                 .is_some_and(|language| self.lsp_encodings.iter().any(|(name, _)| name == language))
         }
-        #[cfg(not(feature = "lsp"))]
+        #[cfg(not(feature = "full"))]
         false
     }
 
@@ -2172,7 +2172,7 @@ impl Editor {
 
     /// Asks the server for the outline of the buffer the panel is following.
     pub fn request_document_symbols(&mut self) {
-        #[cfg(feature = "lsp")]
+        #[cfg(feature = "full")]
         {
             if !self.panel.is_enabled(crate::panel::PanelSection::Symbols)
                 || self.panel_windows.is_empty()
@@ -2248,7 +2248,7 @@ impl Editor {
             return;
         }
         self.panel.forget_symbols();
-        #[cfg(feature = "lsp")]
+        #[cfg(feature = "full")]
         self.request_document_symbols();
         self.sync_panel_sections();
         self.render_symbols_buffer();
@@ -2256,7 +2256,7 @@ impl Editor {
 
     // ---- the git views --------------------------------------------------
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// The tags there are, for the tag prompts.
     pub fn git_tags(&self) -> Vec<String> {
         self.git_references
@@ -2266,7 +2266,7 @@ impl Editor {
             .collect()
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// What git has been asked to do, as a buffer to read.
     pub fn git_process_view(&self) -> crate::git::ListView {
         let mut lines = Vec::new();
@@ -2294,7 +2294,7 @@ impl Editor {
         }
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// Shows a list view in its own buffer.
     pub fn open_git_list(&mut self, name: &'static str, view: crate::git::ListView) -> Result<()> {
         let id = self.read_only_buffer(name);
@@ -2310,13 +2310,13 @@ impl Editor {
         Ok(())
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// Shows a diff view in its own buffer, point at the top.
     pub fn open_git_diff(&mut self, name: &'static str, view: crate::git::DiffView) -> Result<()> {
         self.open_git_diff_showing(name, view, None)
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// Shows a diff view, putting point on `keep` if that row is still there.
     ///
     /// Folding re-lays-out the whole buffer, so the line a row was on means
@@ -2345,7 +2345,7 @@ impl Editor {
     }
 
     /// A buffer the editor writes and the user only reads.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     fn read_only_buffer(&mut self, name: &str) -> BufferId {
         match self.buffers.find_by_name(name) {
             Some(id) => id,
@@ -2360,27 +2360,27 @@ impl Editor {
         }
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// The list view the current buffer is showing, if it is one.
     pub fn git_list(&self) -> Option<&crate::git::ListView> {
         self.git_lists.get(self.current_buffer().name())
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// The diff view the current buffer is showing, if it is one.
     pub fn git_diff_view(&self) -> Option<&crate::git::DiffView> {
         self.git_diffs.get(self.current_buffer().name())
     }
 
     /// What the line point is on in a list view refers to.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub fn git_list_target(&self) -> Option<String> {
         let view = self.git_list()?;
         let line = self.current_buffer().line_of(self.windows.current().point);
         view.lines.get(line)?.target.clone()
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// Rewrites the status buffer from the view.
     ///
     /// Point comes back to the *row* it was on rather than the line: folding
@@ -2404,7 +2404,7 @@ impl Editor {
         self.move_git_cursor_to_line(line);
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// The text of one status row, which is what point moves through.
     ///
     /// Deliberately plain: the faces and the alignment are the drawing's
@@ -2466,12 +2466,12 @@ impl Editor {
         }
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub fn git_row_at_cursor(&self) -> Option<&crate::git::Row> {
         self.git.row(self.git_cursor_line())
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub fn git_cursor_line(&self) -> usize {
         match self
             .buffers
@@ -2482,7 +2482,7 @@ impl Editor {
         }
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     pub fn move_git_cursor_to_line(&mut self, line: usize) {
         let Some(id) = self
             .buffers
@@ -2508,7 +2508,7 @@ impl Editor {
         }
     }
 
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     /// The size the terminal panel gives a program, in rows and columns.
     ///
     /// One row of the panel is the tab bar and one is the mode line, so what
@@ -2523,7 +2523,7 @@ impl Editor {
         (rows, columns)
     }
 
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     /// Tells every terminal, and every program in one, the new size.
     pub fn resize_terminals(&mut self) {
         if self.terminal_window.is_none() {
@@ -2645,7 +2645,7 @@ impl Editor {
     /// language and highlighting is switched on.
     pub fn request_highlighting(&mut self, id: BufferId) {
         let _ = id;
-        #[cfg(feature = "syntax")]
+        #[cfg(feature = "full")]
         {
             if !self.settings.syntax_highlighting {
                 return;
@@ -2668,7 +2668,7 @@ impl Editor {
         }
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     /// Opens the buffer to its language server, starting one if needed.
     pub fn request_language_server(&mut self, id: BufferId) {
         if !self.settings.lsp_enabled {
@@ -2697,7 +2697,7 @@ impl Editor {
         self.lsp_versions.insert(id, version as u64);
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     /// The language and document URI of `buffer`, when it has a server to talk
     /// to at all.
     fn lsp_document(&self, buffer: BufferId) -> Option<(String, String)> {
@@ -2717,12 +2717,12 @@ impl Editor {
     /// the user types, and everything it says afterwards is about the wrong
     /// text. Returns whether a notification was queued.
     pub fn sync_language_server(&mut self, buffer: BufferId) -> bool {
-        #[cfg(not(feature = "lsp"))]
+        #[cfg(not(feature = "full"))]
         {
             let _ = buffer;
             false
         }
-        #[cfg(feature = "lsp")]
+        #[cfg(feature = "full")]
         {
             let Some((language, uri)) = self.lsp_document(buffer) else {
                 return false;
@@ -2752,7 +2752,7 @@ impl Editor {
     /// Tells the language server a buffer was saved.
     pub fn notify_saved(&mut self, buffer: BufferId) {
         let _ = buffer;
-        #[cfg(feature = "lsp")]
+        #[cfg(feature = "full")]
         {
             // A save is only meaningful for a document the server knows about.
             if !self.lsp_versions.contains_key(&buffer) {
@@ -2767,7 +2767,7 @@ impl Editor {
     /// Tells the language server a buffer is gone, and forgets its version.
     pub fn notify_closed(&mut self, buffer: BufferId) {
         let _ = buffer;
-        #[cfg(feature = "lsp")]
+        #[cfg(feature = "full")]
         {
             if self.lsp_versions.remove(&buffer).is_none() {
                 return;
@@ -2916,13 +2916,13 @@ impl Editor {
         }
 
         // From here to the right edge.
-        #[cfg(feature = "lsp")]
+        #[cfg(feature = "full")]
         for mut segment in self.diagnostic_segments(buffer) {
             segment.right = true;
             out.push(segment);
         }
 
-        #[cfg(feature = "git")]
+        #[cfg(feature = "full")]
         if let Some(branch) = &self.git_branch {
             let glyph = if icons {
                 format!("{} ", crate::icons::BRANCH)
@@ -2956,9 +2956,9 @@ impl Editor {
         let Some(path) = buffer.path() else {
             return buffer.name().to_string();
         };
-        #[cfg(feature = "git")]
+        #[cfg(feature = "full")]
         let root = self.git_root.as_ref().or(self.tree_root.as_ref());
-        #[cfg(not(feature = "git"))]
+        #[cfg(not(feature = "full"))]
         let root = self.tree_root.as_ref();
         let Some(root) = root else {
             return buffer.name().to_string();
@@ -2974,7 +2974,7 @@ impl Editor {
         }
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     /// The error and warning counts, each in its own colour.
     fn diagnostic_segments(&self, buffer: &Buffer) -> Vec<ModeLineSegment> {
         let Some(path) = buffer.path() else {
@@ -3409,7 +3409,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[test]
     fn killing_a_buffer_forgets_the_highlights_it_had() {
         // The ordinary case, and the one the late-result guard does *not*
@@ -3442,7 +3442,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[test]
     fn highlights_for_a_buffer_that_is_still_alive_are_filed_normally() {
         // The other half: a guard that drops everything protects nothing.
@@ -3470,7 +3470,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[test]
     fn highlights_for_a_buffer_killed_mid_parse_are_not_filed_against_it() {
         // The parse is already running when the buffer is killed, so its
@@ -3667,13 +3667,13 @@ mod tests {
         let mut e = editor();
         let id = e.buffers.visit_file(path, text);
         e.switch_to_buffer(id).unwrap();
-        #[cfg(feature = "lsp")]
+        #[cfg(feature = "full")]
         e.request_language_server(id);
         e.tasks.drain();
         (e, id)
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn opening_a_file_records_the_version_the_server_was_told() {
         let (e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
@@ -3683,7 +3683,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn an_edit_is_reported_to_the_language_server() {
         let (mut e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
@@ -3703,7 +3703,7 @@ mod tests {
         assert_eq!(version as u64, e.current_buffer().revision());
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn the_same_edit_is_not_reported_twice() {
         let (mut e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
@@ -3739,7 +3739,7 @@ mod tests {
         assert!(e.tasks.is_empty());
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn saving_tells_the_server_the_file_is_on_disk() {
         let (mut e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
@@ -3757,7 +3757,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "lsp", feature = "syntax"))]
+    #[cfg(feature = "full")]
     #[test]
     fn killing_a_buffer_closes_its_document_and_drops_its_highlighting() {
         let (mut e, id) = editor_visiting("/project/main.rs", "fn main() {}\n");
@@ -3791,7 +3791,7 @@ mod tests {
 
     /// An editor showing a file long enough that the window covers only part
     /// of it, with the opening tasks drained.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     fn editor_with_long_file() -> (Editor, BufferId) {
         let text: String = (0..2_000).map(|n| format!("line {n}\n")).collect();
         let mut e = editor();
@@ -4060,7 +4060,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[test]
     fn highlighting_is_asked_for_only_around_what_the_window_shows() {
         let (mut e, id) = editor_with_long_file();
@@ -4080,7 +4080,7 @@ mod tests {
         assert!(range.end > 0);
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[test]
     fn scrolling_past_the_highlighted_region_asks_for_more() {
         let (mut e, id) = editor_with_long_file();
@@ -4098,7 +4098,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[test]
     fn scrolling_within_the_margin_does_not_ask_again() {
         let (mut e, id) = editor_with_long_file();
@@ -4115,7 +4115,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[test]
     fn an_edit_makes_the_highlighting_stale_wherever_the_window_is() {
         let (mut e, id) = editor_with_long_file();

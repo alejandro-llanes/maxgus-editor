@@ -47,22 +47,21 @@ required-features = ["full"]
 [features]
 default = ["full"]
 
-# The editor and the treefile, and nothing that needs a subprocess, a grammar
-# or a protocol. Builds in a fraction of the time and makes a much smaller
-# binary — the tree-sitter grammars alone are most of both.
-minimal = []
+# The editor and the treefile: no tree-sitter grammars, no language server,
+# no magit, no terminal, no project search, no scripting. Builds in a
+# fraction of the time and makes a much smaller binary.
+minimal = ["maxgus-core/minimal"]
 
-# Everything: tree-sitter highlighting, the language-server client, magit and
-# the terminal panel.
-full = ["syntax", "lsp", "git", "terminal", "grep", "script"]
+# Everything.
+full = [
+    "maxgus-core/full",
+    "dep:maxgus-syntax",
+    "dep:maxgus-lsp",
+    "dep:maxgus-git",
+    "dep:maxgus-grep",
+    "dep:maxgus-term",
+    "dep:portable-pty",
+]
 
-# One subsystem at a time, for a build that wants some of them.
-syntax = ["maxgus-core/syntax", "dep:maxgus-syntax"]
-lsp = ["maxgus-core/lsp", "dep:maxgus-lsp"]
-git = ["maxgus-core/git", "dep:maxgus-git"]
-grep = ["maxgus-core/grep", "dep:maxgus-grep"]
-script = ["maxgus-core/script"]
-terminal = ["maxgus-core/terminal", "dep:maxgus-term", "dep:portable-pty"]
-
-# Everything in `full`, drawn in a window by the GPU as well as in a terminal.
+# Everything, and a window drawn by the GPU as well as a terminal.
 gui = ["full", "dep:maxgus-gui", "maxgus-gui/full"]

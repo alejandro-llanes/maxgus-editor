@@ -119,7 +119,7 @@ impl App {
     }
 
     fn apply(&mut self, result: TaskResult) {
-        #[cfg(feature = "lsp")]
+        #[cfg(feature = "full")]
         if let TaskResult::LspResponse { .. } | TaskResult::LspApplyEdit { .. } = &result {
             self.editor.apply_lsp_response(result);
             return;

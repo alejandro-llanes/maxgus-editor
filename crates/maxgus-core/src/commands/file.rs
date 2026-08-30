@@ -935,7 +935,7 @@ mod tests {
         assert!(e.minibuffer.display().contains("new.rs"));
     }
 
-    #[cfg(all(feature = "lsp", feature = "syntax"))]
+    #[cfg(feature = "full")]
     #[test]
     fn opening_a_file_asks_for_highlighting_and_a_language_server() {
         let (_d, mut e) = setup();
@@ -1302,7 +1302,7 @@ mod tests {
         assert!(e.minibuffer.display().contains("No such file"));
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn diagnostics_results_are_stored_against_their_document() {
         let (_d, mut e) = setup();

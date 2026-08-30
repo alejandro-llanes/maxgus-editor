@@ -8,29 +8,29 @@
 
 use anyhow::Result;
 use maxgus_config::{LspSpec, TreeConfig};
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 use maxgus_core::task::LspQuery;
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 use maxgus_core::task::TerminalId;
 use maxgus_core::task::{EditorConfig, Task, TaskResult, TreeAction};
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 use maxgus_core::task::{GitAction, GitSnapshot};
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 use maxgus_lsp::{Client, ServerEvent};
-#[cfg(feature = "syntax")]
+#[cfg(feature = "full")]
 use maxgus_syntax::Highlighter;
 use maxgus_tree::FileTree;
-#[cfg(any(feature = "syntax", feature = "lsp", feature = "terminal"))]
+#[cfg(feature = "full")]
 use std::collections::HashMap;
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// A buffer's parser, and the text its tree describes.
-#[cfg(feature = "syntax")]
+#[cfg(feature = "full")]
 struct BufferSyntax {
     language: String,
     highlighter: Highlighter,
@@ -48,24 +48,24 @@ pub struct Executor {
     /// the syntax tree it is holding: sharing one between buffers would mean
     /// throwing that tree away on every switch, and a re-parse from nothing
     /// costs eighteen times what an incremental one does.
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     highlighters: HashMap<maxgus_text::BufferId, BufferSyntax>,
     /// Running language servers, by language.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     servers: HashMap<String, Arc<Client>>,
     /// The text each open document was last sent as, so a change can be
     /// described as the region that differs rather than the whole file.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     documents: HashMap<String, String>,
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     lsp_specs: Vec<LspSpec>,
     /// Shells running on pseudo-terminals, by tab.
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     terminals: HashMap<TerminalId, Terminal>,
     results: mpsc::UnboundedSender<TaskResult>,
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 /// One running shell: what to write to it, and how to change its size.
 ///
 /// The reading half is not here. A pty read blocks until the program writes
@@ -75,7 +75,7 @@ struct Terminal {
     commands: std::sync::mpsc::Sender<PtyCommand>,
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 /// What the thread minding a pty can be asked to do.
 ///
 /// The pty handles never leave that thread. Writing to a pty can block when
@@ -93,22 +93,22 @@ impl Executor {
     pub fn new(
         root: PathBuf,
         tree_config: TreeConfig,
-        #[cfg_attr(not(feature = "lsp"), allow(unused_variables))] lsp_specs: Vec<LspSpec>,
+        #[cfg_attr(not(feature = "full"), allow(unused_variables))] lsp_specs: Vec<LspSpec>,
         results: mpsc::UnboundedSender<TaskResult>,
     ) -> Executor {
         Executor {
             root,
             tree: None,
             tree_config,
-            #[cfg(feature = "syntax")]
+            #[cfg(feature = "full")]
             highlighters: HashMap::new(),
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             servers: HashMap::new(),
-            #[cfg(feature = "terminal")]
+            #[cfg(feature = "full")]
             terminals: HashMap::new(),
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             documents: HashMap::new(),
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             lsp_specs,
             results,
         }
@@ -155,7 +155,7 @@ impl Executor {
             }
             Task::ListDirectory { path } => self.list_directory(path).await,
             Task::Tree(action) => self.tree_action(action).await,
-            #[cfg(feature = "syntax")]
+            #[cfg(feature = "full")]
             Task::Reparse {
                 buffer,
                 language,
@@ -167,23 +167,23 @@ impl Executor {
             }
             Task::Dired { path } => self.dired(path).await,
             Task::DiredAct { action } => self.dired_act(action).await,
-            #[cfg(feature = "script")]
+            #[cfg(feature = "full")]
             Task::ReadScript { path } => self.read_script(path).await,
             Task::SaveSession { path, contents } => self.save_session(path, contents).await,
             Task::ReadSession { path } => self.read_session(path).await,
             Task::PersistTheme { path, theme } => {
                 self.persist_theme(path, theme).await;
             }
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             Task::GitBranch { root } => {
                 let branch = maxgus_tree::git::branch(&root).await;
                 self.send(TaskResult::GitBranch { branch });
             }
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             Task::StartLanguageServer { language } => self.start_server(&language).await,
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             Task::StopLanguageServer { language } => self.stop_server(&language).await,
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             Task::LspDidOpen {
                 language,
                 uri,
@@ -196,7 +196,7 @@ impl Executor {
                     self.documents.insert(uri, text);
                 }
             }
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             Task::LspDidChange {
                 language,
                 uri,
@@ -205,26 +205,26 @@ impl Executor {
             } => {
                 self.did_change(&language, uri, version, text).await;
             }
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             Task::LspDidSave { language, uri } => {
                 if let Some(client) = self.servers.get(&language) {
                     let _ = client.did_save(&uri, None);
                 }
             }
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             Task::LspDidClose { language, uri } => {
                 if let Some(client) = self.servers.get(&language) {
                     let _ = client.did_close(&uri);
                 }
                 self.documents.remove(&uri);
             }
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             Task::LspRequest {
                 language,
                 uri,
                 query,
             } => self.lsp_request(language, uri, query),
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             Task::LspRespond {
                 language,
                 id,
@@ -243,7 +243,7 @@ impl Executor {
             } => {
                 self.shell(command, directory, insert_at).await;
             }
-            #[cfg(feature = "terminal")]
+            #[cfg(feature = "full")]
             Task::TerminalOpen {
                 terminal,
                 shell,
@@ -253,9 +253,9 @@ impl Executor {
             } => {
                 self.open_terminal(terminal, shell, directory, rows, columns);
             }
-            #[cfg(feature = "terminal")]
+            #[cfg(feature = "full")]
             Task::TerminalInput { terminal, bytes } => self.terminal_input(terminal, bytes),
-            #[cfg(feature = "terminal")]
+            #[cfg(feature = "full")]
             Task::TerminalResize {
                 terminal,
                 rows,
@@ -263,13 +263,13 @@ impl Executor {
             } => {
                 self.resize_terminal(terminal, rows, columns);
             }
-            #[cfg(feature = "terminal")]
+            #[cfg(feature = "full")]
             Task::TerminalClose { terminal } => self.close_terminal(terminal),
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             Task::Git { root, action } => self.git(root, action).await,
-            #[cfg(feature = "grep")]
+            #[cfg(feature = "full")]
             Task::Grep { root, search } => self.grep(root, search).await,
-            #[cfg(feature = "grep")]
+            #[cfg(feature = "full")]
             Task::ApplyGrep { replacements } => self.apply_grep(replacements).await,
             Task::ForgetBuffer { buffer } => self.forget(buffer),
         }
@@ -412,7 +412,7 @@ impl Executor {
 
     /// Reads the script file. A project with none is the usual case and not
     /// a failure.
-    #[cfg(feature = "script")]
+    #[cfg(feature = "full")]
     async fn read_script(&self, path: PathBuf) {
         match tokio::fs::read_to_string(&path).await {
             Ok(source) => self.send(TaskResult::ScriptRead { source, path }),
@@ -676,9 +676,9 @@ impl Executor {
         }
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     // ---- syntax --------------------------------------------------------
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     async fn reparse(
         &mut self,
         buffer: maxgus_text::BufferId,
@@ -759,13 +759,13 @@ impl Executor {
     /// Drops what was kept for a buffer that no longer exists.
     fn forget(&mut self, buffer: maxgus_text::BufferId) {
         let _ = buffer;
-        #[cfg(feature = "syntax")]
+        #[cfg(feature = "full")]
         self.highlighters.remove(&buffer);
     }
 
     // ---- git -------------------------------------------------------------
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// Runs one git command, or reads the whole status.
     async fn git(&self, root: PathBuf, action: GitAction) {
         match action {
@@ -779,7 +779,7 @@ impl Executor {
         }
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// Reads everything the status view shows, in one pass.
     ///
     /// One answer rather than eight: a view assembled from results arriving
@@ -846,7 +846,7 @@ impl Executor {
         self.send(TaskResult::GitRefreshed(Box::new(snapshot)));
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// Reads a log into its own buffer.
     async fn git_log(&self, root: PathBuf, arguments: Vec<String>, title: String) {
         let mut args: Vec<String> = vec!["log".into(), LOG_FORMAT_ARG.into()];
@@ -859,7 +859,7 @@ impl Executor {
         });
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// Reads a diff into its own buffer.
     async fn git_diff(&self, root: PathBuf, arguments: Vec<String>, title: String) {
         let mut args: Vec<String> = DIFF_ARGS.iter().map(|a| a.to_string()).collect();
@@ -873,7 +873,7 @@ impl Executor {
         });
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// Reads one commit: who made it, what they said, and what it changed.
     ///
     /// Two commands rather than one `git show`: the header is asked for in a
@@ -923,7 +923,7 @@ impl Executor {
         });
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     /// Runs one git command and reports what it said, then refreshes.
     async fn git_do(&self, root: PathBuf, action: GitAction) {
         let Some((arguments, describe, stdin)) = git_command(action) else {
@@ -983,7 +983,7 @@ impl Executor {
 
     // ---- terminals -------------------------------------------------------
 
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     /// Starts a shell on a pseudo-terminal and reads from it forever.
     fn open_terminal(
         &mut self,
@@ -1096,23 +1096,23 @@ impl Executor {
         self.terminals.insert(terminal, Terminal { commands });
     }
 
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     fn terminal_input(&mut self, terminal: TerminalId, bytes: Vec<u8>) {
         self.order(terminal, PtyCommand::Write(bytes));
     }
 
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     fn resize_terminal(&mut self, terminal: TerminalId, rows: u16, columns: u16) {
         self.order(terminal, PtyCommand::Resize(rows, columns));
     }
 
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     fn close_terminal(&mut self, terminal: TerminalId) {
         self.order(terminal, PtyCommand::Close);
         self.terminals.remove(&terminal);
     }
 
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     /// Sends one order to a terminal's thread, forgetting the terminal if the
     /// thread has already gone.
     fn order(&mut self, terminal: TerminalId, order: PtyCommand) {
@@ -1127,13 +1127,13 @@ impl Executor {
 
     // ---- language servers ----------------------------------------------
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     fn spec_for(&self, language: &str) -> Option<&LspSpec> {
         self.lsp_specs.iter().find(|s| s.language == language)
     }
 
-    #[cfg(feature = "lsp")]
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
+    #[cfg(feature = "full")]
     async fn start_server(&mut self, language: &str) {
         if self.servers.contains_key(language) {
             return;
@@ -1176,7 +1176,7 @@ impl Executor {
         }
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     async fn stop_server(&mut self, language: &str) {
         let Some(client) = self.servers.remove(language) else {
             return;
@@ -1187,7 +1187,7 @@ impl Executor {
         });
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     /// Tells the server a document changed, in the form it asked for.
     ///
     /// A server that declared incremental sync is sent only the region that
@@ -1201,11 +1201,11 @@ impl Executor {
         // Incremental sync needs a diff between the old text and the new, and
         // the differ is tree-sitter's. A build without the grammars sends the
         // whole document instead — correct, just larger on the wire.
-        let incremental = cfg!(feature = "syntax")
+        let incremental = cfg!(feature = "full")
             && client.sync_kind().await == maxgus_lsp::client::SyncKind::Incremental;
 
         let sent = match (incremental, self.documents.get(&uri)) {
-            #[cfg(feature = "syntax")]
+            #[cfg(feature = "full")]
             (true, Some(previous)) => match changed_range(previous, &text, client.encoding().await)
             {
                 // The texts are identical; there is nothing to report.
@@ -1221,7 +1221,7 @@ impl Executor {
         }
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     /// Sends a request without waiting for it here, so a slow server cannot
     /// hold up the rest of the queue.
     fn lsp_request(&self, language: String, uri: String, query: LspQuery) {
@@ -1266,7 +1266,7 @@ impl Executor {
     }
 
     async fn shutdown(&mut self) {
-        #[cfg(feature = "lsp")]
+        #[cfg(feature = "full")]
         {
             let languages: Vec<String> = self.servers.keys().cloned().collect();
             for language in languages {
@@ -1328,7 +1328,7 @@ impl Executor {
     /// Walking a tree and reading every file in it is exactly the work tokio
     /// asks not to be done on its own threads, and a large project would stop
     /// every other task while it ran.
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     async fn grep(&self, root: PathBuf, search: maxgus_grep::Search) {
         let pattern = search.pattern.clone();
         let outcome =
@@ -1341,7 +1341,7 @@ impl Executor {
     }
 
     /// Writes edited result lines back to their files.
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     async fn apply_grep(&self, replacements: Vec<maxgus_grep::Replacement>) {
         let mut paths: Vec<PathBuf> = replacements.iter().map(|r| r.path.clone()).collect();
         paths.sort();
@@ -1389,7 +1389,7 @@ impl Executor {
     }
 }
 
-#[cfg(all(feature = "lsp", feature = "syntax"))]
+#[cfg(feature = "full")]
 /// The region in which `previous` and `current` differ, as the protocol wants
 /// it: a range in the *old* document and the text now in its place.
 fn changed_range(
@@ -1408,7 +1408,7 @@ fn changed_range(
     ))
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 /// Walks up from `start` looking for `marker`, returning the directory holding
 /// it — how a project root is found.
 pub async fn find_upwards(start: &Path, marker: &str) -> Option<PathBuf> {
@@ -1428,7 +1428,7 @@ pub async fn find_upwards(start: &Path, marker: &str) -> Option<PathBuf> {
     None
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 /// The JSON-RPC code for a method the receiver does not implement.
 const METHOD_NOT_FOUND: i64 = -32601;
 
@@ -1485,7 +1485,7 @@ fn find_theme_property(line: &str) -> Option<(usize, usize)> {
     Some((start, start + "theme=".len() + open + 1 + close + 1))
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 /// Turns server-initiated messages into task results.
 async fn forward_events(
     mut events: mpsc::UnboundedReceiver<ServerEvent>,
@@ -1708,7 +1708,7 @@ mod tests {
     }
 
     /// The exception above is only safe while it holds.
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     #[test]
     fn the_search_is_only_ever_reached_through_spawn_blocking() {
         let source = include_str!("tasks.rs");
@@ -1780,7 +1780,7 @@ mod tests {
 
     // ---- answering the server -------------------------------------------
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     /// A client wired to a pipe, with the far end for a test to play server on.
     async fn piped_client() -> (
         std::sync::Arc<maxgus_lsp::Client>,
@@ -1794,7 +1794,7 @@ mod tests {
         (client, events, server_reader, server_writer)
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     /// Reads one message off the server end of the pipe.
     ///
     /// Bounded, because the behaviour under test is *that an answer arrives*:
@@ -1821,7 +1821,7 @@ mod tests {
             .expect("the server end was never answered")
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn a_server_request_we_cannot_serve_is_refused_rather_than_ignored() {
         // The protocol requires an answer to every request. Dropping one
@@ -1852,7 +1852,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn an_apply_edit_request_is_carried_to_the_editor_with_its_id() {
         // This one cannot be answered here: the buffers live in the editor, so
@@ -2272,7 +2272,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn stopping_a_server_that_was_never_started_is_quiet() {
         // The only exercise `stop_server` gets: nothing had been started, so
@@ -2415,7 +2415,7 @@ mod tests {
         assert!(nodes.iter().any(|n| n.name == ".hidden"));
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn reparsing_returns_highlight_spans() {
         let f = Fixture::new("parse").await;
@@ -2445,7 +2445,7 @@ mod tests {
         assert!(highlights.iter().any(|h| h.face == "font-lock-keyword"));
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn a_language_with_no_grammar_is_quietly_skipped() {
         let f = Fixture::new("parseunknown").await;
@@ -2461,7 +2461,7 @@ mod tests {
         assert!(rx.try_recv().is_err(), "no result, and no error either");
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn each_buffer_keeps_its_own_parser() {
         let f = Fixture::new("parserperbuffer").await;
@@ -2489,7 +2489,7 @@ mod tests {
         assert_eq!(e.highlighters.len(), 2);
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn a_reparse_keeps_the_text_its_tree_describes() {
         let f = Fixture::new("parsetext").await;
@@ -2512,7 +2512,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     async fn an_edit_between_reparses_still_highlights_correctly() {
         let f = Fixture::new("parseincremental").await;
         let (mut e, mut rx) = executor(f.path());
@@ -2553,7 +2553,7 @@ mod tests {
         assert_eq!(highlights, fresh.highlights(after));
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn a_buffer_that_changes_language_starts_over() {
         let f = Fixture::new("parselanguage").await;
@@ -2590,7 +2590,7 @@ mod tests {
         assert_eq!(e.highlighters[&BufferId(1)].language, "python");
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn forgetting_a_buffer_releases_its_parser_and_its_text() {
         let f = Fixture::new("parseforget").await;
@@ -2681,7 +2681,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     async fn a_request_to_a_server_that_is_not_running_is_a_no_op() {
         let f = Fixture::new("noserver").await;
         let (mut e, mut rx) = executor(f.path());
@@ -2694,7 +2694,7 @@ mod tests {
         assert!(rx.try_recv().is_err());
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn starting_a_server_with_no_configuration_does_nothing() {
         let f = Fixture::new("nospec").await;
@@ -2709,7 +2709,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn starting_a_server_that_cannot_be_launched_is_reported() {
         let f = Fixture::new("badserver").await;
@@ -2729,7 +2729,7 @@ mod tests {
         assert!(result.is_error());
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn a_change_is_described_as_the_region_that_differs() {
         let encoding = maxgus_lsp::PositionEncoding::Utf16;
@@ -2751,14 +2751,14 @@ mod tests {
         assert_eq!(rebuilt, current);
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn identical_texts_produce_no_change_to_report() {
         let encoding = maxgus_lsp::PositionEncoding::Utf16;
         assert!(changed_range("same", "same", encoding).is_none());
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn a_multiline_change_spans_the_lines_it_touches() {
         let encoding = maxgus_lsp::PositionEncoding::Utf16;
@@ -2777,7 +2777,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn a_change_in_multibyte_text_is_described_correctly() {
         let encoding = maxgus_lsp::PositionEncoding::Utf16;
@@ -2793,7 +2793,7 @@ mod tests {
         assert_eq!(rebuilt, current);
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn a_changed_region_is_a_fraction_of_a_large_document() {
         let encoding = maxgus_lsp::PositionEncoding::Utf16;
@@ -2814,7 +2814,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn the_branch_of_a_real_repository_is_reported() {
         // The one test that runs git itself, since the branch reaching the
@@ -2860,7 +2860,7 @@ mod tests {
         assert_eq!(branch.as_deref(), Some("trunk"));
     }
 
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn a_directory_outside_any_repository_reports_no_branch() {
         let f = Fixture::new("gitnone").await;
@@ -2880,7 +2880,7 @@ mod tests {
     }
 
     // `find_upwards` locates a language server's project root.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn a_project_root_is_found_by_walking_upwards() {
         // The workspace this test is compiled in is itself a good fixture.
@@ -2894,7 +2894,7 @@ mod tests {
 }
 
 /// Parsing costs, which only a build with the grammars in it can measure.
-#[cfg(all(test, feature = "syntax"))]
+#[cfg(all(test, feature = "full"))]
 mod scale {
     use super::*;
     use maxgus_text::BufferId;
@@ -2920,7 +2920,7 @@ mod scale {
         edited
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn parsing_does_not_stop_the_runtime_polling_anything_else() {
         // `#[tokio::test]` gives a single-threaded runtime, which is what
@@ -2971,7 +2971,7 @@ mod scale {
         rx.try_recv().expect("the parse still produced highlights");
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[tokio::test]
     async fn a_reparse_after_typing_costs_far_less_than_the_first_one() {
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -3029,7 +3029,7 @@ mod scale {
     }
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 /// The shell to start when the configuration does not name one.
 fn default_shell() -> String {
     if cfg!(windows) {
@@ -3039,7 +3039,7 @@ fn default_shell() -> String {
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// What every diff is asked for.
 ///
 /// The prefixes are forced rather than left to configuration: modern git
@@ -3053,11 +3053,11 @@ const DIFF_ARGS: &[&str] = &[
     "--dst-prefix=b/",
 ];
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// The `--format` every log is asked for.
 const LOG_FORMAT_ARG: &str = "--format=%H%x1f%h%x1f%an%x1f%ar%x1f%D%x1f%s%x1e";
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// The arguments, a description, and anything to write to git's input.
 fn git_command(action: GitAction) -> Option<(Vec<String>, String, Option<String>)> {
     let words = |args: &[&str]| args.iter().map(|a| a.to_string()).collect::<Vec<_>>();
@@ -3187,13 +3187,13 @@ fn git_command(action: GitAction) -> Option<(Vec<String>, String, Option<String>
     })
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// Runs git and returns its standard output as text, or nothing.
 async fn git_output(root: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&git_raw(root, args).await).into_owned()
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// Runs git and returns its standard output as bytes.
 ///
 /// A failure is emptiness rather than an error: half of these commands fail

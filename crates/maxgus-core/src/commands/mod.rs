@@ -8,12 +8,12 @@ pub mod buffer;
 pub mod dired;
 pub mod edit;
 pub mod file;
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 pub mod git;
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 pub mod grep;
 pub mod help;
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 pub mod lsp;
 pub mod minibuffer;
 pub mod misc;
@@ -21,14 +21,14 @@ pub mod motion;
 pub mod multi;
 pub mod panel;
 pub mod register;
-#[cfg(feature = "script")]
+#[cfg(feature = "full")]
 pub mod script;
 pub mod search;
 pub mod snippet;
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 pub mod terminal;
 pub mod text;
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 pub mod transient;
 pub mod tree;
 pub mod undo_tree;
@@ -47,18 +47,18 @@ pub fn standard_registry() -> Registry {
     window::register(&mut registry);
     buffer::register(&mut registry);
     file::register(&mut registry);
-    #[cfg(feature = "script")]
+    #[cfg(feature = "full")]
     script::register(&mut registry);
     search::register(&mut registry);
     snippet::register(&mut registry);
     panel::register(&mut registry);
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     git::register(&mut registry);
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     grep::register(&mut registry);
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     terminal::register(&mut registry);
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     transient::register(&mut registry);
     tree::register(&mut registry);
     undo_tree::register(&mut registry);
@@ -66,9 +66,9 @@ pub fn standard_registry() -> Registry {
     help::register(&mut registry);
     register::register(&mut registry);
     text::register(&mut registry);
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     text::register_syntax(&mut registry);
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     lsp::register(&mut registry);
     registry
 }

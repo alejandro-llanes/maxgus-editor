@@ -6,12 +6,12 @@
 //! queues one, the event loop runs it on tokio, and the answer comes back as a
 //! [`TaskResult`] that the editor applies. Nothing blocks redisplay.
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 use maxgus_lsp::{LspPosition, LspRange};
 use maxgus_text::BufferId;
 use std::path::PathBuf;
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// What to ask git to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GitAction {
@@ -79,7 +79,7 @@ pub enum GitAction {
     },
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// Everything the status view needs, read in one pass.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GitSnapshot {
@@ -101,7 +101,7 @@ pub struct GitSnapshot {
     pub references: Vec<maxgus_git::Reference>,
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 /// Which terminal a task or an answer is about.
 ///
 /// Its own type rather than an index: tabs are opened and closed in any order,
@@ -111,7 +111,7 @@ pub struct GitSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TerminalId(pub u64);
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 impl std::fmt::Display for TerminalId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -220,23 +220,23 @@ pub enum Task {
     /// Act on files, from dired.
     DiredAct { action: FileAction },
     /// Read the script file.
-    #[cfg(feature = "script")]
+    #[cfg(feature = "full")]
     ReadScript { path: PathBuf },
     /// Write the session for a project.
     SaveSession { path: PathBuf, contents: String },
     /// Read one back.
     ReadSession { path: PathBuf },
     /// Ask git which branch the project is on, for the mode line.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     GitBranch { root: PathBuf },
     /// Start a language server for `language`.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     StartLanguageServer { language: String },
     /// Stop the server for `language`.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     StopLanguageServer { language: String },
     /// Tell the server a document opened.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     LspDidOpen {
         language: String,
         uri: String,
@@ -244,7 +244,7 @@ pub enum Task {
         text: String,
     },
     /// Tell the server a document changed.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     LspDidChange {
         language: String,
         uri: String,
@@ -252,14 +252,14 @@ pub enum Task {
         text: String,
     },
     /// Tell the server a document was saved.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     LspDidSave { language: String, uri: String },
     /// Tell the server a document closed.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     LspDidClose { language: String, uri: String },
     /// Ask the server a question. The answer comes back as
     /// [`TaskResult::LspResponse`] tagged with the same [`LspQuery`].
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     LspRequest {
         language: String,
         uri: String,
@@ -269,7 +269,7 @@ pub enum Task {
     ///
     /// The protocol requires every server request to be answered; a server
     /// that asked to apply an edit blocks until it hears back.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     LspRespond {
         language: String,
         id: maxgus_lsp::RequestId,
@@ -282,7 +282,7 @@ pub enum Task {
         insert_at: Option<(BufferId, usize)>,
     },
     /// Starts a shell on a pseudo-terminal of the given size.
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     TerminalOpen {
         terminal: TerminalId,
         shell: Option<String>,
@@ -291,33 +291,33 @@ pub enum Task {
         columns: u16,
     },
     /// Sends keystrokes, a paste, or a reply the program asked for.
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     TerminalInput {
         terminal: TerminalId,
         bytes: Vec<u8>,
     },
     /// Tells the program the window changed size. Without this, `vim` and
     /// friends go on drawing to the shape they started with.
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     TerminalResize {
         terminal: TerminalId,
         rows: u16,
         columns: u16,
     },
     /// Ends the shell and closes the pseudo-terminal.
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     TerminalClose { terminal: TerminalId },
     /// Something to do with git, in the repository the editor is in.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     Git { root: PathBuf, action: GitAction },
     /// Search the project for a pattern.
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     Grep {
         root: PathBuf,
         search: maxgus_grep::Search,
     },
     /// Write edited result lines back to the files they came from.
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     ApplyGrep {
         replacements: Vec<maxgus_grep::Replacement>,
     },
@@ -326,7 +326,7 @@ pub enum Task {
     /// Only the region the user can see — plus a margin for scrolling — is
     /// queried. Highlighting a whole large file costs far more than parsing
     /// it, and almost all of the answer would never be drawn.
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     Reparse {
         buffer: BufferId,
         language: String,
@@ -379,7 +379,7 @@ pub enum TreeAction {
     },
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 /// A language-server question, kept as a small enum so the answer can be
 /// routed back to whatever asked it.
 #[derive(Debug, Clone, PartialEq)]
@@ -413,7 +413,7 @@ pub enum LspQuery {
     WorkspaceSymbols(String),
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 impl LspQuery {
     /// The name shown while the request is in flight.
     pub fn description(&self) -> &'static str {
@@ -481,7 +481,7 @@ pub enum TaskResult {
         theme: String,
     },
     /// The branch the project is on, or none when it is not a repository.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     GitBranch {
         branch: Option<String>,
     },
@@ -495,23 +495,23 @@ pub enum TaskResult {
     /// is carried here because nothing else ever learns it: addressing a
     /// UTF-8 server in UTF-16 puts every position in a line with non-ASCII
     /// text at the wrong column.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     LanguageServerStarted {
         language: String,
         encoding: maxgus_lsp::PositionEncoding,
     },
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     LanguageServerStopped {
         language: String,
     },
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     LspResponse {
         language: String,
         uri: String,
         query: LspQuery,
         result: serde_json::Value,
     },
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     Diagnostics {
         uri: String,
         diagnostics: Vec<maxgus_lsp::Diagnostic>,
@@ -520,7 +520,7 @@ pub enum TaskResult {
     ///
     /// Carries the request id, because the answer has to say whether the edit
     /// went in and the server is waiting for it.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     LspApplyEdit {
         language: String,
         id: maxgus_lsp::RequestId,
@@ -538,25 +538,25 @@ pub enum TaskResult {
     /// arriving separately shows a diff that disagrees with the status it is
     /// listed under — which is exactly the moment a user stages the wrong
     /// thing.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     GitRefreshed(Box<GitSnapshot>),
     /// A git command finished. The output is shown, since git says useful
     /// things on the way past, and the whole command line is kept so the
     /// process buffer can show what was actually run.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     GitDone {
         action: String,
         command: String,
         output: String,
     },
     /// A log, for its own buffer.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     GitLog {
         title: String,
         commits: Vec<maxgus_git::Commit>,
     },
     /// A diff or one commit, for its own buffer.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     GitDiff {
         title: String,
         /// Lines above the diff: a commit's author, date and message.
@@ -564,19 +564,19 @@ pub enum TaskResult {
         files: Vec<maxgus_git::FileDiff>,
     },
     /// Bytes a terminal's program wrote.
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     TerminalOutput {
         terminal: TerminalId,
         bytes: Vec<u8>,
     },
     /// The program ended. The tab says so rather than vanishing, so that a
     /// command which failed on the way out can still be read.
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     TerminalExited {
         terminal: TerminalId,
         status: i32,
     },
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     Reparsed {
         buffer: BufferId,
         revision: u64,
@@ -590,13 +590,13 @@ pub enum TaskResult {
         message: String,
     },
     /// What a search found.
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     GrepFinished {
         pattern: String,
         found: maxgus_grep::Found,
     },
     /// What writing the edited results did.
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     GrepApplied {
         applied: maxgus_grep::Applied,
         /// The files that were written, so their buffers can be re-read.
@@ -622,7 +622,7 @@ pub enum TaskResult {
         relist: PathBuf,
     },
     /// The script file, as it was read.
-    #[cfg(feature = "script")]
+    #[cfg(feature = "full")]
     ScriptRead {
         source: String,
         path: PathBuf,
@@ -642,20 +642,20 @@ impl TaskResult {
             TaskResult::FileWritten { path, bytes, .. } => {
                 Some(format!("Wrote {} ({bytes} bytes)", path.display()))
             }
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             TaskResult::LanguageServerStarted { language, .. } => {
                 Some(format!("Language server for {language} started"))
             }
-            #[cfg(feature = "lsp")]
+            #[cfg(feature = "full")]
             TaskResult::LanguageServerStopped { language } => {
                 Some(format!("Language server for {language} stopped"))
             }
-            #[cfg(feature = "git")]
+            #[cfg(feature = "full")]
             TaskResult::GitDone { action, output, .. } => Some(match output.trim() {
                 "" => format!("{action} done"),
                 said => format!("{action}: {}", said.lines().next().unwrap_or(said)),
             }),
-            #[cfg(feature = "terminal")]
+            #[cfg(feature = "full")]
             TaskResult::TerminalExited { status, .. } if *status != 0 => {
                 Some(format!("Terminal exited with status {status}"))
             }
@@ -710,7 +710,7 @@ impl TaskQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(any(feature = "lsp", feature = "syntax"))]
+    #[cfg(feature = "full")]
     use serde_json::json;
 
     fn path() -> PathBuf {
@@ -787,7 +787,7 @@ mod tests {
         assert_eq!(written.message().unwrap(), "Wrote /tmp/a.rs (120 bytes)");
     }
 
-    #[cfg(all(feature = "lsp", feature = "syntax"))]
+    #[cfg(feature = "full")]
     #[test]
     fn quiet_results_say_nothing() {
         assert_eq!(
@@ -837,7 +837,7 @@ mod tests {
         assert_eq!(ok.message(), None, "a successful command says nothing");
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn language_server_lifecycle_results_are_announced() {
         assert_eq!(
@@ -859,7 +859,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn every_query_kind_describes_itself() {
         let queries = [
@@ -894,7 +894,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn only_the_navigating_queries_push_the_mark() {
         assert!(LspQuery::Definition(LspPosition::ZERO).jumps());
@@ -909,7 +909,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn a_response_carries_enough_context_to_be_routed_back() {
         let result = TaskResult::LspResponse {

@@ -15,25 +15,25 @@ pub mod dired;
 pub mod dispatch;
 pub mod editor;
 pub mod fuzzy;
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 pub mod git;
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 pub mod grep;
 pub mod icons;
 pub mod keymap;
 pub mod minibuffer;
 pub mod multi;
 pub mod panel;
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 pub mod position;
 pub mod prefix;
 pub mod render;
 pub mod session;
 pub mod snippet;
 pub mod task;
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 pub mod terminal;
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 pub mod transient;
 pub mod undo_tree;
 pub mod window;
@@ -45,11 +45,11 @@ pub use dispatch::{Dispatch, Dispatcher};
 pub use editor::{Editor, build_theme};
 pub use keymap::{global_keymap, isearch_keymap, minibuffer_keymap};
 pub use minibuffer::{Completion, Minibuffer, MinibufferKind};
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 pub use position::{offset_of_position, position_of_offset};
 pub use prefix::Prefix;
 pub use render::draw;
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 pub use task::LspQuery;
 pub use task::{Task, TaskQueue, TaskResult, TreeAction, WriteGuard};
 pub use window::{Direction, Window, WindowId, WindowTree};

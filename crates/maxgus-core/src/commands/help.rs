@@ -238,13 +238,13 @@ fn describe_mode(editor: &mut Editor, _: &Args) -> Result<()> {
             },
         )
     };
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     let highlighting = if maxgus_syntax::is_supported(&mode) {
         "A tree-sitter grammar is available for this mode."
     } else {
         "No tree-sitter grammar is available for this mode."
     };
-    #[cfg(not(feature = "syntax"))]
+    #[cfg(not(feature = "full"))]
     let highlighting = "This build has no tree-sitter grammars in it.";
     let server = match editor.settings.lsp_enabled {
         true => "Language server support is on.",
@@ -474,7 +474,7 @@ mod tests {
         assert!(text.lines().count() > crate::keymap::GLOBAL_BINDINGS.len());
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[test]
     fn describe_mode_reports_what_the_buffer_is() {
         let (mut d, mut e) = setup();
@@ -490,7 +490,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[test]
     fn describe_mode_is_honest_about_a_mode_with_no_grammar() {
         let (mut d, mut e) = setup();

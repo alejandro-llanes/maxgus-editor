@@ -250,7 +250,7 @@ fn fill_region(editor: &mut Editor, _: &Args) -> Result<()> {
 // ---- syntax ------------------------------------------------------------
 
 /// Registers the commands that read the syntax tree.
-#[cfg(feature = "syntax")]
+#[cfg(feature = "full")]
 pub fn register_syntax(registry: &mut Registry) {
     registry.register_all(&[
         command!(
@@ -267,7 +267,7 @@ pub fn register_syntax(registry: &mut Registry) {
 }
 
 /// `C-h s`: reports the grammar's name for the construct under point.
-#[cfg(feature = "syntax")]
+#[cfg(feature = "full")]
 fn describe_syntax(editor: &mut Editor, _: &Args) -> Result<()> {
     let (kind, span) = syntax_at_point(editor)?;
     let text = {
@@ -280,7 +280,7 @@ fn describe_syntax(editor: &mut Editor, _: &Args) -> Result<()> {
 }
 
 /// `C-=`: grows the region to the next enclosing node.
-#[cfg(feature = "syntax")]
+#[cfg(feature = "full")]
 fn expand_region(editor: &mut Editor, _: &Args) -> Result<()> {
     let (_, span) = syntax_at_point(editor)?;
     editor.with_current_buffer(|buffer| {
@@ -296,7 +296,7 @@ fn expand_region(editor: &mut Editor, _: &Args) -> Result<()> {
 ///
 /// The tree lives in the executor, so this parses on demand. It is only for
 /// commands the user invokes deliberately, never for redisplay.
-#[cfg(feature = "syntax")]
+#[cfg(feature = "full")]
 fn syntax_at_point(editor: &Editor) -> Result<(String, Range)> {
     let buffer = editor.current_buffer();
     let Some(language) = buffer.language() else {
@@ -334,7 +334,7 @@ fn syntax_at_point(editor: &Editor) -> Result<(String, Range)> {
     ))
 }
 
-#[cfg(feature = "syntax")]
+#[cfg(feature = "full")]
 #[cfg(test)]
 mod syntax_tests {
     use super::*;

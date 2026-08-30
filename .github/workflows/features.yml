@@ -1,8 +1,8 @@
 name: Features
 
 # The editor ships in three sizes, and a `#[cfg]` that only ever gets built one
-# way rots quietly. This builds every combination on every push, which is what
-# stops the minimal build from failing the first time someone asks for it.
+# way rots quietly. This builds all three on every push, which is what stops
+# the minimal build from failing the first time someone asks for it.
 on:
   push:
     branches: ["main"]
@@ -10,12 +10,12 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # A feature combination that only compiles by accident of a warning is not a
-  # combination anyone should ship.
+  # A build that only compiles by accident of a warning is not one anyone
+  # should ship.
   RUSTFLAGS: "-D warnings"
 
 jobs:
-  combinations:
+  builds:
     name: ${{ matrix.features }}
     runs-on: ubuntu-latest
     strategy:
@@ -23,15 +23,6 @@ jobs:
       matrix:
         features:
           - minimal
-          - syntax
-          - lsp
-          - git
-          - terminal
-          - grep
-          - script
-          - "lsp,git"
-          - "syntax,lsp"
-          - "git,terminal"
           - full
     steps:
       - uses: actions/checkout@v5

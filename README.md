@@ -632,14 +632,15 @@ parent, `TAB` to fold, `RET` to open, `c f` and `c d` to create, `R` to rename,
 
 ## Building it: three sizes
 
-The editor is one thing; the language server, the grammars, magit and the
-terminal are four more. A build takes as many of them as it wants:
+The editor is one thing; the grammars, the language server, magit, the
+terminal, project search and scripting are what get built on top of it. There
+are three builds and no others:
 
 | Feature | What it builds | Binary |
 |---|---|---|
-| `minimal` | The editor and the treefile. No grammars, no protocol, no subprocess. | **4.3M** |
-| `full` *(default)* | Everything above, plus tree-sitter, the language-server client, magit and the terminal panel. | **9.7M** |
-| `gui` | Everything in `full`, and a window drawn by the GPU. | — |
+| `minimal` | The editor and the treefile. No grammars, no protocol, no subprocess. | **4.6M** |
+| `full` *(default)* | Everything: tree-sitter, the language-server client, magit, the terminal panel, project search, scripting. | **13M** |
+| `gui` | Everything in `full`, and a window drawn by the GPU. | **21M** |
 
 ```sh
 cargo build --release                                        # full
@@ -647,27 +648,20 @@ cargo build --release --no-default-features --features minimal
 cargo build --release --features gui
 ```
 
-To try them side by side, `./scripts/build-variants.sh` builds every
-combination into `target/variants/`:
+To try them side by side, `./scripts/build-variants.sh` builds all three into
+`target/variants/`:
 
 ```console
 $ ./scripts/build-variants.sh
-minimal    [minimal]                ok     4.6M  maxgus 0.1.0 (minimal)
-syntax     [syntax]                 ok     8.9M  maxgus 0.1.0 (syntax)
-lsp        [lsp]                    ok     5.2M  maxgus 0.1.0 (lsp)
-git        [git]                    ok     4.9M  maxgus 0.1.0 (git)
-terminal   [terminal]               ok     4.8M  maxgus 0.1.0 (terminal)
-grep       [grep]                   ok     5.0M  maxgus 0.1.0 (grep)
-script     [script]                 ok     6.9M  maxgus 0.1.0 (script)
-lsp-git    [lsp,git]                ok     5.6M  maxgus 0.1.0 (lsp git)
-full       [full]                   ok      13M  maxgus 0.1.0 (syntax lsp git terminal grep script)
-gui        [gui]                    ok      21M  maxgus 0.1.0 (… gui)
+minimal  ok    4.6M  maxgus 0.1.0 (minimal)
+full     ok     13M  maxgus 0.1.0 (full)
+gui      ok     21M  maxgus 0.1.0 (gui)
 ```
 
 `--debug` builds them faster, `--into DIR` puts them somewhere else. Every
-binary's `--version` names what is in it, because ten of them look identical
-and are not — and a key a build does not have reports itself as undefined
-rather than doing nothing:
+binary's `--version` names which of the three it is, because they look
+identical and are not — and a key a build does not have reports itself as
+undefined rather than doing nothing:
 
 ```console
 $ target/variants/maxgus-minimal notes.txt
@@ -675,10 +669,9 @@ C-x g is undefined
 ```
 
 The tree-sitter grammars are C, and they are most of what a full build spends
-its time on — which is what makes leaving them out worth a feature rather than
-a `cfg` nobody would use. The subsystems can also be taken one at a time:
-`--features git,terminal` is a build with magit and a shell and nothing else
-added. Every combination is built by a test, so none of them rots.
+its time on — which is what makes `minimal` worth having rather than a `cfg`
+nobody would use. All three are built and tested by the CI, and by a test, so
+none of them rots.
 
 ## A window, as well as a terminal
 

@@ -160,7 +160,7 @@ impl Registry {
             // A name the editor does not know may be one a script defined.
             // Scripts are looked at last, so nothing a script defines can
             // take a built-in command's name out from under it.
-            #[cfg(feature = "script")]
+            #[cfg(feature = "full")]
             if editor.has_script_command(name) {
                 return crate::commands::script::run(editor, name);
             }

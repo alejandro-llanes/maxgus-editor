@@ -28,9 +28,6 @@ winit = "0.30.13"
 
 [features]
 default = []
-# The subsystems the window draws for, matched to the editor's own.
-syntax = ["maxgus-core/syntax"]
-lsp = ["maxgus-core/lsp"]
-git = ["maxgus-core/git"]
-terminal = ["maxgus-core/terminal"]
-full = ["syntax", "lsp", "git", "terminal"]
+
+# What the window draws for, matched to the editor's own.
+full = ["maxgus-core/full"]

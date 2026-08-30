@@ -36,7 +36,7 @@ pub fn draw(editor: &Editor, surface: &mut Surface) {
     // The popup goes over the top of the windows rather than resizing them, so
     // opening the list does not reflow what is being edited. It carries the
     // prompt with it, and the echo area stays out of the way while it is up.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     if let Some(active) = editor.transient.as_ref() {
         draw_transient(editor, surface, frame, active);
     }
@@ -63,7 +63,7 @@ fn draw_subsystem_window(
     area: Rect,
     name: &str,
 ) -> bool {
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     {
         if name == crate::commands::git::STATUS_BUFFER_NAME {
             draw_git_status(editor, surface, window, area);
@@ -78,7 +78,7 @@ fn draw_subsystem_window(
             return true;
         }
     }
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     if Some(window.id) == editor.terminal_window {
         draw_terminal(editor, surface, area);
         return true;
@@ -114,7 +114,7 @@ fn draw_window(editor: &Editor, surface: &mut Surface, window: &Window, area: Re
     draw_mode_line(editor, surface, window, mode_line_area, selected);
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// Paints a diff or revision buffer: a title, what is above the diff, then
 /// the files with their hunks.
 fn draw_git_diff(
@@ -240,7 +240,7 @@ fn draw_git_diff(
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// Paints a log, the references, or what git has been asked to do.
 fn draw_git_list(
     editor: &Editor,
@@ -284,7 +284,7 @@ fn draw_git_list(
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// The text of one diff-buffer row, which is what point moves through.
 pub fn git_diff_row_text(view: &crate::git::DiffView, row: &crate::git::DiffRow) -> String {
     use crate::git::DiffRow;
@@ -321,7 +321,7 @@ pub fn git_diff_row_text(view: &crate::git::DiffView, row: &crate::git::DiffRow)
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// Paints the git status view.
 ///
 /// Drawn from the row list rather than from the buffer's text so that every
@@ -363,7 +363,7 @@ fn draw_git_status(editor: &Editor, surface: &mut Surface, window: &Window, area
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 fn draw_git_row(
     editor: &Editor,
     surface: &mut Surface,
@@ -592,7 +592,7 @@ fn draw_git_row(
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// The word describing what happened to a file, from the status.
 fn git_word(editor: &Editor, section: crate::git::Section, path: &str) -> Option<&'static str> {
     use crate::git::Section;
@@ -610,7 +610,7 @@ fn git_word(editor: &Editor, section: crate::git::Section, path: &str) -> Option
     })
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 /// Paints the terminal panel: a bar of tabs, then the screen of the one
 /// showing.
 ///
@@ -669,7 +669,7 @@ fn draw_terminal(editor: &Editor, surface: &mut Surface, area: Rect) {
     }
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 /// The bar of tabs across the top of the panel.
 fn draw_terminal_tabs(editor: &Editor, surface: &mut Surface, area: Rect) {
     let theme = &editor.theme;
@@ -1009,9 +1009,9 @@ fn draw_text(editor: &Editor, surface: &mut Surface, window: &Window, buffer: &B
     };
     // Diagnostics are resolved once for the whole window. Doing it per line
     // would repeat the work for every row on screen.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     let diagnostics = resolve_diagnostics(editor, buffer);
-    #[cfg(not(feature = "lsp"))]
+    #[cfg(not(feature = "full"))]
     let diagnostics: Vec<(Range, &'static str)> = Vec::new();
     // The other matches of a running search, and the delimiter matching the
     // one under point. Both are resolved once for the window, like the
@@ -1242,10 +1242,10 @@ struct Layers<'a> {
     theme: &'a Theme,
     default: Face,
     /// Syntax spans overlapping this line, in byte offsets.
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     highlights: Vec<&'a maxgus_syntax::Highlight>,
     /// Read to turn a character offset into the byte offset the spans use.
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     rope: &'a ropey::Rope,
     region: Option<Range>,
     /// The search match point is on.
@@ -1262,7 +1262,7 @@ struct Layers<'a> {
 }
 
 impl<'a> Layers<'a> {
-    #[cfg_attr(not(feature = "syntax"), allow(unused_variables))]
+    #[cfg_attr(not(feature = "full"), allow(unused_variables))]
     fn new(
         editor: &'a Editor,
         window: &Window,
@@ -1275,7 +1275,7 @@ impl<'a> Layers<'a> {
         let line_range = Range::new(start, end);
         let rope = buffer.rope();
 
-        #[cfg(feature = "syntax")]
+        #[cfg(feature = "full")]
         let highlights = {
             let line_start_byte = rope.char_to_byte(start);
             let line_end_byte = rope.char_to_byte(end);
@@ -1323,9 +1323,9 @@ impl<'a> Layers<'a> {
         Layers {
             theme: &editor.theme,
             default: editor.theme.resolve("default"),
-            #[cfg(feature = "syntax")]
+            #[cfg(feature = "full")]
             highlights,
-            #[cfg(feature = "syntax")]
+            #[cfg(feature = "full")]
             rope,
             region,
             current,
@@ -1343,7 +1343,7 @@ impl<'a> Layers<'a> {
 
         // Syntax highlighting, looked up by byte offset: the spans come from
         // tree-sitter, which counts bytes.
-        #[cfg(feature = "syntax")]
+        #[cfg(feature = "full")]
         if !self.highlights.is_empty() {
             let byte = self.rope.char_to_byte(offset);
             if let Some(span) = self
@@ -1386,7 +1386,7 @@ impl<'a> Layers<'a> {
     }
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 /// Every diagnostic for `buffer`, as character ranges with the face to use.
 ///
 /// This is computed once per window. It used to be done per line, which meant
@@ -1575,7 +1575,7 @@ fn draw_mode_line(
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// Paints the list of completions above the echo area.
 ///
 /// Emacs opens a `*Completions*` window; on a terminal a few rows over the
@@ -1953,7 +1953,7 @@ mod tests {
     use super::*;
     use maxgus_config::Settings;
     use maxgus_faces::defaults;
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     use maxgus_syntax::Highlight;
     use maxgus_tui::Size;
 
@@ -2103,7 +2103,7 @@ mod tests {
         assert_eq!(face_at(&s, 0, 0), e.theme.resolve("line-number"));
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[test]
     fn syntax_highlighting_colours_the_spans_it_covers() {
         let (mut e, mut s) = setup("fn main() {}\n", 20, 4);
@@ -2133,7 +2133,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[test]
     fn stale_highlighting_is_still_drawn() {
         let (mut e, mut s) = setup("fn main\n", 20, 4);
@@ -2168,7 +2168,7 @@ mod tests {
         assert_ne!(face_at(&s, 5, 0).background, region, "the end is exclusive");
     }
 
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     #[test]
     fn a_region_keeps_the_syntax_colour_underneath_it() {
         let (mut e, mut s) = setup("fn main\n", 20, 4);
@@ -2242,7 +2242,7 @@ mod tests {
         assert_ne!(face_at(&s, 0, 0).background, marked);
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn diagnostics_are_underlined_where_they_sit() {
         let mut editor = Editor::new(
@@ -2271,7 +2271,7 @@ mod tests {
         assert_ne!(face_at(&s, 0, 0).attributes.underline, Some(true));
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn the_mode_line_shows_diagnostic_counts() {
         let mut editor = Editor::new(

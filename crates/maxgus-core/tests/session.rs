@@ -421,7 +421,7 @@ fn the_file_tree_opens_beside_the_buffer_and_takes_the_keyboard() {
     assert_eq!(s.editor.windows.len(), 1);
 }
 
-#[cfg(feature = "syntax")]
+#[cfg(feature = "full")]
 #[test]
 fn syntax_highlighting_reaches_the_screen() {
     let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
@@ -446,7 +446,7 @@ fn syntax_highlighting_reaches_the_screen() {
     assert_ne!(s.surface.get(3, 0).unwrap().face, keyword, "`main` is not");
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn a_diagnostic_is_underlined_and_counted_in_the_mode_line() {
     let mut s = Session::editing("/project/main.rs", "let unused = 1;\n");
@@ -481,7 +481,7 @@ fn a_diagnostic_is_underlined_and_counted_in_the_mode_line() {
     assert!(s.echo().contains("unused variable"), "got `{}`", s.echo());
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn editing_after_opening_a_file_is_reported_to_the_language_server() {
     let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
@@ -857,7 +857,7 @@ fn assert_consistent(session: &Session, after: &str) {
     );
     // Highlight spans are drawn by byte offset; one past the end would be read
     // out of the buffer it describes.
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     for (buffer, (_, _, spans)) in &editor.highlights {
         let Some(length) = editor.buffers.get(*buffer).map(|b| b.text().len()) else {
             continue;
@@ -1955,7 +1955,7 @@ fn visiting_the_theme_already_in_the_config_asks_nothing() {
     assert_eq!(s.editor.theme.name(), "maxgus-dark");
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_mode_line_shows_the_branch_once_it_is_known() {
     let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
@@ -1979,7 +1979,7 @@ fn the_mode_line_shows_the_branch_once_it_is_known() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn a_directory_that_is_not_a_repository_shows_no_branch() {
     let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
@@ -2348,7 +2348,7 @@ fn tall_session(path: &str, text: &str) -> Session {
     session
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 /// A session with the panel open: three windows down the left, the tree
 /// filled, a language server up, and an outline delivered.
 fn with_panel() -> Session {
@@ -2376,7 +2376,7 @@ fn with_panel() -> Session {
     s
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 fn start_server(s: &mut Session) {
     s.editor
         .apply_task_result(maxgus_core::TaskResult::LanguageServerStarted {
@@ -2386,7 +2386,7 @@ fn start_server(s: &mut Session) {
         .unwrap();
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 /// `one` and `two` are plain functions; `S` is a struct with a field, so the
 /// outline has something to fold.
 fn deliver_symbols(s: &mut Session) {
@@ -2424,7 +2424,7 @@ fn select_panel_window(s: &mut Session, name: &str) -> maxgus_core::window::Wind
     window
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn the_panel_is_three_windows_stacked_down_the_left() {
     // One window per section rather than one buffer with headings in it, so
@@ -2450,7 +2450,7 @@ fn the_panel_is_three_windows_stacked_down_the_left() {
     assert!(rects[1].rect.bottom() <= rects[2].rect.y);
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn the_control_arrows_move_between_the_panels_windows() {
     // The reason for making them windows: this is ordinary window movement,
@@ -2476,7 +2476,7 @@ fn the_control_arrows_move_between_the_panels_windows() {
     assert_eq!(s.editor.current_buffer().name(), "main.rs");
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn each_panel_window_keeps_its_own_point() {
     // The other reason: a single buffer could not do this.
@@ -2500,7 +2500,7 @@ fn each_panel_window_keeps_its_own_point() {
     );
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn a_symbol_is_selected_and_gone_to() {
     let mut s = with_panel();
@@ -2531,7 +2531,7 @@ fn a_symbol_is_selected_and_gone_to() {
     );
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn a_buffer_is_selected_and_shown() {
     let mut s = with_panel();
@@ -2557,7 +2557,7 @@ fn a_buffer_is_selected_and_shown() {
     );
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn tab_folds_a_symbol_and_hides_what_is_inside_it() {
     let mut s = with_panel();
@@ -2610,7 +2610,7 @@ fn a_section_switched_off_in_configuration_is_not_in_the_panel() {
     assert!(s.editor.buffers.find_by_name("*treefile*").is_some());
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn switching_a_section_on_rebuilds_the_column() {
     let mut s = with_panel();
@@ -2640,7 +2640,7 @@ fn the_last_section_cannot_be_switched_off() {
     );
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn the_outline_belongs_to_the_buffer_being_edited() {
     // Symbols for one file shown against another is worse than no symbols.
@@ -2667,7 +2667,7 @@ fn the_outline_belongs_to_the_buffer_being_edited() {
     );
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn a_tree_command_typed_in_the_outline_does_nothing_to_the_tree() {
     // Each window has its own keymap, so `d` in the outline is not the
@@ -2684,7 +2684,7 @@ fn a_tree_command_typed_in_the_outline_does_nothing_to_the_tree() {
 
 // ---- the terminal panel -------------------------------------------------
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 /// A session with the terminal open and its shell "started".
 fn with_terminal() -> Session {
     let mut s = tall_session("/project/main.rs", "fn main() {}\n");
@@ -2693,7 +2693,7 @@ fn with_terminal() -> Session {
     s
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 /// The bytes sent to the shell since the last drain.
 fn sent(s: &mut Session) -> Vec<u8> {
     s.editor
@@ -2708,7 +2708,7 @@ fn sent(s: &mut Session) -> Vec<u8> {
         .collect()
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 /// Feeds output from the program to the terminal showing.
 fn output(s: &mut Session, bytes: &str) {
     let terminal = s.editor.terminals.current().expect("a terminal").id;
@@ -2720,7 +2720,7 @@ fn output(s: &mut Session, bytes: &str) {
         .unwrap();
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn the_terminal_opens_along_the_bottom_and_starts_a_shell() {
     let mut s = tall_session("/project/main.rs", "fn main() {}\n");
@@ -2740,7 +2740,7 @@ fn the_terminal_opens_along_the_bottom_and_starts_a_shell() {
     assert_eq!(s.editor.windows.current_id(), window);
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn typing_in_a_terminal_reaches_the_shell_rather_than_the_editor() {
     // This is the whole point of a terminal window: `C-a` is readline's, not
@@ -2765,7 +2765,7 @@ fn typing_in_a_terminal_reaches_the_shell_rather_than_the_editor() {
     assert_eq!(before, after, "a keystroke was inserted into a buffer");
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn what_the_shell_writes_is_drawn_in_the_panel() {
     let mut s = with_terminal();
@@ -2779,7 +2779,7 @@ fn what_the_shell_writes_is_drawn_in_the_panel() {
     );
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn tabs_are_opened_and_walked_between() {
     let mut s = with_terminal();
@@ -2813,7 +2813,7 @@ fn tabs_are_opened_and_walked_between() {
     );
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn a_tab_is_chosen_by_its_number() {
     let mut s = with_terminal();
@@ -2829,7 +2829,7 @@ fn a_tab_is_chosen_by_its_number() {
     assert!(s.echo().contains("no tab 9"), "got `{}`", s.echo());
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn closing_the_last_tab_closes_the_panel_with_it() {
     // A terminal panel with no terminal in it is a band of nothing across the
@@ -2851,7 +2851,7 @@ fn closing_the_last_tab_closes_the_panel_with_it() {
     );
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn reading_mode_stops_the_keys_reaching_the_shell() {
     let mut s = with_terminal();
@@ -2874,7 +2874,7 @@ fn reading_mode_stops_the_keys_reaching_the_shell() {
     assert_eq!(sent(&mut s), b"x", "the keyboard did not come back");
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn a_selection_made_while_reading_goes_to_the_kill_ring() {
     let mut s = with_terminal();
@@ -2896,7 +2896,7 @@ fn a_selection_made_while_reading_goes_to_the_kill_ring() {
     );
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn a_paste_goes_in_bracketed_when_the_shell_asked_for_that() {
     let mut s = with_terminal();
@@ -2917,7 +2917,7 @@ fn a_paste_goes_in_bracketed_when_the_shell_asked_for_that() {
     );
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn the_interrupt_key_is_given_back_by_the_prefix_that_took_it() {
     // `C-c` is the prefix, so `C-c c` has to send a real interrupt or there
@@ -2927,7 +2927,7 @@ fn the_interrupt_key_is_given_back_by_the_prefix_that_took_it() {
     assert_eq!(sent(&mut s), [3]);
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn resizing_the_frame_tells_the_programs_inside() {
     // Without this, `vim` in a tab goes on drawing to the shape it started
@@ -2945,7 +2945,7 @@ fn resizing_the_frame_tells_the_programs_inside() {
     );
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn the_terminal_spans_the_frame_with_the_side_panel_open() {
     let mut s = with_terminal();
@@ -2960,7 +2960,7 @@ fn the_terminal_spans_the_frame_with_the_side_panel_open() {
     );
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn the_arrows_change_shape_when_the_shell_asks() {
     // `DECCKM`. Sending the wrong spelling makes the arrows print `^[[A` at a
@@ -2976,7 +2976,7 @@ fn the_arrows_change_shape_when_the_shell_asks() {
     assert_eq!(sent(&mut s), b"\x1bOA");
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn the_editors_own_prefix_still_works_from_inside_a_terminal() {
     // Without this the terminal swallows `C-x` along with everything else and
@@ -2992,7 +2992,7 @@ fn the_editors_own_prefix_still_works_from_inside_a_terminal() {
     assert!(sent(&mut s).is_empty(), "the prefix leaked to the shell");
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn the_keys_the_editor_keeps_are_given_back_under_the_prefix() {
     // Four keys stay the editor's, so each has a spelling that sends it for
@@ -3008,7 +3008,7 @@ fn the_keys_the_editor_keeps_are_given_back_under_the_prefix() {
     assert_eq!(sent(&mut s), [0x03], "C-c c should send a real interrupt");
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 #[test]
 fn help_and_m_x_still_reach_the_editor_from_a_terminal() {
     let mut s = with_terminal();
@@ -3028,7 +3028,7 @@ fn help_and_m_x_still_reach_the_editor_from_a_terminal() {
 
 // ---- the git status view ------------------------------------------------
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 const UNSTAGED_DIFF: &str = "\
 diff --git a/src/a.rs b/src/a.rs
 index 111..222 100644
@@ -3044,7 +3044,7 @@ index 111..222 100644
  tail
 ";
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 const STAGED_DIFF: &str = "\
 diff --git a/src/b.rs b/src/b.rs
 index 333..444 100644
@@ -3056,7 +3056,7 @@ index 333..444 100644
  tail
 ";
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// A session showing a repository with one unstaged file, one staged file,
 /// an untracked file and a stash.
 fn with_git() -> Session {
@@ -3070,7 +3070,7 @@ fn with_git() -> Session {
     s
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 fn refresh_git(s: &mut Session) {
     let status = maxgus_git::status::parse(
         b"# branch.oid 5958f5e13418d8b5\0\
@@ -3121,7 +3121,7 @@ fn refresh_git(s: &mut Session) {
     s.editor.tasks.drain();
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// Moves point to the first row matching, and says which line it was.
 fn go_to_git(s: &mut Session, matching: impl Fn(&maxgus_core::git::Row) -> bool) -> usize {
     let line = s
@@ -3135,7 +3135,7 @@ fn go_to_git(s: &mut Session, matching: impl Fn(&maxgus_core::git::Row) -> bool)
     line
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// The git tasks queued since the last drain.
 fn git_tasks(s: &mut Session) -> Vec<maxgus_core::task::GitAction> {
     s.editor
@@ -3149,7 +3149,7 @@ fn git_tasks(s: &mut Session) -> Vec<maxgus_core::task::GitAction> {
         .collect()
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_status_view_shows_the_whole_state_of_the_repository() {
     let mut s = with_git();
@@ -3174,7 +3174,7 @@ fn the_status_view_shows_the_whole_state_of_the_repository() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn tab_folds_a_section_a_file_and_a_hunk_in_turn() {
     let mut s = with_git();
@@ -3222,7 +3222,7 @@ fn tab_folds_a_section_a_file_and_a_hunk_in_turn() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn point_stays_on_the_row_that_was_folded() {
     // Everything below a fold moves. Coming back to the same line number
@@ -3245,7 +3245,7 @@ fn point_stays_on_the_row_that_was_folded() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn staging_a_file_stages_that_file() {
     let mut s = with_git();
@@ -3265,7 +3265,7 @@ fn staging_a_file_stages_that_file() {
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn staging_one_hunk_sends_a_patch_of_that_hunk_alone() {
     // The signature magit operation, and the one where getting it wrong
@@ -3303,7 +3303,7 @@ fn staging_one_hunk_sends_a_patch_of_that_hunk_alone() {
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn unstaging_a_hunk_reverses_the_same_patch() {
     let mut s = with_git();
@@ -3338,7 +3338,7 @@ fn unstaging_a_hunk_reverses_the_same_patch() {
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn staging_something_already_staged_says_so_rather_than_doing_it_twice() {
     let mut s = with_git();
@@ -3351,7 +3351,7 @@ fn staging_something_already_staged_says_so_rather_than_doing_it_twice() {
     assert!(git_tasks(&mut s).is_empty(), "it went ahead anyway");
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn discarding_asks_first_and_says_what_it_will_lose() {
     // The one irreversible thing here.
@@ -3389,7 +3389,7 @@ fn discarding_asks_first_and_says_what_it_will_lose() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn a_commit_is_written_in_a_buffer_and_finished_with_two_keys() {
     let mut s = with_git();
@@ -3416,7 +3416,7 @@ fn a_commit_is_written_in_a_buffer_and_finished_with_two_keys() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn an_empty_commit_message_is_refused() {
     let mut s = with_git();
@@ -3430,7 +3430,7 @@ fn an_empty_commit_message_is_refused() {
     assert!(git_tasks(&mut s).is_empty(), "it committed nothing");
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn comment_lines_are_stripped_from_a_commit_message() {
     // As git strips them, so a template can explain itself without ending up
@@ -3453,7 +3453,7 @@ fn comment_lines_are_stripped_from_a_commit_message() {
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn return_on_a_hunk_opens_the_file_at_that_hunk() {
     let mut s = with_git();
@@ -3480,7 +3480,7 @@ fn return_on_a_hunk_opens_the_file_at_that_hunk() {
     assert_eq!(position.line, 19, "point is not at the hunk");
 }
 
-#[cfg(all(feature = "git", feature = "lsp"))]
+#[cfg(feature = "full")]
 #[test]
 fn return_on_a_hunk_of_a_file_not_open_yet_reads_it_and_then_jumps() {
     let mut s = with_git();
@@ -3512,7 +3512,7 @@ fn return_on_a_hunk_of_a_file_not_open_yet_reads_it_and_then_jumps() {
     );
 }
 
-#[cfg(all(feature = "git", feature = "lsp"))]
+#[cfg(feature = "full")]
 #[test]
 fn return_on_a_diff_line_counts_only_the_lines_that_exist_in_the_file() {
     // The hunk is `-was`, `+is`, ` tail` starting at line five. A removed
@@ -3540,7 +3540,7 @@ fn return_on_a_diff_line_counts_only_the_lines_that_exist_in_the_file() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_section_keys_walk_between_headings() {
     let mut s = with_git();
@@ -3554,7 +3554,7 @@ fn the_section_keys_walk_between_headings() {
     assert_eq!(section(&s), Some(maxgus_core::git::Section::Untracked));
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn a_stash_is_acted_on_by_the_name_git_knows_it_by() {
     let mut s = with_git();
@@ -3566,7 +3566,7 @@ fn a_stash_is_acted_on_by_the_name_git_knows_it_by() {
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_branch_prompt_offers_the_branches_there_are() {
     let mut s = with_git();
@@ -3579,7 +3579,7 @@ fn the_branch_prompt_offers_the_branches_there_are() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_mode_line_branch_comes_from_the_same_reading_as_the_view() {
     // Two sources would eventually disagree, and the one on screen all the
@@ -3590,7 +3590,7 @@ fn the_mode_line_branch_comes_from_the_same_reading_as_the_view() {
 
 // ---- the transient menus ------------------------------------------------
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_dispatch_menu_shows_what_git_can_do_here() {
     let mut s = with_git();
@@ -3604,7 +3604,7 @@ fn the_dispatch_menu_shows_what_git_can_do_here() {
     assert!(has("Inspect"), "no group headings");
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn a_key_in_a_menu_opens_the_menu_underneath_it() {
     let mut s = with_git();
@@ -3625,7 +3625,7 @@ fn a_key_in_a_menu_opens_the_menu_underneath_it() {
     assert!(s.editor.transient.is_none(), "the menu would not close");
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn a_switch_stays_on_and_is_given_to_the_command() {
     // The whole point of a menu: `--force-with-lease` is visible before it
@@ -3655,7 +3655,7 @@ fn a_switch_stays_on_and_is_given_to_the_command() {
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn a_key_that_is_not_in_the_menu_says_so_and_leaves_it_up() {
     let mut s = with_git();
@@ -3668,7 +3668,7 @@ fn a_key_that_is_not_in_the_menu_says_so_and_leaves_it_up() {
     assert!(s.echo().contains("not one of these"), "got `{}`", s.echo());
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_menu_takes_every_key_while_it_is_up() {
     // A menu that let some keys through would be competing with whatever
@@ -3699,7 +3699,7 @@ fn the_menu_takes_every_key_while_it_is_up() {
 
 // ---- the other views ----------------------------------------------------
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// Feeds a commit as the executor would answer a `Show`.
 fn deliver_revision(s: &mut Session) {
     s.editor
@@ -3716,7 +3716,7 @@ fn deliver_revision(s: &mut Session) {
         .unwrap();
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn return_on_a_commit_shows_it_in_full() {
     let mut s = with_git();
@@ -3748,7 +3748,7 @@ fn return_on_a_commit_shows_it_in_full() {
     assert!(has("+is"), "the diff has no lines");
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn a_file_in_a_revision_folds_on_its_own() {
     let mut s = with_git();
@@ -3789,7 +3789,7 @@ fn a_file_in_a_revision_folds_on_its_own() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn folding_a_file_in_a_revision_leaves_point_on_it() {
     // What magit does: `TAB` folds the section point is on and point stays on
@@ -3835,7 +3835,7 @@ fn folding_a_file_in_a_revision_leaves_point_on_it() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn folding_the_second_file_keeps_point_on_the_second_file() {
     // The line a file's heading is on changes when a file above it folds, so
@@ -3893,7 +3893,7 @@ fn folding_the_second_file_keeps_point_on_the_second_file() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn q_kills_the_magit_buffer_rather_than_leaving_it_behind() {
     // Magit's views are scratch views. Buried, they pile up in `C-x b` and
@@ -3928,7 +3928,7 @@ fn q_kills_the_magit_buffer_rather_than_leaving_it_behind() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn a_prefix_argument_keeps_the_magit_buffer() {
     // The way back for anyone who wants the view kept: `C-u q` buries it,
@@ -3947,7 +3947,7 @@ fn a_prefix_argument_keeps_the_magit_buffer() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn quitting_magit_twice_over_does_not_run_out_of_buffers() {
     // `q` on the last buffer standing has nothing to fall back to. It has to
@@ -3974,7 +3974,7 @@ fn quitting_magit_twice_over_does_not_run_out_of_buffers() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_commit_message_buffer_goes_when_the_commit_is_made() {
     // Left behind it is a stale message sitting in `C-x b`, and the next
@@ -3992,7 +3992,7 @@ fn the_commit_message_buffer_goes_when_the_commit_is_made() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_commit_message_buffer_goes_when_the_commit_is_abandoned() {
     let mut s = with_git();
@@ -4015,7 +4015,7 @@ fn the_commit_message_buffer_goes_when_the_commit_is_abandoned() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn killing_a_buffer_takes_the_keymap_of_the_one_left_showing() {
     // The window shows a different buffer afterwards, which is as much a
@@ -4042,7 +4042,7 @@ fn killing_a_buffer_takes_the_keymap_of_the_one_left_showing() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_log_menu_opens_a_log_buffer() {
     let mut s = with_git();
@@ -4073,7 +4073,7 @@ fn the_log_menu_opens_a_log_buffer() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn return_in_a_log_shows_the_commit_that_line_is() {
     let mut s = with_git();
@@ -4093,7 +4093,7 @@ fn return_in_a_log_shows_the_commit_that_line_is() {
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_references_view_lists_branches_and_tags_apart() {
     let mut s = with_git();
@@ -4125,7 +4125,7 @@ fn the_references_view_lists_branches_and_tags_apart() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn return_in_the_references_view_checks_that_branch_out() {
     let mut s = with_git();
@@ -4142,7 +4142,7 @@ fn return_in_the_references_view_checks_that_branch_out() {
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_process_buffer_shows_what_git_was_asked_to_do() {
     let mut s = with_git();
@@ -4164,7 +4164,7 @@ fn the_process_buffer_shows_what_git_was_asked_to_do() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn n_and_p_move_by_section_rather_than_by_line() {
     // Stepping through the lines of a hunk one at a time is what `C-n` is
@@ -4203,7 +4203,7 @@ fn n_and_p_move_by_section_rather_than_by_line() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_caret_goes_out_to_what_contains_this() {
     let mut s = with_git();
@@ -4235,7 +4235,7 @@ fn the_caret_goes_out_to_what_contains_this() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn magit_is_reachable_by_the_name_a_person_types() {
     // In Emacs `magit` is an alias for `magit-status`. Someone reaching for
@@ -4252,7 +4252,7 @@ fn magit_is_reachable_by_the_name_a_person_types() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn magit_and_magit_status_are_the_same_command() {
     let registry = maxgus_core::standard_registry();
@@ -4263,7 +4263,7 @@ fn magit_and_magit_status_are_the_same_command() {
 
 // ---- the mode line ------------------------------------------------------
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_mode_line_says_how_big_the_buffer_is_and_where_the_file_is() {
     // Three buffers called `mod.rs` are told apart by where they are, which
@@ -4278,7 +4278,7 @@ fn the_mode_line_says_how_big_the_buffer_is_and_where_the_file_is() {
     assert!(bar.contains("13"), "no size: `{bar}`");
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn a_file_outside_the_project_keeps_its_bare_name() {
     // An absolute path is usually longer than the bar and tells the reader
@@ -4293,7 +4293,7 @@ fn a_file_outside_the_project_keeps_its_bare_name() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn the_branch_and_the_language_sit_against_the_right_edge() {
     // What is being edited is on the left, where the eye starts; what the
@@ -4314,7 +4314,7 @@ fn the_branch_and_the_language_sit_against_the_right_edge() {
     );
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 #[test]
 fn a_narrow_bar_keeps_the_file_and_drops_the_rest() {
     // The file being edited is what must survive a narrow window; the two
@@ -4334,7 +4334,7 @@ fn a_narrow_bar_keeps_the_file_and_drops_the_rest() {
     );
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn the_outline_window_appears_when_a_server_starts_later() {
     // Which windows the column has is decided when it is built, so a server
@@ -4361,7 +4361,7 @@ fn the_outline_window_appears_when_a_server_starts_later() {
     assert!(!s.editor.windows.showing(id).is_empty(), "it has no window");
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn the_outline_window_goes_when_its_server_does() {
     let mut s = with_panel();
@@ -4408,7 +4408,7 @@ fn opening_the_configuration_twice_shows_the_buffer_it_already_has() {
     assert!(s.editor.tasks.drain().is_empty(), "it read the file again");
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn each_panel_window_is_reached_by_its_own_key() {
     let mut s = with_panel();
@@ -4436,7 +4436,7 @@ fn asking_for_the_outline_with_no_server_says_so() {
     assert_eq!(s.editor.current_buffer().name(), "main.rs");
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn a_short_frame_still_leaves_the_tree_something_to_show() {
     // Configured heights are what the user wants, not what the frame has. A
@@ -4472,7 +4472,7 @@ fn a_short_frame_still_leaves_the_tree_something_to_show() {
     );
 }
 
-#[cfg(all(feature = "git", feature = "terminal"))]
+#[cfg(feature = "full")]
 /// The two numbers the README quotes, counted the way a reader would check
 /// them: what `C-h b` lists, and what `M-x` offers.
 ///
@@ -4508,7 +4508,7 @@ const README_BINDINGS: usize = 394;
 #[cfg(feature = "full")]
 const README_COMMANDS: usize = 438;
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn a_second_outline_answer_does_not_open_a_listing_over_the_file() {
     // Two requests can be in flight at once — the panel refreshing itself
@@ -4533,7 +4533,7 @@ fn a_second_outline_answer_does_not_open_a_listing_over_the_file() {
     );
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn asking_for_the_symbol_listing_still_opens_it() {
     // The other half: `M-x lsp-document-symbols` is a person asking, and it
@@ -4578,7 +4578,7 @@ fn asking_for_the_symbol_listing_still_opens_it() {
     );
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn a_listing_never_takes_over_a_panel_window() {
     // Point is in the buffer list when the answer arrives. The listing has to
@@ -4623,7 +4623,7 @@ fn a_listing_never_takes_over_a_panel_window() {
     }
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 fn buffer_names(s: &Session) -> Vec<String> {
     s.editor
         .buffers
@@ -4937,7 +4937,7 @@ fn a_buffer_with_no_file_says_so_rather_than_opening_nothing() {
 
 // ---- project-wide search -------------------------------------------------
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 fn found(hits: &[(&str, usize, &str)]) -> maxgus_grep::Found {
     maxgus_grep::Found {
         hits: hits
@@ -4955,7 +4955,7 @@ fn found(hits: &[(&str, usize, &str)]) -> maxgus_grep::Found {
     }
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 fn with_grep() -> Session {
     let mut s = tall_session("/project/src/a.rs", "fn alpha() {}\nfn beta() {}\n");
     s.editor.tree_root = Some("/project".into());
@@ -4972,7 +4972,7 @@ fn with_grep() -> Session {
     s
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn a_search_asks_for_a_pattern_and_offers_the_word_at_point() {
     let mut s = tall_session("/project/src/a.rs", "fn alpha() {}\n");
@@ -4998,7 +4998,7 @@ fn a_search_asks_for_a_pattern_and_offers_the_word_at_point() {
     }
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn a_pattern_becomes_a_search_of_the_project() {
     let mut s = tall_session("/project/src/a.rs", "fn alpha() {}\n");
@@ -5017,7 +5017,7 @@ fn a_pattern_becomes_a_search_of_the_project() {
     }
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn the_results_are_a_buffer_of_files_and_lines() {
     let mut s = with_grep();
@@ -5030,7 +5030,7 @@ fn the_results_are_a_buffer_of_files_and_lines() {
     assert!(has("/project/src/b.rs"), "no second file");
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn point_starts_on_a_result_and_n_walks_them() {
     let mut s = with_grep();
@@ -5061,7 +5061,7 @@ fn point_starts_on_a_result_and_n_walks_them() {
     assert_eq!(line_now(&s), first, "`p` did not come back");
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn return_opens_the_file_at_the_line_that_matched() {
     let mut s = with_grep();
@@ -5082,7 +5082,7 @@ fn return_opens_the_file_at_the_line_that_matched() {
     );
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn return_on_a_file_already_open_goes_straight_to_it() {
     let mut s = with_grep();
@@ -5092,7 +5092,7 @@ fn return_on_a_file_already_open_goes_straight_to_it() {
     assert!(s.editor.tasks.drain().is_empty(), "it read a file it had");
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn the_results_are_read_only_until_they_are_made_editable() {
     let mut s = with_grep();
@@ -5111,7 +5111,7 @@ fn the_results_are_read_only_until_they_are_made_editable() {
     );
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn an_edited_line_is_written_back_to_the_file_it_came_from() {
     let mut s = with_grep();
@@ -5137,7 +5137,7 @@ fn an_edited_line_is_written_back_to_the_file_it_came_from() {
     }
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn applying_with_nothing_changed_says_so_rather_than_writing() {
     let mut s = with_grep();
@@ -5152,7 +5152,7 @@ fn applying_with_nothing_changed_says_so_rather_than_writing() {
     assert!(s.editor.tasks.drain().is_empty(), "it wrote anyway");
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn applying_before_editing_says_which_key_to_press() {
     let mut s = with_grep();
@@ -5162,7 +5162,7 @@ fn applying_before_editing_says_which_key_to_press() {
     assert!(s.editor.tasks.drain().is_empty());
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn abandoning_puts_the_results_back_as_they_were() {
     let mut s = with_grep();
@@ -5175,7 +5175,7 @@ fn abandoning_puts_the_results_back_as_they_were() {
     assert!(s.echo().contains("read-only"), "it stayed writable");
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn the_navigation_keys_become_letters_while_the_results_are_edited() {
     // `n`, `p`, `o`, `g` and `q` move around the results while they are being
@@ -5204,7 +5204,7 @@ fn the_navigation_keys_become_letters_while_the_results_are_edited() {
     assert!(line(&s) > start, "`n` did not go back to being a command");
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn a_search_that_found_nothing_says_so_and_opens_no_buffer() {
     let mut s = tall_session("/project/src/a.rs", "fn alpha() {}\n");
@@ -5218,7 +5218,7 @@ fn a_search_that_found_nothing_says_so_and_opens_no_buffer() {
     assert!(s.editor.buffers.find_by_name("*grep*").is_none());
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 #[test]
 fn writing_the_files_re_reads_the_buffers_that_were_showing_them() {
     // A buffer left showing the old text of a file that was just rewritten
@@ -6243,7 +6243,7 @@ fn a_refresh_keeps_point_on_the_file_it_was_on() {
 
 // ---- scripts -------------------------------------------------------------
 
-#[cfg(feature = "script")]
+#[cfg(feature = "full")]
 fn with_script(source: &str) -> Session {
     let mut s = tall_session("/project/main.rs", "hello world\n");
     s.editor
@@ -6256,7 +6256,7 @@ fn with_script(source: &str) -> Session {
     s
 }
 
-#[cfg(feature = "script")]
+#[cfg(feature = "full")]
 #[test]
 fn a_script_command_is_offered_by_m_x_and_runs() {
     let mut s = with_script(
@@ -6277,7 +6277,7 @@ fn a_script_command_is_offered_by_m_x_and_runs() {
     );
 }
 
-#[cfg(feature = "script")]
+#[cfg(feature = "full")]
 #[test]
 fn a_script_command_sees_where_it_was_called() {
     let mut s = with_script(
@@ -6292,7 +6292,7 @@ fn a_script_command_sees_where_it_was_called() {
     assert_eq!(s.echo(), "main.rs:0:6", "got `{}`", s.echo());
 }
 
-#[cfg(feature = "script")]
+#[cfg(feature = "full")]
 #[test]
 fn a_script_command_can_run_the_editors_own() {
     let mut s = with_script(
@@ -6309,7 +6309,7 @@ fn a_script_command_can_run_the_editors_own() {
     );
 }
 
-#[cfg(feature = "script")]
+#[cfg(feature = "full")]
 #[test]
 fn a_script_that_fails_leaves_nothing_behind() {
     let mut s = with_script(
@@ -6328,7 +6328,7 @@ fn a_script_that_fails_leaves_nothing_behind() {
     assert!(s.echo().contains("not today"), "got `{}`", s.echo());
 }
 
-#[cfg(feature = "script")]
+#[cfg(feature = "full")]
 #[test]
 fn a_script_cannot_take_a_built_in_commands_name() {
     let mut s = with_script(
@@ -6345,7 +6345,7 @@ fn a_script_cannot_take_a_built_in_commands_name() {
     );
 }
 
-#[cfg(feature = "script")]
+#[cfg(feature = "full")]
 #[test]
 fn a_script_that_will_not_load_is_reported_and_the_editor_carries_on() {
     let mut s = tall_session("/project/main.rs", "hello\n");
@@ -6361,7 +6361,7 @@ fn a_script_that_will_not_load_is_reported_and_the_editor_carries_on() {
     assert!(s.editor.current_buffer().text().starts_with('x'));
 }
 
-#[cfg(feature = "script")]
+#[cfg(feature = "full")]
 #[test]
 fn reloading_replaces_what_the_last_script_offered() {
     let mut s = with_script(
@@ -6455,7 +6455,7 @@ fn the_bindings_match_doom() {
     }
     // `C-=` needs the grammars behind it, so it is only there in a build
     // that has them.
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     {
         let sequence = maxgus_keys::KeySequence::parse("C-=").expect("it parses");
         assert_eq!(map.lookup(&sequence).command(), Some("expand-region"));
@@ -6469,7 +6469,7 @@ fn the_bindings_match_doom() {
     }
 }
 
-#[cfg(feature = "lsp")]
+#[cfg(feature = "full")]
 #[test]
 fn the_language_server_lives_under_dooms_code_map() {
     // Doom keeps `C-c l` for the localleader and puts the language server

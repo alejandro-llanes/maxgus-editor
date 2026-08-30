@@ -48,13 +48,13 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("M-g g", "goto-line"),
     ("M-g M-g", "goto-line"),
     ("M-g c", "goto-char"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("M-g n", "next-error"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("M-g M-n", "next-error"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("M-g p", "previous-error"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("M-g M-p", "previous-error"),
     // ---- insertion and deletion ----
     ("RET", "newline"),
@@ -89,7 +89,7 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-M-@", "mark-sexp"),
     ("M-h", "mark-paragraph"),
     ("C-M-h", "mark-defun"),
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     ("C-=", "expand-region"),
     // ---- transposition and case ----
     ("C-t", "transpose-chars"),
@@ -113,9 +113,9 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("M-%", "query-replace"),
     ("C-M-%", "query-replace-regexp"),
     ("M-s o", "occur"),
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     ("M-s g", "project-grep"),
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     ("M-s G", "project-grep-literal"),
     // ---- files ----
     ("C-x C-f", "find-file"),
@@ -149,13 +149,13 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-S-<right>", "enlarge-window-horizontally"),
     // The panel and its sections, on the super key.
     ("C-s-a", "treefile-toggle"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-s-o", "panel-toggle-symbols-section"),
     ("C-s-i", "panel-toggle-buffers-section"),
     ("C-s-p", "panel-toggle-tree-section"),
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     ("s-t", "terminal-toggle"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-<tab>", "lsp-describe-thing-at-point"),
     // Doom's own: the tree on a function key.
     ("<f9>", "treefile-toggle"),
@@ -217,26 +217,26 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-x )", "kmacro-end-macro"),
     ("C-x e", "kmacro-end-and-call-macro"),
     // ---- the file tree ----
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     ("C-x g", "magit-status"),
     ("C-x t t", "treefile-toggle"),
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     ("C-x t v", "terminal-toggle"),
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     ("C-x t s", "terminal-select"),
     ("C-x t 1", "treefile-select"),
     ("C-x t 2", "panel-select-symbols"),
     ("C-x t 3", "panel-select-buffers"),
     ("C-x t d", "treefile-select-directory"),
     // ---- language server ----
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("M-.", "lsp-find-definition"),
     ("M-,", "pop-mark"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("M-?", "lsp-find-references"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-M-i", "completion-at-point"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-'", "lsp-document-symbols"),
     // ---- the leader ----
     //
@@ -245,25 +245,25 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     // lives under `C-c c`, which is Doom's code map, and not under `C-c l`.
 
     // `C-c c` — code.
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-c c d", "lsp-find-definition"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-c c D", "lsp-find-references"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-c c f", "lsp-format-buffer"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-c c r", "lsp-rename"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-c c a", "lsp-code-action"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-c c k", "lsp-describe-thing-at-point"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-c c j", "lsp-workspace-symbol"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-c c h", "lsp-signature-help"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-c c x", "next-error"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-c c R", "lsp-restart-server"),
     ("C-c c w", "delete-trailing-whitespace"),
     // `C-c f` — files.
@@ -276,18 +276,18 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-c f Y", "yank-buffer-path-relative-to-project"),
     ("C-c f p", "edit-configuration"),
     // `C-c s` — search.
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     ("C-c s p", "project-grep"),
-    #[cfg(feature = "grep")]
+    #[cfg(feature = "full")]
     ("C-c s .", "project-grep-literal"),
     ("C-c s b", "occur"),
     ("C-c s s", "occur"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-c s i", "lsp-document-symbols"),
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     ("C-c s I", "lsp-workspace-symbol"),
     // `C-c o` — open.
-    #[cfg(feature = "terminal")]
+    #[cfg(feature = "full")]
     ("C-c o t", "terminal-toggle"),
     ("C-c o p", "treefile-toggle"),
     ("C-c o -", "dired"),
@@ -299,9 +299,9 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-c t I", "toggle-indent-style"),
     ("C-c t w", "toggle-truncate-lines"),
     // `C-c v` — versioning.
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     ("C-c v g", "magit-status"),
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     ("C-c v /", "magit-dispatch"),
     // `C-c m` — several cursors.
     ("C-c m n", "mark-next-like-this"),
@@ -328,7 +328,7 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-h b", "describe-bindings"),
     ("C-h m", "describe-mode"),
     ("C-h w", "where-is"),
-    #[cfg(feature = "syntax")]
+    #[cfg(feature = "full")]
     ("C-h s", "describe-syntax-at-point"),
     ("C-h t", "help-with-tutorial"),
     ("<f1>", "describe-key"),
@@ -433,7 +433,7 @@ pub fn minibuffer_keymap() -> Result<Keymap> {
     Ok(map)
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 /// The keys that are *not* sent to the shell.
 ///
 /// Everything else is, by way of the map's default binding. The prefix is
@@ -468,7 +468,7 @@ pub const TERMINAL_BINDINGS: &[(&str, &str)] = &[
     ("S-<next>", "terminal-scroll-down"),
 ];
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 /// Reading mode: keys move a cursor over the output instead of reaching the
 /// shell, so a selection can be made without a mouse.
 pub const TERMINAL_COPY_BINDINGS: &[(&str, &str)] = &[
@@ -500,7 +500,7 @@ pub const TERMINAL_COPY_BINDINGS: &[(&str, &str)] = &[
     ("M->", "terminal-goto-last"),
 ];
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 /// The map for typing at a shell: a few commands, and everything else sent.
 pub fn terminal_keymap() -> Result<Keymap> {
     let mut map = Keymap::new(crate::commands::terminal::TERMINAL_MODE);
@@ -522,7 +522,7 @@ pub fn terminal_keymap() -> Result<Keymap> {
     Ok(map)
 }
 
-#[cfg(feature = "terminal")]
+#[cfg(feature = "full")]
 /// The map for reading a terminal's output.
 pub fn terminal_copy_keymap() -> Result<Keymap> {
     let mut map = Keymap::new(crate::commands::terminal::TERMINAL_COPY_MODE);
@@ -532,7 +532,7 @@ pub fn terminal_copy_keymap() -> Result<Keymap> {
     Ok(map)
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// Magit's own keymap.
 ///
 /// The single letters are *menus*, not prefixes: `c` shows what committing
@@ -593,14 +593,14 @@ pub const MAGIT_BINDINGS: &[(&str, &str)] = &[
     ("q", "magit-quit"),
 ];
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// Writing a commit message: the editor's own keys, plus two.
 pub const COMMIT_BINDINGS: &[(&str, &str)] = &[
     ("C-c C-c", "magit-commit-finish"),
     ("C-c C-k", "magit-commit-cancel"),
 ];
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 pub fn magit_keymap() -> Result<Keymap> {
     let mut map = Keymap::new(crate::commands::git::GIT_MODE);
     for (keys, command) in MAGIT_BINDINGS {
@@ -609,7 +609,7 @@ pub fn magit_keymap() -> Result<Keymap> {
     Ok(map)
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 pub fn commit_keymap() -> Result<Keymap> {
     let mut map = Keymap::new(crate::commands::git::COMMIT_MODE);
     for (keys, command) in COMMIT_BINDINGS {
@@ -618,7 +618,7 @@ pub fn commit_keymap() -> Result<Keymap> {
     Ok(map)
 }
 
-#[cfg(feature = "git")]
+#[cfg(feature = "full")]
 /// The map a menu takes the keyboard with.
 ///
 /// Every key, with no exceptions: a menu that let some keys through would be
@@ -663,7 +663,7 @@ pub const BUFFERS_BINDINGS: &[(&str, &str)] = &[
 ];
 
 /// The results of a project search: read like a list, edited like a buffer.
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 pub const GREP_BINDINGS: &[(&str, &str)] = &[
     ("n", "grep-next"),
     ("p", "grep-previous"),
@@ -682,11 +682,11 @@ pub const GREP_BINDINGS: &[(&str, &str)] = &[
 /// The results while they are being written into: what the reading map binds
 /// to letters is left to `self-insert-command`, and only the two keys that
 /// finish the edit remain.
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 pub const GREP_EDIT_BINDINGS: &[(&str, &str)] =
     &[("C-c C-c", "grep-apply"), ("C-c C-k", "grep-abandon")];
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 pub fn grep_edit_keymap() -> Result<Keymap> {
     let mut map = Keymap::new(crate::commands::grep::GREP_EDIT_MODE);
     for (keys, command) in GREP_EDIT_BINDINGS {
@@ -695,7 +695,7 @@ pub fn grep_edit_keymap() -> Result<Keymap> {
     Ok(map)
 }
 
-#[cfg(feature = "grep")]
+#[cfg(feature = "full")]
 pub fn grep_keymap() -> Result<Keymap> {
     let mut map = Keymap::new(crate::commands::grep::GREP_MODE);
     for (keys, command) in GREP_BINDINGS {
@@ -872,12 +872,12 @@ mod tests {
     fn every_multi_key_prefix_resolves() {
         let map = global_keymap().unwrap();
         // Doom's leader is `C-c`, with a map under each of these letters.
-        #[cfg(feature = "lsp")]
+        #[cfg(feature = "full")]
         let prefixes = [
             "C-x", "C-h", "C-c", "M-g", "M-s", "C-x r", "C-x 4", "C-x t", "C-x RET", "C-c c",
             "C-c f", "C-c s", "C-c o", "C-c t", "C-c m", "C-c i", "C-c q", "C-c w",
         ];
-        #[cfg(not(feature = "lsp"))]
+        #[cfg(not(feature = "full"))]
         let prefixes = [
             "C-x", "C-h", "C-c", "M-g", "M-s", "C-x r", "C-x 4", "C-x t", "C-x RET", "C-c f",
             "C-c o", "C-c t", "C-c m", "C-c i", "C-c q", "C-c w",
@@ -1077,7 +1077,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "lsp")]
+    #[cfg(feature = "full")]
     #[test]
     fn a_binding_written_with_a_control_alias_reaches_the_same_command() {
         let map = global_keymap().unwrap();

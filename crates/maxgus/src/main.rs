@@ -12,30 +12,19 @@ use maxgus_tui::{Rect, Terminal};
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
-/// What this build has in it, for `--version`.
+/// Which of the three builds this is, for `--version`.
 ///
-/// A binary built `--no-default-features --features minimal` is a different
-/// editor from one built `--features gui`, and looks identical until it is
-/// asked to do something it cannot. Saying so up front is cheaper than
-/// finding out.
+/// They look identical and are not, and which one is running is the first
+/// thing to know when one of them does not do what was expected.
 static VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    let features: Vec<&str> = [
-        ("syntax", cfg!(feature = "syntax")),
-        ("lsp", cfg!(feature = "lsp")),
-        ("git", cfg!(feature = "git")),
-        ("terminal", cfg!(feature = "terminal")),
-        ("grep", cfg!(feature = "grep")),
-        ("script", cfg!(feature = "script")),
-        ("gui", cfg!(feature = "gui")),
-    ]
-    .into_iter()
-    .filter(|(_, on)| *on)
-    .map(|(name, _)| name)
-    .collect();
-    match features.is_empty() {
-        true => format!("{} (minimal)", env!("CARGO_PKG_VERSION")),
-        false => format!("{} ({})", env!("CARGO_PKG_VERSION"), features.join(" ")),
-    }
+    let build = if cfg!(feature = "gui") {
+        "gui"
+    } else if cfg!(feature = "full") {
+        "full"
+    } else {
+        "minimal"
+    };
+    format!("{} ({build})", env!("CARGO_PKG_VERSION"))
 });
 
 /// Command-line arguments.
@@ -125,7 +114,7 @@ async fn main() -> Result<()> {
     // yasnippet arranges them.
     editor.snippets = load_snippets(editor.config_path.as_deref());
     // The script beside the configuration, read like any other file.
-    #[cfg(feature = "script")]
+    #[cfg(feature = "full")]
     if let Some(path) = editor
         .config_path
         .as_deref()
@@ -182,7 +171,7 @@ async fn main() -> Result<()> {
     if arguments.directory.is_some() {
         editor.spawn(maxgus_core::Task::Tree(maxgus_core::TreeAction::Refresh));
     }
-    #[cfg(feature = "git")]
+    #[cfg(feature = "full")]
     editor.spawn(maxgus_core::Task::GitBranch { root: root.clone() });
 
     // The panel, when the configuration asks for it. Opened last so that the

@@ -31,19 +31,16 @@ tracing = "0.1.44"
 [features]
 default = ["full"]
 
-# Everything the editor can do.
-full = ["syntax", "lsp", "git", "terminal", "grep", "script"]
+# The editor and the treefile, and nothing that needs a grammar, a protocol
+# or a subprocess.
+minimal = []
 
-# Tree-sitter highlighting. The grammars are C, and are most of what a build
-# spends its time on — which is what makes leaving them out worth a feature.
-syntax = ["dep:maxgus-syntax"]
-# A language-server client: diagnostics, completion, the symbol outline.
-lsp = ["dep:maxgus-lsp"]
-# Project-wide search, and editing the results back into the files.
-grep = ["dep:maxgus-grep"]
-# Commands defined by scripts.
-script = ["dep:maxgus-script"]
-# The magit clone.
-git = ["dep:maxgus-git"]
-# The terminal panel along the bottom.
-terminal = ["dep:maxgus-term"]
+# Everything the editor can do.
+full = [
+    "dep:maxgus-syntax",
+    "dep:maxgus-lsp",
+    "dep:maxgus-git",
+    "dep:maxgus-grep",
+    "dep:maxgus-term",
+    "dep:maxgus-script",
+]

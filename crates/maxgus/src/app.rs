@@ -280,7 +280,7 @@ impl App {
             }
             return;
         }
-        #[cfg(feature = "lsp")]
+        #[cfg(feature = "full")]
         if let TaskResult::LspResponse { .. } | TaskResult::LspApplyEdit { .. } = &result {
             self.editor.apply_lsp_response(result);
             return;
@@ -326,7 +326,7 @@ impl App {
     fn on_idle(&mut self) {
         self.idle_owed = false;
         let id = self.editor.current_buffer_id();
-        #[cfg(feature = "syntax")]
+        #[cfg(feature = "full")]
         if self.editor.highlights_are_stale(id) {
             self.editor.request_highlighting(id);
         }

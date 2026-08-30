@@ -6,7 +6,7 @@
 //! visible line when diagnostics were present, which made a frame take 1.67
 //! seconds on this file instead of 361 microseconds. A ratio catches it on any
 //! machine, in debug or release.
-#![cfg(feature = "lsp")]
+#![cfg(feature = "full")]
 
 use maxgus_config::Settings;
 use maxgus_core::{Dispatcher, Editor};

@@ -699,9 +699,9 @@ To try them side by side, `./scripts/build-variants.sh` builds all three into
 
 ```console
 $ ./scripts/build-variants.sh
-minimal  ok    4.6M  maxgus 0.1.0 (minimal)
-full     ok     13M  maxgus 0.1.0 (full)
-gui      ok     21M  maxgus 0.1.0 (gui)
+minimal  ok    4.6M  maxgus 0.2.0 (minimal)
+full     ok     13M  maxgus 0.2.0 (full)
+gui      ok     21M  maxgus 0.2.0 (gui)
 ```
 
 `--debug` builds them faster, `--into DIR` puts them somewhere else. Every
@@ -853,15 +853,23 @@ check.
 
 ## Releasing
 
-Tagging is the whole of it:
+What changed in each release is in [CHANGELOG.md](CHANGELOG.md). Tagging is
+the whole of publishing one:
 
 ```console
-$ git tag v0.1.0 && git push origin v0.1.0
+$ git tag v0.2.0 && git push origin v0.2.0
 ```
 
 [`.github/workflows/release.yml`](.github/workflows/release.yml) builds all
 seven targets — three Linux, two macOS, Windows and a cross-compiled FreeBSD —
-packages each with its checksum, and attaches them to the release.
+and every build each of them can carry: `minimal` and `full` everywhere,
+`gui` where a window system is there to compile against. Each archive gets a
+checksum beside it, and all of them are attached to the release.
+
+The site publishes itself from
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml) whenever
+`site/` or the screenshots change, which is also what keeps
+`install.sh` pointing at the latest release.
 
 ---
 

@@ -22,6 +22,7 @@ pub mod git;
 pub mod grep;
 pub mod icons;
 pub mod keymap;
+pub mod markup;
 pub mod minibuffer;
 pub mod multi;
 pub mod panel;

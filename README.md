@@ -23,7 +23,7 @@ themes you rewrite in a config file&nbsp; ·&nbsp; a treemacs-style file tree&nb
 <img alt="" src="https://img.shields.io/badge/windows-333?style=flat-square&logo=windows&logoColor=white">
 <img alt="" src="https://img.shields.io/badge/freebsd-333?style=flat-square&logo=freebsd&logoColor=white">
 <img alt="Unsafe" src="https://img.shields.io/badge/unsafe-forbidden-4c9a2a?style=flat-square">
-<img alt="Tests" src="https://img.shields.io/badge/tests-2005-4c9a2a?style=flat-square">
+<img alt="Tests" src="https://img.shields.io/badge/tests-2017-4c9a2a?style=flat-square">
 </p>
 
 <sub><b>No Lisp interpreter. No plugin runtime.</b> ~56,000 lines · fifteen crates · three builds to pick from.</sub>
@@ -758,7 +758,11 @@ What the window has that a terminal cannot:
 - **The system clipboard**, rather than a terminal's guess at one.
 - **A box beside the symbol under the cursor**, once it has rested there,
   saying what the language server knows about it, the way lsp-ui-doc does.
-  `set lsp-doc=#false` turns it off; `C-c c k` asks for it either way. The
+  What arrives is markdown — a heading, a rule, the parameters, the prose,
+  the signature in a fenced block — and it is drawn as those things rather
+  than as the punctuation that spells them: headings bold, code on a panel
+  of its own, `---` as a rule across the box, `- ` as a bullet. `set
+  lsp-doc=#false` turns it off; `C-c c k` asks for it either way. The
   terminal front end draws the same box:
 
   <img src="docs/screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and its documentation, from clangd" width="100%">
@@ -844,7 +848,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**2005 tests.** Unit tests beside the code; session tests that press real keys
+**2017 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

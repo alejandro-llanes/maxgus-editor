@@ -57,6 +57,9 @@ pub const UI_FACES: &[&str] = &[
     "completion-border",
     "completion-key",
     "which-key-group",
+    // Code inside the box the language server's answer is drawn in: the
+    // signature, and anything the reply put in backticks.
+    "doc-code",
     "completion-count",
     "error",
     "warning",

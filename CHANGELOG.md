@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **The doc box reads like a document.** Hover replies are markdown, and
+  were drawn as the markdown they are — `### function \`add\`` and a row of
+  hyphens, which is worse than plain prose because the punctuation is in the
+  way too. Headings are bold now, `---` is a rule across the box, `- ` is a
+  bullet, and code — inline or fenced — sits on a panel of its own, themeable
+  as `doc-code`.
+- **Markdown is asked for.** `contentFormat` listed `plaintext` first, and
+  that list is a preference order servers honour: clangd was sending a wall
+  of text with the structure flattened out of it. Markdown first is what
+  gives the box something to format.
+- The box is half the window at most rather than a third, and the "… N more
+  lines" notice clears the row it replaces rather than leaving the tail of
+  the line beneath it showing.
+
 ## v0.2.1
 
 Grammars from the system, and a different eleven built in.

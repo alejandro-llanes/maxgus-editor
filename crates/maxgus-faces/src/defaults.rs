@@ -186,6 +186,9 @@ fn build(name: &str, p: &Palette) -> Theme {
     // The `+file` and `+code` entries in the which-key panel: another map
     // rather than a command, so it reads as a different kind of thing.
     set("which-key-group", Face::fg(p.purple).bold());
+    // Code in a doc box, on a panel of its own so a signature reads as one
+    // thing rather than as a sentence that happens to have brackets in it.
+    set("doc-code", Face::fg(p.aqua).with_bg(p.surface));
     set("completion-count", Face::fg(p.orange).bold());
     set("error", Face::fg(p.red).bold());
     set("warning", Face::fg(p.orange).bold());

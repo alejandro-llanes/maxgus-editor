@@ -6834,8 +6834,10 @@ fn what_the_language_server_says_is_shown_beside_the_symbol() {
     let mut s = Session::new(100, 30);
     let id = s.editor.buffers.visit_file("/project/main.rs", &text);
     s.editor.switch_to_buffer(id).unwrap();
+    // What rust-analyzer really sends, once markdown is asked for.
     s.editor.doc = Some(maxgus_core::Doc {
-        text: "fn add(a: i32, b: i32) -> i32\nAdds two numbers together.".into(),
+        text: "### `add`\n\n---\n```rust\nfn add(a: i32, b: i32) -> i32\n```\n\n               Adds two numbers together."
+            .into(),
         line: 3,
         window: s.editor.windows.current_id(),
     });
@@ -6844,6 +6846,11 @@ fn what_the_language_server_says_is_shown_beside_the_symbol() {
     assert!(
         shown.contains("fn add(a: i32, b: i32) -> i32"),
         "the box says nothing:\n{shown}"
+    );
+    // The markdown that spelled it is not on the screen.
+    assert!(
+        !shown.contains("```") && !shown.contains("###"),
+        "the punctuation was drawn:\n{shown}"
     );
     assert!(
         shown.contains("Adds two numbers together."),

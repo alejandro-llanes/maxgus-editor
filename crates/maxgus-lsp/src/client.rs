@@ -467,7 +467,11 @@ fn client_capabilities() -> Value {
         "textDocument": {
             "synchronization": { "didSave": true, "willSave": false, "dynamicRegistration": false },
             "publishDiagnostics": { "relatedInformation": false },
-            "hover": { "contentFormat": ["plaintext", "markdown"] },
+            // Ordered by preference, and servers honour that: with
+            // plaintext first, clangd sent a wall of text with the
+            // structure flattened out of it. Markdown first is what makes
+            // a hover reply something worth formatting.
+            "hover": { "contentFormat": ["markdown", "plaintext"] },
             "completion": {
                 "completionItem": { "snippetSupport": false, "documentationFormat": ["plaintext"] }
             },

@@ -145,11 +145,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let point = editor.windows.current().point;
         editor.current_buffer().line_of(point)
     };
+    // The markdown a language server really sends, once the client asks
+    // for it: a heading, a rule, the parameters, the prose, the signature.
     editor.doc = Some(maxgus_core::Doc {
-        text: "pub fn score(query: &str, candidate: &str) -> Option<i32>\n\n\
-               How well `query` matches `candidate`, or `None`\n\
-               when it does not match at all. Consecutive\n\
-               characters score higher than scattered ones."
+        text: "### `score`\n\n---\n→ `Option<i32>`\n\nParameters:\n\n\
+               - `query: &str`\n- `candidate: &str`\n\n\
+               How well **query** matches `candidate`, or `None` when it \
+               does not match at all.\n\n---\n```rust\n\
+               pub fn score(query: &str, candidate: &str) -> Option<i32>\n```"
             .into(),
         line,
         window: editor.windows.current_id(),

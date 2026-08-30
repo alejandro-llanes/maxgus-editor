@@ -127,8 +127,9 @@ pub fn draw(editor: &Editor, surface: &mut Surface) {
 /// The box holding what the language server said about a symbol.
 ///
 /// `lsp-ui-doc`: beside the line the symbol is on rather than over it, on
-/// whichever side has the room. A reply used to open a whole help window,
-/// which pushed the code out of the way to say one sentence about it.
+/// whichever side has room. What arrives is markdown — a heading, a rule, a
+/// bulleted list of parameters and the signature in a fenced block — and it
+/// is drawn as those things rather than as the punctuation that spells them.
 #[cfg(feature = "full")]
 fn draw_doc(editor: &Editor, surface: &mut Surface, body: Rect, doc: &crate::Doc) {
     let Some(window) = editor.windows.get(doc.window) else {
@@ -141,24 +142,18 @@ fn draw_doc(editor: &Editor, surface: &mut Surface, body: Rect, doc: &crate::Doc
     if text_area.width < 20 || text_area.height < 6 {
         return;
     }
-    // Three fifths of the window at most, and never wider than it needs. Half
-    // was tidier and wrapped every signature worth reading onto three lines.
-    let widest = doc
-        .text
-        .lines()
-        .map(|line| line.chars().count())
-        .max()
-        .unwrap_or(0);
+    // Three fifths of the window at most, and never wider than it needs.
+    // The width wanted is the width of the *rendered* document, not of the
+    // markdown: `### function \`add\`` is four characters narrower once the
+    // punctuation is gone.
+    let widest = crate::markup::natural_width(&doc.text);
     let width = (widest + 4).clamp(20, (text_area.width as usize * 3 / 5).max(20)) as u16;
     let width = width.min(text_area.width);
-    let lines: Vec<&str> = doc
-        .text
-        .lines()
-        .flat_map(|line| wrapped(line, width.saturating_sub(4) as usize))
-        .collect();
-    // A third of the window: enough for a signature and a sentence, not
-    // enough to bury what is being read.
-    let most = (text_area.height as usize / 3).max(3);
+    let lines = crate::markup::render(&doc.text, width.saturating_sub(4) as usize);
+    // Half the window: enough for a heading, a signature, the parameters
+    // and a sentence — which is what a reply is — while leaving as much of
+    // the code on screen as the box covers.
+    let most = (text_area.height as usize / 2).max(3);
     let height = (lines.len().min(most) + 2) as u16;
 
     // The row the symbol is on, and whether the box fits under it.
@@ -175,49 +170,50 @@ fn draw_doc(editor: &Editor, surface: &mut Surface, body: Rect, doc: &crate::Doc
 
     let theme = &editor.theme;
     let plain = theme.resolve("default");
+    let border = theme.resolve("completion-border");
     surface.clear_rect(box_area, plain);
-    draw_border(surface, box_area, theme.resolve("completion-border"));
+    draw_border(surface, box_area, border);
     let inner = box_area.inset(1);
+    // One column of padding inside the border, so text does not touch it.
+    let (left, room) = (inner.x + 1, inner.width.saturating_sub(2));
+
     for (n, line) in lines.iter().take(inner.height as usize).enumerate() {
-        surface.set_string(inner.x, inner.y + n as u16, line, plain, inner.width);
+        let y = inner.y + n as u16;
+        match line {
+            // Drawn edge to edge, and joined to the border, so it reads as
+            // a division of the box rather than a row of hyphens in it.
+            crate::markup::Line::Rule => {
+                for x in inner.x..inner.x + inner.width {
+                    surface.set_char(x, y, '─', border);
+                }
+                surface.set_char(box_area.x, y, '├', border);
+                surface.set_char(box_area.right().saturating_sub(1), y, '┤', border);
+            }
+            crate::markup::Line::Text(spans) => {
+                let mut at = left;
+                for span in spans {
+                    let mut face = theme.resolve(span.face);
+                    if span.bold {
+                        face.attributes.bold = Some(true);
+                    }
+                    if span.italic {
+                        face.attributes.italic = Some(true);
+                    }
+                    let left_here = (left + room).saturating_sub(at);
+                    at = surface.set_string(at, y, &span.text, face, left_here);
+                }
+            }
+        }
     }
     // Say when there is more than fits, rather than ending mid-sentence.
+    // The row is cleared first: the line being replaced is usually longer
+    // than the notice, and its tail would otherwise read as part of it.
     if lines.len() > inner.height as usize && inner.height > 0 {
         let more = format!("… {} more lines", lines.len() - inner.height as usize + 1);
         let y = inner.y + inner.height - 1;
-        surface.set_string(inner.x, y, &more, theme.resolve("shadow"), inner.width);
+        surface.clear_rect(Rect::new(inner.x, y, inner.width, 1), plain);
+        surface.set_string(left, y, &more, theme.resolve("shadow"), room);
     }
-}
-
-/// A line broken to fit a width, on spaces where there are any.
-#[cfg(feature = "full")]
-fn wrapped(line: &str, width: usize) -> Vec<&str> {
-    if width == 0 {
-        return Vec::new();
-    }
-    if line.chars().count() <= width {
-        return vec![line];
-    }
-    let mut out = Vec::new();
-    let mut rest = line;
-    while rest.chars().count() > width {
-        let limit: usize = rest
-            .char_indices()
-            .nth(width)
-            .map(|(at, _)| at)
-            .unwrap_or(rest.len());
-        let cut = rest[..limit].rfind(' ').unwrap_or(limit);
-        let (head, tail) = rest.split_at(cut);
-        out.push(head);
-        rest = tail.trim_start_matches(' ');
-        if rest.is_empty() {
-            break;
-        }
-    }
-    if !rest.is_empty() {
-        out.push(rest);
-    }
-    out
 }
 
 /// The panel that says what can follow a half-typed sequence.

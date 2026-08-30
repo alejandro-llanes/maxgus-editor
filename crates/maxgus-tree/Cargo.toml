@@ -9,7 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-maxgus-config = { version = "0.2.3", path = "../maxgus-config" }
-maxgus-keys = { version = "0.2.3", path = "../maxgus-keys" }
+maxgus-config = { version = "0.2.4", path = "../maxgus-config" }
+maxgus-keys = { version = "0.2.4", path = "../maxgus-keys" }
 thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["full"] }

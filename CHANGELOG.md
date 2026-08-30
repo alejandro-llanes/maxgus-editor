@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.2.4
+
+- **A configuration to start from.** The install script writes `config.kdl`,
+  the four themes and the reference into `~/.config/maxgus` — and never over
+  a file that is already there, so upgrading leaves your edits alone. It
+  says how many it wrote and how many it left. `--no-config` skips it.
+- **An application-menu entry** for the `gui` build: `maxgus.desktop` and an
+  icon, installed into `~/.local/share`. The entry carries the binary's
+  absolute path, because a launcher does not see the shell's `PATH` and
+  `~/.local/bin/maxgus` would otherwise be a menu item that starts nothing.
+  Linux and the BSDs only — a `.desktop` file is freedesktop's, and means
+  nothing on macOS or Windows. `--no-desktop` skips it.
+- A test holds the entry and the script together: the script rewrites the
+  `Exec` line, and if the entry ever spells that line differently the
+  rewrite would quietly do nothing.
+
 ## v0.2.3
 
 - **The install line goes to the address it actually resolves to.**

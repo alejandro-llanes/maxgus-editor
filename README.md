@@ -23,7 +23,7 @@ themes you rewrite in a config file&nbsp; ·&nbsp; a treemacs-style file tree&nb
 <img alt="" src="https://img.shields.io/badge/windows-333?style=flat-square&logo=windows&logoColor=white">
 <img alt="" src="https://img.shields.io/badge/freebsd-333?style=flat-square&logo=freebsd&logoColor=white">
 <img alt="Unsafe" src="https://img.shields.io/badge/unsafe-forbidden-4c9a2a?style=flat-square">
-<img alt="Tests" src="https://img.shields.io/badge/tests-2032-4c9a2a?style=flat-square">
+<img alt="Tests" src="https://img.shields.io/badge/tests-2034-4c9a2a?style=flat-square">
 </p>
 
 <sub><b>No Lisp interpreter. No plugin runtime.</b> ~56,000 lines · fifteen crates · three builds to pick from.</sub>
@@ -65,6 +65,14 @@ $ curl -fsSL .../install.sh | sh -s -- --build gui
 
 `--prefix DIR` puts it somewhere else, `--version vX.Y.Z` fetches an older
 release, `--dry-run` says what it would do and stops.
+
+It also writes **a configuration and the themes** into
+`~/.config/maxgus` — `config.kdl`, the four themes that ship, and the
+reference — and **never over a file that is already there**, so running it
+again to upgrade leaves everything you have edited alone. The `gui` build
+additionally gets **an application-menu entry**, with the binary's absolute
+path in it, because a launcher does not see your shell's `PATH`.
+`--no-config` and `--no-desktop` skip either.
 
 ### Which build
 
@@ -732,9 +740,9 @@ To try them side by side, `./scripts/build-variants.sh` builds all three into
 
 ```console
 $ ./scripts/build-variants.sh
-minimal  ok    4.6M  maxgus 0.2.3 (minimal)
-full     ok     13M  maxgus 0.2.3 (full)
-gui      ok     20M  maxgus 0.2.3 (gui)
+minimal  ok    4.6M  maxgus 0.2.4 (minimal)
+full     ok     13M  maxgus 0.2.4 (full)
+gui      ok     20M  maxgus 0.2.4 (gui)
 ```
 
 `--debug` builds them faster, `--into DIR` puts them somewhere else. Every
@@ -882,7 +890,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**2032 tests.** Unit tests beside the code; session tests that press real keys
+**2034 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.
@@ -901,7 +909,7 @@ What changed in each release is in [CHANGELOG.md](CHANGELOG.md). Tagging is
 the whole of publishing one:
 
 ```console
-$ git tag v0.2.3 && git push origin v0.2.3
+$ git tag v0.2.4 && git push origin v0.2.4
 ```
 
 [`.github/workflows/release.yml`](.github/workflows/release.yml) builds all

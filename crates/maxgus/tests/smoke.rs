@@ -3155,3 +3155,105 @@ fn a_language_server_offers_suggestions_while_typing() {
     session.send(b"\x15"); // C-u
     assert_eq!(session.quit(), 0);
 }
+
+/// The desktop entry, and the install script that rewrites it.
+///
+/// Two files that have to agree about one line. The script replaces
+/// `Exec=maxgus ` with the binary's real path, because a launcher does not
+/// see the shell's PATH; if the entry ever spells that line differently the
+/// substitution quietly does nothing, and the result is a menu item that
+/// starts nothing at all. Nothing else would notice.
+#[test]
+fn the_desktop_entry_says_what_the_installer_expects_to_rewrite() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("the workspace root");
+    let entry =
+        std::fs::read_to_string(root.join("assets/maxgus.desktop")).expect("assets/maxgus.desktop");
+    let script = std::fs::read_to_string(root.join("site/install.sh")).expect("install.sh");
+
+    // The keys a launcher needs before it will show anything.
+    for key in [
+        "[Desktop Entry]",
+        "Type=Application",
+        "Name=maxgus",
+        "Exec=maxgus %F",
+        "TryExec=maxgus",
+        "Icon=maxgus",
+        "Terminal=false",
+        "Categories=",
+    ] {
+        assert!(entry.contains(key), "the entry has no `{key}`");
+    }
+    // One main category, or the entry appears twice in the menu.
+    let categories = entry
+        .lines()
+        .find_map(|l| l.strip_prefix("Categories="))
+        .expect("Categories");
+    let mains = [
+        "AudioVideo",
+        "Audio",
+        "Video",
+        "Development",
+        "Education",
+        "Game",
+        "Graphics",
+        "Network",
+        "Office",
+        "Science",
+        "Settings",
+        "System",
+        "Utility",
+    ];
+    let named = categories.split(';').filter(|c| mains.contains(c)).count();
+    assert_eq!(named, 1, "`{categories}` names {named} main categories");
+
+    // And the two lines the script rewrites are the two lines it matches.
+    assert!(
+        script.contains("s|^Exec=maxgus |Exec=$PREFIX/maxgus |"),
+        "the script no longer rewrites `Exec`"
+    );
+    assert!(
+        script.contains("s|^TryExec=maxgus$|TryExec=$PREFIX/maxgus|"),
+        "the script no longer rewrites `TryExec`"
+    );
+    assert!(
+        entry.contains("\nExec=maxgus %F\n") && entry.contains("\nTryExec=maxgus\n"),
+        "the entry spells those lines differently from what the script matches"
+    );
+}
+
+/// The archive has to carry what the install script puts in place.
+#[test]
+fn a_release_archive_carries_the_configuration_and_the_desktop_entry() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("the workspace root");
+    let workflow =
+        std::fs::read_to_string(root.join(".github/workflows/release.yml")).expect("release.yml");
+    for packed in ["cp -r docs", "cp -r assets"] {
+        assert!(
+            workflow.contains(packed),
+            "the release does not `{packed}`, so the install script will not find it"
+        );
+    }
+    // What the script reaches for inside the archive.
+    let script = std::fs::read_to_string(root.join("site/install.sh")).expect("install.sh");
+    for wanted in [
+        "docs/config.example.kdl",
+        "docs/themes/",
+        "assets/maxgus.desktop",
+        "assets/maxgus.svg",
+    ] {
+        assert!(
+            script.contains(wanted),
+            "the script does not install `{wanted}`"
+        );
+        assert!(
+            root.join(wanted.trim_end_matches('/')).exists(),
+            "`{wanted}` is not in the repository"
+        );
+    }
+}

@@ -10,8 +10,11 @@
 # redirect lands, reached directly.
 #
 # Downloads a release archive, checks it against the checksum published
-# beside it, and puts the binary somewhere on the path. Nothing else: no
-# daemon, no package manager, no shell profile rewritten behind your back.
+# beside it, and puts the binary somewhere on the path. It also writes a
+# configuration and the themes it can name, the first time only, and adds
+# an application-menu entry for the `gui` build. Nothing else: no daemon,
+# no package manager, no shell profile rewritten behind your back, and
+# never over a file you have edited.
 #
 # Options, after `-s --`:
 #
@@ -19,6 +22,8 @@
 #     --version vX.Y.Z           a particular release (default: the latest)
 #     --prefix DIR               where to put it (default: ~/.local/bin)
 #     --dry-run                  say what it would do, and stop
+#     --no-config                leave ~/.config/maxgus alone
+#     --no-desktop               do not add an application-menu entry
 #
 # `MAXGUS_RELEASE_BASE` points it at a mirror instead of GitHub.
 #
@@ -32,12 +37,14 @@ BUILD="full"
 VERSION=""
 PREFIX=""
 DRY_RUN=0
+CONFIG=1
+DESKTOP=1
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'maxgus: %s\n' "$*" >&2; exit 1; }
 
 usage() {
-    sed -n '3,20p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'
+    sed -n '3,26p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
@@ -50,6 +57,8 @@ while [ $# -gt 0 ]; do
         --prefix) PREFIX="${2:-}"; shift 2 ;;
         --prefix=*) PREFIX="${1#*=}"; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
+        --no-config) CONFIG=0; shift ;;
+        --no-desktop) DESKTOP=0; shift ;;
         -h|--help) usage 0 ;;
         *) die "unknown option: $1 (try --help)" ;;
     esac
@@ -206,6 +215,88 @@ fi
 installed=$("$PREFIX/maxgus" --version 2>/dev/null || echo "maxgus")
 say ""
 say "Installed $installed"
+
+# ---- the configuration, and the themes it can name ----------------------
+
+# Never over an existing file. Someone who has configured this editor has
+# said what they want, and an installer that helpfully replaces it has
+# thrown that away — which is the one thing an installer must not do.
+copy_if_absent() {
+    if [ -e "$2" ]; then
+        return 1
+    fi
+    mkdir -p "$(dirname "$2")" && cp "$1" "$2" && chmod 644 "$2"
+}
+
+unpacked="$work/maxgus-$BUILD-$platform"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/maxgus"
+if [ "$CONFIG" = 1 ] && [ -d "$unpacked/docs" ]; then
+    written=0
+    skipped=0
+    # The example is always refreshed: it is documentation, it is where
+    # every setting is written down, and it is not the file anyone edits.
+    if [ -f "$unpacked/docs/config.example.kdl" ]; then
+        mkdir -p "$config_dir"
+        cp "$unpacked/docs/config.example.kdl" "$config_dir/config.example.kdl"
+        # And it is the configuration itself, the first time only.
+        if copy_if_absent "$unpacked/docs/config.example.kdl" "$config_dir/config.kdl"; then
+            written=$((written + 1))
+        else
+            skipped=$((skipped + 1))
+        fi
+    fi
+    for reference in configuration.md configuration-reference.md grammars.md; do
+        [ -f "$unpacked/docs/$reference" ] || continue
+        cp "$unpacked/docs/$reference" "$config_dir/$reference"
+    done
+    for theme in "$unpacked"/docs/themes/*.kdl; do
+        [ -f "$theme" ] || continue
+        if copy_if_absent "$theme" "$config_dir/themes/$(basename "$theme")"; then
+            written=$((written + 1))
+        else
+            skipped=$((skipped + 1))
+        fi
+    done
+    say ""
+    say "Configuration in $config_dir"
+    say "  $written written, $skipped left alone because they were already there"
+fi
+
+# ---- the desktop entry, for the build that opens a window ---------------
+
+# Only the `gui` build, and only where there is a desktop to register with:
+# a `.desktop` file is freedesktop's, so it means nothing on macOS or
+# Windows, and a terminal-only build has no window to launch.
+if [ "$DESKTOP" = 1 ] && [ "$BUILD" = gui ] && [ "$os_name" != macos ] \
+   && [ -f "$unpacked/assets/maxgus.desktop" ]; then
+    # Beside the binary when it went somewhere with a `share` next to it,
+    # and in the user's own data directory otherwise.
+    case "$PREFIX" in
+        */bin)
+            data="$(dirname "$PREFIX")/share"
+            [ -w "$(dirname "$PREFIX")" ] || data="${XDG_DATA_HOME:-$HOME/.local/share}" ;;
+        *) data="${XDG_DATA_HOME:-$HOME/.local/share}" ;;
+    esac
+    apps="$data/applications"
+    icons="$data/icons/hicolor/scalable/apps"
+    if mkdir -p "$apps" "$icons" 2>/dev/null; then
+        # A launcher does not see the shell's PATH, so the entry names the
+        # binary in full. Anything else is a menu item that does nothing.
+        sed -e "s|^Exec=maxgus |Exec=$PREFIX/maxgus |" \
+            -e "s|^TryExec=maxgus$|TryExec=$PREFIX/maxgus|" \
+            "$unpacked/assets/maxgus.desktop" > "$apps/maxgus.desktop"
+        chmod 644 "$apps/maxgus.desktop"
+        [ -f "$unpacked/assets/maxgus.svg" ] && cp "$unpacked/assets/maxgus.svg" "$icons/maxgus.svg"
+        # Tell the desktop, where it wants telling. Neither is required and
+        # neither failing matters: the entry is read at the next login.
+        command -v update-desktop-database >/dev/null 2>&1 &&
+            update-desktop-database "$apps" >/dev/null 2>&1
+        command -v gtk-update-icon-cache >/dev/null 2>&1 &&
+            gtk-update-icon-cache -qtf "$data/icons/hicolor" >/dev/null 2>&1
+        say ""
+        say "Listed in the application menu: $apps/maxgus.desktop"
+    fi
+fi
 
 case ":$PATH:" in
     *":$PREFIX:"*)

@@ -1,0 +1,22 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=maxgus
+GenericName=Text Editor
+Comment=A very small Emacs
+Keywords=Text;Editor;Emacs;Code;Programming;
+# Rewritten to the absolute path when installed: a launcher does not see
+# the shell's PATH, so `~/.local/bin` would be a menu entry that does
+# nothing.
+Exec=maxgus %F
+TryExec=maxgus
+Icon=maxgus
+Terminal=false
+StartupNotify=true
+# One main category, or the entry appears twice in the menu.
+Categories=Utility;TextEditor;
+MimeType=text/plain;text/english;text/x-makefile;text/x-c;text/x-c++;text/x-chdr;text/x-csrc;text/x-java;text/x-moc;text/x-pascal;text/x-tcl;text/x-tex;application/x-shellscript;text/x-python;text/x-rust;text/markdown;text/x-markdown;application/json;application/toml;application/x-yaml;text/x-lua;text/html;text/css;text/xml;application/xml;inode/directory;
+# No "open in a terminal" action: an action group may only carry Name, Icon
+# and Exec, so there is no way to say that one needs a terminal — and
+# choosing a terminal emulator on the user's behalf is worse than not
+# offering it. `maxgus -nw` from a shell is the terminal.

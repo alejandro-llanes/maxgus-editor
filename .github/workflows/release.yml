@@ -133,6 +133,10 @@ jobs:
             mkdir -p "dist/$stem"
             cp README.md LICENSE "dist/$stem/"
             cp -r docs "dist/$stem/"
+            # The desktop entry and its icon, which the install script
+            # puts in place for a `gui` build. Carried by every archive so
+            # there is one thing to download and one checksum to check.
+            cp -r assets "dist/$stem/"
 
             if [ "${{ runner.os }}" = "Windows" ]; then
               cp "target/${{ matrix.target }}/release/maxgus.exe" "dist/$stem/"

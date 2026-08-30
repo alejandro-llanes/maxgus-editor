@@ -228,7 +228,9 @@ footer .sp { margin-left: auto; }
   </div>
   <p class="under">
     Installs the <code>full</code> build. Add <code>-s -- --build gui</code> for the
-    window, <code>--build minimal</code> for the small one.
+    window, <code>--build minimal</code> for the small one. It writes a
+    configuration and the themes the first time, never over your own, and
+    puts the <code>gui</code> build in the application menu.
   </p>
 
   <div class="buttons">
@@ -480,7 +482,7 @@ footer .sp { margin-left: auto; }
     <pre class="block"><span class="p">$</span> maxgus src/main.rs         <span class="c"># a terminal</span>
 <span class="p">$</span> maxgus -nw src/main.rs     <span class="c"># a terminal, from a gui build</span>
 <span class="p">$</span> maxgus --version
-maxgus 0.2.3 (full)
+maxgus 0.2.4 (full)
 
 <span class="c"># Install somewhere else, or an older release:</span>
 <span class="p">$</span> curl -fsSL …/install.sh | sh -s -- \

@@ -238,6 +238,24 @@ pub struct Editor {
     pub frame: Rect,
     /// The half-typed key sequence, echoed so the user can see where they are.
     pub pending_keys: Option<String>,
+    /// What the language server said about the symbol under point, and
+    /// which line it was about, so the box can sit beside it.
+    ///
+    /// `lsp-ui-doc` for Emacs. A reply used to open a help window, which
+    /// pushed the code aside to say one sentence about it.
+    #[cfg(feature = "full")]
+    pub doc: Option<crate::Doc>,
+    /// Where point was when the doc now showing was asked for, so an idle
+    /// pause in the same place does not ask again.
+    #[cfg(feature = "full")]
+    pub doc_asked_at: Option<(maxgus_text::BufferId, usize)>,
+    /// The half-typed sequence whose continuations are on show.
+    ///
+    /// Set by the front end once someone has paused long enough to want
+    /// help, and cleared the moment the sequence finishes or is abandoned.
+    /// Kept apart from `pending_keys` because the two have their own delays:
+    /// the echo says where you are, this says where you can go.
+    pub which_key: Option<String>,
     /// The current buffer's text, kept between operations that need it whole.
     /// An incremental search does one per keystroke; rendering the rope each
     /// time would cost the size of the buffer for every character typed.
@@ -382,6 +400,11 @@ impl Editor {
             mode_keymaps: Vec::new(),
             frame,
             pending_keys: None,
+            which_key: None,
+            #[cfg(feature = "full")]
+            doc: None,
+            #[cfg(feature = "full")]
+            doc_asked_at: None,
             text_cache: None,
             #[cfg(feature = "full")]
             highlights: std::collections::HashMap::new(),

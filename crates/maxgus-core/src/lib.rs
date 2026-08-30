@@ -14,6 +14,7 @@ pub mod commands;
 pub mod dired;
 pub mod dispatch;
 pub mod editor;
+pub mod frontend;
 pub mod fuzzy;
 #[cfg(feature = "full")]
 pub mod git;
@@ -36,6 +37,7 @@ pub mod terminal;
 #[cfg(feature = "full")]
 pub mod transient;
 pub mod undo_tree;
+pub mod which_key;
 pub mod window;
 
 pub use buffers::{BufferList, SCRATCH_NAME};
@@ -49,6 +51,17 @@ pub use minibuffer::{Completion, Minibuffer, MinibufferKind};
 pub use position::{offset_of_position, position_of_offset};
 pub use prefix::Prefix;
 pub use render::{draw, edge_row, text_area};
+
+/// What a language server said about a symbol, and where it was.
+#[cfg(feature = "full")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Doc {
+    pub text: String,
+    /// The buffer line the symbol is on, so the box can sit beside it
+    /// rather than over it.
+    pub line: usize,
+    pub window: window::WindowId,
+}
 #[cfg(feature = "full")]
 pub use task::LspQuery;
 pub use task::{Task, TaskQueue, TaskResult, TreeAction, WriteGuard};

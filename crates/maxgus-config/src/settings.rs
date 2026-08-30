@@ -100,6 +100,21 @@ pub struct Settings {
     /// Three is what most programs do with a notch. A touchpad reports the
     /// pixels it moved and is not affected by this.
     pub mouse_wheel_lines: usize,
+    /// `lsp-doc`: show what the language server knows about the symbol under
+    /// point, in a box beside it, once the cursor has rested there.
+    ///
+    /// `lsp-ui-doc` for Emacs. `C-c c k` asks for it whatever this says.
+    pub lsp_doc: bool,
+    /// `which-key`: after a pause mid-sequence, show what the next key can be.
+    ///
+    /// Doom's whole leader scheme is meant to be discovered this way rather
+    /// than memorised, so it is on.
+    pub which_key: bool,
+    /// `which-key-delay-ms`: how long the pause is before the panel appears.
+    ///
+    /// Short enough to help someone who has stopped to think, long enough
+    /// that a fluent `C-x C-s` never flashes it.
+    pub which_key_delay_ms: usize,
     /// `smooth-scroll-ms`: roughly how long the view takes to come to rest
     /// after the wheel asks it to move.
     ///
@@ -153,6 +168,9 @@ impl Default for Settings {
             session: false,
             gui_font: "JetBrainsMono Nerd Font".into(),
             gui_font_size: 16,
+            lsp_doc: true,
+            which_key: true,
+            which_key_delay_ms: 400,
             mouse_wheel_lines: 3,
             smooth_scroll_ms: 120,
             shell: None,
@@ -201,6 +219,9 @@ pub const SETTING_NAMES: &[&str] = &[
     "session",
     "gui-font",
     "gui-font-size",
+    "lsp-doc",
+    "which-key",
+    "which-key-delay-ms",
     "mouse-wheel-lines",
     "smooth-scroll-ms",
 ];

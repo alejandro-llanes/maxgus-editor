@@ -6824,3 +6824,71 @@ fn the_colour_is_read_the_way_beacon_reads_it() {
         maxgus_core::beacon::Light::Grade(_)
     ));
 }
+
+#[cfg(feature = "full")]
+#[test]
+fn what_the_language_server_says_is_shown_beside_the_symbol() {
+    // `lsp-ui-doc`. A reply used to open a help window, which pushed the
+    // code aside to say one sentence about it.
+    let text: String = (1..=60).map(|n| format!("line {n}\n")).collect();
+    let mut s = Session::new(100, 30);
+    let id = s.editor.buffers.visit_file("/project/main.rs", &text);
+    s.editor.switch_to_buffer(id).unwrap();
+    s.editor.doc = Some(maxgus_core::Doc {
+        text: "fn add(a: i32, b: i32) -> i32\nAdds two numbers together.".into(),
+        line: 3,
+        window: s.editor.windows.current_id(),
+    });
+    let screen = s.screen();
+    let shown = screen.join("\n");
+    assert!(
+        shown.contains("fn add(a: i32, b: i32) -> i32"),
+        "the box says nothing:\n{shown}"
+    );
+    assert!(
+        shown.contains("Adds two numbers together."),
+        "the box lost half of it:\n{shown}"
+    );
+
+    // Beside the symbol, not over it: the line it is about is still there.
+    assert!(
+        screen.iter().any(|row| row.contains("line 4")),
+        "the box covered the line it is about:\n{shown}"
+    );
+    // And it is a box.
+    assert!(
+        shown.contains('╭') && shown.contains('╯'),
+        "no border:\n{shown}"
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_doc_near_the_bottom_of_the_window_goes_above_the_line() {
+    // Below it would be off the screen, and a box that is off the screen is
+    // a reply nobody reads.
+    let text: String = (1..=60).map(|n| format!("line {n}\n")).collect();
+    let mut s = Session::new(100, 30);
+    let id = s.editor.buffers.visit_file("/project/main.rs", &text);
+    s.editor.switch_to_buffer(id).unwrap();
+    let last = s.editor.windows.current().top_line + 26;
+    s.editor.doc = Some(maxgus_core::Doc {
+        text: "one\ntwo\nthree".into(),
+        line: last,
+        window: s.editor.windows.current_id(),
+    });
+    let screen = s.screen();
+    let top = screen
+        .iter()
+        .position(|row| row.contains('╭'))
+        .expect("the box is drawn");
+    let bottom = screen
+        .iter()
+        .rposition(|row| row.contains('╰'))
+        .expect("the box is closed");
+    assert!(
+        bottom < 29,
+        "the box ran into the echo area at row {bottom}"
+    );
+    assert!(top < bottom, "the box is upside down");
+}

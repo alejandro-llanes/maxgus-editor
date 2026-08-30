@@ -21,6 +21,13 @@ set delete-trailing-whitespace=#true
 set backup-files=#false          // write file~ before overwriting
 set syntax-highlighting=#true
 set lsp-enabled=#true
+set lsp-doc=#true                // a box beside the symbol under the cursor,
+                                 // once it has rested there; lsp-ui-doc
+
+// After a pause in the middle of `C-x` or `C-c`, a panel says what the
+// next key can be — which is how the leader is meant to be learned.
+set which-key=#true
+set which-key-delay-ms=400
 set idle-delay-ms=150            // pause before re-highlighting and syncing
 set case-fold-search=#null       // #null is smart case; #true or #false force it
 set kill-ring-max=60             // how many kills C-y and M-y can reach
@@ -57,9 +64,9 @@ set panel-buffers-height=8
 // `$SHELL` says, which is a choice the user has already made once.
 set shell="/bin/bash"
 
-// The window, when maxgus was built with `--features gui`. The terminal
-// front end ignores both — including a windowed build started with `-nw`:
-// what a terminal draws with is whatever the terminal is configured to use.
+// The window, which a `full` build opens unless it is started with `-nw`.
+// The terminal front end ignores both: what a terminal draws with is
+// whatever the terminal is configured to use.
 set gui-font="JetBrainsMono Nerd Font"
 set gui-font-size=16
 

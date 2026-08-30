@@ -143,7 +143,26 @@ fn signature_help(editor: &mut Editor, _: &Args) -> Result<()> {
     ask(editor, LspQuery::SignatureHelp(position))
 }
 
+/// Asks what the symbol under point is, without saying so in the echo area.
+///
+/// The idle path into the same question `C-c c k` asks out loud: nobody
+/// pressed anything, so nothing should be announced, and an answer that
+/// never comes should leave no trace.
+pub fn ask_for_doc(editor: &mut Editor) {
+    let position = point_position(editor, encoding(editor));
+    let Ok((language, uri)) = document(editor) else {
+        return;
+    };
+    editor.spawn(Task::LspRequest {
+        language,
+        uri,
+        query: LspQuery::Hover(position),
+    });
+}
+
 fn describe_thing(editor: &mut Editor, _: &Args) -> Result<()> {
+    // Asked for out loud, so an answer of "nothing" is worth saying.
+    editor.doc_asked_at = None;
     let position = point_position(editor, encoding(editor));
     ask(editor, LspQuery::Hover(position))
 }
@@ -429,18 +448,24 @@ fn jump_to(editor: &mut Editor, uri: &str, position: LspPosition) {
 
 fn apply_hover(editor: &mut Editor, result: &serde_json::Value) {
     let Some(text) = hover_text(result) else {
-        editor.error("Nothing to describe here");
+        // An idle pause over a symbol nothing is known about should say
+        // nothing; only someone who asked deserves an answer either way.
+        editor.doc = None;
+        if editor.doc_asked_at.is_none() {
+            editor.error("Nothing to describe here");
+        }
         return;
     };
-    // A one-line answer belongs in the echo area; anything longer needs room.
-    if text.lines().count() <= 1 {
-        editor.message(text);
-        return;
-    }
-    let summary = text.lines().next().unwrap_or_default().to_string();
-    let _ = super::help::show_help(editor, &text);
-    // The in-flight message has to go, even though the answer is elsewhere.
-    editor.message(summary);
+    // A box beside the symbol rather than a window over the code: what
+    // `lsp-ui-doc` does, and what makes reading a type worth the keystroke.
+    let window = editor.windows.current_id();
+    let line = {
+        let point = editor.windows.current().point;
+        editor.current_buffer().line_of(point)
+    };
+    editor.doc = Some(crate::Doc { text, line, window });
+    // The "Language server: describing..." message has done its job.
+    editor.message(String::new());
 }
 
 /// The plain text of a hover reply, in any of the shapes the protocol allows.
@@ -1612,11 +1637,15 @@ mod tests {
                 "`{}` with reply `{reply}` left `{shown}` on screen",
                 query.description()
             );
-            assert!(
-                !shown.is_empty(),
-                "`{}` said nothing at all",
-                query.description()
-            );
+            // An empty echo area is only allowed when the answer went
+            // somewhere the user can see instead.
+            if shown.is_empty() {
+                assert!(
+                    matches!(query, LspQuery::Hover(_)) && e.doc.is_some(),
+                    "`{}` said nothing at all",
+                    query.description()
+                );
+            }
         }
     }
 
@@ -1698,7 +1727,10 @@ mod tests {
             &LspQuery::Hover(LspPosition::ZERO),
             &serde_json::json!({"contents": "an integer"}),
         );
-        assert_eq!(e.minibuffer.display(), "an integer");
+        assert_eq!(
+            e.doc.as_ref().map(|doc| doc.text.as_str()),
+            Some("an integer")
+        );
 
         // `MarkupContent`, which is what clangd and rust-analyzer send.
         apply_response(
@@ -1706,12 +1738,41 @@ mod tests {
             &LspQuery::Hover(LspPosition::ZERO),
             &serde_json::json!({"contents": {"kind": "markdown", "value": "variable x\n\nType: int"}}),
         );
-        assert_eq!(
+        let doc = e.doc.as_ref().expect("a multi-line answer is kept whole");
+        assert!(doc.text.contains("Type: int"), "got `{}`", doc.text);
+        assert_ne!(
             e.current_buffer().name(),
             "*Help*",
-            "a multi-line answer needs room"
+            "the box goes beside the code rather than over it in a window"
         );
-        assert!(e.current_buffer().text().contains("Type: int"));
+    }
+
+    #[test]
+    fn a_hover_with_nothing_in_it_says_so_only_when_it_was_asked_for() {
+        let (_d, mut e) = setup("let x = 1;\n");
+        // Out loud: `describe_thing` clears the mark that says an idle pause
+        // asked, so an empty answer is worth reporting.
+        e.doc_asked_at = None;
+        apply_response(
+            &mut e,
+            &LspQuery::Hover(LspPosition::ZERO),
+            &serde_json::json!({}),
+        );
+        assert!(e.minibuffer.display().contains("Nothing to describe"));
+
+        // On an idle pause, nobody asked, so nothing is said.
+        e.message(String::new());
+        e.doc_asked_at = Some((e.current_buffer_id(), 0));
+        apply_response(
+            &mut e,
+            &LspQuery::Hover(LspPosition::ZERO),
+            &serde_json::json!({}),
+        );
+        assert_eq!(
+            e.minibuffer.display(),
+            "",
+            "an unasked question was answered out loud"
+        );
     }
 
     #[test]

@@ -103,6 +103,18 @@ pub fn draw(editor: &Editor, surface: &mut Surface) {
     if let Some(active) = editor.transient.as_ref() {
         draw_transient(editor, surface, frame, active);
     }
+    // What the language server said about the symbol under point, beside it
+    // rather than over it.
+    #[cfg(feature = "full")]
+    if let Some(doc) = editor.doc.as_ref() {
+        draw_doc(editor, surface, body, doc);
+    }
+    // What the next key can be, when someone has stopped in the middle of a
+    // sequence. Over the windows like the popup, and under the echo area,
+    // which is still showing the keys typed so far.
+    if let Some(prefix) = editor.which_key.as_ref() {
+        draw_which_key(editor, surface, body, prefix);
+    }
     match completion_popup(editor, frame) {
         Some(area) => {
             draw_completion_popup(editor, surface, area);
@@ -110,6 +122,212 @@ pub fn draw(editor: &Editor, surface: &mut Surface) {
         }
         None => draw_echo_area(editor, surface, echo),
     }
+}
+
+/// The box holding what the language server said about a symbol.
+///
+/// `lsp-ui-doc`: beside the line the symbol is on rather than over it, on
+/// whichever side has the room. A reply used to open a whole help window,
+/// which pushed the code out of the way to say one sentence about it.
+#[cfg(feature = "full")]
+fn draw_doc(editor: &Editor, surface: &mut Surface, body: Rect, doc: &crate::Doc) {
+    let Some(window) = editor.windows.get(doc.window) else {
+        return;
+    };
+    let Some(area) = window.rect.intersect(&body) else {
+        return;
+    };
+    let (text_area, _) = area.split_bottom(1);
+    if text_area.width < 20 || text_area.height < 6 {
+        return;
+    }
+    // Half the window's width at most, and never wider than it needs.
+    let widest = doc
+        .text
+        .lines()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(0);
+    let width = (widest + 4).clamp(20, (text_area.width as usize / 2).max(20)) as u16;
+    let width = width.min(text_area.width);
+    let lines: Vec<&str> = doc
+        .text
+        .lines()
+        .flat_map(|line| wrapped(line, width.saturating_sub(4) as usize))
+        .collect();
+    // A third of the window: enough for a signature and a sentence, not
+    // enough to bury what is being read.
+    let most = (text_area.height as usize / 3).max(3);
+    let height = (lines.len().min(most) + 2) as u16;
+
+    // The row the symbol is on, and whether the box fits under it.
+    let row = text_area.y + doc.line.saturating_sub(window.top_line) as u16;
+    let below = row.saturating_add(1);
+    let y = match below + height <= text_area.bottom() {
+        true => below,
+        // Above it, or pinned to the top when there is no room either way.
+        false => row.saturating_sub(height).max(text_area.y),
+    };
+    // Against the right edge, where the code usually is not.
+    let x = text_area.right().saturating_sub(width).max(text_area.x);
+    let box_area = Rect::new(x, y, width, height.min(text_area.height));
+
+    let theme = &editor.theme;
+    let plain = theme.resolve("default");
+    surface.clear_rect(box_area, plain);
+    draw_border(surface, box_area, theme.resolve("completion-border"));
+    let inner = box_area.inset(1);
+    for (n, line) in lines.iter().take(inner.height as usize).enumerate() {
+        surface.set_string(inner.x, inner.y + n as u16, line, plain, inner.width);
+    }
+    // Say when there is more than fits, rather than ending mid-sentence.
+    if lines.len() > inner.height as usize && inner.height > 0 {
+        let more = format!("… {} more lines", lines.len() - inner.height as usize + 1);
+        let y = inner.y + inner.height - 1;
+        surface.set_string(inner.x, y, &more, theme.resolve("shadow"), inner.width);
+    }
+}
+
+/// A line broken to fit a width, on spaces where there are any.
+#[cfg(feature = "full")]
+fn wrapped(line: &str, width: usize) -> Vec<&str> {
+    if width == 0 {
+        return Vec::new();
+    }
+    if line.chars().count() <= width {
+        return vec![line];
+    }
+    let mut out = Vec::new();
+    let mut rest = line;
+    while rest.chars().count() > width {
+        let limit: usize = rest
+            .char_indices()
+            .nth(width)
+            .map(|(at, _)| at)
+            .unwrap_or(rest.len());
+        let cut = rest[..limit].rfind(' ').unwrap_or(limit);
+        let (head, tail) = rest.split_at(cut);
+        out.push(head);
+        rest = tail.trim_start_matches(' ');
+        if rest.is_empty() {
+            break;
+        }
+    }
+    if !rest.is_empty() {
+        out.push(rest);
+    }
+    out
+}
+
+/// The panel that says what can follow a half-typed sequence.
+///
+/// Along the bottom of the windows, in as many even columns as the width
+/// allows: `which-key` puts it where the eye already is when the hand has
+/// stopped. What will not fit is counted rather than quietly dropped — a
+/// panel that shows twenty of thirty keys and says so is useful, and one
+/// that shows twenty and implies that is all of them is a liar.
+fn draw_which_key(editor: &Editor, surface: &mut Surface, body: Rect, prefix: &str) {
+    /// Between one column and the next.
+    const GAP: usize = 2;
+
+    let entries = crate::which_key::continuations(editor, prefix);
+    if entries.is_empty() || body.width < 16 || body.height < 5 {
+        return;
+    }
+    let theme = &editor.theme;
+    let plain = theme.resolve("default");
+
+    /// A column narrower than this is a column of ellipses.
+    const NARROWEST: usize = 18;
+
+    // Columns wide enough for the longest entry, unless packing them tighter
+    // is what makes everything fit — which-key would rather cut a name than
+    // hide a key, and so would anyone looking for the key.
+    let inside = body.width.saturating_sub(2) as usize;
+    let natural = entries
+        .iter()
+        .map(|entry| entry.key.chars().count() + 3 + entry.label.chars().count())
+        .max()
+        .unwrap_or(1)
+        .min(inside);
+    // Two thirds of the screen at the outside: a panel that swallows the
+    // buffer is worse than not knowing what `C-x r` does.
+    let most = ((body.height as usize * 2) / 3).max(1);
+    let roomy = ((inside + GAP) / (natural + GAP)).max(1);
+    let packed = ((inside + GAP) / (NARROWEST + GAP)).max(roomy);
+    let columns = entries.len().div_ceil(most).max(roomy).min(packed);
+    let cell = ((inside + GAP) / columns).saturating_sub(GAP).max(1);
+    let rows = entries.len().div_ceil(columns).min(most);
+    let room = rows * columns;
+    let over = entries.len().saturating_sub(room);
+
+    let height = (rows + 2) as u16;
+    let area = Rect::new(
+        body.x,
+        body.bottom().saturating_sub(height).max(body.y),
+        body.width,
+        height.min(body.height),
+    );
+    surface.clear_rect(area, plain);
+    draw_border(surface, area, theme.resolve("completion-border"));
+    let inner = area.inset(1);
+    let key_face = theme.resolve("completion-key");
+    let group_face = theme.resolve("which-key-group");
+
+    // The last cell is spent on the count when there is one to give.
+    let shown = match over {
+        0 => entries.len(),
+        _ => room.saturating_sub(1),
+    };
+    for (n, entry) in entries.iter().take(shown).enumerate() {
+        let (column, row) = (n / rows, n % rows);
+        let x = inner.x + (column * (cell + GAP)) as u16;
+        let y = inner.y + row as u16;
+        which_key_cell(surface, x, y, cell, entry, key_face, group_face, plain);
+    }
+    if over > 0 {
+        let n = shown;
+        let x = inner.x + ((n / rows) * (cell + GAP)) as u16;
+        let y = inner.y + (n % rows) as u16;
+        let more = format!("… {} more", over + 1);
+        surface.set_string(x, y, &more, group_face, cell as u16);
+    }
+}
+
+/// One `key → label` in the which-key panel, cut to `cell` columns.
+#[allow(clippy::too_many_arguments)]
+fn which_key_cell(
+    surface: &mut Surface,
+    x: u16,
+    y: u16,
+    cell: usize,
+    entry: &crate::which_key::Continuation,
+    key_face: Face,
+    group_face: Face,
+    plain: Face,
+) {
+    let key_width = entry.key.chars().count();
+    let mut at = surface.set_string(x, y, &entry.key, key_face, cell as u16);
+    at = surface.set_string(at, y, " → ", plain, 3);
+    let room = cell.saturating_sub(key_width + 3);
+    if room == 0 {
+        return;
+    }
+    let label: String = match entry.label.chars().count() > room {
+        // A name cut without saying so reads as a different name.
+        true => entry
+            .label
+            .chars()
+            .take(room.saturating_sub(1))
+            .chain(std::iter::once('…'))
+            .collect(),
+        false => entry.label.clone(),
+    };
+    let face = match entry.group {
+        true => group_face,
+        false => plain,
+    };
+    surface.set_string(at, y, &label, face, room as u16);
 }
 
 /// Paints one window: its contents and its mode line.

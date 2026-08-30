@@ -154,7 +154,17 @@ impl Renderer {
             width: size.width.max(1),
             height: size.height.max(1),
             present_mode: wgpu::PresentMode::AutoVsync,
-            alpha_mode: capabilities.alpha_modes[0],
+            // Opaque where the surface offers it. Taking whichever mode
+            // came first left the window's alpha up to the driver, and a
+            // text editor that is faintly see-through is a text editor
+            // nobody can read against a bright wallpaper.
+            alpha_mode: match capabilities
+                .alpha_modes
+                .contains(&wgpu::CompositeAlphaMode::Opaque)
+            {
+                true => wgpu::CompositeAlphaMode::Opaque,
+                false => capabilities.alpha_modes[0],
+            },
             view_formats: Vec::new(),
             desired_maximum_frame_latency: 2,
             color_space: wgpu::SurfaceColorSpace::Auto,

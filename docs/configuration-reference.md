@@ -147,9 +147,12 @@ KDL spells booleans `#true` and `#false`, and null `#null`.
 | `beacon-blink-when-window-changes` | bool | `#true` | Light it when another window is selected. |
 | `beacon-blink-when-point-moves-vertically` | integer | `0` | Lines point must move for a light; `0` never. Off by default because ordinary editing would light it constantly. |
 | `session` | bool | `#false` | Remember what is open when the editor leaves, and open it again when it is next started in the same project with no file named. Kept under the state directory, keyed by the project's path. |
-| `gui-font` | string | `"JetBrainsMono Nerd Font"` | The family the window draws with. Falls through a list of installed monospace families when it is not there. Only read by a `--features gui` build drawing into a window, which is what one does unless started with `-nw`. |
+| `gui-font` | string | `"JetBrainsMono Nerd Font"` | The family the window draws with. Falls through a list of installed monospace families when it is not there. Only read when drawing into a window, which a `full` build does unless started with `-nw`. |
 | `gui-font-size` | integer | `16` | Its size in pixels, clamped to 6–96. Physical pixels, so it is the same size on a display that reports a scale as on one that does not. |
-| `mouse-wheel-lines` | integer | `3` | How far one notch of the wheel moves the view, in lines, clamped to 1–50. A touchpad reports the pixels it moved and is unaffected. Only a `--features gui` build drawing into a window reads it. |
+| `lsp-doc` | boolean | `#true` | Show what the language server knows about the symbol under point, in a box beside it, once the cursor has rested there — `lsp-ui-doc`. `C-c c k` asks for it whatever this says. |
+| `which-key` | boolean | `#true` | After a pause in the middle of a key sequence, show what the next key can be. |
+| `which-key-delay-ms` | integer | `400` | How long that pause is, capped at 10000. |
+| `mouse-wheel-lines` | integer | `3` | How far one notch of the wheel moves the view, in lines, clamped to 1–50. A touchpad reports the pixels it moved and is unaffected. Only read when drawing into a window. |
 | `smooth-scroll-ms` | integer | `120` | Roughly how long the view takes to come to rest after the wheel asks it to move, capped at 1000. Lower is brisker; `0` turns the animation off and the view arrives at once. A terminal cannot draw a fraction of a line and ignores it. |
 | `shell` | string | `$SHELL` | The program a terminal tab starts. |
 
@@ -315,7 +318,8 @@ your `theme` blocks override.
 `mode-line-buffer-id`, `minibuffer-prompt`, `echo-area`, `isearch`,
 `isearch-fail`, `lazy-highlight`, `match-paren`, `trailing-whitespace`,
 `fill-column-indicator`, `completion-selected`, `completion-annotation`,
-`completion-border`, `completion-key`, `completion-count`, `terminal`,
+`completion-border`, `completion-key`, `completion-count`, `which-key-group`,
+`terminal`,
 `transient-key`, `transient-heading`, `transient-switch-on`,
 `transient-switch-off`, `magit-section-heading`, `magit-section-highlight`,
 `magit-diff-file-heading`,

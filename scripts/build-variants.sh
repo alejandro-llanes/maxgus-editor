@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Builds all three of the editor into one folder, so each can be run and
+# Builds both of the editor into one folder, so each can be run and
 # compared side by side.
 #
 #     ./scripts/build-variants.sh            # release, into target/variants
@@ -28,9 +28,9 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# The three builds, and nothing else: the editor and the treefile alone, the
-# whole editor, and the whole editor with a window as well as a terminal.
-variants=(minimal full gui)
+# The two builds, and nothing else: the editor and the treefile in a
+# terminal, and the whole editor with a window as well as a terminal.
+variants=(minimal full)
 
 mkdir -p "$into"
 built=()
@@ -61,9 +61,8 @@ cat <<NOTE
 
 Run one:
 
-    $into/maxgus-minimal FILE
-    $into/maxgus-full FILE
-    $into/maxgus-gui FILE       # a window; -nw for the terminal
+    $into/maxgus-minimal FILE   # a terminal, which is all it has
+    $into/maxgus-full FILE       # a window; -nw for the terminal
 
 The same editor with different parts left out; \`--version\` says which. A
 key that is not in a build reports itself as undefined rather than doing

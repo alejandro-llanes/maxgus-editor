@@ -183,6 +183,9 @@ fn build(name: &str, p: &Palette) -> Theme {
     set("symbol-detail", Face::fg(p.comment));
     set("completion-border", Face::fg(p.selection));
     set("completion-key", Face::fg(p.aqua));
+    // The `+file` and `+code` entries in the which-key panel: another map
+    // rather than a command, so it reads as a different kind of thing.
+    set("which-key-group", Face::fg(p.purple).bold());
     set("completion-count", Face::fg(p.orange).bold());
     set("error", Face::fg(p.red).bold());
     set("warning", Face::fg(p.orange).bold());

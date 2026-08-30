@@ -558,6 +558,25 @@ path.
 
 ---
 
+## Finding the keys
+
+Stop in the middle of `C-x` or `C-c` and a panel along the bottom says what
+the next key can be — `which-key`, which is how Doom's leader is meant to be
+learned rather than memorised. Keys that open another map are shown as the
+group they open (`+file`, `+code`) rather than listed one row per binding.
+
+```
+╭──────────────────────────────────────────────────────────────╮
+│c → +code           o → +open           C-< → mark-all-like…  │
+│d → lsp-describe…   q → +quit           C-> → unmark-cursor   │
+│f → lsp-format-b…   s → +search                               │
+╰──────────────────────────────────────────────────────────────╯
+C-c
+```
+
+`set which-key=#false` turns it off, `set which-key-delay-ms=` changes how
+long the pause is. It is in both builds.
+
 ## Keys worth knowing
 
 The bindings follow **Doom Emacs' non-evil scheme**: the classic Emacs keys
@@ -630,38 +649,43 @@ parent, `TAB` to fold, `RET` to open, `c f` and `c d` to create, `R` to rename,
 
 ---
 
-## Building it: three sizes
+## Building it: two sizes
 
 The editor is one thing; the grammars, the language server, magit, the
 terminal, project search and scripting are what get built on top of it. There
-are three builds and no others:
+are two builds and no others:
 
 | Feature | What it builds | Binary |
 |---|---|---|
-| `minimal` | The editor and the treefile. No grammars, no protocol, no subprocess. | **4.6M** |
-| `full` *(default)* | Everything: tree-sitter, the language-server client, magit, the terminal panel, project search, scripting. | **13M** |
-| `gui` | Everything in `full`, and a window drawn by the GPU. | **21M** |
+| `minimal` | The editor and the treefile, in a terminal. No grammars, no protocol, no subprocess, no window. | **4.6M** |
+| `full` *(default)* | Everything: tree-sitter, the language-server client, magit, the terminal panel, project search, scripting — and a window as well as a terminal. | **21M** |
 
 ```sh
 cargo build --release                                        # full
 cargo build --release --no-default-features --features minimal
-cargo build --release --features gui
 ```
 
-To try them side by side, `./scripts/build-variants.sh` builds all three into
+Which front end a full build opens is decided when it starts, not when it is
+compiled — the way `emacs` and `emacs -nw` decide it:
+
+```sh
+maxgus src/main.rs        # a window
+maxgus -nw src/main.rs    # the terminal
+```
+
+To try them side by side, `./scripts/build-variants.sh` builds both into
 `target/variants/`:
 
 ```console
 $ ./scripts/build-variants.sh
 minimal  ok    4.6M  maxgus 0.1.0 (minimal)
-full     ok     13M  maxgus 0.1.0 (full)
-gui      ok     21M  maxgus 0.1.0 (gui)
+full     ok     21M  maxgus 0.1.0 (full)
 ```
 
 `--debug` builds them faster, `--into DIR` puts them somewhere else. Every
-binary's `--version` names which of the three it is, because they look
-identical and are not — and a key a build does not have reports itself as
-undefined rather than doing nothing:
+binary's `--version` names which of the two it is, because they look identical
+and are not — and a key a build does not have reports itself as undefined
+rather than doing nothing:
 
 ```console
 $ target/variants/maxgus-minimal notes.txt
@@ -670,25 +694,25 @@ C-x g is undefined
 
 The tree-sitter grammars are C, and they are most of what a full build spends
 its time on — which is what makes `minimal` worth having rather than a `cfg`
-nobody would use. All three are built and tested by the CI, and by a test, so
-none of them rots.
+nobody would use. Both are built and tested by the CI, and by a test, so
+neither rots.
 
 ## A window, as well as a terminal
 
-`--features gui` adds a second front end. It is the *same* editor — the same
-commands, the same keymaps, the same redisplay — drawn into a window by wgpu
-rather than into a terminal by escape sequences.
-
-A build with a window in it is a desktop program, so that is what it opens:
+The full build has a second front end in it. It is the *same* editor — the
+same commands, the same keymaps, the same redisplay — drawn into a window by
+wgpu rather than into a terminal by escape sequences, and which one it opens
+is decided when it starts:
 
 ```sh
 maxgus src/main.rs        # a window
 maxgus -nw src/main.rs    # the terminal, spelled the way Emacs spells it
 ```
 
-`-nw`, `--no-window-system` and `--tty` are the same flag. With no session to
-draw into — over ssh, say — a windowed build starts in the terminal by itself
-rather than failing; `--gui` overrides that and insists on a window.
+`-nw`, `--no-window-system` and `--tty` are the same flag, and every build
+takes it so the habit works everywhere. With no session to draw into — over
+ssh, say — it starts in the terminal by itself rather than failing; `--gui`
+overrides that and insists on a window.
 
 What the window has that a terminal cannot:
 
@@ -704,6 +728,10 @@ What the window has that a terminal cannot:
   turn of the wheel over one scrolls it without selecting it, so the wheel
   over the file tree moves the file tree.
 - **The system clipboard**, rather than a terminal's guess at one.
+- **A box beside the symbol under the cursor**, once it has rested there,
+  saying what the language server knows about it, the way lsp-ui-doc does.
+  `set lsp-doc=#false` turns it off; `C-c c k` asks for it either way. The
+  terminal front end draws the same box.
 - **A window that behaves like one.** Its title is the buffer being edited,
   with a `*` while there is unsaved work in it; the close button runs the
   same command `C-x C-c` does, so it refuses to throw that work away; and it
@@ -786,7 +814,7 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 
 ## Testing
 
-**1979 tests.** Unit tests beside the code; session tests that press real keys
+**1992 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

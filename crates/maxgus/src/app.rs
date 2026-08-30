@@ -73,6 +73,11 @@ impl App {
         Duration::from_millis(self.editor.settings.echo_keystrokes_ms.max(1))
     }
 
+    /// How long it waits before saying what the next key could be.
+    fn which_key_delay(&self) -> Duration {
+        Duration::from_millis(self.editor.settings.which_key_delay_ms.max(1) as u64)
+    }
+
     /// How long after the last keystroke the idle work runs.
     fn idle_delay(&self) -> Duration {
         Duration::from_millis(self.editor.settings.idle_delay_ms.max(1))
@@ -112,6 +117,11 @@ impl App {
         // half-typed sequence, so a fluent `C-x C-s` never flashes anything.
         let echo = tokio::time::sleep(Duration::from_secs(86_400));
         tokio::pin!(echo);
+        // And a third for the panel that says what the sequence can become.
+        // Its own timer rather than the echo's: they answer different
+        // questions and want different pauses.
+        let which_key = tokio::time::sleep(Duration::from_secs(86_400));
+        tokio::pin!(which_key);
         let greeting = tokio::time::sleep(App::GREETING_DELAY);
         tokio::pin!(greeting);
         // The beacon's own frame timer. Parked at a day when nothing is lit,
@@ -131,13 +141,23 @@ impl App {
                     self.greeting_owed = false;
                     idle.as_mut().reset(tokio::time::Instant::now() + self.idle_delay());
                     match self.unechoed_prefix.is_some() {
-                        true => echo.as_mut().reset(
-                            tokio::time::Instant::now() + self.echo_delay(),
-                        ),
+                        true => {
+                            echo.as_mut().reset(
+                                tokio::time::Instant::now() + self.echo_delay(),
+                            );
+                            which_key.as_mut().reset(
+                                tokio::time::Instant::now() + self.which_key_delay(),
+                            );
+                        }
                         // The sequence completed, so nothing is waiting.
-                        false => echo.as_mut().reset(
-                            tokio::time::Instant::now() + Duration::from_secs(86_400),
-                        ),
+                        false => {
+                            echo.as_mut().reset(
+                                tokio::time::Instant::now() + Duration::from_secs(86_400),
+                            );
+                            which_key.as_mut().reset(
+                                tokio::time::Instant::now() + Duration::from_secs(86_400),
+                            );
+                        }
                     }
                 }
                 Some(result) = self.results.recv() => self.on_result(result),
@@ -145,6 +165,15 @@ impl App {
                     // The user hesitated; show them where they are.
                     self.editor.pending_keys = self.unechoed_prefix.clone();
                     echo.as_mut().reset(
+                        tokio::time::Instant::now() + Duration::from_secs(86_400),
+                    );
+                }
+                () = &mut which_key,
+                    if self.editor.settings.which_key && self.unechoed_prefix.is_some() =>
+                {
+                    // Still here: say what the next key could be.
+                    self.editor.which_key = self.unechoed_prefix.clone();
+                    which_key.as_mut().reset(
                         tokio::time::Instant::now() + Duration::from_secs(86_400),
                     );
                 }
@@ -168,7 +197,8 @@ impl App {
                     }
                 }
                 () = &mut idle, if self.idle_owed => {
-                    self.on_idle();
+                    self.idle_owed = false;
+                    maxgus_core::frontend::on_idle(&mut self.editor);
                     // Park the timer until something changes again.
                     idle.as_mut().reset(
                         tokio::time::Instant::now() + Duration::from_secs(86_400),
@@ -238,15 +268,20 @@ impl App {
                 if self.editor.pending_keys.is_some() {
                     self.editor.pending_keys = Some(echo.clone());
                 }
+                if self.editor.which_key.is_some() {
+                    self.editor.which_key = Some(echo.clone());
+                }
             }
             maxgus_core::Dispatch::Undefined { keys } => {
                 self.editor.error(format!("{keys} is undefined"));
                 self.unechoed_prefix = None;
                 self.editor.pending_keys = None;
+                self.editor.which_key = None;
             }
             _ => {
                 self.unechoed_prefix = None;
                 self.editor.pending_keys = None;
+                self.editor.which_key = None;
             }
         }
     }
@@ -293,8 +328,7 @@ impl App {
     /// The bookkeeping that happens after every event: replaying macros,
     /// draining queued work, re-parsing, and redrawing.
     fn after_turn(&mut self) -> Result<()> {
-        self.replay_macro();
-        self.follow_tree();
+        maxgus_core::frontend::after_key(&mut self.editor, &mut self.dispatcher);
         self.drain_tasks();
         if self.editor.suspend {
             self.suspend()?;
@@ -303,59 +337,6 @@ impl App {
             self.redraw()?;
         }
         Ok(())
-    }
-
-    /// Replays the last keyboard macro, if a command asked for it.
-    fn replay_macro(&mut self) {
-        let repeats = std::mem::take(&mut self.editor.macro_repeats);
-        if repeats == 0 {
-            return;
-        }
-        let keys = self.editor.last_macro.clone();
-        self.editor.replaying_macro = true;
-        for _ in 0..repeats {
-            for key in &keys {
-                self.dispatcher.handle_key(&mut self.editor, *key);
-            }
-        }
-        self.editor.replaying_macro = false;
-    }
-
-    /// The work that waits for typing to stop: re-highlighting the buffer and
-    /// telling the language server what changed.
-    fn on_idle(&mut self) {
-        self.idle_owed = false;
-        let id = self.editor.current_buffer_id();
-        #[cfg(feature = "full")]
-        if self.editor.highlights_are_stale(id) {
-            self.editor.request_highlighting(id);
-        }
-        self.editor.sync_language_server(id);
-    }
-
-    /// Keeps the tree cursor on the file being edited, when follow mode is on.
-    fn follow_tree(&mut self) {
-        if !self.editor.tree_follow || self.editor.tree_window.is_none() {
-            return;
-        }
-        // Only when the user is editing, not while they walk the tree itself.
-        if Some(self.editor.windows.current_id()) == self.editor.tree_window {
-            return;
-        }
-        let Some(path) = self
-            .editor
-            .current_buffer()
-            .path()
-            .map(std::path::Path::to_path_buf)
-        else {
-            return;
-        };
-        if self.editor.tree.iter().any(|n| n.path == path) {
-            self.editor.select_tree_path(&path);
-        } else {
-            self.editor
-                .spawn(Task::Tree(maxgus_core::TreeAction::Reveal(path)));
-        }
     }
 
     /// Hands everything the commands queued to the executor.

@@ -86,6 +86,8 @@ pub fn run(
         pointer: (0.0, 0.0),
         selecting: false,
         scrolling: None,
+        pending: None,
+        idle_at: None,
         clipboard: arboard::Clipboard::new().ok(),
         failure: None,
         last_frame: None,
@@ -119,6 +121,14 @@ struct App {
     /// The window the wheel is scrolling, which is the one under the pointer
     /// rather than the one being typed into.
     scrolling: Option<maxgus_core::WindowId>,
+    /// A half-typed key sequence, and when it was half-typed.
+    ///
+    /// The echo area and the which-key panel each wait their own pause
+    /// before appearing, and both are measured from here.
+    pending: Option<(String, std::time::Instant)>,
+    /// When the idle work is due, if it is owed. Re-highlighting and telling
+    /// the language server what changed both wait for typing to stop.
+    idle_at: Option<std::time::Instant>,
     clipboard: Option<arboard::Clipboard>,
     /// Set when something went wrong badly enough to stop, and reported once
     /// the event loop has given control back.
@@ -287,9 +297,80 @@ impl App {
         // A keyboard motion owns the view: an animation still running would
         // drag the text away from where the motion just put it.
         self.settle();
-        self.dispatcher.handle_key(&mut self.editor, key);
+        let outcome = self.dispatcher.handle_key(&mut self.editor, key);
+        self.on_dispatch(&outcome);
+        maxgus_core::frontend::after_key(&mut self.editor, &mut self.dispatcher);
+        // Something changed, so the buffer needs re-highlighting and the
+        // language server needs telling — once the typing stops.
+        let delay = self.editor.settings.idle_delay_ms.max(1);
+        self.idle_at = Some(std::time::Instant::now() + std::time::Duration::from_millis(delay));
         self.dirty = true;
         self.pump();
+    }
+
+    /// Half-typed sequences, which the terminal front end handles the same
+    /// way: remember one, show it once the hand has stopped.
+    fn on_dispatch(&mut self, outcome: &maxgus_core::Dispatch) {
+        match outcome {
+            maxgus_core::Dispatch::Prefix { echo } => {
+                let since = self
+                    .pending
+                    .as_ref()
+                    .map(|(_, at)| *at)
+                    .unwrap_or_else(std::time::Instant::now);
+                self.pending = Some((echo.clone(), since));
+                // Once something is on screen, the rest of the sequence
+                // joins it rather than disappearing.
+                if self.editor.pending_keys.is_some() {
+                    self.editor.pending_keys = Some(echo.clone());
+                }
+                if self.editor.which_key.is_some() {
+                    self.editor.which_key = Some(echo.clone());
+                }
+            }
+            maxgus_core::Dispatch::Undefined { keys } => {
+                self.editor.error(format!("{keys} is undefined"));
+                self.forget_pending();
+            }
+            _ => self.forget_pending(),
+        }
+    }
+
+    fn forget_pending(&mut self) {
+        self.pending = None;
+        self.editor.pending_keys = None;
+        self.editor.which_key = None;
+    }
+
+    /// Shows the echo and the panel once each has waited long enough, and
+    /// says when the next of them is due.
+    fn pending_deadline(&mut self) -> Option<std::time::Instant> {
+        let (keys, since) = self.pending.clone()?;
+        let settings = &self.editor.settings;
+        let mut next: Option<std::time::Instant> = None;
+        let mut due = |after: u64, shown: bool| -> bool {
+            let at = since + std::time::Duration::from_millis(after.max(1));
+            if shown || at <= std::time::Instant::now() {
+                return true;
+            }
+            next = Some(next.map_or(at, |soonest: std::time::Instant| soonest.min(at)));
+            false
+        };
+        if due(
+            settings.echo_keystrokes_ms,
+            self.editor.pending_keys.is_some(),
+        ) {
+            self.editor.pending_keys = Some(keys.clone());
+        }
+        if settings.which_key
+            && due(
+                settings.which_key_delay_ms as u64,
+                self.editor.which_key.is_some(),
+            )
+        {
+            self.editor.which_key = Some(keys);
+        }
+        next
     }
 
     /// Puts point where the pointer is.
@@ -544,11 +625,38 @@ impl ApplicationHandler for App {
             }
             self.dirty = true;
         }
+        // A half-typed sequence owes the echo and the panel a frame each,
+        // at their own times.
+        let was = (
+            self.editor.pending_keys.clone(),
+            self.editor.which_key.clone(),
+        );
+        let mut deadline = self.pending_deadline();
+        if (
+            self.editor.pending_keys.clone(),
+            self.editor.which_key.clone(),
+        ) != was
+        {
+            self.dirty = true;
+        }
+        // And the work that waits for the typing to stop.
+        match self.idle_at {
+            Some(at) if at <= now => {
+                self.idle_at = None;
+                maxgus_core::frontend::on_idle(&mut self.editor);
+                self.pump();
+            }
+            Some(at) => {
+                deadline = Some(deadline.map_or(at, |soonest: std::time::Instant| soonest.min(at)))
+            }
+            None => {}
+        }
         // An animation owes a frame whether or not anything was typed;
         // everything else waits to be woken.
-        event_loop.set_control_flow(match moving || self.editor.beacon.is_some() {
-            true => ControlFlow::Poll,
-            false => ControlFlow::Wait,
+        event_loop.set_control_flow(match (moving || self.editor.beacon.is_some(), deadline) {
+            (true, _) => ControlFlow::Poll,
+            (false, Some(at)) => ControlFlow::WaitUntil(at),
+            (false, None) => ControlFlow::Wait,
         });
         if self.dirty
             && let Some(window) = self.window.as_ref()

@@ -711,6 +711,68 @@ fn with_config(fixture: &Fixture, contents: &str) -> &'static str {
 }
 
 #[test]
+fn a_pause_mid_sequence_says_what_the_next_key_can_be() {
+    // which-key, which is how Doom's leader is meant to be learned rather
+    // than memorised.
+    let fixture = Fixture::new("whichkey");
+    let config = with_config(&fixture, "set which-key-delay-ms=1\n");
+    let mut session = Session::start(fixture.path(), &["--config", config, "hello.txt"]);
+    session.settle();
+
+    session.send(b"\x18"); // C-x
+    assert!(
+        wait_for(&mut session, "→ dired", 20),
+        "no panel appeared after `C-x`:\n{:#?}",
+        session.screen()
+    );
+    let screen = session.screen().join("\n");
+    assert!(
+        screen.contains("C-s") && screen.contains("C-f"),
+        "the panel left out the keys that need a modifier:\n{screen}"
+    );
+    assert!(
+        screen.contains("+treefile"),
+        "a key that opens another map is not shown as a named group:\n{screen}"
+    );
+    assert!(
+        !screen.contains("more"),
+        "a panel this size should not have to hide anything:\n{screen}"
+    );
+
+    // And it goes away when the sequence finishes.
+    session.send(b"\x07"); // C-g
+    for _ in 0..20 {
+        session.settle();
+        if !session.shows("→ dired") {
+            return;
+        }
+    }
+    panic!(
+        "the panel stayed up after the sequence was abandoned:\n{:#?}",
+        session.screen()
+    );
+}
+
+#[test]
+fn which_key_can_be_switched_off() {
+    let fixture = Fixture::new("nowhichkey");
+    let config = with_config(
+        &fixture,
+        "set which-key=#false\nset which-key-delay-ms=1\nset echo-keystrokes-ms=1\n",
+    );
+    let mut session = Session::start(fixture.path(), &["--config", config, "hello.txt"]);
+    session.settle();
+    session.send(b"\x18");
+    // The echo still says where you are; the panel is not there.
+    assert!(wait_for(&mut session, "C-x", 20), "the echo went too");
+    assert!(
+        !session.shows("→ dired"),
+        "the panel appeared with which-key off:\n{:#?}",
+        session.screen()
+    );
+}
+
+#[test]
 fn a_half_typed_key_sequence_waits_before_being_shown() {
     // Emacs holds the echo back so a fluent `C-x C-s` never flashes anything;
     // showing it at once would make every prefix key blink the echo area.
@@ -742,6 +804,44 @@ fn a_short_echo_delay_shows_the_sequence_promptly() {
         wait_for(&mut session, "C-x", 10),
         "the sequence was never shown:\n{:#?}",
         session.screen()
+    );
+}
+
+#[test]
+fn the_beacon_lights_where_the_cursor_landed() {
+    // The beacon paints a background behind the text, which the screen
+    // reader here cannot see — so this looks at what was actually written to
+    // the terminal. Nothing else runs the beacon through the real binary:
+    // every other test for it sets `editor.beacon` by hand.
+    let fixture = Fixture::new("beacon");
+    let long: String = (1..=400).map(|n| format!("line {n}\n")).collect();
+    std::fs::write(fixture.path().join("long.txt"), &long).unwrap();
+    let config = with_config(
+        &fixture,
+        "set beacon=#true\n\
+         set beacon-color=\"#ff0066\"\n\
+         set beacon-blink-delay-ms=2000\n\
+         set beacon-blink-duration-ms=2000\n",
+    );
+    let mut session = Session::start(fixture.path(), &["--config", config, "long.txt"]);
+    session.settle();
+    let before = session.output.len();
+
+    // `C-v` scrolls a screenful, which is one of the things beacon lights up
+    // for. The cursor lands somewhere new and the light says where.
+    session.send(b"\x16");
+    for _ in 0..10 {
+        session.settle();
+        let written = String::from_utf8_lossy(&session.output[before..]).into_owned();
+        if written.contains("48;2;255;0;102") {
+            return;
+        }
+    }
+    let written = String::from_utf8_lossy(&session.output[before..]).into_owned();
+    panic!(
+        "the beacon never painted anything after the jump; \
+         the terminal was sent {} bytes and none of them lit it",
+        written.len()
     );
 }
 
@@ -2240,14 +2340,14 @@ fn the_startup_time_is_reported_when_the_editor_opens() {
     assert_eq!(session.quit(), 0);
 }
 
-/// All three builds have to build, not just the one being worked on.
+/// Both builds have to build, not just the one being worked on.
 ///
 /// Ignored by default because it is a build rather than a test — it takes
 /// minutes. `cargo test -- --ignored` runs it, and so does the CI.
 #[test]
 #[ignore]
-fn every_build_builds() {
-    for features in [Some("minimal"), Some("full"), Some("gui")] {
+fn both_builds_build() {
+    for features in [Some("minimal"), Some("full")] {
         let mut command = std::process::Command::new(env!("CARGO"));
         command.args(["build", "-q", "-p", "maxgus", "--no-default-features"]);
         if let Some(features) = features {
@@ -2737,12 +2837,9 @@ fn the_version_says_which_build_this_is() {
         .expect("it runs");
     let said = String::from_utf8_lossy(&output.stdout);
     assert!(said.starts_with("maxgus "), "got {said:?}");
-    let expected = if cfg!(feature = "gui") {
-        "(gui)"
-    } else if cfg!(feature = "full") {
-        "(full)"
-    } else {
-        "(minimal)"
+    let expected = match cfg!(feature = "full") {
+        true => "(full)",
+        false => "(minimal)",
     };
     assert!(
         said.contains(expected),
@@ -2750,7 +2847,7 @@ fn the_version_says_which_build_this_is() {
     );
 }
 
-/// A build with a window in it is a desktop program.
+/// The full build is a desktop program.
 ///
 /// It was not, for a while: `maxgus-gui` took over the terminal like every
 /// other build unless `--gui` was passed, which is not what someone who
@@ -2759,9 +2856,9 @@ fn the_version_says_which_build_this_is() {
 /// Which path was taken is legible in which failure comes back, since
 /// neither one can finish here: the terminal path complains about the
 /// terminal, and the window path complains about the display.
-#[cfg(feature = "gui")]
+#[cfg(feature = "full")]
 #[test]
-fn a_window_is_what_a_gui_build_opens() {
+fn a_window_is_what_the_full_build_opens() {
     /// Runs the editor with the display environment set exactly, and
     /// returns what it said before giving up.
     fn attempt(arguments: &[&str], display: Option<&str>) -> String {
@@ -2783,7 +2880,7 @@ fn a_window_is_what_a_gui_build_opens() {
     let said = attempt(&[], Some(":99"));
     assert!(
         !said.contains(terminal),
-        "a gui build took over the terminal instead of opening a window: {said}"
+        "it took over the terminal instead of opening a window: {said}"
     );
     assert!(
         said.contains("X server"),
@@ -2816,8 +2913,8 @@ fn a_window_is_what_a_gui_build_opens() {
     );
 }
 
-/// `-nw` is a habit, and a habit that errors on two builds out of three is
-/// worse than no habit. Every build takes it; only one has a window to turn
+/// `-nw` is a habit, and a habit that errors on one build out of two is
+/// worse than no habit. Both builds take it; only one has a window to turn
 /// off with it.
 #[test]
 fn every_build_takes_the_flag_that_asks_for_a_terminal() {

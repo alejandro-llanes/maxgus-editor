@@ -420,6 +420,21 @@ impl<'a> Parser<'a> {
                     self.config.settings.gui_font_size = n.clamp(6, 96);
                 }
             }
+            "lsp-doc" => {
+                if let Some(b) = self.bool_value(node, key, value) {
+                    self.config.settings.lsp_doc = b;
+                }
+            }
+            "which-key" => {
+                if let Some(b) = self.bool_value(node, key, value) {
+                    self.config.settings.which_key = b;
+                }
+            }
+            "which-key-delay-ms" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.which_key_delay_ms = n.min(10_000);
+                }
+            }
             "mouse-wheel-lines" => {
                 if let Some(n) = self.usize_value(node, key, value) {
                     self.config.settings.mouse_wheel_lines = n.clamp(1, 50);

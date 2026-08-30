@@ -56,6 +56,7 @@ pub const UI_FACES: &[&str] = &[
     "symbol-detail",
     "completion-border",
     "completion-key",
+    "which-key-group",
     "completion-count",
     "error",
     "warning",

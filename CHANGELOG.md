@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.1.0
 
 - **The tree asks which directory by showing you one.** `r a` and `C-x t d`
   wanted a path typed out in full. They open the file browser instead, on the

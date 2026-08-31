@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.2.0
 
 - **`truncate-lines` off now wraps.** It only ever turned off the horizontal
   scroll: long lines were still clipped at the edge, so the setting and

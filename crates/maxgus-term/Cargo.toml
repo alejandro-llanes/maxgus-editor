@@ -9,7 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-maxgus-faces = { version = "1.1.0", path = "../maxgus-faces" }
-maxgus-keys = { version = "1.1.0", path = "../maxgus-keys" }
+maxgus-faces = { version = "1.2.0", path = "../maxgus-faces" }
+maxgus-keys = { version = "1.2.0", path = "../maxgus-keys" }
 unicode-width = "0.2.2"
 vte = "0.15.0"

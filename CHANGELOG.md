@@ -45,6 +45,12 @@
   so the set you work in is one command to come back to rather than several
   to rebuild. treemacs has the same idea and the same word for it.
 
+  Saving is something you do rather than something that happens: `r a` and
+  `r k` change the tree in front of you and nothing else, so the tree is
+  somewhere to rearrange freely and the workspace on disk is what it was
+  when you last named it. `C-c p s` offers the name it was opened under, so
+  keeping a change is `RET`.
+
   `C-c p s` saves what the tree is showing, `C-c p p` opens a saved one and
   `C-c p d` forgets one. The switch prompt offers a default — the one
   already open, or the first saved — so `RET` on it means something; the

@@ -344,6 +344,14 @@ they survive restarts and can be read, edited or deleted by hand. A
 directory that has moved since it was saved is left out and said out loud
 rather than quietly skipped.
 
+**Saving is something you do, not something that happens.** `r a` and `r k`
+change the tree in front of you and nothing else; the workspace on disk is
+what it was when you last named it. That is what makes the tree somewhere
+you can rearrange freely — open a workspace, pull a directory in to look at
+something, and leave without having disturbed what you saved. When you do
+want to keep the change, `C-c p s` offers the name it was opened under, so
+it is `RET`.
+
 **`?` shows all of them at once**, the way treemacs' helpful hydra does: the
 whole map in named columns — Navigation, Nodes, Files, Toggles — in the same
 box `C-x` and `C-c` draw into, so a panel learnt once is read the second time

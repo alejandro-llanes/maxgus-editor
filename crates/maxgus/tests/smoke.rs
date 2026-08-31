@@ -1740,8 +1740,8 @@ fn the_cursor_sits_on_the_text_when_line_numbers_are_on() {
 }
 
 #[test]
-fn visit_theme_previews_keeps_and_writes_the_choice() {
-    let fixture = Fixture::new("visit-theme");
+fn consult_theme_previews_keeps_and_writes_the_choice() {
+    let fixture = Fixture::new("consult-theme");
     std::fs::create_dir_all(fixture.path().join("themes")).unwrap();
     std::fs::write(
         fixture.path().join("themes/daylight.kdl"),
@@ -1754,7 +1754,7 @@ fn visit_theme_previews_keeps_and_writes_the_choice() {
     let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
 
     session.send(b"\x1bx");
-    session.send(b"visit-theme\r");
+    session.send(b"consult-theme\r");
     assert!(
         session.shows("daylight"),
         "the themes were not listed to walk through:\n{:#?}",
@@ -1771,7 +1771,7 @@ fn visit_theme_previews_keeps_and_writes_the_choice() {
     assert_eq!(
         std::fs::read_to_string(&config).unwrap(),
         "set tab-width=4\nset theme=\"maxgus-dark\"\n",
-        "visiting a theme wrote to the configuration file"
+        "consulting a theme wrote to the configuration file"
     );
 
     // Keeping it is the other command.
@@ -1792,24 +1792,24 @@ fn visit_theme_previews_keeps_and_writes_the_choice() {
 }
 
 #[test]
-fn visit_theme_can_keep_a_theme_without_touching_the_config() {
+fn consult_theme_can_keep_a_theme_without_touching_the_config() {
     // Which is now simply what it does: keeping one for good is
     // `save-theme`, and not reaching for it is how you keep a theme for the
     // session.
-    let fixture = Fixture::new("visit-theme-session");
+    let fixture = Fixture::new("consult-theme-session");
     let config = fixture.path().join("config.kdl");
     let original = "set theme=\"maxgus-dark\"\n";
     std::fs::write(&config, original).unwrap();
 
     let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
     session.send(b"\x1bx");
-    session.send(b"visit-theme\r");
+    session.send(b"consult-theme\r");
     session.send(b"maxgus-light\r");
 
     assert_eq!(
         std::fs::read_to_string(&config).unwrap(),
         original,
-        "visiting a theme wrote to the configuration file"
+        "consulting a theme wrote to the configuration file"
     );
 
     // And the theme really is in use, not merely reported.

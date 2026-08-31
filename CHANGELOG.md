@@ -2,19 +2,23 @@
 
 ## Unreleased
 
-- **`visit-theme` stops asking.** It applied each theme as it came under
+- **`visit-theme` is `consult-theme` now, and it stops asking.** The name
+  first: every command here is named after the one it behaves like, so that
+  a hand which already knows the keys knows the names too — and this one
+  behaves like `consult-theme`, so that is what it is called.
+
+  What it stopped doing is asking. It applied each theme as it came under
   the cursor, and then, once you had chosen one by *looking at it*, put a
   yes-or-no question about the configuration file between you and the theme
   you had just picked. Trying themes on and deciding to keep one for good
   are two different intentions and only the first is what the command is
-  for. `RET` now keeps what is showing and that is the end of it, which is
-  how the same idea works elsewhere.
+  for. `RET` now keeps what is showing and that is the end of it.
 
   Keeping one is its own command: **`save-theme`** writes the theme in use
-  into the configuration file — of whatever theme is in use, however it got
-  there, so a theme arrived at by `load-theme` is kept the same way. A
-  prefix argument on `visit-theme` does both at once. Writing still changes
-  that one setting and leaves the rest of the file alone.
+  into the configuration file — whatever theme is in use, however it got
+  there, so one arrived at by `load-theme` is kept the same way. A prefix
+  argument on `consult-theme` does both at once. Writing still changes that
+  one setting and leaves the rest of the file alone.
 
   A name that is not a theme now leaves the theme you started with, rather
   than accepting the preview and then reporting the error — the preview has

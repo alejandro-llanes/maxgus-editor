@@ -49,14 +49,14 @@ pub struct Editor {
     /// executor has been able to ask git, and when it is not a repository.
     #[cfg(feature = "full")]
     pub git_branch: Option<String>,
-    /// The theme that was in use before `visit-theme` started previewing, so
+    /// The theme that was in use before `consult-theme` started previewing, so
     /// abandoning the prompt puts it back.
     pub theme_before_preview: Option<String>,
     /// Whether the visit now being made should be written down when it is
-    /// accepted, which is what a prefix argument on `visit-theme` asks for.
+    /// accepted, which is what a prefix argument on `consult-theme` asks for.
     /// Remembered because the argument is given when the prompt opens and
     /// wanted when it closes.
-    pub visit_theme_writes: bool,
+    pub consult_theme_writes: bool,
     /// Where the configuration was read from, so a theme can be written back
     /// to it. `None` when the editor started without one.
     pub config_path: Option<PathBuf>,
@@ -64,7 +64,7 @@ pub struct Editor {
     /// user's — sessions, and whatever else comes to want a home.
     pub state_dir: Option<PathBuf>,
     /// The theme the configuration file names, as distinct from the one in
-    /// use — which is how `visit-theme` knows whether there is anything worth
+    /// use — which is how `consult-theme` knows whether there is anything worth
     /// writing down.
     pub config_says_theme: Option<String>,
     /// A file being read, and the line point should land on when it arrives.
@@ -324,7 +324,7 @@ impl Editor {
             #[cfg(feature = "full")]
             git_branch: None,
             theme_before_preview: None,
-            visit_theme_writes: false,
+            consult_theme_writes: false,
             config_path: None,
             state_dir: None,
             config_says_theme: None,
@@ -1395,7 +1395,7 @@ impl Editor {
         self.preview_theme();
     }
 
-    /// While `visit-theme` is prompting, shows whatever the input now names.
+    /// While `consult-theme` is prompting, shows whatever the input now names.
     ///
     /// Driven from the same refresh every prompt edit already goes through, so
     /// typing and cycling both preview without either needing to know about
@@ -1452,7 +1452,7 @@ impl Editor {
 
     /// Abandons the prompt and whatever command was waiting on it.
     pub fn abort_prompt(&mut self) {
-        // Abandoning `visit-theme` means abandoning what it was showing.
+        // Abandoning `consult-theme` means abandoning what it was showing.
         self.end_theme_preview(true);
         self.minibuffer.abort();
         self.remove_minor_map("minibuffer-mode");

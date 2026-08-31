@@ -495,7 +495,7 @@ impl Executor {
             Ok(source) => source,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(error) => {
-                self.fail("visit-theme", error);
+                self.fail("save-theme", error);
                 return;
             }
         };
@@ -504,12 +504,12 @@ impl Executor {
             && !parent.as_os_str().is_empty()
             && let Err(error) = tokio::fs::create_dir_all(parent).await
         {
-            self.fail("visit-theme", error);
+            self.fail("save-theme", error);
             return;
         }
         match tokio::fs::write(&path, updated).await {
             Ok(()) => self.send(TaskResult::ThemePersisted { path, theme }),
-            Err(error) => self.fail("visit-theme", error),
+            Err(error) => self.fail("save-theme", error),
         }
     }
 

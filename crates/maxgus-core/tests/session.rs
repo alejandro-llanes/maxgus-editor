@@ -1810,7 +1810,7 @@ fn the_cursor_sits_on_the_text_when_line_numbers_are_shown() {
     );
 }
 
-// ---- visiting themes ----------------------------------------------------
+// ---- consulting themes --------------------------------------------------
 
 fn with_two_themes() -> Session {
     let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
@@ -1828,12 +1828,12 @@ fn with_two_themes() -> Session {
 }
 
 #[test]
-fn visiting_themes_shows_each_one_as_it_comes_under_the_cursor() {
+fn consulting_themes_shows_each_one_as_it_comes_under_the_cursor() {
     let mut s = with_two_themes();
     let started_as = s.editor.theme.name().to_string();
 
     s.keys("M-x");
-    s.type_text("visit-theme");
+    s.type_text("consult-theme");
     s.keys("RET");
     assert!(s.editor.minibuffer.is_active(), "the prompt did not open");
     assert!(
@@ -1856,12 +1856,12 @@ fn visiting_themes_shows_each_one_as_it_comes_under_the_cursor() {
 }
 
 #[test]
-fn abandoning_the_visit_puts_the_old_theme_back() {
+fn abandoning_the_prompt_puts_the_old_theme_back() {
     let mut s = with_two_themes();
     let started_as = s.editor.theme.name().to_string();
 
     s.keys("M-x");
-    s.type_text("visit-theme");
+    s.type_text("consult-theme");
     s.keys("RET");
     s.type_text("daylight");
     assert_eq!(s.editor.theme.name(), "daylight");
@@ -1879,7 +1879,7 @@ fn choosing_a_theme_is_the_end_of_it() {
     // are two intentions, and this command is the first.
     let mut s = with_two_themes();
     s.keys("M-x");
-    s.type_text("visit-theme");
+    s.type_text("consult-theme");
     s.keys("RET");
     s.type_text("daylight");
     s.keys("RET");
@@ -1902,7 +1902,7 @@ fn a_theme_the_config_does_not_name_says_how_to_keep_it() {
     // to give: the way to make it stick is named where it comes up.
     let mut s = with_two_themes();
     s.keys("M-x");
-    s.type_text("visit-theme");
+    s.type_text("consult-theme");
     s.keys("RET");
     s.type_text("daylight");
     s.keys("RET");
@@ -1919,7 +1919,7 @@ fn the_theme_the_config_already_names_is_not_offered_a_way_to_keep_it() {
     // keep it would be noise.
     let mut s = with_two_themes();
     s.keys("M-x");
-    s.type_text("visit-theme");
+    s.type_text("consult-theme");
     s.keys("RET");
     s.type_text("maxgus-dark");
     s.keys("RET");
@@ -1937,7 +1937,7 @@ fn the_theme_the_config_already_names_is_not_offered_a_way_to_keep_it() {
 fn save_theme_writes_the_one_in_use() {
     let mut s = with_two_themes();
     s.keys("M-x");
-    s.type_text("visit-theme");
+    s.type_text("consult-theme");
     s.keys("RET");
     s.type_text("daylight");
     s.keys("RET");
@@ -1962,7 +1962,7 @@ fn a_prefix_argument_visits_and_keeps_in_one_go() {
     let mut s = with_two_themes();
     s.keys("C-u");
     s.keys("M-x");
-    s.type_text("visit-theme");
+    s.type_text("consult-theme");
     s.keys("RET");
     s.type_text("daylight");
     s.keys("RET");
@@ -1982,7 +1982,7 @@ fn a_name_that_is_not_a_theme_leaves_the_one_that_was_showing() {
     let mut s = with_two_themes();
     let started_as = s.editor.theme.name().to_string();
     s.keys("M-x");
-    s.type_text("visit-theme");
+    s.type_text("consult-theme");
     s.keys("RET");
     s.type_text("daylight");
     assert_eq!(s.editor.theme.name(), "daylight", "no preview to undo");
@@ -2009,7 +2009,7 @@ fn an_empty_answer_keeps_the_theme_that_was_already_in_use() {
     let mut s = with_two_themes();
     let started_as = s.editor.theme.name().to_string();
     s.keys("M-x");
-    s.type_text("visit-theme");
+    s.type_text("consult-theme");
     s.keys("RET");
     s.keys("RET");
 

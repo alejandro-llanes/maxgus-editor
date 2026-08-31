@@ -88,10 +88,10 @@ pub fn register(registry: &mut Registry) {
         ),
         command!("load-theme", "Switch to another theme.", load_theme),
         command!(
-            "visit-theme",
+            "consult-theme",
             "Try each theme in turn and keep one. With a prefix argument, \
              also write it into the configuration file.",
-            visit_theme
+            consult_theme
         ),
         command!(
             "save-theme",
@@ -303,7 +303,7 @@ fn repeat(editor: &mut Editor, args: &Args) -> Result<()> {
     Ok(())
 }
 
-/// `M-x visit-theme`: walk the themes, seeing each one as you go.
+/// `M-x consult-theme`: walk the themes, seeing each one as you go.
 ///
 /// The list is up from the moment it opens and every theme is applied as it
 /// comes under the cursor, so choosing one is a matter of looking rather
@@ -321,16 +321,16 @@ fn repeat(editor: &mut Editor, args: &Args) -> Result<()> {
 /// where it started rather than half-applying something that does not
 /// exist, and an empty answer means the one already in use — so `RET`
 /// straight away changes nothing.
-fn visit_theme(editor: &mut Editor, args: &Args) -> Result<()> {
+fn consult_theme(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(input) = args.input.clone() else {
         let candidates = editor.theme_names();
         let current = editor.settings.theme.clone();
         editor.theme_before_preview = Some(current.clone());
-        editor.visit_theme_writes = args.prefix.is_present();
+        editor.consult_theme_writes = args.prefix.is_present();
         editor.prompt_for(
-            "visit-theme",
+            "consult-theme",
             MinibufferKind::Choice,
-            format!("Visit theme (default {current}): "),
+            format!("Consult theme (default {current}): "),
             "",
             candidates,
         );
@@ -340,7 +340,7 @@ fn visit_theme(editor: &mut Editor, args: &Args) -> Result<()> {
         .theme_before_preview
         .clone()
         .unwrap_or_else(|| editor.settings.theme.clone());
-    let writes = std::mem::take(&mut editor.visit_theme_writes);
+    let writes = std::mem::take(&mut editor.consult_theme_writes);
 
     let name = match input.trim() {
         "" => before.clone(),
@@ -372,7 +372,7 @@ fn visit_theme(editor: &mut Editor, args: &Args) -> Result<()> {
 
 /// `M-x save-theme`: write the theme in use into the configuration file.
 ///
-/// The other half of `visit-theme`, and useful on its own: a theme arrived
+/// The other half of `consult-theme`, and useful on its own: a theme arrived
 /// at by `load-theme`, or by editing the file and thinking better of it, is
 /// kept by the same command.
 ///

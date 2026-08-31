@@ -255,7 +255,7 @@ faces**, with `inherit`, bold/italic/underline/reverse/dim/strikethrough, and
 truecolor degraded to 256 and then 16 colours by what your terminal reports.
 `M-x load-theme` switches at runtime and keeps your overrides.
 
-**`M-x visit-theme` tries them on.** Each theme is applied as it comes under
+**`M-x consult-theme` tries them on.** Each theme is applied as it comes under
 the cursor, so you choose by looking rather than by guessing what a name means.
 `RET` keeps what is showing and that is the end of it; `C-g` puts back the one
 you started with; a name that is not a theme leaves the one you started with
@@ -263,7 +263,7 @@ too, rather than half-applying something that does not exist.
 
 Keeping one for good is a separate thought and a separate command:
 **`M-x save-theme`** writes the theme in use into your config file, and
-`C-u M-x visit-theme` does both at once for when you knew all along. Writing
+`C-u M-x consult-theme` does both at once for when you knew all along. Writing
 changes that one setting and leaves the rest of the file exactly as it was.
 
 **A theme is a file you drop in.** Anything in

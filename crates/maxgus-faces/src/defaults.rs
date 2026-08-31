@@ -188,7 +188,15 @@ fn build(name: &str, p: &Palette) -> Theme {
     set("which-key-group", Face::fg(p.purple).bold());
     // Code in a doc box, on a panel of its own so a signature reads as one
     // thing rather than as a sentence that happens to have brackets in it.
-    set("doc-code", Face::fg(p.aqua).with_bg(p.surface));
+    set("menu-heading", Face::fg(p.orange).bold());
+    // The doc box is a panel rather than a hole cut in the buffer: its own
+    // background, one step off the text's, and a border in a colour that
+    // says it came from somewhere rather than the grey every popup shares.
+    set("doc", Face::fg(p.fg).with_bg(p.surface));
+    set("doc-border", Face::fg(p.blue).with_bg(p.surface));
+    set("doc-title", Face::fg(p.blue).with_bg(p.surface).bold());
+    // A step further off again, or code on the panel would be the panel.
+    set("doc-code", Face::fg(p.aqua).with_bg(p.selection));
     set("completion-count", Face::fg(p.orange).bold());
     set("error", Face::fg(p.red).bold());
     set("warning", Face::fg(p.orange).bold());

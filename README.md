@@ -311,11 +311,22 @@ panel-at-startup=#true` and the column is there when maxgus opens; give the
 outline and the list the height you want with `panel-symbols-height` and
 `panel-buffers-height`, and the tree takes whatever is left.
 
-The tree keeps **47 bindings and 41 commands** from treemacs' own keymap:
+The tree keeps **54 bindings and 48 commands** from treemacs' own keymap:
 `n`/`p`, `M-n`/`M-p`, `u`, `TAB`, `RET`, `o v`/`o h`/`o r`/`o x`, `P` to peek,
 `c f`/`c d` to create, `R`, `d`, `m`, `!`, `y a`/`y r`/`y p`/`y f` to copy
 paths, `t h`/`t w`/`t f`/`t g`/`t d` to toggle, `g r` to refresh. Git status
-in the gutter, follow mode, `?` for help.
+in the gutter, follow mode.
+
+**`?` shows all of them at once**, the way treemacs' helpful hydra does: the
+whole map in named columns — Navigation, Nodes, Files, Toggles — in the same
+box `C-x` and `C-c` draw into, so a panel learnt once is read the second time
+without being learnt again.
+
+<img src="docs/screenshots/treefile-help.svg" alt="The file tree's keymap in a bordered panel across the bottom of the frame, its bindings grouped into named columns" width="100%">
+
+The keys stay live underneath it. Walk the tree with the map still up — which
+is the point of it, and what a help buffer that took the window beside the
+tree could never do. `C-g` puts it away, and so does leaving the tree.
 
 ### Scripts, for the things a config file cannot say
 
@@ -718,7 +729,7 @@ first.
 
 Inside the tree, treemacs' own keys apply: `n` and `p` to move, `u` for the
 parent, `TAB` to fold, `RET` to open, `c f` and `c d` to create, `R` to rename,
-`d` to delete, `y a` to copy the path, `?` for the rest.
+`d` to delete, `y a` to copy the path, `?` for the whole map at once.
 
 `r d` draws the tree from the directory under the cursor instead, `r u` from
 one further out, and `r r` from where it opened. Only the tree moves: the
@@ -808,9 +819,15 @@ What the window has that a terminal cannot:
   What arrives is markdown — a heading, a rule, the parameters, the prose,
   the signature in a fenced block — and it is drawn as those things rather
   than as the punctuation that spells them: headings bold, code on a panel
-  of its own, `---` as a rule across the box, `- ` as a bullet. `set
-  lsp-doc=#false` turns it off; `C-c c k` asks for it either way. The
-  terminal front end draws the same box:
+  of its own, `---` as a rule across the box, `- ` as a bullet.
+
+  The box is a panel rather than a hole cut in the buffer — its own
+  background, a border in a colour of its own, and `Documentation` written
+  into the top of it, so it reads as something that arrived rather than as a
+  rectangle of the same text with a line around it. Four faces say how:
+  `doc`, `doc-border`, `doc-title` and `doc-code`. `set lsp-doc=#false`
+  turns it off; `C-c c k` asks for it either way. The terminal front end
+  draws the same box:
 
   <img src="docs/screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and its documentation, from clangd" width="100%">
 - **A window that behaves like one.** Its title is the buffer being edited,

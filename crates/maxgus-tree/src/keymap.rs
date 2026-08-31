@@ -85,6 +85,124 @@ pub const TREEMACS_BINDINGS: &[(&str, &str)] = &[
     ("?", "treefile-help"),
 ];
 
+/// One column of the help panel: a heading, and the keys under it.
+pub struct HelpSection {
+    pub title: &'static str,
+    /// The key, and the short phrase saying what it does.
+    pub keys: &'static [(&'static str, &'static str)],
+}
+
+/// The keymap as `?` shows it, grouped the way treemacs' helpful hydra
+/// groups it.
+///
+/// One row per *command* rather than per binding, which is treemacs' rule
+/// too: `treemacs--find-keybind` asks what a function is bound to and shows
+/// the one answer, so `n` is listed and the `<down>` that does the same
+/// thing is not. A panel that listed both would be a third longer and no
+/// more use — the second spelling is a convenience for the hand, not
+/// something to be taught.
+///
+/// The phrases are short and lower case for the same reason treemacs' are:
+/// these are columns, and a sentence in a column is a sentence that gets
+/// cut. What each command does at length is what `M-x` says.
+pub const TREEMACS_HELP: &[HelpSection] = &[
+    HelpSection {
+        title: "Navigation",
+        keys: &[
+            ("n", "next line"),
+            ("p", "previous line"),
+            ("M-n", "next neighbour"),
+            ("M-p", "previous neighbour"),
+            ("u", "goto parent"),
+            ("M-<", "goto first"),
+            ("M->", "goto last"),
+        ],
+    },
+    HelpSection {
+        title: "Nodes",
+        keys: &[
+            ("TAB", "toggle node"),
+            ("RET", "visit node"),
+            ("<right>", "expand"),
+            ("<left>", "collapse"),
+            ("H", "collapse parent"),
+            ("C-c C-p", "expand recursively"),
+        ],
+    },
+    HelpSection {
+        title: "Opening",
+        keys: &[
+            ("o v", "vertical split"),
+            ("o h", "horizontal split"),
+            ("o r", "recent window"),
+            ("o x", "external program"),
+            ("P", "peek"),
+        ],
+    },
+    HelpSection {
+        title: "Files",
+        keys: &[
+            ("c f", "create file"),
+            ("c d", "create directory"),
+            ("R", "rename"),
+            ("d", "delete"),
+            ("m", "move"),
+            ("!", "shell command"),
+        ],
+    },
+    HelpSection {
+        title: "Copying",
+        keys: &[
+            ("y a", "absolute path"),
+            ("y r", "relative path"),
+            ("y p", "project path"),
+            ("y f", "the file itself"),
+        ],
+    },
+    HelpSection {
+        title: "Root",
+        keys: &[
+            ("r d", "root down"),
+            ("r u", "root up"),
+            ("r r", "root back"),
+        ],
+    },
+    HelpSection {
+        title: "Toggles",
+        keys: &[
+            ("t h", "dotfiles"),
+            ("t w", "fixed width"),
+            ("t f", "follow mode"),
+            ("t g", "git mode"),
+            ("t d", "directories first"),
+        ],
+    },
+    HelpSection {
+        title: "Sections",
+        keys: &[
+            ("t r", "the tree"),
+            ("t s", "the symbols"),
+            ("t b", "the buffers"),
+        ],
+    },
+    HelpSection {
+        title: "Width",
+        keys: &[("w", "set width"), ("<", "narrower"), (">", "wider")],
+    },
+    HelpSection {
+        title: "Refreshing",
+        keys: &[
+            ("g r", "re-read the tree"),
+            ("g s", "re-read the symbols"),
+            ("s", "re-sort"),
+        ],
+    },
+    HelpSection {
+        title: "Leaving",
+        keys: &[("q", "hide"), ("Q", "hide and forget"), ("?", "this panel")],
+    },
+];
+
 /// Builds the treemacs keymap.
 pub fn treemacs_keymap() -> Result<Keymap> {
     let mut map = Keymap::new("treefile-mode");
@@ -117,6 +235,88 @@ mod tests {
                 map.lookup(&seq(keys)).command(),
                 Some(*command),
                 "`{keys}` should run `{command}`"
+            );
+        }
+    }
+
+    #[test]
+    fn the_help_describes_every_command_in_the_map_exactly_once() {
+        // The failure this is here for is silent: a binding added to the map
+        // and not to the help is a key nobody can find, and `?` is the only
+        // place anyone would look for it.
+        let mut described: Vec<&str> = Vec::new();
+        for section in TREEMACS_HELP {
+            for (keys, _) in section.keys {
+                let command = TREEMACS_BINDINGS
+                    .iter()
+                    .find(|(bound, _)| bound == keys)
+                    .map(|(_, command)| *command)
+                    .unwrap_or_else(|| panic!("the help lists `{keys}`, which is not bound"));
+                assert!(
+                    !described.contains(&command),
+                    "`{command}` is in the help twice, the second time as `{keys}`"
+                );
+                described.push(command);
+            }
+        }
+        for (keys, command) in TREEMACS_BINDINGS {
+            assert!(
+                described.contains(command),
+                "`{command}` is bound to `{keys}` and the help never says so"
+            );
+        }
+    }
+
+    #[test]
+    fn the_help_says_the_key_that_reaches_a_command_soonest() {
+        // `treefile-goto-first` answers to `M-<`, `C-a` and `g g`. Which of
+        // them the panel shows is not arbitrary: the map lists them in the
+        // order they are meant to be reached for, and the help should agree
+        // rather than teaching whichever was typed last.
+        for section in TREEMACS_HELP {
+            for (keys, _) in section.keys {
+                let command = TREEMACS_BINDINGS
+                    .iter()
+                    .find(|(bound, _)| bound == keys)
+                    .map(|(_, command)| *command)
+                    .expect("bound");
+                let first = TREEMACS_BINDINGS
+                    .iter()
+                    .find(|(_, bound)| bound == &command)
+                    .map(|(keys, _)| *keys)
+                    .expect("bound");
+                assert_eq!(
+                    *keys, first,
+                    "the help teaches `{keys}` for `{command}`, the map reaches for `{first}`"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_readme_counts_the_keymap_correctly() {
+        // It said 47 and 41 while the map held 51 and 44, because the three
+        // root bindings were added and the sentence describing them was
+        // not. A number in prose that nothing checks is a number that goes
+        // stale the first time the thing it counts is touched.
+        let readme = include_str!("../../../README.md");
+        let bindings = TREEMACS_BINDINGS.len();
+        let commands = TREEMACS_HELP
+            .iter()
+            .map(|section| section.keys.len())
+            .sum::<usize>();
+        let claim = format!("**{bindings} bindings and {commands} commands**");
+        assert!(readme.contains(&claim), "the README never says `{claim}`");
+    }
+
+    #[test]
+    fn no_help_section_is_empty_or_nameless() {
+        for section in TREEMACS_HELP {
+            assert!(!section.title.is_empty(), "a section with no heading");
+            assert!(
+                !section.keys.is_empty(),
+                "`{}` is a heading over nothing",
+                section.title
             );
         }
     }

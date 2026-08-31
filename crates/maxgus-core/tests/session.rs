@@ -7173,3 +7173,60 @@ fn the_file_tree_follows_its_cursor_off_the_bottom() {
         "line 50 is selected and not drawn:\n{screen}"
     );
 }
+
+// ---- the file tree's helpful panel --------------------------------------
+
+/// A frame big enough for the whole tree keymap, which is what a window on
+/// any ordinary display is.
+const WIDE: u16 = 140;
+const TALL: u16 = 44;
+
+#[test]
+fn the_tree_help_draws_the_keymap_in_named_columns() {
+    // treemacs' helpful hydra, in the box `C-x` and `C-c` already draw into.
+    let mut s = Session::new(WIDE, TALL);
+    s.keys("C-x t t");
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::TreeUpdated {
+            nodes: vec![node("/project", "project", true, 0, true)],
+            select: None,
+            show_hidden: false,
+        })
+        .unwrap();
+    // `C-x t 1` is how the keys reach the tree; `C-x t t` only opens it.
+    s.keys("C-x t 1");
+    s.keys("?");
+
+    let screen = s.screen();
+    let has = |needle: &str| screen.iter().any(|line| line.contains(needle));
+    assert!(has("File tree"), "no title in the border:\n{screen:#?}");
+    assert!(has("Navigation"), "no headings:\n{screen:#?}");
+    assert!(has("next line"), "no entries:\n{screen:#?}");
+    assert!(has("create file"), "the later sections were dropped");
+    // The same box which-key draws: bordered, along the bottom.
+    assert!(has("╭"), "no border:\n{screen:#?}");
+    // Everything, on a frame with room for it: the panel counts what it
+    // drops, so a silent one here would mean a keymap quietly cut short.
+    assert!(
+        !has("more"),
+        "the whole map did not fit a {WIDE}x{TALL} frame:\n{screen:#?}"
+    );
+    if std::env::var("SHOW").is_ok() {
+        println!("{}", screen.join("\n"));
+    }
+}
+
+#[test]
+fn the_tree_help_goes_when_the_tree_stops_being_where_the_keys_go() {
+    let mut s = with_tree();
+    s.keys("C-x t 1");
+    s.keys("?");
+    assert!(s.editor.key_menu.is_some(), "the panel did not open");
+    // `C-x o` out of the tree: the keys it describes are no longer live.
+    s.keys("C-x o");
+    maxgus_core::frontend::after_key(&mut s.editor, &mut s.dispatcher);
+    assert!(
+        s.editor.key_menu.is_none(),
+        "a panel of tree keys is up over a window that is not the tree"
+    );
+}

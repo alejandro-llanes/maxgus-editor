@@ -1,0 +1,198 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1019" height="568" viewBox="0 0 1019 568" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="14" role="img" aria-label="maxgus">
+<rect width="1019" height="568" rx="10" fill="#1d1f21"/>
+<rect x="14.0" y="104.0" width="268.8" height="18" fill="#373b41"/>
+<text x="14.0" y="27.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="30.8" y="27.3" fill="#b294bb" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">maxgus</text>
+<text x="282.8" y="27.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 1 </text>
+<text x="308.0" y="27.3" fill="#969896" font-style="italic" textLength="386.4" lengthAdjust="spacing" xml:space="preserve">//! Fuzzy matching for the completion prompts.</text>
+<text x="30.8" y="45.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="47.6" y="45.3" fill="#81a2be" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">crates</text>
+<text x="282.8" y="45.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 2 </text>
+<text x="308.0" y="45.3" fill="#969896" font-style="italic" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">//!</text>
+<text x="47.6" y="63.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="64.4" y="63.3" fill="#81a2be" font-weight="bold" textLength="92.4" lengthAdjust="spacing" xml:space="preserve">maxgus-core</text>
+<text x="282.8" y="63.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 3 </text>
+<text x="308.0" y="63.3" fill="#969896" font-style="italic" textLength="604.8" lengthAdjust="spacing" xml:space="preserve">//! A query matches a candidate when its characters appear in order, not</text>
+<text x="64.4" y="81.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="81.2" y="81.3" fill="#81a2be" font-weight="bold" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">src</text>
+<text x="282.8" y="81.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 4 </text>
+<text x="308.0" y="81.3" fill="#969896" font-style="italic" textLength="621.6" lengthAdjust="spacing" xml:space="preserve">//! necessarily together: `sbf` finds `save-buffer`. Scoring is what makes</text>
+<text x="98.0" y="99.3" fill="#c5c8c6" textLength="184.8" lengthAdjust="spacing" xml:space="preserve">editor.rs             </text>
+<text x="282.8" y="99.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 5 </text>
+<text x="308.0" y="99.3" fill="#969896" font-style="italic" textLength="386.4" lengthAdjust="spacing" xml:space="preserve">//! that useful rather than merely permissive.</text>
+<text x="98.0" y="117.3" fill="#c5c8c6" font-weight="bold" textLength="168.0" lengthAdjust="spacing" xml:space="preserve">fuzzy.rs            </text>
+<text x="266.0" y="117.3" fill="#b5bd68" font-weight="bold" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">+</text>
+<text x="282.8" y="117.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 6 </text>
+<text x="98.0" y="135.3" fill="#c5c8c6" textLength="168.0" lengthAdjust="spacing" xml:space="preserve">render.rs           </text>
+<text x="266.0" y="135.3" fill="#f0c674" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">M</text>
+<text x="282.8" y="135.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 7 </text>
+<text x="308.0" y="135.3" fill="#969896" font-style="italic" textLength="621.6" lengthAdjust="spacing" xml:space="preserve">/// How well `query` matches `candidate`, or `None` if it does not at all.</text>
+<text x="47.6" y="153.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="64.4" y="153.3" fill="#81a2be" font-weight="bold" textLength="100.8" lengthAdjust="spacing" xml:space="preserve">maxgus-faces</text>
+<text x="282.8" y="153.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 8 </text>
+<text x="308.0" y="153.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">pub</text>
+<text x="341.6" y="153.3" fill="#b294bb" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">fn</text>
+<text x="366.8" y="153.3" fill="#81a2be" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">score</text>
+<text x="408.8" y="153.3" fill="#c5c8c6" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">(</text>
+<text x="417.2" y="153.3" fill="#cc6666" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">query</text>
+<text x="459.2" y="153.3" fill="#c5c8c6" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">: </text>
+<text x="476.0" y="153.3" fill="#8abeb7" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">&amp;str</text>
+<text x="509.6" y="153.3" fill="#c5c8c6" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">, </text>
+<text x="526.4" y="153.3" fill="#cc6666" textLength="75.6" lengthAdjust="spacing" xml:space="preserve">candidate</text>
+<text x="602.0" y="153.3" fill="#c5c8c6" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">: </text>
+<text x="618.8" y="153.3" fill="#8abeb7" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">&amp;str</text>
+<text x="652.4" y="153.3" fill="#c5c8c6" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">) -&gt; </text>
+<text x="694.4" y="153.3" fill="#f0c674" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">Option</text>
+<text x="744.8" y="153.3" fill="#c5c8c6" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">&lt;</text>
+<text x="753.2" y="153.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">i32</text>
+<text x="778.4" y="153.3" fill="#c5c8c6" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">&gt; {                        </text>
+<text x="14.0" y="171.3" fill="#373b41" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">╭─</text>
+<text x="30.8" y="171.3" fill="#de935f" font-weight="bold" textLength="92.4" lengthAdjust="spacing" xml:space="preserve"> File tree </text>
+<text x="123.2" y="171.3" fill="#373b41" textLength="882.0" lengthAdjust="spacing" xml:space="preserve">────────────────────────────────────────────────────────────────────────────────────────────────────────╮</text>
+<text x="14.0" y="189.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="189.3" fill="#de935f" font-weight="bold" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">Navigation</text>
+<text x="274.4" y="189.3" fill="#de935f" font-weight="bold" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">Opening</text>
+<text x="476.0" y="189.3" fill="#de935f" font-weight="bold" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">Copying</text>
+<text x="686.0" y="189.3" fill="#de935f" font-weight="bold" textLength="67.2" lengthAdjust="spacing" xml:space="preserve">Sections</text>
+<text x="996.8" y="189.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="207.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="207.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">n</text>
+<text x="30.8" y="207.3" fill="#c5c8c6" textLength="243.6" lengthAdjust="spacing" xml:space="preserve">    next line                </text>
+<text x="274.4" y="207.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">o v</text>
+<text x="299.6" y="207.3" fill="#c5c8c6" textLength="176.4" lengthAdjust="spacing" xml:space="preserve">  vertical split     </text>
+<text x="476.0" y="207.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">y a</text>
+<text x="501.2" y="207.3" fill="#c5c8c6" textLength="184.8" lengthAdjust="spacing" xml:space="preserve">  absolute path       </text>
+<text x="686.0" y="207.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">t r</text>
+<text x="711.2" y="207.3" fill="#c5c8c6" textLength="285.6" lengthAdjust="spacing" xml:space="preserve">  the tree                        </text>
+<text x="996.8" y="207.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="225.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="225.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">p</text>
+<text x="30.8" y="225.3" fill="#c5c8c6" textLength="243.6" lengthAdjust="spacing" xml:space="preserve">    previous line            </text>
+<text x="274.4" y="225.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">o h</text>
+<text x="299.6" y="225.3" fill="#c5c8c6" textLength="176.4" lengthAdjust="spacing" xml:space="preserve">  horizontal split   </text>
+<text x="476.0" y="225.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">y r</text>
+<text x="501.2" y="225.3" fill="#c5c8c6" textLength="184.8" lengthAdjust="spacing" xml:space="preserve">  relative path       </text>
+<text x="686.0" y="225.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">t s</text>
+<text x="711.2" y="225.3" fill="#c5c8c6" textLength="285.6" lengthAdjust="spacing" xml:space="preserve">  the symbols                     </text>
+<text x="996.8" y="225.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="243.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="243.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">M-n</text>
+<text x="47.6" y="243.3" fill="#c5c8c6" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">  next neighbour           </text>
+<text x="274.4" y="243.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">o r</text>
+<text x="299.6" y="243.3" fill="#c5c8c6" textLength="176.4" lengthAdjust="spacing" xml:space="preserve">  recent window      </text>
+<text x="476.0" y="243.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">y p</text>
+<text x="501.2" y="243.3" fill="#c5c8c6" textLength="184.8" lengthAdjust="spacing" xml:space="preserve">  project path        </text>
+<text x="686.0" y="243.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">t b</text>
+<text x="711.2" y="243.3" fill="#c5c8c6" textLength="285.6" lengthAdjust="spacing" xml:space="preserve">  the buffers                     </text>
+<text x="996.8" y="243.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="261.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="261.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">M-p</text>
+<text x="47.6" y="261.3" fill="#c5c8c6" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">  previous neighbour       </text>
+<text x="274.4" y="261.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">o x</text>
+<text x="299.6" y="261.3" fill="#c5c8c6" textLength="176.4" lengthAdjust="spacing" xml:space="preserve">  external program   </text>
+<text x="476.0" y="261.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">y f</text>
+<text x="501.2" y="261.3" fill="#c5c8c6" textLength="495.6" lengthAdjust="spacing" xml:space="preserve">  the file itself                                          </text>
+<text x="996.8" y="261.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="279.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="279.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">u</text>
+<text x="30.8" y="279.3" fill="#c5c8c6" textLength="243.6" lengthAdjust="spacing" xml:space="preserve">    goto parent              </text>
+<text x="274.4" y="279.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">P</text>
+<text x="282.8" y="279.3" fill="#c5c8c6" textLength="403.2" lengthAdjust="spacing" xml:space="preserve">    peek                                        </text>
+<text x="686.0" y="279.3" fill="#de935f" font-weight="bold" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">Width</text>
+<text x="996.8" y="279.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="297.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="297.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">M-&lt;</text>
+<text x="47.6" y="297.3" fill="#c5c8c6" textLength="428.4" lengthAdjust="spacing" xml:space="preserve">  goto first                                       </text>
+<text x="476.0" y="297.3" fill="#de935f" font-weight="bold" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">Root</text>
+<text x="686.0" y="297.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">w</text>
+<text x="694.4" y="297.3" fill="#c5c8c6" textLength="302.4" lengthAdjust="spacing" xml:space="preserve">  set width                         </text>
+<text x="996.8" y="297.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="315.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="315.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">M-&gt;</text>
+<text x="47.6" y="315.3" fill="#c5c8c6" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">  goto last                </text>
+<text x="274.4" y="315.3" fill="#de935f" font-weight="bold" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">Files</text>
+<text x="476.0" y="315.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">r d</text>
+<text x="501.2" y="315.3" fill="#c5c8c6" textLength="184.8" lengthAdjust="spacing" xml:space="preserve">  root down           </text>
+<text x="686.0" y="315.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">&lt;</text>
+<text x="694.4" y="315.3" fill="#c5c8c6" textLength="302.4" lengthAdjust="spacing" xml:space="preserve">  narrower                          </text>
+<text x="996.8" y="315.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="333.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="274.4" y="333.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">c f</text>
+<text x="299.6" y="333.3" fill="#c5c8c6" textLength="176.4" lengthAdjust="spacing" xml:space="preserve">  create file        </text>
+<text x="476.0" y="333.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">r u</text>
+<text x="501.2" y="333.3" fill="#c5c8c6" textLength="184.8" lengthAdjust="spacing" xml:space="preserve">  root up             </text>
+<text x="686.0" y="333.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">&gt;</text>
+<text x="694.4" y="333.3" fill="#c5c8c6" textLength="302.4" lengthAdjust="spacing" xml:space="preserve">  wider                             </text>
+<text x="996.8" y="333.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="351.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="351.3" fill="#de935f" font-weight="bold" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">Nodes</text>
+<text x="274.4" y="351.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">c d</text>
+<text x="299.6" y="351.3" fill="#c5c8c6" textLength="176.4" lengthAdjust="spacing" xml:space="preserve">  create directory   </text>
+<text x="476.0" y="351.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">r r</text>
+<text x="501.2" y="351.3" fill="#c5c8c6" textLength="495.6" lengthAdjust="spacing" xml:space="preserve">  root back                                                </text>
+<text x="996.8" y="351.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="369.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="369.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">TAB</text>
+<text x="47.6" y="369.3" fill="#c5c8c6" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">      toggle node          </text>
+<text x="274.4" y="369.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">R</text>
+<text x="282.8" y="369.3" fill="#c5c8c6" textLength="403.2" lengthAdjust="spacing" xml:space="preserve">    rename                                      </text>
+<text x="686.0" y="369.3" fill="#de935f" font-weight="bold" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">Refreshing</text>
+<text x="996.8" y="369.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="387.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="387.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">RET</text>
+<text x="47.6" y="387.3" fill="#c5c8c6" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">      visit node           </text>
+<text x="274.4" y="387.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">d</text>
+<text x="282.8" y="387.3" fill="#c5c8c6" textLength="193.2" lengthAdjust="spacing" xml:space="preserve">    delete             </text>
+<text x="476.0" y="387.3" fill="#de935f" font-weight="bold" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">Toggles</text>
+<text x="686.0" y="387.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">g r</text>
+<text x="711.2" y="387.3" fill="#c5c8c6" textLength="285.6" lengthAdjust="spacing" xml:space="preserve">  re-read the tree                </text>
+<text x="996.8" y="387.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="405.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="405.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">&lt;right&gt;</text>
+<text x="81.2" y="405.3" fill="#c5c8c6" textLength="193.2" lengthAdjust="spacing" xml:space="preserve">  expand               </text>
+<text x="274.4" y="405.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">m</text>
+<text x="282.8" y="405.3" fill="#c5c8c6" textLength="193.2" lengthAdjust="spacing" xml:space="preserve">    move               </text>
+<text x="476.0" y="405.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">t h</text>
+<text x="501.2" y="405.3" fill="#c5c8c6" textLength="184.8" lengthAdjust="spacing" xml:space="preserve">  dotfiles            </text>
+<text x="686.0" y="405.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">g s</text>
+<text x="711.2" y="405.3" fill="#c5c8c6" textLength="285.6" lengthAdjust="spacing" xml:space="preserve">  re-read the symbols             </text>
+<text x="996.8" y="405.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="423.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="423.3" fill="#8abeb7" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">&lt;left&gt;</text>
+<text x="72.8" y="423.3" fill="#c5c8c6" textLength="201.6" lengthAdjust="spacing" xml:space="preserve">   collapse             </text>
+<text x="274.4" y="423.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">!</text>
+<text x="282.8" y="423.3" fill="#c5c8c6" textLength="193.2" lengthAdjust="spacing" xml:space="preserve">    shell command      </text>
+<text x="476.0" y="423.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">t w</text>
+<text x="501.2" y="423.3" fill="#c5c8c6" textLength="184.8" lengthAdjust="spacing" xml:space="preserve">  fixed width         </text>
+<text x="686.0" y="423.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">s</text>
+<text x="694.4" y="423.3" fill="#c5c8c6" textLength="302.4" lengthAdjust="spacing" xml:space="preserve">    re-sort                         </text>
+<text x="996.8" y="423.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="441.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="441.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">H</text>
+<text x="30.8" y="441.3" fill="#c5c8c6" textLength="445.2" lengthAdjust="spacing" xml:space="preserve">        collapse parent                              </text>
+<text x="476.0" y="441.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">t f</text>
+<text x="501.2" y="441.3" fill="#c5c8c6" textLength="495.6" lengthAdjust="spacing" xml:space="preserve">  follow mode                                              </text>
+<text x="996.8" y="441.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="459.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="22.4" y="459.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">C-c C-p</text>
+<text x="81.2" y="459.3" fill="#c5c8c6" textLength="394.8" lengthAdjust="spacing" xml:space="preserve">  expand recursively                           </text>
+<text x="476.0" y="459.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">t g</text>
+<text x="501.2" y="459.3" fill="#c5c8c6" textLength="184.8" lengthAdjust="spacing" xml:space="preserve">  git mode            </text>
+<text x="686.0" y="459.3" fill="#de935f" font-weight="bold" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">Leaving</text>
+<text x="996.8" y="459.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="477.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="476.0" y="477.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">t d</text>
+<text x="501.2" y="477.3" fill="#c5c8c6" textLength="184.8" lengthAdjust="spacing" xml:space="preserve">  directories first   </text>
+<text x="686.0" y="477.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">q</text>
+<text x="694.4" y="477.3" fill="#c5c8c6" textLength="302.4" lengthAdjust="spacing" xml:space="preserve">  hide                              </text>
+<text x="996.8" y="477.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="495.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="686.0" y="495.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">Q</text>
+<text x="694.4" y="495.3" fill="#c5c8c6" textLength="302.4" lengthAdjust="spacing" xml:space="preserve">  hide and forget                   </text>
+<text x="996.8" y="495.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="513.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="686.0" y="513.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">?</text>
+<text x="694.4" y="513.3" fill="#c5c8c6" textLength="302.4" lengthAdjust="spacing" xml:space="preserve">  this panel                        </text>
+<text x="996.8" y="513.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="14.0" y="531.3" fill="#373b41" textLength="991.2" lengthAdjust="spacing" xml:space="preserve">╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯</text>
+</svg>

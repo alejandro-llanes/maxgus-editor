@@ -985,28 +985,23 @@ fn refresh(editor: &mut Editor, _: &Args) -> Result<()> {
 }
 
 /// `?`: lists the tree's own bindings.
+/// `?`: the keymap, in the panel `C-x` and `C-c` already draw.
+///
+/// It was a `*Help*` buffer of fifty lines, opened in the window beside the
+/// tree — which is to say it took the file being edited off the screen to
+/// tell you which key moves down one line. treemacs does not do that. Its
+/// `?` summons a hydra: a panel of named columns over the bottom of the
+/// frame, with the keys still live underneath, so the thing being explained
+/// can be done while the explanation is up.
+///
+/// Pressing it again puts it away, which is the other half of a key that
+/// costs nothing to press.
 fn help(editor: &mut Editor, _: &Args) -> Result<()> {
-    let mut text = String::from("File tree keys\n\n");
-    for (keys, command) in maxgus_tree::TREEMACS_BINDINGS {
-        text.push_str(&format!("{keys:<10} {command}\n"));
-    }
-    let id = match editor.buffers.find_by_name("*Help*") {
-        Some(id) => {
-            editor.replace_buffer_contents(id, &text)?;
-            id
-        }
-        None => editor.buffers.create_with_text("*Help*", &text),
+    editor.key_menu = match editor.key_menu.is_some() {
+        true => None,
+        false => Some(crate::which_key::Menu::tree()),
     };
-    editor
-        .buffers
-        .get_mut(id)
-        .expect("just created")
-        .set_read_only(true);
-    // Show the help beside the panel rather than replacing it.
-    if let Some(target) = editor.editing_window() {
-        editor.select_window(target);
-    }
-    editor.switch_to_buffer(id)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1577,18 +1572,67 @@ mod tests {
     }
 
     #[test]
-    fn the_help_lists_every_binding() {
+    fn the_help_opens_a_panel_rather_than_taking_a_window() {
+        // It used to put a fifty-line `*Help*` buffer in the window beside
+        // the tree, which is to say it took the file being edited off the
+        // screen to say which key moves down one line.
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        let editing = e.current_buffer_id();
+        run(&mut d, &mut e, "treefile-help");
+
+        let menu = e.key_menu.as_ref().expect("no panel opened");
+        assert_eq!(menu.title, "File tree");
+        let entries: Vec<&str> = menu
+            .sections
+            .iter()
+            .flat_map(|s| s.entries.iter().map(|(key, _)| key.as_str()))
+            .collect();
+        assert!(entries.contains(&"RET"), "got {entries:?}");
+        assert!(entries.contains(&"c f"), "got {entries:?}");
+        assert!(
+            menu.sections.iter().any(|s| s.title == "Navigation"),
+            "no headings: {:?}",
+            menu.sections.iter().map(|s| &s.title).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            e.current_buffer_id(),
+            editing,
+            "the panel took a window from the buffer being edited"
+        );
+        assert!(
+            e.buffers.find_by_name("*Help*").is_none(),
+            "the help buffer is still being made"
+        );
+    }
+
+    #[test]
+    fn the_panel_stays_up_while_the_tree_is_walked() {
+        // treemacs' hydra leaves the keys live, which is the point of it:
+        // reading what `n` does and pressing it should not take two goes.
         let (mut d, mut e) = setup();
         with_tree(&mut d, &mut e);
         run(&mut d, &mut e, "treefile-help");
-        let text = e.current_buffer().text();
-        assert!(text.contains("treefile-visit-node"), "got `{text}`");
-        assert!(text.contains("RET"), "got `{text}`");
-        assert_ne!(
-            e.windows.current_id(),
-            e.tree_window.unwrap(),
-            "shown beside the tree"
-        );
+        run(&mut d, &mut e, "treefile-next-line");
+        assert!(e.key_menu.is_some(), "walking the tree closed the panel");
+    }
+
+    #[test]
+    fn asking_again_puts_the_panel_away() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        run(&mut d, &mut e, "treefile-help");
+        run(&mut d, &mut e, "treefile-help");
+        assert!(e.key_menu.is_none(), "`?` would not close it");
+    }
+
+    #[test]
+    fn quitting_puts_the_panel_away() {
+        let (mut d, mut e) = setup();
+        with_tree(&mut d, &mut e);
+        run(&mut d, &mut e, "treefile-help");
+        run(&mut d, &mut e, "keyboard-quit");
+        assert!(e.key_menu.is_none(), "`C-g` would not close it");
     }
 
     #[test]

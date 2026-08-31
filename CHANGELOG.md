@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+- **`?` in the file tree shows the whole keymap at once.** It opened a
+  fifty-line `*Help*` buffer in the window beside the tree — which is to
+  say it took the file being edited off the screen to tell you which key
+  moves down one line. treemacs does not do that: its `?` summons a hydra,
+  and this is that hydra, drawn in the box `C-x` and `C-c` already draw
+  into. Eleven named columns — Navigation, Nodes, Opening, Files, Copying,
+  Root, Toggles, Sections, Width, Refreshing, Leaving — one row per command
+  with the key that reaches it soonest, and short phrases rather than
+  command names, because these are columns and a sentence in a column is a
+  sentence that gets cut.
+
+  **The keys stay live underneath it**, which is the point of it and what
+  treemacs' `:exit nil` does: the tree can be walked with the map still up,
+  so reading what `n` does and pressing it does not take two goes. `C-g`
+  puts it away, pressing `?` again puts it away, and leaving the tree puts
+  it away. Sections are kept whole and the shortest arrangement that fits
+  is the one drawn, so a wide window gets a short panel rather than a tall
+  one with the last three sections missing. What genuinely will not fit is
+  counted. In all three builds.
+
+  A test holds the panel and the keymap together in both directions: a
+  binding the help never mentions, and a key the help teaches that the map
+  does not have, both fail it.
+
+- **The doc box is a panel rather than a hole cut in the buffer.** It was
+  the buffer's own background with a grey line around it — the same line
+  every popup gets — so a reply from the language server read as a
+  rectangle of the same text rather than as something that had arrived.
+  It now has a background one step off the buffer's, a border in a colour
+  of its own, and `Documentation` written into the top of it. Code inside
+  it moved a step further off again, or the panel and the code on it would
+  have been the same colour.
+
+  Four faces say all of that — `doc`, `doc-border`, `doc-title` and
+  `doc-code` — so a theme can have its own opinion. A face drawn into the
+  box that never chose a background is given the panel's; one that did
+  keeps it, which is the rule that stops every span punching a hole.
+
+- The README claimed the tree keeps 47 bindings and 41 commands. It keeps
+  54 and 48, and has since the root bindings arrived. A test holds the
+  number now.
+
 - **The window opens on a 4K display.** The `gui` build asked the GPU for
   the downlevel default limits — the right ask for what it draws, and a cap
   of 2048 pixels on any texture. The surface is a texture. A window filling

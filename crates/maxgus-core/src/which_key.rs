@@ -9,6 +9,13 @@
 //! are live: given the notation of the prefix already typed, it says what
 //! continues it. Drawing it is [`crate::render`]'s job, and deciding when it
 //! has waited long enough is the front end's.
+//!
+//! A [`Menu`] is the same panel asked for outright rather than by pausing.
+//! `?` in the file tree opens one, the way treemacs' helpful hydra does, and
+//! it is here rather than beside the tree because the panel a hesitation
+//! opens and the panel a question mark opens should be the same panel — one
+//! that has been read once is read the second time without being learnt
+//! again.
 
 use crate::editor::Editor;
 
@@ -21,6 +28,70 @@ pub struct Continuation {
     pub label: String,
     /// True when this key opens another map rather than running something.
     pub group: bool,
+}
+
+/// A whole keymap laid out as a panel, in named columns.
+///
+/// treemacs' `?` shows every binding at once under headings — Navigation,
+/// Nodes, Files — rather than the one level a half-typed prefix would show,
+/// and it leaves the keys live underneath so the tree can be walked while
+/// the map is being read. Both of those are the point of it: a panel you
+/// have to dismiss before you can act on what it told you is a panel that
+/// has to be opened twice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Menu {
+    /// What the panel says it is, along the top border.
+    pub title: String,
+    pub sections: Vec<Section>,
+}
+
+/// One heading, and the keys under it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Section {
+    pub title: String,
+    /// The key, and the short phrase saying what it does.
+    pub entries: Vec<(String, String)>,
+}
+
+impl Section {
+    /// How many rows it occupies: the heading, and one per key.
+    pub fn height(&self) -> usize {
+        self.entries.len() + 1
+    }
+
+    /// The width the widest of its rows wants, given the gap between a key
+    /// and what it does.
+    pub fn width(&self, gap: usize) -> usize {
+        let keys = self.entries.iter().map(|(key, _)| key.chars().count());
+        let widest_key = keys.max().unwrap_or(0);
+        let rows = self
+            .entries
+            .iter()
+            .map(|(_, what)| widest_key + gap + what.chars().count())
+            .max()
+            .unwrap_or(0);
+        rows.max(self.title.chars().count())
+    }
+}
+
+impl Menu {
+    /// The file tree's keymap, as treemacs' helpful hydra shows it.
+    pub fn tree() -> Menu {
+        Menu {
+            title: "File tree".to_string(),
+            sections: maxgus_tree::TREEMACS_HELP
+                .iter()
+                .map(|section| Section {
+                    title: section.title.to_string(),
+                    entries: section
+                        .keys
+                        .iter()
+                        .map(|(key, what)| ((*key).to_string(), (*what).to_string()))
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
 }
 
 /// The names the leader's groups go by, so a panel can say `+file` rather

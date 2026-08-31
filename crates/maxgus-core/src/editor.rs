@@ -267,6 +267,13 @@ pub struct Editor {
     /// Kept apart from `pending_keys` because the two have their own delays:
     /// the echo says where you are, this says where you can go.
     pub which_key: Option<String>,
+    /// A whole keymap on screen, asked for rather than waited for.
+    ///
+    /// Separate from `which_key` because the two are dismissed by different
+    /// things: a half-typed sequence is over the moment a command runs, and
+    /// this stays up across the commands it is describing — which is what
+    /// makes it possible to read it and walk the tree at the same time.
+    pub key_menu: Option<crate::which_key::Menu>,
     /// The current buffer's text, kept between operations that need it whole.
     /// An incremental search does one per keystroke; rendering the rope each
     /// time would cost the size of the buffer for every character typed.
@@ -413,6 +420,7 @@ impl Editor {
             frame,
             pending_keys: None,
             which_key: None,
+            key_menu: None,
             #[cfg(feature = "full")]
             autocomplete: None,
             #[cfg(feature = "full")]

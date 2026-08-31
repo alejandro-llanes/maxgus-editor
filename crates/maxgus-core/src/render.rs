@@ -119,8 +119,15 @@ pub fn draw(editor: &Editor, surface: &mut Surface) {
     // What the next key can be, when someone has stopped in the middle of a
     // sequence. Over the windows like the popup, and under the echo area,
     // which is still showing the keys typed so far.
-    if let Some(prefix) = editor.which_key.as_ref() {
-        draw_which_key(editor, surface, body, prefix);
+    // A menu that was asked for outright wins over one a pause opened: the
+    // pause is a guess at what was wanted and the question mark is not.
+    match editor.key_menu.as_ref() {
+        Some(menu) => draw_key_menu(editor, surface, body, menu),
+        None => {
+            if let Some(prefix) = editor.which_key.as_ref() {
+                draw_which_key(editor, surface, body, prefix);
+            }
+        }
     }
     match completion_popup(editor, frame) {
         Some(area) => {
@@ -303,14 +310,21 @@ fn draw_doc(editor: &Editor, surface: &mut Surface, body: Rect, doc: &crate::Doc
     let box_area = Rect::new(x, y, width, height.min(text_area.height));
 
     let theme = &editor.theme;
-    let plain = theme.resolve("default");
-    let border = theme.resolve("completion-border");
-    surface.clear_rect(box_area, plain);
+    let panel = theme.resolve("doc");
+    let border = theme.resolve("doc-border");
+    surface.clear_rect(box_area, panel);
     draw_border(surface, box_area, border);
+    draw_border_title(
+        surface,
+        box_area,
+        "Documentation",
+        theme.resolve("doc-title"),
+    );
     let inner = box_area.inset(1);
     // One column of padding inside the border, so text does not touch it.
     let (left, room) = (inner.x + 1, inner.width.saturating_sub(2));
 
+    let buffer_bg = theme.resolve("default").background;
     for (n, line) in lines.iter().take(inner.height as usize).enumerate() {
         let y = inner.y + n as u16;
         match line {
@@ -326,7 +340,7 @@ fn draw_doc(editor: &Editor, surface: &mut Surface, body: Rect, doc: &crate::Doc
             crate::markup::Line::Text(spans) => {
                 let mut at = left;
                 for span in spans {
-                    let mut face = theme.resolve(span.face);
+                    let mut face = on_panel(theme.resolve(span.face), panel, buffer_bg);
                     if span.bold {
                         face.attributes.bold = Some(true);
                     }
@@ -345,9 +359,30 @@ fn draw_doc(editor: &Editor, surface: &mut Surface, body: Rect, doc: &crate::Doc
     if lines.len() > inner.height as usize && inner.height > 0 {
         let more = format!("… {} more lines", lines.len() - inner.height as usize + 1);
         let y = inner.y + inner.height - 1;
-        surface.clear_rect(Rect::new(inner.x, y, inner.width, 1), plain);
-        surface.set_string(left, y, &more, theme.resolve("shadow"), room);
+        surface.clear_rect(Rect::new(inner.x, y, inner.width, 1), panel);
+        // The row replaced may have been a rule, whose ends are in the
+        // border rather than inside it and so survived the clearing: a box
+        // with two stubs poking into it where a line used to cross.
+        surface.set_char(box_area.x, y, '│', border);
+        surface.set_char(box_area.right().saturating_sub(1), y, '│', border);
+        let shadow = on_panel(theme.resolve("shadow"), panel, buffer_bg);
+        surface.set_string(left, y, &more, shadow, room);
     }
+}
+
+/// Puts `face` on a panel: its own colours, but the panel's background.
+///
+/// A box with a background of its own is a box every face drawn into it
+/// punches a hole in, because a face that says nothing about a background
+/// inherits the buffer's. So one that did not choose is given the panel's,
+/// and one that did — `doc-code`, which is a panel of its own — keeps what
+/// it chose. That is the whole rule, and it is the difference between a box
+/// that lifts off the text and a box with the text showing through it.
+fn on_panel(mut face: Face, panel: Face, buffer: Option<maxgus_faces::Color>) -> Face {
+    if face.background == buffer {
+        face.background = panel.background;
+    }
+    face
 }
 
 /// The panel that says what can follow a half-typed sequence.
@@ -423,6 +458,195 @@ fn draw_which_key(editor: &Editor, surface: &mut Surface, body: Rect, prefix: &s
         let more = format!("… {} more", over + 1);
         surface.set_string(x, y, &more, group_face, cell as u16);
     }
+}
+
+/// The whole of a keymap, in the box `which-key` draws into.
+///
+/// treemacs' helpful hydra, which is what `?` in the tree is: named columns
+/// — Navigation, Nodes, Files — rather than the single level a half-typed
+/// prefix shows, because this is being read rather than glanced at, and a
+/// list of fifty keys in no order is a list nobody reads twice.
+///
+/// Sections are kept whole. One that will not fit in what is left of a
+/// column starts the next one instead of being broken across the two, which
+/// is the difference between a heading and a heading with its keys
+/// somewhere else. What still does not fit is counted, the way the
+/// which-key panel counts it.
+fn draw_key_menu(
+    editor: &Editor,
+    surface: &mut Surface,
+    body: Rect,
+    menu: &crate::which_key::Menu,
+) {
+    /// Between one column and the next.
+    const GAP: usize = 3;
+    /// Between a key and what it does.
+    const LEAD: usize = 2;
+
+    if menu.sections.is_empty() || body.width < 16 || body.height < 6 {
+        return;
+    }
+    let theme = &editor.theme;
+    let plain = theme.resolve("default");
+
+    // Three quarters of the frame. which-key takes two thirds because it
+    // arrives uninvited and goes again; this was asked for, and a panel
+    // asked for may have more of the screen than one that interrupted.
+    let most = ((body.height as usize * 3) / 4).saturating_sub(2).max(1);
+    let inside = body.width.saturating_sub(2) as usize;
+
+    // The shortest packing that fits, rather than the first one tried.
+    //
+    // Height and width trade against each other: taller columns are fewer
+    // columns and so a narrower panel. Filling each column to the brim and
+    // then discovering the last one has nowhere to go drops sections while
+    // the panel is visibly half empty — so every height is tried, shortest
+    // first, and the first that fits across is the one drawn. The panel is
+    // then as short as it can be while still saying everything.
+    let mut columns = pack(&menu.sections, most);
+    for height in 1..=most {
+        let candidate = pack(&menu.sections, height);
+        if columns_fit(&candidate, inside, GAP, LEAD) {
+            columns = candidate;
+            break;
+        }
+    }
+
+    // Each column is as wide as its own widest row rather than as the
+    // widest row anywhere, which is how treemacs' hydra reads: a column of
+    // three-letter toggles does not get the width of a column of sentences.
+    let widths: Vec<usize> = columns
+        .iter()
+        .map(|column| menu_column_width(column, LEAD).min(inside))
+        .collect();
+    let mut fits = 0;
+    let mut at = 0;
+    for width in &widths {
+        let wants = at + width + usize::from(at > 0) * GAP;
+        if fits > 0 && wants > inside {
+            break;
+        }
+        at = wants;
+        fits += 1;
+    }
+    let over: usize = columns
+        .split_off(fits.max(1).min(columns.len()))
+        .iter()
+        .flat_map(|column| column.iter())
+        .map(|section| section.entries.len())
+        .sum();
+    let rows = columns
+        .iter()
+        .map(|column| {
+            column.iter().map(|s| s.height()).sum::<usize>() + column.len().saturating_sub(1)
+        })
+        .max()
+        .unwrap_or(1);
+
+    let height = (rows + 2 + usize::from(over > 0)) as u16;
+    let area = Rect::new(
+        body.x,
+        body.bottom().saturating_sub(height).max(body.y),
+        body.width,
+        height.min(body.height),
+    );
+    surface.clear_rect(area, plain);
+    let border = theme.resolve("completion-border");
+    draw_border(surface, area, border);
+    draw_border_title(surface, area, &menu.title, theme.resolve("menu-heading"));
+    let inner = area.inset(1);
+    let key_face = theme.resolve("completion-key");
+    let heading = theme.resolve("menu-heading");
+
+    let mut x = inner.x;
+    for (n, column) in columns.iter().enumerate() {
+        let cell = widths[n];
+        let mut y = inner.y;
+        for (first, section) in column.iter().enumerate() {
+            if first > 0 {
+                y += 1;
+            }
+            if y >= inner.bottom() {
+                break;
+            }
+            surface.set_string(x, y, &section.title, heading, cell as u16);
+            y += 1;
+            let widest = section
+                .entries
+                .iter()
+                .map(|(key, _)| key.chars().count())
+                .max()
+                .unwrap_or(0);
+            for (key, what) in &section.entries {
+                if y >= inner.bottom() {
+                    break;
+                }
+                surface.set_string(x, y, key, key_face, cell as u16);
+                let at = x + (widest + LEAD) as u16;
+                let left = (cell as u16).saturating_sub(at.saturating_sub(x));
+                surface.set_string(at, y, what, plain, left);
+                y += 1;
+            }
+        }
+        x += (cell + GAP) as u16;
+    }
+    // The same honesty the which-key panel owes: a panel that shows most of
+    // a keymap and implies it is all of it is a liar.
+    if over > 0 {
+        let more = format!("… {over} more");
+        let y = inner.bottom().saturating_sub(1);
+        surface.set_string(inner.x, y, &more, theme.resolve("shadow"), inner.width);
+    }
+}
+
+/// Fills columns `height` rows tall with whole sections.
+///
+/// A section that will not fit in what is left starts the next column
+/// rather than being broken across the two: a heading in one column with
+/// its keys in another is a heading over nothing.
+fn pack(
+    sections: &[crate::which_key::Section],
+    height: usize,
+) -> Vec<Vec<&crate::which_key::Section>> {
+    let mut columns: Vec<Vec<&crate::which_key::Section>> = Vec::new();
+    let mut used = 0;
+    for section in sections {
+        // A blank row between one section and the next, but not above the
+        // first in a column: a heading against the border reads as a title.
+        // Which is why the separator is charged after the column is chosen
+        // and not before — a section that starts a new column has nothing
+        // above it to be separated from, and paying for a row it does not
+        // use made every column but the first one row short.
+        let wants = section.height() + usize::from(used > 0);
+        if columns.is_empty() || used + wants > height {
+            columns.push(Vec::new());
+            used = 0;
+        }
+        used += section.height() + usize::from(used > 0);
+        columns.last_mut().expect("just pushed").push(section);
+    }
+    columns
+}
+
+/// The width a menu column wants: its widest section, and no more.
+fn menu_column_width(column: &[&crate::which_key::Section], lead: usize) -> usize {
+    column
+        .iter()
+        .map(|section| section.width(lead))
+        .max()
+        .unwrap_or(1)
+}
+
+/// Whether every column would fit side by side in `inside` columns.
+fn columns_fit(
+    columns: &[Vec<&crate::which_key::Section>],
+    inside: usize,
+    gap: usize,
+    lead: usize,
+) -> bool {
+    let widths = columns.iter().map(|column| menu_column_width(column, lead));
+    let gaps = gap * columns.len().saturating_sub(1);
+    widths.sum::<usize>() + gaps <= inside
 }
 
 /// One `key → label` in the which-key panel, cut to `cell` columns.
@@ -2265,6 +2489,24 @@ fn annotate(editor: &Editor, candidate: &str) -> (String, String) {
 }
 
 /// Draws a rounded box around `area`.
+/// Writes `title` into the top border, so a panel says what it is.
+///
+/// `╭─ File tree ─────╮`, with a space either side of the words: the border
+/// is a line and a word laid straight on a line is hard to read. A title
+/// too long for the box is dropped rather than cut — a heading that has lost
+/// its last word is worse than no heading, because it still looks like one.
+fn draw_border_title(surface: &mut Surface, area: Rect, title: &str, face: Face) {
+    if area.width < 2 {
+        return;
+    }
+    let text = format!(" {title} ");
+    let room = area.width.saturating_sub(4) as usize;
+    if title.is_empty() || text.chars().count() > room {
+        return;
+    }
+    surface.set_string(area.x + 2, area.y, &text, face, room as u16);
+}
+
 fn draw_border(surface: &mut Surface, area: Rect, face: Face) {
     if area.width < 2 || area.height < 2 {
         return;
@@ -2339,6 +2581,71 @@ pub fn echo_text(editor: &Editor) -> String {
         return pending.clone();
     }
     editor.minibuffer.display()
+}
+
+#[cfg(test)]
+mod menu_layout_tests {
+    use super::*;
+    use crate::which_key::Section;
+
+    fn section(title: &str, entries: usize) -> Section {
+        Section {
+            title: title.to_string(),
+            entries: (0..entries)
+                .map(|n| (format!("k{n}"), format!("does thing {n}")))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn a_column_holds_as_many_rows_as_it_was_given() {
+        // The bug this is here for: the blank row between two sections was
+        // charged to the section that then went to the *next* column, where
+        // it had nothing above it to be separated from. Every column but
+        // the first was one row short, and the sections squeezed out that
+        // way were reported as "… 3 more" under a panel with room for them.
+        let sections = vec![section("a", 3), section("b", 3), section("c", 3)];
+        // Each is 4 rows; two of them plus a separator is 9.
+        let packed = pack(&sections, 9);
+        assert_eq!(packed.len(), 2, "{packed:#?}");
+        assert_eq!(packed[0].len(), 2, "the first column lost a section");
+        assert_eq!(packed[1].len(), 1);
+
+        for column in &packed {
+            let rows: usize = column.iter().map(|s| s.height()).sum::<usize>() + column.len() - 1;
+            assert!(rows <= 9, "a column of {rows} rows was given 9");
+        }
+    }
+
+    #[test]
+    fn a_taller_column_is_a_narrower_panel() {
+        // Which is the whole reason the height is searched rather than
+        // fixed: one more row down can be a whole column less across.
+        let sections = vec![section("a", 3), section("b", 3)];
+        assert_eq!(pack(&sections, 4).len(), 2);
+        assert_eq!(pack(&sections, 9).len(), 1);
+    }
+
+    #[test]
+    fn a_section_taller_than_a_column_still_gets_one() {
+        // Rather than looping, or being dropped: a panel that silently
+        // omits a section is the failure the count is there to prevent.
+        let sections = vec![section("huge", 20)];
+        let packed = pack(&sections, 5);
+        assert_eq!(packed.len(), 1);
+        assert_eq!(packed[0].len(), 1);
+    }
+
+    #[test]
+    fn columns_fit_measures_the_gaps_between_them_too() {
+        let sections = vec![section("a", 1), section("b", 1)];
+        let packed = pack(&sections, 2);
+        assert_eq!(packed.len(), 2);
+        let width = menu_column_width(&packed[0], 2);
+        // Exactly the two columns, and not the gap between them.
+        assert!(!columns_fit(&packed, width * 2, 3, 2));
+        assert!(columns_fit(&packed, width * 2 + 3, 3, 2));
+    }
 }
 
 #[cfg(test)]

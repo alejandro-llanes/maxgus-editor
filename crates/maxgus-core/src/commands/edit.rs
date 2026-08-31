@@ -1022,6 +1022,7 @@ fn keyboard_quit(editor: &mut Editor, _: &Args) -> Result<()> {
     }
     editor.pending_char = None;
     editor.prefix = crate::Prefix::None;
+    editor.key_menu = None;
     editor.tasks.clear();
     editor.with_current_buffer(|b| b.deactivate_mark());
     if editor.in_snippet() {

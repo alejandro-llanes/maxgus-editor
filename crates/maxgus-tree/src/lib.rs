@@ -10,7 +10,7 @@ pub mod node;
 pub mod tree;
 
 pub use git::{GitStatus, git_status};
-pub use keymap::{TREEMACS_BINDINGS, treemacs_keymap};
+pub use keymap::{HelpSection, TREEMACS_BINDINGS, TREEMACS_HELP, treemacs_keymap};
 pub use node::{Node, NodeKind};
 pub use tree::{FileTree, VisibleNode};
 

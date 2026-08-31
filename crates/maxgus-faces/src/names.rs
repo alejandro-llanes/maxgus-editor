@@ -57,8 +57,15 @@ pub const UI_FACES: &[&str] = &[
     "completion-border",
     "completion-key",
     "which-key-group",
-    // Code inside the box the language server's answer is drawn in: the
+    // The column headings in the panel `?` opens over the file tree, and
+    // the name in its top border.
+    "menu-heading",
+    // The box the language server's answer is drawn in: the panel it sits
+    // on, its border, the name in that border, and code inside it — the
     // signature, and anything the reply put in backticks.
+    "doc",
+    "doc-border",
+    "doc-title",
     "doc-code",
     "completion-count",
     "error",

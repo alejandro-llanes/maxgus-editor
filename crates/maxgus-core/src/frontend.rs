@@ -18,6 +18,23 @@ use crate::{dispatch::Dispatcher, editor::Editor};
 pub fn after_key(editor: &mut Editor, dispatcher: &mut Dispatcher) {
     replay_macro(editor, dispatcher);
     follow_tree(editor);
+    close_the_menu_on_the_way_out(editor);
+}
+
+/// Puts the file tree's `?` panel away once the tree is no longer where the
+/// keys are going.
+///
+/// It stays up across the commands it describes — that is the point of it,
+/// and treemacs' hydra does the same — so nothing else takes it down. But a
+/// panel explaining the tree's keys, over a window that is not the tree, is
+/// explaining keys that no longer do any of that.
+fn close_the_menu_on_the_way_out(editor: &mut Editor) {
+    if editor.key_menu.is_none() {
+        return;
+    }
+    if editor.tree_window != Some(editor.windows.current_id()) {
+        editor.key_menu = None;
+    }
 }
 
 /// Replays the last keyboard macro, if a command asked for it.

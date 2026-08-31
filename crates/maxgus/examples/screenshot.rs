@@ -160,6 +160,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     write(&out.join("lsp-doc.svg"), &render(&editor))?;
     println!("docs/screenshots/lsp-doc.svg");
 
+    // `?` in the file tree: the whole keymap, in named columns.
+    let mut editor = scene(themes[0].1.clone(), false);
+    editor.key_menu = Some(maxgus_core::which_key::Menu::tree());
+    write(&out.join("treefile-help.svg"), &render(&editor))?;
+    println!("docs/screenshots/treefile-help.svg");
+
     // The light that says where the cursor just landed.
     let mut editor = scene(themes[0].1.clone(), false);
     editor.settings.beacon = true;

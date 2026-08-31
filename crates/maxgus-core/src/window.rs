@@ -37,6 +37,13 @@ pub struct Window {
     pub point: usize,
     /// First buffer line displayed.
     pub top_line: usize,
+    /// Which screen row *of* `top_line` is the first one shown.
+    ///
+    /// Always nought when lines are truncated, where a line is one row. A
+    /// window that wraps needs it: a line long enough to fill the window on
+    /// its own would otherwise have everything past its first screenful
+    /// unreachable, since scrolling could only ever move to the next line.
+    pub top_row: usize,
     /// Leftmost display column, for horizontal scrolling of truncated lines.
     pub left_column: usize,
     /// Sticky column for `next-line`, kept per window.
@@ -56,6 +63,7 @@ impl Window {
             buffer,
             point: 0,
             top_line: 0,
+            top_row: 0,
             left_column: 0,
             goal_column: None,
             rect: Rect::default(),
@@ -128,36 +136,6 @@ impl Window {
         self.top_line = self.top_line.min(total_lines.saturating_sub(1));
 
         self.top_line != before
-    }
-
-    /// `recenter`: puts `line` in the middle of the window.
-    pub fn recenter(&mut self, line: usize) {
-        self.top_line = line.saturating_sub(self.text_height() / 2);
-    }
-
-    /// `recenter` with a prefix argument: `n` from the top, or from the bottom
-    /// when negative.
-    pub fn recenter_at(&mut self, line: usize, position: i32) {
-        let height = self.text_height();
-        let offset = if position < 0 {
-            height.saturating_sub(position.unsigned_abs() as usize)
-        } else {
-            position as usize
-        };
-        self.top_line = line.saturating_sub(offset);
-    }
-
-    /// `scroll-up-command`: moves the view down a screenful, less two rows of
-    /// overlap, as `next-screen-context-lines` provides.
-    pub fn scroll_page_down(&mut self, total_lines: usize) {
-        let step = self.text_height().saturating_sub(2).max(1);
-        self.top_line = (self.top_line + step).min(total_lines.saturating_sub(1));
-    }
-
-    /// `scroll-down-command`.
-    pub fn scroll_page_up(&mut self) {
-        let step = self.text_height().saturating_sub(2).max(1);
-        self.top_line = self.top_line.saturating_sub(step);
     }
 
     /// Scrolls horizontally so `column` is visible in a window that truncates
@@ -1004,47 +982,6 @@ mod tests {
         assert_eq!(w.text_height(), 0);
         assert!(!w.scroll_to_show(50, 100, 0));
         assert!(!w.shows_line(0));
-    }
-
-    #[test]
-    fn recentring_puts_the_line_in_the_middle() {
-        let mut w = window(11);
-        w.recenter(50);
-        assert_eq!(w.top_line, 45);
-        assert!(w.shows_line(50));
-        w.recenter(2);
-        assert_eq!(w.top_line, 0, "clamps at the top of the buffer");
-    }
-
-    #[test]
-    fn recentring_with_an_argument_positions_from_top_or_bottom() {
-        let mut w = window(11);
-        w.recenter_at(50, 0);
-        assert_eq!(w.top_line, 50, "zero puts the line at the top");
-        w.recenter_at(50, 2);
-        assert_eq!(w.top_line, 48);
-        w.recenter_at(50, -1);
-        assert_eq!(w.top_line, 41, "negative counts from the bottom");
-    }
-
-    #[test]
-    fn paging_moves_a_screenful_with_two_rows_of_overlap() {
-        let mut w = window(11);
-        w.scroll_page_down(100);
-        assert_eq!(w.top_line, 8);
-        w.scroll_page_up();
-        assert_eq!(w.top_line, 0);
-        w.scroll_page_up();
-        assert_eq!(w.top_line, 0, "clamps at the top");
-    }
-
-    #[test]
-    fn paging_down_stops_at_the_end_of_the_buffer() {
-        let mut w = window(11);
-        for _ in 0..50 {
-            w.scroll_page_down(20);
-        }
-        assert_eq!(w.top_line, 19);
     }
 
     #[test]

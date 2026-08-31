@@ -1126,16 +1126,138 @@ impl Editor {
         let line = buffer.line_of(point);
         let column = buffer.display_column(point);
         let total = buffer.len_lines();
-        let truncate = self.settings.truncate_lines;
         let margin = self.settings.scroll_margin;
+        let width = crate::render::wrap_width(self, self.windows.current(), buffer);
 
         let window = self.windows.current_mut();
-        window.scroll_to_show(line, total, margin);
-        if truncate {
+        let Some(width) = width else {
+            window.top_row = 0;
+            window.scroll_to_show(line, total, margin);
             window.scroll_to_column(column);
-        } else {
-            window.left_column = 0;
+            return;
+        };
+        // Wrapping. There is no horizontal scroll — there is nothing off to
+        // the side to scroll to — and the sums are in screen rows, because
+        // that is what the window is full of.
+        window.left_column = 0;
+        let height = window.text_height();
+        if height == 0 || total == 0 {
+            return;
         }
+        let margin = margin.min(height.saturating_sub(1) / 2);
+        let at = crate::wrap::Place::new(line, crate::wrap::row_at(buffer, point, width).0);
+
+        // Where the window starts, made safe first: the buffer can shrink
+        // under a window, and a line can lose rows to an edit, either of
+        // which leaves the top pointing at a row that is not there.
+        let top_line = window.top_line.min(total - 1);
+        let rows = crate::wrap::row_count(buffer, top_line, width);
+        let mut top = crate::wrap::Place::new(top_line, window.top_row.min(rows - 1));
+
+        let wanted_above = crate::wrap::backward(buffer, at, margin, width);
+        if wanted_above < top {
+            top = wanted_above;
+        } else {
+            let last = crate::wrap::forward(buffer, top, height - 1, width);
+            let wanted_below = crate::wrap::forward(buffer, at, margin, width);
+            if wanted_below > last {
+                top = crate::wrap::backward(buffer, wanted_below, height - 1, width);
+            }
+        }
+        window.top_line = top.line;
+        window.top_row = top.row;
+    }
+
+    /// The place the selected window starts at, made safe against a buffer
+    /// that has changed under it.
+    fn top_place(&self, buffer: &Buffer, width: usize) -> crate::wrap::Place {
+        let window = self.windows.current();
+        let line = window.top_line.min(buffer.len_lines().saturating_sub(1));
+        let rows = crate::wrap::row_count(buffer, line, width);
+        crate::wrap::Place::new(line, window.top_row.min(rows.saturating_sub(1)))
+    }
+
+    /// Scrolls the selected window `delta` screen rows.
+    ///
+    /// Rows, not lines. With wrapping the two differ, and a page that moved
+    /// by lines would move by however many screenfuls those lines happened
+    /// to take.
+    pub fn scroll_rows(&mut self, delta: isize) {
+        let id = self.current_buffer_id();
+        let Some(buffer) = self.buffers.get(id) else {
+            return;
+        };
+        let total = buffer.len_lines();
+        if total == 0 {
+            return;
+        }
+        let width = crate::render::wrap_width(self, self.windows.current(), buffer);
+        let top = width.map(|width| self.top_place(buffer, width));
+        let window = self.windows.current_mut();
+        let (Some(width), Some(top)) = (width, top) else {
+            window.top_row = 0;
+            window.top_line = window.top_line.saturating_add_signed(delta).min(total - 1);
+            return;
+        };
+        let moved = match delta >= 0 {
+            true => crate::wrap::forward(buffer, top, delta as usize, width),
+            false => crate::wrap::backward(buffer, top, delta.unsigned_abs(), width),
+        };
+        window.top_line = moved.line;
+        window.top_row = moved.row;
+    }
+
+    /// Puts the selected window's point `above` screen rows below its top.
+    ///
+    /// What `recenter` is underneath: the middle of the window is `above`
+    /// half a screenful, the top is nought, the bottom is a screenful less
+    /// one.
+    pub fn scroll_point_to_row(&mut self, above: usize) {
+        let id = self.current_buffer_id();
+        let Some(buffer) = self.buffers.get(id) else {
+            return;
+        };
+        let point = self.windows.current().point.min(buffer.len_chars());
+        let line = buffer.line_of(point);
+        let width = crate::render::wrap_width(self, self.windows.current(), buffer);
+        let window = self.windows.current_mut();
+        let Some(width) = width else {
+            window.top_row = 0;
+            window.top_line = line.saturating_sub(above);
+            return;
+        };
+        let at = crate::wrap::Place::new(line, crate::wrap::row_at(buffer, point, width).0);
+        let top = crate::wrap::backward(buffer, at, above, width);
+        window.top_line = top.line;
+        window.top_row = top.row;
+    }
+
+    /// How many rows below the selected window's top point sits, when it is
+    /// on screen at all.
+    pub fn point_row(&self) -> Option<usize> {
+        let buffer = self.buffers.get(self.current_buffer_id())?;
+        let window = self.windows.current();
+        let point = window.point.min(buffer.len_chars());
+        let line = buffer.line_of(point);
+        let Some(width) = crate::render::wrap_width(self, window, buffer) else {
+            return line.checked_sub(window.top_line);
+        };
+        let at = crate::wrap::Place::new(line, crate::wrap::row_at(buffer, point, width).0);
+        let top = self.top_place(buffer, width);
+        crate::wrap::rows_between(buffer, top, at, width, window.text_height().max(1))
+    }
+
+    /// The last buffer line the selected window shows.
+    pub fn bottom_visible_line(&self) -> usize {
+        let Some(buffer) = self.buffers.get(self.current_buffer_id()) else {
+            return self.windows.current().bottom_line();
+        };
+        let window = self.windows.current();
+        let Some(width) = crate::render::wrap_width(self, window, buffer) else {
+            return window.bottom_line();
+        };
+        let top = self.top_place(buffer, width);
+        crate::wrap::forward(buffer, top, window.text_height().saturating_sub(1), width).line
     }
 
     /// Where the hardware cursor belongs on screen: the selected window's
@@ -1183,12 +1305,14 @@ impl Editor {
             return (window.rect.x, window.rect.y);
         };
         let point = window.point.min(buffer.len_chars());
-        let line = buffer.line_of(point);
-        let column = buffer.display_column(point);
+        // Asked of the rows the window draws rather than worked out from the
+        // line number: with wrapping a line is not a row, and the cursor has
+        // to land on the cell the character was actually drawn in.
+        let (row, column) = crate::render::point_cell(self, window, buffer, point);
         // The line-number column shifts the text right, and the cursor with it.
         let gutter = crate::render::line_number_width(self, buffer);
-        let x = window.rect.x + gutter + (column.saturating_sub(window.left_column) as u16);
-        let y = window.rect.y + (line.saturating_sub(window.top_line) as u16);
+        let x = window.rect.x + gutter + column;
+        let y = window.rect.y + row;
         (
             x.min(window.rect.right().saturating_sub(1)),
             y.min(window.rect.bottom().saturating_sub(1)),

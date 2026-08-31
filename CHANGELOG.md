@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **`truncate-lines` off now wraps.** It only ever turned off the horizontal
+  scroll: long lines were still clipped at the edge, so the setting and
+  `C-c t w` both claimed something the editor did not do. A line too long for
+  its window now carries on across the rows below it, breaking where the edge
+  falls, with its number drawn once against the first row. Everything that had
+  assumed a row was a line was taught otherwise — the cursor, the extra
+  cursors of a multiple-cursor edit, the beacon, the region highlight, and the
+  scrolling, where a page is now a screenful of *rows* rather than of lines
+  that might each take three.
+- **`RET` on `..` in the box that asks the tree for a directory goes up**
+  rather than answering with the parent. It is the row you press to get out of
+  somewhere, and answering with it left you having added a directory you were
+  only passing through. To choose a parent, go up and press `.`.
+
 ## v1.1.0
 
 - **The tree asks which directory by showing you one.** `r a` and `C-x t d`

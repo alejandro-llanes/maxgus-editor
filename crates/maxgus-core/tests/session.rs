@@ -7534,6 +7534,75 @@ fn walking_in_and_out_moves_the_box_and_the_right_arrow_does_not_stall_on_here()
 }
 
 #[test]
+fn the_parent_row_moves_up_rather_than_answering_with_the_parent() {
+    // The row you press to get *out* of somewhere. Answering with the
+    // directory above is never what pressing it meant, and the box that
+    // did so left you having added a directory you were only passing
+    // through. The parent can still be chosen: go up, then `.`.
+    let mut s = with_tree();
+    s.keys("C-x t 1");
+    s.keys("r a");
+    listing(&mut s, "/project/src", &[("inner", true)]);
+    s.editor.tasks.drain();
+
+    s.keys("<down>");
+    assert_eq!(
+        browsing(&mut s).current(),
+        Some(maxgus_core::browser::Row::Parent)
+    );
+    s.keys("RET");
+    assert!(s.editor.browser.is_some(), "the box closed on `..`");
+    let queued = s.editor.tasks.drain();
+    assert!(
+        queued.iter().any(|task| matches!(
+            task,
+            maxgus_core::Task::Browse { path } if path == std::path::Path::new("/project")
+        )),
+        "`RET` on `..` did not go up: {queued:?}"
+    );
+    assert!(
+        !queued.iter().any(|task| matches!(
+            task,
+            maxgus_core::Task::Tree(maxgus_core::TreeAction::AddRoot(_))
+        )),
+        "it added the directory it was only passing through: {queued:?}"
+    );
+
+    // And once you are standing in it, `.` answers with it.
+    listing(&mut s, "/project", &[("src", true)]);
+    s.keys("RET");
+    assert_eq!(added(&mut s), Some(std::path::PathBuf::from("/project")));
+}
+
+#[test]
+fn the_left_arrow_walks_out_as_far_as_it_is_asked() {
+    // Reaching a directory that is not under the one the box opened on is
+    // a matter of going up, and going up has to keep working all the way.
+    let mut s = with_tree();
+    s.keys("C-x t 1");
+    s.keys("r a");
+    listing(&mut s, "/home/someone/project/src", &[("inner", true)]);
+    for expected in ["/home/someone/project", "/home/someone", "/home", "/"] {
+        s.editor.tasks.drain();
+        s.keys("<left>");
+        let queued = s.editor.tasks.drain();
+        assert!(
+            queued.iter().any(|task| matches!(
+                task,
+                maxgus_core::Task::Browse { path } if path == std::path::Path::new(expected)
+            )),
+            "it would not go up to {expected}: {queued:?}"
+        );
+        listing(&mut s, expected, &[("somewhere", true)]);
+    }
+    // The root has nowhere above it, and says so by doing nothing.
+    s.editor.tasks.drain();
+    s.keys("<left>");
+    assert!(s.editor.tasks.drain().is_empty(), "it went above `/`");
+    assert!(s.editor.browser.is_some(), "the box gave up at the root");
+}
+
+#[test]
 fn a_path_typed_in_full_answers_the_box_rather_than_narrowing_it() {
     // A path prompt could be pasted into, and losing that would be a poor
     // trade for the box. A filename cannot contain `/`, so a filter with
@@ -8005,4 +8074,183 @@ fn the_box_says_what_it_is_asking_and_what_ret_will_do() {
         "`.` is a row nobody has seen in a file browser, and it says nothing \
          about itself:\n{screen}"
     );
+}
+
+// ---- lines that wrap rather than being clipped ---------------------------
+
+/// A narrow window with wrapping on, and `text` in it.
+fn wrapping(text: &str, width: u16, height: u16) -> Session {
+    let settings = Settings {
+        truncate_lines: false,
+        line_numbers: false,
+        ..Settings::default()
+    };
+    let mut s = Session::configured(settings, width, height);
+    let id = s.editor.buffers.visit_file("/project/main.rs", text);
+    s.editor.switch_to_buffer(id).unwrap();
+    s.editor.with_current_buffer(|b| b.set_point(0));
+    s.editor.tasks.drain();
+    s
+}
+
+#[test]
+fn a_long_line_is_wrapped_onto_the_rows_below_it() {
+    // `truncate-lines` off used to change nothing but the horizontal scroll:
+    // the setting said lines would wrap and they were still clipped.
+    let mut s = wrapping("the quick brown fox jumps over it\nshort\n", 12, 8);
+    let screen = s.screen();
+    assert_eq!(
+        &screen[..4],
+        ["the quick br", "own fox jump", "s over it", "short"],
+        "the line was clipped rather than wrapped: {screen:?}"
+    );
+}
+
+#[test]
+fn the_line_number_is_drawn_once_rather_than_on_every_row() {
+    // A continuation row is the same line. Numbering it again would count
+    // rows, and the numbers would stop matching the file.
+    let settings = Settings {
+        truncate_lines: false,
+        line_numbers: true,
+        ..Settings::default()
+    };
+    let mut s = Session::configured(settings, 16, 8);
+    let id = s.editor.buffers.visit_file(
+        "/project/main.rs",
+        "aaaaaaaaaaaaaaaaaaaa
+bb
+",
+    );
+    s.editor.switch_to_buffer(id).unwrap();
+    s.editor.tasks.drain();
+    let screen = s.screen();
+    assert!(screen[0].starts_with("1 "), "got {:?}", screen[0]);
+    assert!(
+        screen[1].starts_with("  "),
+        "the continuation row was numbered: {:?}",
+        screen[1]
+    );
+    assert!(screen[2].starts_with("2 "), "got {:?}", screen[2]);
+}
+
+#[test]
+fn the_cursor_lands_on_the_row_the_character_was_drawn_on() {
+    // The hardware cursor is placed by arithmetic and the text by the row
+    // list. With wrapping the two only agree if they ask the same question.
+    let mut s = wrapping("abcdefghijklmnop\n", 8, 8);
+    s.editor.with_current_buffer(|b| b.set_point(10));
+    s.editor.follow_point();
+    assert_eq!(
+        s.editor.cursor_position(),
+        (2, 1),
+        "the eleventh character is the third of the second row"
+    );
+}
+
+#[test]
+fn point_at_the_end_of_a_wrapped_line_sits_on_its_last_row() {
+    // The end of a line is one past its last character, and the row that
+    // holds it is the line's last one — not the row after, which belongs to
+    // the next line.
+    let mut s = wrapping("abcdefghij\nnext\n", 8, 8);
+    s.editor.with_current_buffer(|b| b.set_point(10));
+    s.editor.follow_point();
+    assert_eq!(
+        s.editor.cursor_position(),
+        (2, 1),
+        "point sat off its own line"
+    );
+}
+
+#[test]
+fn point_past_the_edge_of_a_full_row_is_held_at_the_edge() {
+    // A line exactly as wide as the window has nowhere on screen to put the
+    // position after its last character. It is held in the last column
+    // rather than drawn outside the window: on the right line, one column
+    // short, which is the least wrong of the places it could go.
+    let mut s = wrapping("abcdefgh\nnext\n", 8, 8);
+    s.editor.with_current_buffer(|b| b.set_point(8));
+    s.editor.follow_point();
+    assert_eq!(s.editor.cursor_position(), (7, 0));
+}
+
+#[test]
+fn scrolling_follows_point_through_a_line_longer_than_the_window() {
+    // The reason a window needs a row to start at as well as a line. A line
+    // that fills the window on its own would otherwise have everything past
+    // its first screenful unreachable: scrolling could only move to the next
+    // line, and there is nothing between here and there.
+    let long: String = std::iter::repeat_n("0123456789", 20).collect();
+    let mut s = wrapping(
+        &format!(
+            "{long}
+after
+"
+        ),
+        10,
+        6,
+    );
+    let end = long.chars().count();
+    s.editor.with_current_buffer(|b| b.set_point(end));
+    s.editor.follow_point();
+
+    let window = s.editor.windows.current();
+    assert_eq!(window.top_line, 0, "still on the one long line");
+    assert!(
+        window.top_row > 0,
+        "the window did not scroll into the line, so the end of it is off screen"
+    );
+    let (_, y) = s.editor.cursor_position();
+    assert!(
+        (y as usize) < window.text_height(),
+        "point ended up below the window"
+    );
+    // And what is drawn is the end of the line, not the start of it.
+    let screen = s.screen();
+    assert!(screen[0].starts_with("0123456789"), "got {:?}", screen[0]);
+    assert_ne!(
+        s.editor.windows.current().top_row,
+        0,
+        "it should be showing a later row of the same line"
+    );
+}
+
+#[test]
+fn a_page_moves_a_screenful_of_rows_rather_than_of_lines() {
+    // `C-v` used to move `height` *lines*, which with wrapping is however
+    // many screenfuls those lines happen to take.
+    let text: String = std::iter::repeat_n(
+        "0123456789012345678901234
+",
+        20,
+    )
+    .collect();
+    // Ten columns wide, so every line takes three rows.
+    let mut s = wrapping(&text, 10, 8);
+    let height = s.editor.windows.current().text_height();
+    s.keys("C-v");
+    let moved = crate::wrap_rows_moved(&s, height);
+    assert_eq!(
+        moved,
+        height.saturating_sub(2),
+        "a page should be a screenful less the two rows of overlap"
+    );
+}
+
+/// How many screen rows the window scrolled, counted the way it draws.
+fn wrap_rows_moved(s: &Session, most: usize) -> usize {
+    let buffer = s.editor.current_buffer();
+    let width = 10; // the fixture's window, less no gutter
+    maxgus_core::wrap::rows_between(
+        buffer,
+        maxgus_core::wrap::Place::new(0, 0),
+        maxgus_core::wrap::Place::new(
+            s.editor.windows.current().top_line,
+            s.editor.windows.current().top_row,
+        ),
+        width,
+        most * 4,
+    )
+    .expect("the window should not have scrolled further than four screenfuls")
 }

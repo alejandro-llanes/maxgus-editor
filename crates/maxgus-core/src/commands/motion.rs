@@ -458,11 +458,9 @@ fn scroll_up(editor: &mut Editor, _: &Args) -> Result<()> {
 /// Shared with `scroll-other-window`, which selects its target and calls this,
 /// so the two cannot disagree about where point ends up.
 pub(crate) fn scroll_selected_window_down(editor: &mut Editor) {
-    let total = editor.current_buffer().len_lines();
-    let window = editor.windows.current_mut();
-    window.scroll_page_down(total);
+    editor.scroll_rows(page_step(editor));
     // Point follows the window, landing on the first visible line.
-    let top = window.top_line;
+    let top = editor.windows.current().top_line;
     editor.with_current_buffer(|b| {
         if b.line_of(b.point()) < top {
             b.set_point(b.line_start(top));
@@ -470,10 +468,20 @@ pub(crate) fn scroll_selected_window_down(editor: &mut Editor) {
     });
 }
 
+/// A screenful less the two rows of overlap `next-screen-context-lines`
+/// provides, in screen rows — which is what a page is, wrapped or not.
+fn page_step(editor: &Editor) -> isize {
+    editor
+        .windows
+        .current()
+        .text_height()
+        .saturating_sub(2)
+        .max(1) as isize
+}
+
 fn scroll_down(editor: &mut Editor, _: &Args) -> Result<()> {
-    let window = editor.windows.current_mut();
-    window.scroll_page_up();
-    let bottom = window.bottom_line();
+    editor.scroll_rows(-page_step(editor));
+    let bottom = editor.bottom_visible_line();
     editor.with_current_buffer(|b| {
         if b.line_of(b.point()) > bottom {
             b.set_point(b.line_start(bottom));
@@ -485,29 +493,26 @@ fn scroll_down(editor: &mut Editor, _: &Args) -> Result<()> {
 /// `recenter-top-bottom` cycles: centre, then top, then bottom, as long as it
 /// is invoked repeatedly.
 fn recenter(editor: &mut Editor, args: &Args) -> Result<()> {
-    let line = {
-        let buffer = editor.current_buffer();
-        buffer.line_of(editor.windows.current().point.min(buffer.len_chars()))
-    };
+    let height = editor.windows.current().text_height();
     if args.prefix.is_present() {
+        // A count from the top, or from the bottom when it is negative.
         let position = args.signed_count();
-        editor.windows.current_mut().recenter_at(line, position);
+        let above = match position < 0 {
+            true => height.saturating_sub(position.unsigned_abs() as usize),
+            false => position as usize,
+        };
+        editor.scroll_point_to_row(above);
         return Ok(());
     }
-    // The cycle position is derived from how the window is currently scrolled,
-    // so no extra state is needed.
-    let window = editor.windows.current_mut();
-    let height = window.text_height();
+    // The cycle position is read off where point currently sits in the
+    // window, so no extra state is needed to know which stop is next.
     let repeating = matches!(editor.last_command.as_deref(), Some("recenter-top-bottom"));
-    if !repeating {
-        window.recenter(line);
-    } else if window.top_line == line.saturating_sub(height / 2) {
-        window.recenter_at(line, 0);
-    } else if window.top_line == line {
-        window.recenter_at(line, -1);
-    } else {
-        window.recenter(line);
-    }
+    let above = match repeating.then(|| editor.point_row()).flatten() {
+        Some(row) if row == height / 2 => 0,
+        Some(0) => height.saturating_sub(1),
+        _ => height / 2,
+    };
+    editor.scroll_point_to_row(above);
     Ok(())
 }
 

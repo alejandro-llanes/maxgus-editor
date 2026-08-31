@@ -126,7 +126,7 @@ KDL spells booleans `#true` and `#false`, and null `#null`.
 |---|---|---|---|
 | `theme` | string | `"maxgus-dark"` | Active theme: a built-in name, or one a `theme` block defines. |
 | `line-numbers` | bool | `#false` | Show a line-number column. |
-| `truncate-lines` | bool | `#true` | Clip long lines rather than wrapping them. |
+| `truncate-lines` | bool | `#true` | Clip long lines rather than wrapping them. Off, a long line carries on across the rows below it, breaking where the edge falls; the line number is drawn once, against the first row. `C-c t w` toggles it. |
 | `scroll-margin` | integer | `0` | Lines of context kept above and below point. |
 | `blink-cursor` | bool | `#false` | Ask the terminal for a blinking block cursor. |
 | `nerd-font-icons` | bool | `#true` | Glyphs in the file tree and mode line, chosen by file type. Needs a [Nerd Font](https://www.nerdfonts.com); turn it off and both fall back to plain text. |

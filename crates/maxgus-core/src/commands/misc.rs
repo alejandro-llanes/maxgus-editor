@@ -488,6 +488,14 @@ fn browse_open(editor: &mut Editor, _: &Args) -> Result<()> {
         return Err(crate::CoreError::Message("Nothing to open".into()));
     };
     if browser.is_choosing() {
+        // `..` moves, it does not answer. It is the row you press to get
+        // *out* of somewhere, and answering with the directory above is
+        // never what pressing it meant — the way up is what it is for, and
+        // the parent can still be chosen once you are standing in it, on
+        // `.`. This is the one row where `RET` and the left arrow agree.
+        if typed.is_none() && browser.current() == Some(crate::browser::Row::Parent) {
+            return browse_up(editor, &Args::default());
+        }
         let answer = typed.unwrap_or_else(|| path.to_string_lossy().into_owned());
         // Before the quit, which drops the command waiting on it.
         let waiting = editor.pending_input.take();

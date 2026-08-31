@@ -2038,6 +2038,95 @@ fn tree_glyph(node: &maxgus_tree::VisibleNode) -> char {
     }
 }
 
+/// How wide a line may be before it wraps, or `None` when lines are clipped.
+///
+/// The text area less the line-number gutter — a wrapped line has to break
+/// where the text ends, not where the window does. Shared with the
+/// scrolling, which has to agree with the drawing about how many rows a
+/// line takes or point goes off screen.
+pub(crate) fn wrap_width(editor: &Editor, window: &Window, buffer: &Buffer) -> Option<usize> {
+    if editor.settings.truncate_lines {
+        return None;
+    }
+    let area = text_area(editor, window.id).unwrap_or(window.rect);
+    let width = area.width.saturating_sub(line_number_width(editor, buffer));
+    Some(width as usize)
+}
+
+/// One screen row's worth of a line.
+///
+/// A window that truncates has one of these per line; a window that wraps
+/// has one per row a line takes. Everything that draws goes through the
+/// list, so neither the text, the line numbers nor the cursors can disagree
+/// about which row anything is on.
+#[derive(Debug, Clone, Copy)]
+struct Visual {
+    /// Which row down the window this is, so everything that draws on it
+    /// works the position out the same way.
+    row: u16,
+    line: usize,
+    /// The first character on this row.
+    start: usize,
+    /// One past the last: where the next row begins, or the line's end.
+    end: usize,
+    /// The display column `start` sits at, counted from the line's start.
+    column: usize,
+    /// Taken off a character's display column to place it — the row's own
+    /// column when wrapping, the horizontal scroll when truncating.
+    origin: usize,
+    /// False on a continuation row, which carries no line number.
+    first: bool,
+}
+
+/// The rows a window shows, top to bottom, at most `height` of them.
+fn visual_rows(editor: &Editor, window: &Window, buffer: &Buffer, height: u16) -> Vec<Visual> {
+    let lines = buffer.len_lines();
+    let mut out = Vec::new();
+    let Some(width) = wrap_width(editor, window, buffer) else {
+        for row in 0..height as usize {
+            let line = window.top_line + row;
+            if line >= lines {
+                break;
+            }
+            let start = buffer.line_start(line);
+            out.push(Visual {
+                row: row as u16,
+                line,
+                start,
+                end: maxgus_text::Motion::line_end(buffer.rope(), start),
+                column: 0,
+                origin: window.left_column,
+                first: true,
+            });
+        }
+        return out;
+    };
+
+    let mut line = window.top_line;
+    let mut index = window.top_row;
+    while out.len() < height as usize && line < lines {
+        // Once per line rather than once per row: a line that wraps twenty
+        // times would otherwise be walked twenty times over.
+        let rows = crate::wrap::rows_of(buffer, line, width);
+        let end_of_line = maxgus_text::Motion::line_end(buffer.rope(), buffer.line_start(line));
+        while index < rows.len() && out.len() < height as usize {
+            out.push(Visual {
+                row: out.len() as u16,
+                line,
+                start: rows[index].offset,
+                end: rows.get(index + 1).map_or(end_of_line, |next| next.offset),
+                column: rows[index].column,
+                origin: rows[index].column,
+                first: index == 0,
+            });
+            index += 1;
+        }
+        line += 1;
+        index = 0;
+    }
+    out
+}
+
 /// The width the line-number column takes, including its trailing space.
 ///
 /// Shared with `Editor::cursor_position`, which has to move the cursor over by
@@ -2072,6 +2161,8 @@ fn draw_text(editor: &Editor, surface: &mut Surface, window: &Window, buffer: &B
     // one under point. Both are resolved once for the window, like the
     // diagnostics: computing them per line would repeat the work per row.
     let first_line = window.top_line;
+    // One line per row is the most a window can show, so this is never too
+    // small — a wrapping window shows fewer lines, not more.
     let last_line = (window.top_line + area.height as usize).min(buffer.len_lines());
     let matches = resolve_search_matches(editor, buffer, first_line, last_line);
     let paren = matching_delimiter(editor, buffer, window);
@@ -2081,22 +2172,20 @@ fn draw_text(editor: &Editor, surface: &mut Surface, window: &Window, buffer: &B
         draw_fill_column(editor, surface, window, area, gutter);
     }
 
-    for row in 0..area.height {
-        let line = window.top_line + row as usize;
-        let y = area.y + row;
-        if line >= buffer.len_lines() {
-            // Past the end of the buffer: Emacs draws nothing, not tildes.
-            continue;
-        }
-        if gutter > 0 {
-            draw_line_number(surface, theme, line, point_line, area.x, y, gutter);
+    // Past the end of the buffer there are no rows, and Emacs draws nothing
+    // there — not tildes.
+    let rows = visual_rows(editor, window, buffer, area.height);
+    for visual in &rows {
+        let y = area.y + visual.row;
+        if gutter > 0 && visual.first {
+            draw_line_number(surface, theme, visual.line, point_line, area.x, y, gutter);
         }
         draw_line(
             editor,
             surface,
             window,
             buffer,
-            line,
+            visual,
             &LineArea { area, gutter },
             &Overlays {
                 diagnostics: &diagnostics,
@@ -2111,7 +2200,7 @@ fn draw_text(editor: &Editor, surface: &mut Surface, window: &Window, buffer: &B
     // only way to show where typing will also go.
     let face = theme.resolve("cursor");
     for cursor in &extra_cursors {
-        let Some((x, y)) = cell_of(*cursor, buffer, window, &LineArea { area, gutter }) else {
+        let Some((x, y)) = cell_of(*cursor, buffer, &rows, &LineArea { area, gutter }) else {
             continue;
         };
         let mut cell = surface.get(x, y).copied().unwrap_or_default();
@@ -2119,7 +2208,14 @@ fn draw_text(editor: &Editor, surface: &mut Surface, window: &Window, buffer: &B
         surface.set(x, y, cell);
     }
 
-    draw_beacon(editor, surface, window, buffer, &LineArea { area, gutter });
+    draw_beacon(
+        editor,
+        surface,
+        window,
+        buffer,
+        &rows,
+        &LineArea { area, gutter },
+    );
 }
 
 /// Paints the light beside the cursor, when one is lit.
@@ -2131,6 +2227,7 @@ fn draw_beacon(
     surface: &mut Surface,
     window: &Window,
     buffer: &Buffer,
+    rows: &[Visual],
     area: &LineArea,
 ) {
     let Some(beacon) = editor.beacon.filter(|beacon| beacon.window == window.id) else {
@@ -2145,7 +2242,7 @@ fn draw_beacon(
         .background
         .and_then(maxgus_faces::Color::to_rgb)
         .unwrap_or((0, 0, 0));
-    let Some((x, y)) = cell_of(beacon.offset, buffer, window, area) else {
+    let Some((x, y)) = cell_of(beacon.offset, buffer, rows, area) else {
         return;
     };
     for index in 0..shape.size {
@@ -2163,24 +2260,61 @@ fn draw_beacon(
     }
 }
 
+/// Which of the rows on screen holds `offset`, and how far along it.
+///
+/// The rows are asked rather than the arithmetic done, because with wrapping
+/// there is no arithmetic to do: a row is not a line, and only the list that
+/// was drawn knows which is which.
+fn place_in(rows: &[Visual], buffer: &Buffer, offset: usize) -> Option<(u16, usize)> {
+    for (index, visual) in rows.iter().enumerate() {
+        // The last row of a line also holds the position *after* its last
+        // character, which is where point sits at the end of a line.
+        let last = rows
+            .get(index + 1)
+            .is_none_or(|next| next.line != visual.line);
+        let within =
+            offset >= visual.start && (offset < visual.end || (last && offset <= visual.end));
+        if within {
+            let column = buffer.display_column(offset).checked_sub(visual.origin)?;
+            return Some((visual.row, column));
+        }
+    }
+    None
+}
+
 /// The screen cell an offset is drawn in, or `None` when it is not on screen.
-fn cell_of(offset: usize, buffer: &Buffer, window: &Window, area: &LineArea) -> Option<(u16, u16)> {
-    let line = buffer.line_of(offset.min(buffer.len_chars()));
-    if line < window.top_line {
+fn cell_of(offset: usize, buffer: &Buffer, rows: &[Visual], area: &LineArea) -> Option<(u16, u16)> {
+    let (row, column) = place_in(rows, buffer, offset.min(buffer.len_chars()))?;
+    if row >= area.area.height {
         return None;
     }
-    let row = line - window.top_line;
-    if row >= area.area.height as usize {
-        return None;
-    }
-    let column = buffer
-        .display_column(offset)
-        .checked_sub(window.left_column)?;
     let x = area.area.x + area.gutter + column as u16;
     if x >= area.area.right() {
         return None;
     }
-    Some((x, area.area.y + row as u16))
+    Some((x, area.area.y + row))
+}
+
+/// Where point sits in its window: the row down from the top of the text and
+/// the column across it, both already adjusted for wrapping, the gutter and
+/// any horizontal scroll.
+///
+/// Shared with `Editor::cursor_position`, which puts the hardware cursor
+/// there and must land on the same cell the character was drawn in.
+pub(crate) fn point_cell(
+    editor: &Editor,
+    window: &Window,
+    buffer: &Buffer,
+    offset: usize,
+) -> (u16, u16) {
+    let height = text_area(editor, window.id).map_or(window.rect.height, |area| area.height);
+    let rows = visual_rows(editor, window, buffer, height);
+    place_in(&rows, buffer, offset.min(buffer.len_chars()))
+        .map(|(row, column)| (row, column as u16))
+        // Off screen, which redisplay is about to correct: the top-left is
+        // as good a guess as any and better than an arithmetic one that
+        // assumed a row per line.
+        .unwrap_or((0, 0))
 }
 
 fn draw_line_number(
@@ -2223,29 +2357,31 @@ fn draw_line(
     surface: &mut Surface,
     window: &Window,
     buffer: &Buffer,
-    line: usize,
+    visual: &Visual,
     place: &LineArea,
     overlays: &Overlays<'_>,
 ) {
     let LineArea { area, gutter } = *place;
-    let start = buffer.line_start(line);
-    let end = maxgus_text::Motion::line_end(buffer.rope(), start);
-    let layers = Layers::new(editor, window, buffer, line, overlays);
+    let y = area.y + visual.row;
+    let layers = Layers::new(editor, window, buffer, visual.line, overlays);
 
     let left = area.x + gutter;
     let right = area.right();
-    // Display column of the first character shown, for horizontal scrolling.
-    let mut column = 0usize;
-    let mut offset = start;
+    // The display column of the first character on this row, counted from
+    // the start of the line so tabs land on their usual stops.
+    let mut column = visual.column;
+    let mut offset = visual.start;
 
-    while offset < end {
+    while offset < visual.end {
         let c = buffer.rope().char(offset);
         let width = buffer.char_display_width(c, column);
         let face = layers.face_at(offset, c);
 
-        // Skip what horizontal scrolling has moved off the left edge.
-        if column + width > window.left_column {
-            let x = left + (column.saturating_sub(window.left_column) as u16);
+        // Skip what horizontal scrolling has moved off the left edge. A
+        // wrapping window has no horizontal scroll, and its origin is the
+        // row's own column, so nothing is ever skipped there.
+        if column + width > visual.origin {
+            let x = left + (column.saturating_sub(visual.origin) as u16);
             if x >= right {
                 break;
             }
@@ -2255,17 +2391,17 @@ fn draw_line(
                     for i in 0..width {
                         let at = x + i as u16;
                         if at < right {
-                            surface.set(at, area.y + line_row(window, line), cell(' ', face));
+                            surface.set(at, y, cell(' ', face));
                         }
                     }
                 }
                 // Control characters show as `^X`, as Emacs draws them.
                 c if (c as u32) < 0x20 => {
                     let caret = format!("^{}", (b'@' + c as u8) as char);
-                    surface.set_string(x, area.y + line_row(window, line), &caret, face, right - x);
+                    surface.set_string(x, y, &caret, face, right - x);
                 }
                 c => {
-                    surface.set_char(x, area.y + line_row(window, line), c, face);
+                    surface.set_char(x, y, c, face);
                 }
             }
         }
@@ -2274,18 +2410,17 @@ fn draw_line(
     }
 
     // The region and search highlights extend across the newline, so a
-    // selected line reads as selected all the way to the right edge.
-    if let Some(face) = layers.eol_face() {
-        let x = left + (column.saturating_sub(window.left_column) as u16);
+    // selected line reads as selected all the way to the right edge. Only
+    // on the row the line actually ends on: a continuation row runs into
+    // the next one, and there is no newline under it to extend across.
+    if offset >= maxgus_text::Motion::line_end(buffer.rope(), buffer.line_start(visual.line))
+        && let Some(face) = layers.eol_face()
+    {
+        let x = left + (column.saturating_sub(visual.origin) as u16);
         for at in x..right {
-            surface.set(at, area.y + line_row(window, line), cell(' ', face));
+            surface.set(at, y, cell(' ', face));
         }
     }
-}
-
-/// The row within the window that `line` is drawn on.
-fn line_row(window: &Window, line: usize) -> u16 {
-    (line - window.top_line) as u16
 }
 
 fn cell(ch: char, face: Face) -> maxgus_tui::Cell {

@@ -7133,6 +7133,8 @@ fn each_build_has_the_families_the_table_promises_it() {
         "kmacro-",
         "query-replace",
         "load-theme",
+        "browse-files",
+        "workspace-",
         "save-session",
         "snippet-",
         "describe-bindings",
@@ -7674,3 +7676,91 @@ fn the_delete_prompt_offers_nothing_at_all() {
         s.editor.minibuffer.display()
     );
 }
+
+// ---- the maps and the registry agree, in whatever build this is -----------
+
+#[test]
+fn every_binding_names_a_command_this_build_has() {
+    // Bindings are feature-gated and so are commands, in two different
+    // files, and nothing has been holding the two lists together. A binding
+    // left behind on the wrong side of a `cfg` is a documented key that
+    // reports `unknown command` — and only in the build nobody ran.
+    //
+    // Runs in each build and checks the build it is in, so `minimal` proves
+    // `minimal` rather than proving `full` twice.
+    let s = Session::new(80, 24);
+    let registry = &s.dispatcher.registry;
+
+    let mut maps: Vec<(&str, Vec<(String, String)>)> = vec![
+        (
+            "global",
+            maxgus_core::keymap::GLOBAL_BINDINGS
+                .iter()
+                .map(|(k, c)| (k.to_string(), c.to_string()))
+                .collect(),
+        ),
+        (
+            "treefile-mode",
+            maxgus_tree::TREEMACS_BINDINGS
+                .iter()
+                .map(|(k, c)| (k.to_string(), c.to_string()))
+                .collect(),
+        ),
+    ];
+    for (name, map) in [
+        ("symbols", maxgus_core::keymap::symbols_keymap()),
+        ("buffers", maxgus_core::keymap::buffers_keymap()),
+        ("minibuffer", maxgus_core::keymap::minibuffer_keymap()),
+        ("browse-files", maxgus_core::keymap::browse_keymap()),
+        ("isearch", maxgus_core::keymap::isearch_keymap()),
+        #[cfg(feature = "full")]
+        ("magit", maxgus_core::keymap::magit_keymap()),
+        #[cfg(feature = "full")]
+        ("terminal", maxgus_core::keymap::terminal_keymap()),
+    ] {
+        let map = map.expect("a keymap");
+        let mut bindings: Vec<(String, String)> = map
+            .bindings()
+            .iter()
+            .map(|(sequence, command)| (sequence.notation(), command.clone()))
+            .collect();
+        // The fallback a map may have for every key it did not name.
+        if let Some(fallback) = map.default_binding() {
+            bindings.push(("<anything else>".into(), fallback.to_string()));
+        }
+        maps.push((name, bindings));
+    }
+
+    let mut missing = Vec::new();
+    for (map, bindings) in &maps {
+        for (keys, command) in bindings {
+            if !registry.contains(command) {
+                missing.push(format!("{map}: `{keys}` runs `{command}`"));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "bindings naming commands this build does not have:\n  {}",
+        missing.join("\n  ")
+    );
+}
+
+/// The `minimal` column of the README's table, which nothing was checking.
+///
+/// The `full` totals have had a test since they were written; the third
+/// number beside them had none, so it could drift for as long as nobody
+/// counted. It is a number in a table people choose a build from.
+#[cfg(not(feature = "full"))]
+#[test]
+fn the_readme_quotes_the_right_total_for_a_minimal_build() {
+    let s = Session::new(80, 24);
+    assert_eq!(
+        s.dispatcher.registry.len(),
+        README_MINIMAL_COMMANDS,
+        "the README says {README_MINIMAL_COMMANDS} commands in a minimal build"
+    );
+}
+
+#[cfg(not(feature = "full"))]
+const README_MINIMAL_COMMANDS: usize = 313;

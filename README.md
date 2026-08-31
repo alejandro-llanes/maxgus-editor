@@ -78,12 +78,13 @@ path in it, because a launcher does not see your shell's `PATH`.
 
 | | `minimal` | `full` *(default)* | `gui` |
 |---|:---:|:---:|:---:|
-| **Binary** | **4.6M** | **13M** | **20M** |
+| **Binary** | **4.7M** | **12.2M** | **20.7M** |
 | **Commands** | 313 | 462 | 462 |
 | **Needs from the system** | nothing | nothing | a window system's headers |
 | Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
 | Buffers, windows, `C-x` everything | ● | ● | ● |
 | The file tree, with treemacs' keys | ● | ● | ● |
+| **Several directories** in the tree, saved as workspaces | ● | ● | ● |
 | The side panel — tree and buffer list | ● | ● | ● |
 | The side panel — symbol outline | ○ | ● | ● |
 | Themes, and the configuration file | ● | ● | ● |
@@ -92,6 +93,7 @@ path in it, because a launcher does not see your shell's `PATH`.
 | Multiple cursors | ● | ● | ● |
 | The undo tree, and its visualiser | ● | ● | ● |
 | dired | ● | ● | ● |
+| **A file browser** you type at | ● | ● | ● |
 | Keyboard macros, registers, rectangles | ● | ● | ● |
 | isearch, `query-replace`, `occur` | ● | ● | ● |
 | Sessions, snippets, `.editorconfig` | ● | ● | ● |

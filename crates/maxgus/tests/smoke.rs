@@ -3319,3 +3319,146 @@ fn the_tree_root_can_be_moved_into_a_subdirectory_and_back() {
     );
     assert_eq!(session.quit(), 0);
 }
+
+#[test]
+fn the_file_browser_narrows_and_opens_against_a_real_terminal() {
+    // `C-x C-d`. Every build has it, so this runs in every build — which is
+    // the point: the model has unit tests, and this is the only level that
+    // says the keys reach it and the box reaches a terminal.
+    let fixture = Fixture::new("browse-files");
+    let root = fixture.path();
+    std::fs::write(root.join("alpha.txt"), "first\n").unwrap();
+    std::fs::write(root.join("beta.txt"), "second\n").unwrap();
+    std::fs::create_dir_all(root.join("inner")).unwrap();
+    std::fs::write(root.join("inner/deep.txt"), "deeper\n").unwrap();
+
+    let mut session = Session::start(root, &["-Q", "hello.txt"]);
+    session.send(b"\x18\x04"); // C-x C-d
+    session.settle();
+    assert!(
+        session.shows("alpha.txt") && session.shows("beta.txt"),
+        "the browser did not list the directory:\n{:#?}",
+        session.screen()
+    );
+    assert!(
+        session.shows("RET open"),
+        "no hint along the bottom:\n{:#?}",
+        session.screen()
+    );
+
+    // Typing narrows it, and `beta` goes.
+    session.send(b"alph");
+    session.settle();
+    assert!(
+        session.shows("alpha.txt") && !session.shows("beta.txt"),
+        "typing did not narrow the list:\n{:#?}",
+        session.screen()
+    );
+
+    // And `RET` opens what is left.
+    session.send(b"\r");
+    session.settle();
+    assert!(
+        session.shows("first"),
+        "the file did not open:\n{:#?}",
+        session.screen()
+    );
+    assert_eq!(session.quit(), 0);
+}
+
+#[test]
+fn the_file_browser_walks_in_and_out_of_directories() {
+    let fixture = Fixture::new("browse-walk");
+    let root = fixture.path();
+    std::fs::create_dir_all(root.join("inner")).unwrap();
+    std::fs::write(root.join("inner/deep.txt"), "deeper\n").unwrap();
+
+    let mut session = Session::start(root, &["-Q", "hello.txt"]);
+    session.send(b"\x18\x04"); // C-x C-d
+    session.settle();
+    // Narrowed to it rather than counted down to: the fixture has
+    // directories of its own, and a test that counts rows is a test that
+    // breaks when one is added.
+    session.send(b"inner");
+    session.settle();
+    session.send(b"\x1b[C"); // <right>
+    session.settle();
+    assert!(
+        session.shows("deep.txt"),
+        "it did not go into the directory:\n{:#?}",
+        session.screen()
+    );
+    // And left comes back out.
+    session.send(b"\x1b[D"); // <left>
+    session.settle();
+    assert!(
+        session.shows("inner"),
+        "it did not come back out:\n{:#?}",
+        session.screen()
+    );
+    assert_eq!(session.quit(), 0);
+}
+
+#[test]
+fn a_workspace_survives_the_editor_being_closed() {
+    // The whole cycle against a real terminal and a real disk: save a set of
+    // directories, leave, come back, and open it by name. In its own state
+    // directory, so it neither reads nor writes the real one.
+    let fixture = Fixture::new("workspace-cycle");
+    let root = fixture.path();
+    let state = root.join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::create_dir_all(root.join("one")).unwrap();
+    std::fs::create_dir_all(root.join("two")).unwrap();
+    std::fs::write(root.join("one/a.txt"), "in one\n").unwrap();
+    std::fs::write(root.join("two/b.txt"), "in two\n").unwrap();
+    let env = [("XDG_DATA_HOME", state.to_string_lossy().into_owned())];
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
+
+    {
+        let mut session = Session::start_with_env(&root.join("one"), &["-Q", "a.txt"], &env);
+        // The tree, then a second directory added to it.
+        session.send(b"\x18tt"); // C-x t t
+        session.settle();
+        session.send(b"\x18t1"); // C-x t 1, into the tree
+        session.settle();
+        session.send(b"ra"); // r a
+        session.settle();
+        session.send(root.join("two").to_string_lossy().as_bytes());
+        session.send(b"\r");
+        session.settle();
+        // Saved under a name.
+        session.send(b"\x03ps"); // C-c p s
+        session.settle();
+        session.send(b"pair\r");
+        session.settle();
+        assert!(
+            session.shows("saved"),
+            "it did not say it saved:\n{:#?}",
+            session.screen()
+        );
+        assert_eq!(session.quit(), 0);
+    }
+
+    // It is on disk, under the state directory this test gave it.
+    let written =
+        std::fs::read_to_string(state.join("maxgus/workspaces.kdl")).expect("the workspaces file");
+    assert!(written.contains("pair"), "got `{written}`");
+    assert!(
+        written.contains("/two"),
+        "the second directory: `{written}`"
+    );
+
+    // A fresh editor, started somewhere else, opens it by name.
+    let mut session = Session::start_with_env(&root.join("one"), &["-Q", "a.txt"], &env);
+    session.send(b"\x03pp"); // C-c p p
+    session.settle();
+    session.send(b"\r"); // the default, which is the only one saved
+    session.settle();
+    assert!(
+        session.shows("two"),
+        "the workspace did not come back:\n{:#?}",
+        session.screen()
+    );
+    assert_eq!(session.quit(), 0);
+}

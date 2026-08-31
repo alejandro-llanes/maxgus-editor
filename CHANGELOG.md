@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- **A review across every build, and what it found.** The three builds are
+  a promise the README makes in a table, and most of that table had nothing
+  holding it up.
+
+  Two features that ship in *every* build were missing from it entirely —
+  several directories in the tree with workspaces, and the file browser —
+  so the table people choose a build from did not mention them. The binary
+  sizes were stale: measured, they are 4.7M, 12.2M and 20.7M against the
+  4.6M, 13M and 20M written down. The `minimal` column's command count had
+  no test at all, where the `full` ones have had since they were written; it
+  turned out to be right, and is now checked.
+
+- **Bindings and commands are held together per build.** Both lists are
+  feature-gated, in two different files, and nothing was checking that they
+  agree — a binding left on the wrong side of a `cfg` is a documented key
+  that reports `unknown command`, in the build nobody runs. Every map is
+  checked against the registry now, including the fallback a map may have
+  for keys it did not name. Both builds were already correct.
+
+- **The file browser and workspaces are exercised against a real terminal**,
+  in whatever build the suite is run in: the browser narrows, walks in and
+  out of directories and opens a file; a workspace is saved, the editor is
+  closed, and a fresh one opens it by name. The workspace test gets its own
+  state directory, so it neither reads nor writes the real one.
+
 - **Workspaces: a set of directories, named and kept.** The tree can show
   several at once; a workspace is that list given a name and written down,
   so the set you work in is one command to come back to rather than several

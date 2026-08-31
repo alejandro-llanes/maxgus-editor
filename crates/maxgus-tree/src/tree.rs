@@ -60,10 +60,20 @@ impl VisibleNode {
     }
 }
 
-/// A lazily expanded view of a directory.
+/// A lazily expanded view of one or more directories.
+///
+/// More than one because a workspace is usually more than one directory —
+/// the library beside the application that uses it, the notes beside the
+/// code. treemacs calls them projects and keeps a list of them; so does
+/// this, and the first of them is the one the rest of the editor means by
+/// "the project": what a language server is told about, what a project
+/// search walks. Adding a second directory to look at is not the same as
+/// changing which project you are working in.
 #[derive(Debug)]
 pub struct FileTree {
-    root: Node,
+    /// Never empty. A tree with no roots has nothing to draw and no way to
+    /// get a root back, so the last one cannot be removed.
+    roots: Vec<Node>,
     config: TreeConfig,
     /// Index into the flattened view.
     cursor: usize,
@@ -85,7 +95,7 @@ impl FileTree {
             return Err(TreeError::NotADirectory(root));
         }
         let mut tree = FileTree {
-            root: Node::new(root, NodeKind::Directory),
+            roots: vec![Node::new(root, NodeKind::Directory)],
             config,
             cursor: 0,
             visible: Vec::new(),
@@ -95,8 +105,99 @@ impl FileTree {
         Ok(tree)
     }
 
+    /// The first root, which is what the rest of the editor means by "the
+    /// project": the directory a language server is told about and a
+    /// project search walks. Adding a second directory to look at does not
+    /// move it.
     pub fn root_path(&self) -> &Path {
-        &self.root.path
+        &self.roots[0].path
+    }
+
+    /// Every directory the tree is showing, in the order they were added.
+    pub fn roots(&self) -> Vec<&Path> {
+        self.roots.iter().map(|root| root.path.as_path()).collect()
+    }
+
+    /// True when `path` is one of the roots rather than something inside one.
+    pub fn is_root(&self, path: &Path) -> bool {
+        self.roots.iter().any(|root| root.path == path)
+    }
+
+    /// The root `path` belongs to, if any.
+    fn root_of(&self, path: &Path) -> Option<&Node> {
+        self.roots.iter().find(|root| path.starts_with(&root.path))
+    }
+
+    /// Finds a node anywhere in any root.
+    fn find(&self, path: &Path) -> Option<&Node> {
+        self.roots.iter().find_map(|root| root.find(path))
+    }
+
+    fn find_mut(&mut self, path: &Path) -> Option<&mut Node> {
+        self.roots.iter_mut().find_map(|root| root.find_mut(path))
+    }
+
+    /// Adds another directory to look at, below the ones already there.
+    ///
+    /// treemacs' `treemacs-add-project-to-workspace`. A directory already
+    /// on the list is not added twice — the second copy would expand and
+    /// collapse independently of the first, which is two answers to the
+    /// same question.
+    pub async fn add_root(&mut self, path: impl Into<PathBuf>) -> Result<()> {
+        let path = path.into();
+        let meta = tokio::fs::metadata(&path)
+            .await
+            .map_err(|source| TreeError::Io {
+                path: path.clone(),
+                source,
+            })?;
+        if !meta.is_dir() {
+            return Err(TreeError::NotADirectory(path));
+        }
+        if self.roots.iter().any(|root| root.path == path) {
+            return Ok(());
+        }
+        self.roots.push(Node::new(path, NodeKind::Directory));
+        self.refresh().await
+    }
+
+    /// Swaps one of the roots for another directory, leaving the rest.
+    ///
+    /// What `root-down` and `root-up` do. Replacing the whole tree would
+    /// throw away every other directory on the list, which is a surprising
+    /// amount to lose for a command that says it moves *the* root.
+    pub async fn replace_root(&mut self, old: &Path, new: impl Into<PathBuf>) -> Result<()> {
+        let new = new.into();
+        let meta = tokio::fs::metadata(&new)
+            .await
+            .map_err(|source| TreeError::Io {
+                path: new.clone(),
+                source,
+            })?;
+        if !meta.is_dir() {
+            return Err(TreeError::NotADirectory(new));
+        }
+        let Some(at) = self.roots.iter().position(|root| root.path == old) else {
+            return Err(TreeError::NotARoot(old.to_path_buf()));
+        };
+        self.roots[at] = Node::new(new, NodeKind::Directory);
+        self.refresh().await
+    }
+
+    /// Stops looking at one of them.
+    ///
+    /// The last one stays: a tree with nothing in it has no row to put a
+    /// cursor on and no way to ask for a directory back.
+    pub fn remove_root(&mut self, path: &Path) -> Result<()> {
+        if self.roots.len() <= 1 {
+            return Err(TreeError::LastRoot);
+        }
+        let Some(at) = self.roots.iter().position(|root| root.path == path) else {
+            return Err(TreeError::NotARoot(path.to_path_buf()));
+        };
+        self.roots.remove(at);
+        self.rebuild_visible();
+        Ok(())
     }
 
     pub fn config(&self) -> &TreeConfig {
@@ -201,13 +302,27 @@ impl FileTree {
     pub async fn refresh(&mut self) -> Result<()> {
         let selected = self.selected_path().map(Path::to_path_buf);
         if self.config.git_status {
-            self.git = git_status(&self.root.path.clone(), false).await;
+            // One reading per root: they may be different repositories, or
+            // no repository at all, and a status read from one of them says
+            // nothing about the others.
+            self.git.clear();
+            for path in self
+                .roots
+                .iter()
+                .map(|r| r.path.clone())
+                .collect::<Vec<_>>()
+            {
+                self.git.extend(git_status(&path, false).await);
+            }
         }
-        // The root is always open.
-        self.root.expanded = true;
         let expanded = self.expanded_paths();
-        self.root.children.clear();
-        self.root.loaded = false;
+        for root in &mut self.roots {
+            // A root is always open. Collapsing one would leave a heading
+            // with no way to get back into it.
+            root.expanded = true;
+            root.children.clear();
+            root.loaded = false;
+        }
         self.load_recursively(&expanded).await?;
         self.rebuild_visible();
         if let Some(path) = selected {
@@ -227,14 +342,16 @@ impl FileTree {
             }
         }
         let mut out = Vec::new();
-        walk(&self.root, &mut out);
+        for root in &self.roots {
+            walk(root, &mut out);
+        }
         out
     }
 
     /// Reads the root and every directory in `expanded`.
     async fn load_recursively(&mut self, expanded: &[PathBuf]) -> Result<()> {
         // Breadth-first, so each directory is read once.
-        let mut queue = vec![self.root.path.clone()];
+        let mut queue: Vec<PathBuf> = self.roots.iter().map(|r| r.path.clone()).collect();
         while let Some(path) = queue.pop() {
             let children = self.read_dir(&path).await?;
             for child in &children {
@@ -242,14 +359,17 @@ impl FileTree {
                     queue.push(child.path.clone());
                 }
             }
-            let Some(node) = self.root.find_mut(&path) else {
+            // Read before the node is borrowed: the map and the tree are
+            // both `self`, and only one of them can be held at a time.
+            let status = self.git.get(&path).copied();
+            let Some(node) = self.find_mut(&path) else {
                 continue;
             };
             node.children = children;
             node.loaded = true;
             node.expanded = true;
             // Directories show the strongest status among their descendants.
-            node.git = self.git.get(&path).copied();
+            node.git = status;
         }
         self.roll_up_git();
         Ok(())
@@ -266,7 +386,9 @@ impl FileTree {
             node.git = GitStatus::rollup(statuses);
             node.git
         }
-        walk(&mut self.root);
+        for root in &mut self.roots {
+            walk(root);
+        }
     }
 
     /// Recomputes the flattened view from the tree.
@@ -289,7 +411,9 @@ impl FileTree {
             }
         }
         let mut out = Vec::new();
-        walk(&self.root, 0, true, &mut out);
+        for root in &self.roots {
+            walk(root, 0, true, &mut out);
+        }
         self.visible = out;
         self.cursor = self.cursor.min(self.visible.len().saturating_sub(1));
     }
@@ -298,7 +422,7 @@ impl FileTree {
 
     /// Expands `path`, reading its children if this is the first time.
     pub async fn expand(&mut self, path: &Path) -> Result<()> {
-        let needs_read = match self.root.find(path) {
+        let needs_read = match self.find(path) {
             Some(node) if node.is_expandable() => !node.loaded,
             // Expanding a file is a no-op rather than an error: `RET` on a file
             // visits it, and the caller decides which happened.
@@ -307,13 +431,13 @@ impl FileTree {
         };
         if needs_read {
             let children = self.read_dir(path).await?;
-            let Some(node) = self.root.find_mut(path) else {
+            let Some(node) = self.find_mut(path) else {
                 return Ok(());
             };
             node.children = children;
             node.loaded = true;
         }
-        if let Some(node) = self.root.find_mut(path) {
+        if let Some(node) = self.find_mut(path) {
             node.expanded = true;
         }
         self.roll_up_git();
@@ -323,11 +447,12 @@ impl FileTree {
 
     /// Collapses `path` and everything under it.
     pub fn collapse(&mut self, path: &Path) {
-        // The root stays open; collapsing it would leave an empty window.
-        if path == self.root.path {
+        // A root stays open; collapsing one would leave a heading with no
+        // way back into it.
+        if self.is_root(path) {
             return;
         }
-        if let Some(node) = self.root.find_mut(path) {
+        if let Some(node) = self.find_mut(path) {
             node.collapse_recursively();
         }
         self.rebuild_visible();
@@ -336,7 +461,7 @@ impl FileTree {
     /// `treemacs-TAB-action`: expands a collapsed directory, collapses an
     /// expanded one. Returns true when something changed.
     pub async fn toggle(&mut self, path: &Path) -> Result<bool> {
-        let Some(node) = self.root.find(path) else {
+        let Some(node) = self.find(path) else {
             return Ok(false);
         };
         if !node.is_expandable() {
@@ -363,7 +488,7 @@ impl FileTree {
         let mut queue = vec![path.to_path_buf()];
         while let Some(current) = queue.pop() {
             self.expand(&current).await?;
-            let Some(node) = self.root.find(&current) else {
+            let Some(node) = self.find(&current) else {
                 continue;
             };
             for child in &node.children {
@@ -492,12 +617,14 @@ impl FileTree {
     /// and puts the cursor on it. Returns false when `path` is outside the
     /// tree.
     pub async fn reveal(&mut self, path: &Path) -> Result<bool> {
-        if !path.starts_with(&self.root.path) {
+        // Whichever of the roots holds it — a file is revealed in the
+        // directory it is actually under, not in the first one on the list.
+        let Some(root) = self.root_of(path).map(|root| root.path.clone()) else {
             return Ok(false);
-        }
-        // Expand each ancestor from the root down.
-        let mut current = self.root.path.clone();
-        let Ok(relative) = path.strip_prefix(&self.root.path) else {
+        };
+        // Expand each ancestor from that root down.
+        let mut current = root.clone();
+        let Ok(relative) = path.strip_prefix(&root) else {
             return Ok(false);
         };
         for component in relative.components() {
@@ -571,7 +698,7 @@ impl FileTree {
     pub async fn delete_selected(&mut self) -> Result<PathBuf> {
         let node = self.selected().ok_or(TreeError::NoSelection)?;
         let path = node.path.clone();
-        if path == self.root.path {
+        if self.is_root(&path) {
             return Err(TreeError::NoSelection);
         }
         let result = if node.kind == NodeKind::Directory {
@@ -594,7 +721,7 @@ impl FileTree {
             .selected_path()
             .map(Path::to_path_buf)
             .ok_or(TreeError::NoSelection)?;
-        if old == self.root.path {
+        if self.is_root(&old) {
             return Err(TreeError::NoSelection);
         }
         let parent = old.parent().ok_or(TreeError::NoSelection)?;
@@ -619,7 +746,7 @@ impl FileTree {
             .selected_path()
             .map(Path::to_path_buf)
             .ok_or(TreeError::NoSelection)?;
-        if old == self.root.path {
+        if self.is_root(&old) {
             return Err(TreeError::NoSelection);
         }
         let name = old.file_name().ok_or(TreeError::NoSelection)?;
@@ -646,8 +773,9 @@ impl FileTree {
     /// `treemacs-copy-relative-path-at-point`: relative to the tree root.
     pub fn relative_path(&self) -> Option<String> {
         let path = &self.selected()?.path;
-        let relative = path.strip_prefix(&self.root.path).unwrap_or(path);
-        Some(relative.to_string_lossy().into_owned())
+        let root = self.root_of(path).map(|root| root.path.as_path());
+        let relative = root.and_then(|root| path.strip_prefix(root).ok());
+        Some(relative.unwrap_or(path).to_string_lossy().into_owned())
     }
 }
 
@@ -734,6 +862,185 @@ mod tests {
         );
         assert_eq!(tree.cursor(), 0);
         assert!(tree.selected().unwrap().is_root);
+    }
+
+    #[tokio::test]
+    async fn a_second_directory_can_be_added_and_shows_below_the_first() {
+        // A workspace is usually more than one directory. treemacs calls
+        // them projects and keeps a list; so does this.
+        let one = Fixture::new("roots-one").await;
+        let two = Fixture::new("roots-two").await;
+        let mut tree = open(&one).await;
+        assert_eq!(tree.roots(), vec![one.path()]);
+
+        tree.add_root(two.path()).await.unwrap();
+        assert_eq!(tree.roots(), vec![one.path(), two.path()]);
+
+        // Both headings are there, each with its own contents under it.
+        let heads: Vec<&str> = tree
+            .visible()
+            .iter()
+            .filter(|n| n.is_root)
+            .map(|n| n.name.as_str())
+            .collect();
+        assert_eq!(heads.len(), 2, "got {heads:?}");
+        assert!(
+            tree.visible().iter().filter(|n| n.name == "src").count() == 2,
+            "each root should have brought its own `src`"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_first_directory_stays_the_project_however_many_are_added() {
+        // What a language server is told about and what a project search
+        // walks. Looking at a second directory is not changing project.
+        let one = Fixture::new("roots-project").await;
+        let two = Fixture::new("roots-project-2").await;
+        let mut tree = open(&one).await;
+        tree.add_root(two.path()).await.unwrap();
+        assert_eq!(tree.root_path(), one.path());
+    }
+
+    #[tokio::test]
+    async fn the_same_directory_is_not_added_twice() {
+        // Two copies would expand and collapse independently, which is two
+        // answers to the same question.
+        let one = Fixture::new("roots-dup").await;
+        let mut tree = open(&one).await;
+        tree.add_root(one.path()).await.unwrap();
+        assert_eq!(tree.roots(), vec![one.path()]);
+    }
+
+    #[tokio::test]
+    async fn a_directory_that_is_not_one_cannot_be_added() {
+        let f = Fixture::new("roots-notdir").await;
+        let mut tree = open(&f).await;
+        assert!(tree.add_root(f.path().join("README.md")).await.is_err());
+        assert!(tree.add_root(f.path().join("nothing-here")).await.is_err());
+        assert_eq!(tree.roots(), vec![f.path()], "a failure still changed it");
+    }
+
+    #[tokio::test]
+    async fn a_directory_can_be_taken_off_the_list_again() {
+        let one = Fixture::new("roots-remove").await;
+        let two = Fixture::new("roots-remove-2").await;
+        let mut tree = open(&one).await;
+        tree.add_root(two.path()).await.unwrap();
+        tree.remove_root(two.path()).unwrap();
+        assert_eq!(tree.roots(), vec![one.path()]);
+        assert!(
+            tree.visible()
+                .iter()
+                .all(|n| n.path.starts_with(one.path())),
+            "something from the removed directory is still showing"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_last_directory_cannot_be_taken_off() {
+        // A tree with nothing in it has no row to put a cursor on and no
+        // way to ask for a directory back.
+        let f = Fixture::new("roots-last").await;
+        let mut tree = open(&f).await;
+        assert!(tree.remove_root(f.path()).is_err());
+        assert!(
+            tree.remove_root(&f.path().join("src")).is_err(),
+            "not a root"
+        );
+        assert_eq!(tree.roots(), vec![f.path()]);
+    }
+
+    #[tokio::test]
+    async fn every_root_stays_open() {
+        // Collapsing one would leave a heading with no way back into it.
+        let one = Fixture::new("roots-collapse").await;
+        let two = Fixture::new("roots-collapse-2").await;
+        let mut tree = open(&one).await;
+        tree.add_root(two.path()).await.unwrap();
+        for root in [one.path(), two.path()] {
+            tree.collapse(root);
+            let node = tree
+                .visible()
+                .iter()
+                .find(|n| n.path == root)
+                .expect("the heading is still there");
+            assert!(node.expanded, "{} collapsed", root.display());
+        }
+    }
+
+    #[tokio::test]
+    async fn a_file_is_revealed_in_the_directory_it_is_actually_under() {
+        // Not in the first one on the list, which is what a tree that only
+        // ever looked at one root would do.
+        let one = Fixture::new("roots-reveal").await;
+        let two = Fixture::new("roots-reveal-2").await;
+        let mut tree = open(&one).await;
+        tree.add_root(two.path()).await.unwrap();
+
+        let deep = two.path().join("src/inner/deep.rs");
+        assert!(tree.reveal(&deep).await.unwrap(), "it was not found");
+        assert_eq!(tree.selected_path(), Some(deep.as_path()));
+    }
+
+    #[tokio::test]
+    async fn a_path_under_no_root_is_not_revealed() {
+        let f = Fixture::new("roots-outside").await;
+        let mut tree = open(&f).await;
+        assert!(
+            !tree
+                .reveal(Path::new("/nowhere-at-all/x.rs"))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_relative_path_is_relative_to_the_root_that_holds_it() {
+        let one = Fixture::new("roots-relative").await;
+        let two = Fixture::new("roots-relative-2").await;
+        let mut tree = open(&one).await;
+        tree.add_root(two.path()).await.unwrap();
+        tree.reveal(&two.path().join("src/main.rs")).await.unwrap();
+        assert_eq!(tree.relative_path().as_deref(), Some("src/main.rs"));
+    }
+
+    #[tokio::test]
+    async fn moving_one_root_leaves_the_others_where_they_were() {
+        // `root-down` says it moves *the* root. Rebuilding the whole tree
+        // around the new one — which is what it used to do — would take
+        // away every other directory somebody had asked to see.
+        let one = Fixture::new("roots-replace").await;
+        let two = Fixture::new("roots-replace-2").await;
+        let mut tree = open(&one).await;
+        tree.add_root(two.path()).await.unwrap();
+
+        tree.replace_root(one.path(), one.path().join("src"))
+            .await
+            .unwrap();
+        assert_eq!(
+            tree.roots(),
+            vec![one.path().join("src").as_path(), two.path()],
+            "the other directory did not survive"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_root_that_is_not_one_cannot_be_moved() {
+        let f = Fixture::new("roots-replace-bad").await;
+        let mut tree = open(&f).await;
+        assert!(
+            tree.replace_root(&f.path().join("src"), f.path())
+                .await
+                .is_err(),
+            "`src` is not one of the roots"
+        );
+        assert!(
+            tree.replace_root(f.path(), f.path().join("README.md"))
+                .await
+                .is_err(),
+            "a file cannot be a root"
+        );
+        assert_eq!(tree.roots(), vec![f.path()]);
     }
 
     #[tokio::test]

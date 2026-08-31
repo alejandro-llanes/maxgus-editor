@@ -636,20 +636,24 @@ impl Executor {
                 select = Some(path.clone());
                 tree.reveal(&path).await.map(|_| ())
             }
-            TreeAction::SetRoot(path) => {
-                let config = self.tree_config.clone();
-                match FileTree::open(path.clone(), config).await {
-                    Ok(fresh) => {
-                        self.tree = Some(fresh);
-                        // The new root is what the cursor should be on: it
-                        // is the thing that just moved, and starting at the
-                        // top of a tree nobody has looked at yet is where
-                        // anyone would look first anyway.
-                        select = Some(path);
-                        Ok(())
-                    }
-                    Err(error) => Err(error),
-                }
+            TreeAction::SetRoot { from, to } => {
+                // The one that moved, not all of them: the others are
+                // separate directories somebody asked to see, and a command
+                // that says it moves *the* root should not take them away.
+                //
+                // The new root is what the cursor should be on — it is the
+                // thing that just moved, and the top of a tree nobody has
+                // looked at yet is where anyone would look first anyway.
+                select = Some(to.clone());
+                tree.replace_root(&from, to).await
+            }
+            TreeAction::AddRoot(path) => {
+                select = Some(path.clone());
+                tree.add_root(path).await
+            }
+            TreeAction::RemoveRoot(path) => {
+                select = None;
+                tree.remove_root(&path)
             }
             TreeAction::ToggleHidden => tree.toggle_show_hidden().await,
             TreeAction::ToggleDirectoriesFirst => {

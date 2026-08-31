@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **The tree shows more than one directory.** `r a` adds another and `r k`
+  takes one off — treemacs' projects, and for its reason: a workspace is
+  usually more than one directory, and closing the tree to reopen it
+  somewhere else is not having both.
+
+  The first one stays *the project*. What a language server is told about
+  and what a project search walks does not move because you asked to look
+  at something else as well, which is the same line `r d` already drew
+  between the tree's root and the project's.
+
+  `r d` and `r u` move whichever directory the cursor is in and leave the
+  others alone. They used to rebuild the whole tree around the new root,
+  which would have thrown away every other directory on the list — a
+  surprising amount to lose from a command that says it moves *the* root.
+  The last directory cannot be removed: a tree with nothing in it has no row
+  to put a cursor on and no way to ask for a directory back.
+
 - **`visit-theme` is `consult-theme` now, and it stops asking.** The name
   first: every command here is named after the one it behaves like, so that
   a hand which already knows the keys knows the names too — and this one

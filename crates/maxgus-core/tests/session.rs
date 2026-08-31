@@ -4579,9 +4579,9 @@ fn the_readme_quotes_the_right_totals() {
 }
 
 #[cfg(feature = "full")]
-const README_BINDINGS: usize = 397;
+const README_BINDINGS: usize = 399;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 446;
+const README_COMMANDS: usize = 448;
 
 #[cfg(feature = "full")]
 #[test]
@@ -7369,4 +7369,84 @@ fn nothing_arrives_past_the_end_of_the_buffer() {
     let window = s.editor.windows.current_id();
     let mut scratch = Surface::new(Size::new(40, 12));
     assert!(maxgus_core::edge_rows(&mut s.editor, window, 1, 2, &mut scratch).is_none());
+}
+
+// ---- more than one directory in the tree ---------------------------------
+
+#[test]
+fn a_second_directory_can_be_asked_for_from_the_tree() {
+    // A workspace is usually more than one directory, and closing the tree
+    // to reopen it somewhere else is not having both.
+    let mut s = with_tree();
+    s.keys("C-x t 1");
+    s.editor.tasks.drain();
+    s.keys("r a");
+    assert!(s.editor.minibuffer.is_active(), "it did not ask for one");
+    assert!(
+        s.editor.minibuffer.prompt().contains("Add directory"),
+        "got `{}`",
+        s.editor.minibuffer.prompt()
+    );
+
+    s.type_text("/other/project");
+    s.keys("RET");
+    let queued = s.editor.tasks.drain();
+    let asked = queued.iter().any(|task| {
+        matches!(
+            task,
+            maxgus_core::Task::Tree(maxgus_core::TreeAction::AddRoot(path))
+                if path == std::path::Path::new("/other/project")
+        )
+    });
+    assert!(asked, "nothing was queued to add it: {queued:?}");
+}
+
+#[test]
+fn removing_a_directory_names_the_one_the_cursor_is_in() {
+    // Rather than asking someone to put the cursor exactly on the heading
+    // first, which is asking them to do the search themselves.
+    let mut s = with_tree();
+    s.keys("C-x t 1");
+    // Down onto a file inside the root, not the heading itself.
+    s.keys("n");
+    assert!(
+        !s.editor
+            .tree_selection()
+            .expect("something is selected")
+            .is_root,
+        "the cursor is still on the heading, so the test proves nothing"
+    );
+    s.editor.tasks.drain();
+
+    s.keys("r k");
+    let queued = s.editor.tasks.drain();
+    let asked = queued.iter().any(|task| {
+        matches!(
+            task,
+            maxgus_core::Task::Tree(maxgus_core::TreeAction::RemoveRoot(path))
+                if path == std::path::Path::new("/project")
+        )
+    });
+    assert!(asked, "it did not name the directory: {queued:?}");
+}
+
+#[test]
+fn a_relative_directory_is_relative_to_where_the_tree_already_is() {
+    // What someone typing `../lib` means by it.
+    let mut s = with_tree();
+    s.keys("C-x t 1");
+    s.editor.tasks.drain();
+    s.keys("r a");
+    s.type_text("../lib");
+    s.keys("RET");
+    let queued = s.editor.tasks.drain();
+    let named = queued.iter().find_map(|task| match task {
+        maxgus_core::Task::Tree(maxgus_core::TreeAction::AddRoot(path)) => Some(path.clone()),
+        _ => None,
+    });
+    assert_eq!(
+        named,
+        Some(s.editor.default_directory().join("../lib")),
+        "got {queued:?}"
+    );
 }

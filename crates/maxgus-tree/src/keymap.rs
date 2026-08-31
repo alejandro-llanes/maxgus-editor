@@ -36,6 +36,11 @@ pub const TREEMACS_BINDINGS: &[(&str, &str)] = &[
     ("r d", "treefile-root-down"),
     ("r u", "treefile-root-up"),
     ("r r", "treefile-root-reset"),
+    // And the list of them. treemacs keeps these under `C-c C-p`, which is
+    // already `treefile-expand-recursively` here; `r` is where the roots
+    // live, so the two that add and remove one live there too.
+    ("r a", "treefile-add-project"),
+    ("r k", "treefile-remove-project"),
     // ---- visiting ----
     ("o o", "treefile-visit-node"),
     ("o v", "treefile-visit-node-vertical-split"),
@@ -160,8 +165,10 @@ pub const TREEMACS_HELP: &[HelpSection] = &[
         ],
     },
     HelpSection {
-        title: "Root",
+        title: "Directories",
         keys: &[
+            ("r a", "add one"),
+            ("r k", "remove this one"),
             ("r d", "root down"),
             ("r u", "root up"),
             ("r r", "root back"),

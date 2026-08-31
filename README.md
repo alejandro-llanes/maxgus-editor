@@ -79,7 +79,7 @@ path in it, because a launcher does not see your shell's `PATH`.
 | | `minimal` | `full` *(default)* | `gui` |
 |---|:---:|:---:|:---:|
 | **Binary** | **4.6M** | **13M** | **20M** |
-| **Commands** | 297 | 446 | 446 |
+| **Commands** | 299 | 448 | 448 |
 | **Needs from the system** | nothing | nothing | a window system's headers |
 | Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
 | Buffers, windows, `C-x` everything | ● | ● | ● |
@@ -166,8 +166,8 @@ $ ./target/release/maxgus
 
 ### Emacs keys, and they behave like Emacs
 
-**397 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **446 commands**. Prefix
+**399 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
+the panel, tree, magit and terminal maps, driving **448 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -318,11 +318,19 @@ panel-at-startup=#true` and the column is there when maxgus opens; give the
 outline and the list the height you want with `panel-symbols-height` and
 `panel-buffers-height`, and the tree takes whatever is left.
 
-The tree keeps **54 bindings and 48 commands** from treemacs' own keymap:
+The tree keeps **56 bindings and 50 commands** from treemacs' own keymap:
 `n`/`p`, `M-n`/`M-p`, `u`, `TAB`, `RET`, `o v`/`o h`/`o r`/`o x`, `P` to peek,
 `c f`/`c d` to create, `R`, `d`, `m`, `!`, `y a`/`y r`/`y p`/`y f` to copy
 paths, `t h`/`t w`/`t f`/`t g`/`t d` to toggle, `g r` to refresh. Git status
 in the gutter, follow mode.
+
+**More than one directory at a time.** `r a` adds another to the tree and
+`r k` takes one off again — treemacs' projects, and for its reason: a
+workspace is usually more than one directory, and closing the tree to reopen
+it somewhere else is not having both. The *first* one stays the project: what
+a language server is told about and what a project search walks does not move
+because you looked at something else. `r d` and `r u` move whichever
+directory the cursor is in and leave the rest alone.
 
 **`?` shows all of them at once**, the way treemacs' helpful hydra does: the
 whole map in named columns — Navigation, Nodes, Files, Toggles — in the same

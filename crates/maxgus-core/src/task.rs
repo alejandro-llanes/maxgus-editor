@@ -374,7 +374,18 @@ pub enum TreeAction {
     /// told about, what a project search walks — does not move, because
     /// looking at a subdirectory is not the same as working in a different
     /// project.
-    SetRoot(PathBuf),
+    SetRoot {
+        from: PathBuf,
+        to: PathBuf,
+    },
+    /// Show another directory in the tree, below the ones already there.
+    ///
+    /// treemacs' `treemacs-add-project-to-workspace`. The project root does
+    /// not move: the first directory stays the one a language server is
+    /// told about, because looking at a second one is not changing project.
+    AddRoot(PathBuf),
+    /// Stop showing one of them. The last one stays.
+    RemoveRoot(PathBuf),
     /// Show or hide dotfiles.
     ToggleHidden,
     /// Show directories before files, or sort strictly by name.

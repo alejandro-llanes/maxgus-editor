@@ -13,7 +13,7 @@ use crate::{
     task::{Task, TreeAction},
     window::Direction,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// The buffers the panel's three windows are drawn into.
 pub const TREE_BUFFER_NAME: &str = "*treefile*";
@@ -114,6 +114,16 @@ pub fn register(registry: &mut Registry) {
             "treefile-root-down",
             "Draw the tree from the selected directory.",
             root_down
+        ),
+        command!(
+            "treefile-add-project",
+            "Show another directory in the tree, below the ones already there.",
+            add_project
+        ),
+        command!(
+            "treefile-remove-project",
+            "Stop showing the directory the cursor is in.",
+            remove_project
         ),
         command!(
             "treefile-root-up",
@@ -618,21 +628,79 @@ fn root_down(editor: &mut Editor, _: &Args) -> Result<()> {
             "Only a directory can be the root".into(),
         ));
     }
-    set_root(editor, node.path);
+    let from = root_at_cursor(editor)?;
+    set_root(editor, from, node.path);
+    Ok(())
+}
+
+/// `treefile-add-project`: show another directory in the tree.
+///
+/// treemacs' `treemacs-add-project-to-workspace`, and the reason it exists:
+/// a workspace is usually more than one directory — the library beside the
+/// application that uses it, the notes beside the code — and having to
+/// close the tree and reopen it somewhere else to see the other one is not
+/// having them both.
+///
+/// The project root does not move. The first directory stays the one a
+/// language server is told about and a project search walks, because
+/// looking at a second one is not changing which project you are in.
+fn add_project(editor: &mut Editor, args: &Args) -> Result<()> {
+    let Some(input) = args.input.clone() else {
+        // Empty rather than filled in with the directory under the cursor.
+        // A second project is usually somewhere else entirely, and a path
+        // typed over a prefix that was already there gives `/a//b` — which
+        // Emacs reads as "start again at the root" and this does not.
+        editor.prompt_for(
+            "treefile-add-project",
+            MinibufferKind::File,
+            "Add directory to tree: ",
+            "",
+            Vec::new(),
+        );
+        return Ok(());
+    };
+    let typed = input.trim();
+    if typed.is_empty() {
+        return Err(crate::CoreError::Message("No directory given".into()));
+    }
+    // A relative answer is relative to where the tree already is, which is
+    // what someone typing `../lib` means by it.
+    let path = match Path::new(typed).is_absolute() {
+        true => PathBuf::from(typed),
+        false => editor.default_directory().join(typed),
+    };
+    act(editor, TreeAction::AddRoot(path));
+    Ok(())
+}
+
+/// `treefile-remove-project`: stop showing one of them.
+///
+/// The one the cursor is in, whichever row of it the cursor is on — asking
+/// someone to put the cursor exactly on the heading before they can take a
+/// directory off the list is asking them to do the search themselves.
+fn remove_project(editor: &mut Editor, _: &Args) -> Result<()> {
+    let node = selection(editor)?;
+    let root = editor
+        .tree
+        .iter()
+        .filter(|candidate| candidate.is_root && node.path.starts_with(&candidate.path))
+        // The deepest match, for a directory added inside another one.
+        .max_by_key(|candidate| candidate.path.as_os_str().len())
+        .map(|candidate| candidate.path.clone())
+        .ok_or_else(|| crate::CoreError::Message("No directory here to remove".into()))?;
+    act(editor, TreeAction::RemoveRoot(root));
     Ok(())
 }
 
 /// `treefile-root-up`: one directory further out.
 fn root_up(editor: &mut Editor, _: &Args) -> Result<()> {
-    let Some(root) = editor.tree_root.clone() else {
-        return Err(crate::CoreError::Message("There is no tree".into()));
-    };
-    let Some(parent) = root.parent().map(std::path::Path::to_path_buf) else {
+    let from = root_at_cursor(editor)?;
+    let Some(parent) = from.parent().map(Path::to_path_buf) else {
         return Err(crate::CoreError::Message(
             "Already at the top of the filesystem".into(),
         ));
     };
-    set_root(editor, parent);
+    set_root(editor, from, parent);
     Ok(())
 }
 
@@ -641,19 +709,40 @@ fn root_reset(editor: &mut Editor, _: &Args) -> Result<()> {
     let Some(home) = editor.tree_home.clone() else {
         return Err(crate::CoreError::Message("There is no tree".into()));
     };
-    if editor.tree_root.as_ref() == Some(&home) {
+    let from = root_at_cursor(editor)?;
+    if from == home {
         return Err(crate::CoreError::Message(
             "Already at the project root".into(),
         ));
     }
-    set_root(editor, home);
+    set_root(editor, from, home);
     Ok(())
 }
 
-fn set_root(editor: &mut Editor, path: PathBuf) {
-    editor.message(format!("Tree root: {}", path.display()));
-    editor.tree_root = Some(path.clone());
-    act(editor, TreeAction::SetRoot(path));
+/// The directory the cursor is in, out of the ones the tree is showing.
+///
+/// The deepest match, so a directory added inside another one wins over the
+/// one it sits in.
+fn root_at_cursor(editor: &Editor) -> Result<PathBuf> {
+    let node = selection(editor)?;
+    editor
+        .tree
+        .iter()
+        .filter(|candidate| candidate.is_root && node.path.starts_with(&candidate.path))
+        .max_by_key(|candidate| candidate.path.as_os_str().len())
+        .map(|candidate| candidate.path.clone())
+        .ok_or_else(|| crate::CoreError::Message("No directory here".into()))
+}
+
+/// Moves one of the tree's directories, leaving the others alone.
+fn set_root(editor: &mut Editor, from: PathBuf, to: PathBuf) {
+    editor.message(format!("Tree root: {}", to.display()));
+    // The first directory is the project, and only it: moving a second one
+    // around says nothing about where the project is.
+    if editor.tree_root.as_ref() == Some(&from) {
+        editor.tree_root = Some(to.clone());
+    }
+    act(editor, TreeAction::SetRoot { from, to });
 }
 
 fn expand_recursively(editor: &mut Editor, _: &Args) -> Result<()> {

@@ -32,6 +32,10 @@ pub enum TreeError {
     NotInTree(std::path::PathBuf),
     #[error("`{0}` is not a valid file name")]
     InvalidName(String),
+    #[error("{0} is not one of the tree's directories")]
+    NotARoot(std::path::PathBuf),
+    #[error("the tree must be showing at least one directory")]
+    LastRoot,
 }
 
 pub type Result<T> = std::result::Result<T, TreeError>;

@@ -309,6 +309,17 @@ the buffer, the section is not empty: it is **absent**, heading and all.
 The **buffer list** marks the one you are editing with a bar and dots the ones
 with unsaved changes. `RET` shows a buffer, `k` kills it.
 
+The tree and the outline are drawn as trees rather than as indented lists: a
+rule down each level of nesting, so the shape is drawn instead of being
+measured out of whitespace, and a bar down the left of the selected row —
+the background says *that* something is selected and the bar says *where*,
+which is what you want when your eye is on the other side of the frame. What
+can be opened is marked with a chevron, and each row carries the glyph for
+its kind: the file type in the tree, and the `SymbolKind` in the outline, in
+the icons the editor that invented the protocol drew for them. `tree-indent`
+and `tree-selection-mark` are the faces; `set nerd-font-icons=#false` puts
+`>` and `v` back.
+
 Any section can be switched off — `set panel-symbols=#false`, or `t r`, `t s`
 and `t b` inside the panel. The last one standing refuses to go, since an
 empty panel is a column of nothing.

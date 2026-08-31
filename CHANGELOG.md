@@ -8,7 +8,11 @@
   to rebuild. treemacs has the same idea and the same word for it.
 
   `C-c p s` saves what the tree is showing, `C-c p p` opens a saved one and
-  `C-c p d` forgets one. Opening a workspace **opens the tree if it is
+  `C-c p d` forgets one. The switch prompt offers a default — the one
+  already open, or the first saved — so `RET` on it means something; the
+  delete prompt deliberately offers none, because a prompt that deletes
+  whatever it was pointing at when `RET` was hit by accident is a prompt
+  that deletes things by accident. Opening a workspace **opens the tree if it is
   closed** — a set of directories to look at is nothing without somewhere to
   look at them. Deleting one forgets a list, not the directories on it.
 

@@ -787,16 +787,32 @@ fn workspace_switch(editor: &mut Editor, args: &Args) -> Result<()> {
                 "No workspaces saved yet — `M-x workspace-save` makes one".into(),
             ));
         }
+        // A default, because an untouched prompt answers with nothing at
+        // all — that is how a command gets to offer one, and a command that
+        // offers none turns `RET` into an error. The one already open, or
+        // the first saved, which is what someone pressing `RET` straight
+        // away most likely wants.
+        let default = editor
+            .workspace
+            .clone()
+            .filter(|name| editor.workspaces.get(name).is_some())
+            .or_else(|| editor.workspaces.names().first().cloned())
+            .unwrap_or_default();
         editor.prompt_for(
             "workspace-switch",
             MinibufferKind::Choice,
-            "Workspace: ",
+            format!("Workspace (default {default}): "),
             "",
             editor.workspaces.names(),
         );
+        editor.pending_workspace = Some(default);
         return Ok(());
     };
-    let name = name.trim().to_string();
+    let default = editor.pending_workspace.take().unwrap_or_default();
+    let name = match name.trim() {
+        "" => default,
+        typed => typed.to_string(),
+    };
     let Some(workspace) = editor.workspaces.get(&name).cloned() else {
         return Err(crate::CoreError::Message(format!(
             "No workspace named `{name}`"
@@ -835,6 +851,12 @@ fn workspace_delete(editor: &mut Editor, args: &Args) -> Result<()> {
         return Ok(());
     };
     let name = name.trim().to_string();
+    // No default here on purpose. A prompt that deletes whatever it was
+    // pointing at when `RET` was pressed by accident is a prompt that
+    // deletes things by accident.
+    if name.is_empty() {
+        return Err(crate::CoreError::Message("No workspace given".into()));
+    }
     if !editor.workspaces.remove(&name) {
         return Err(crate::CoreError::Message(format!(
             "No workspace named `{name}`"

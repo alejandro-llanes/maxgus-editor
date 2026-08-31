@@ -7615,3 +7615,62 @@ fn switching_with_none_saved_says_how_to_make_one() {
         s.editor.minibuffer.display()
     );
 }
+
+#[test]
+fn the_workspace_prompt_offers_one_so_return_means_something() {
+    // An untouched prompt answers with nothing at all — that is how a
+    // command gets to offer a default — so a command that offers none turns
+    // `RET` into `No workspace named ''`. Which is what it did.
+    let mut s = with_workspaces();
+    s.editor.workspaces.save("first", vec!["/one".into()]);
+    s.editor.workspaces.save("second", vec!["/two".into()]);
+    s.editor.tasks.drain();
+
+    s.keys("C-c p p");
+    assert!(
+        s.editor.minibuffer.prompt().contains("default first"),
+        "the prompt names no default: `{}`",
+        s.editor.minibuffer.prompt()
+    );
+    s.keys("RET");
+
+    assert!(
+        !s.editor.minibuffer.message_is_error(),
+        "got `{}`",
+        s.editor.minibuffer.display()
+    );
+    assert_eq!(s.editor.workspace.as_deref(), Some("first"));
+}
+
+#[test]
+fn the_default_offered_is_the_one_already_open() {
+    // Switching back to where you were should be the shortest answer.
+    let mut s = with_workspaces();
+    s.editor.workspaces.save("first", vec!["/one".into()]);
+    s.editor.workspaces.save("second", vec!["/two".into()]);
+    s.editor.workspace = Some("second".into());
+    s.keys("C-c p p");
+    assert!(
+        s.editor.minibuffer.prompt().contains("default second"),
+        "got `{}`",
+        s.editor.minibuffer.prompt()
+    );
+}
+
+#[test]
+fn the_delete_prompt_offers_nothing_at_all() {
+    // A prompt that deletes whatever it was pointing at when `RET` was hit
+    // by accident is a prompt that deletes things by accident.
+    let mut s = with_workspaces();
+    s.editor.workspaces.save("first", vec!["/one".into()]);
+    s.editor.tasks.drain();
+
+    s.keys("C-c p d");
+    s.keys("RET");
+    assert_eq!(s.editor.workspaces.names(), ["first"], "it deleted one");
+    assert!(
+        s.editor.minibuffer.message_is_error(),
+        "got `{}`",
+        s.editor.minibuffer.display()
+    );
+}

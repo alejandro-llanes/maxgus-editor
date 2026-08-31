@@ -68,6 +68,10 @@ pub struct Editor {
     /// Which of them is open, when one was opened by name. For the message
     /// that says what you are in, and so saving again offers the same name.
     pub workspace: Option<String>,
+    /// The default the workspace prompt offered, kept for the moment
+    /// between it being asked and being answered: an untouched prompt
+    /// answers with nothing, and this is what nothing means.
+    pub pending_workspace: Option<String>,
     /// The theme the configuration file names, as distinct from the one in
     /// use — which is how `consult-theme` knows whether there is anything worth
     /// writing down.
@@ -337,6 +341,7 @@ impl Editor {
             state_dir: None,
             workspaces: crate::workspace::Workspaces::default(),
             workspace: None,
+            pending_workspace: None,
             config_says_theme: None,
             pending_line: None,
             beacon: None,

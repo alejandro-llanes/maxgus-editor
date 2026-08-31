@@ -89,14 +89,14 @@ pub fn register(registry: &mut Registry) {
         command!("load-theme", "Switch to another theme.", load_theme),
         command!(
             "visit-theme",
-            "Try each theme in turn and keep one.",
+            "Try each theme in turn and keep one. With a prefix argument, \
+             also write it into the configuration file.",
             visit_theme
         ),
         command!(
-            "visit-theme-keep",
-            "Answer whether a visited theme should be written to the config file.",
-            visit_theme_keep,
-            non_interactive
+            "save-theme",
+            "Write the theme in use into the configuration file.",
+            save_theme
         ),
         command!("repeat", "Run the last command again.", repeat),
         command!(
@@ -306,14 +306,27 @@ fn repeat(editor: &mut Editor, args: &Args) -> Result<()> {
 /// `M-x visit-theme`: walk the themes, seeing each one as you go.
 ///
 /// The list is up from the moment it opens and every theme is applied as it
-/// comes under the cursor, so choosing one is a matter of looking rather than
-/// of remembering what the names mean. `C-g` puts back the one you started
-/// with; `RET` keeps it and asks whether to write it down.
+/// comes under the cursor, so choosing one is a matter of looking rather
+/// than of remembering what the names mean. `RET` keeps what is showing and
+/// that is the end of it; `C-g` puts back the one you started with.
+///
+/// It used to ask, on `RET`, whether to write the choice into the
+/// configuration file — which put a yes-or-no question between someone and
+/// a theme they had already chosen by looking at it. Trying themes on and
+/// deciding to keep one for good are two different intentions, and only the
+/// first of them is what this command is for. `save-theme` is the second,
+/// and a prefix argument does both at once for anyone who knew all along.
+///
+/// Only a real theme is taken. A name that is not one leaves the theme
+/// where it started rather than half-applying something that does not
+/// exist, and an empty answer means the one already in use — so `RET`
+/// straight away changes nothing.
 fn visit_theme(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(input) = args.input.clone() else {
         let candidates = editor.theme_names();
         let current = editor.settings.theme.clone();
         editor.theme_before_preview = Some(current.clone());
+        editor.visit_theme_writes = args.prefix.is_present();
         editor.prompt_for(
             "visit-theme",
             MinibufferKind::Choice,
@@ -323,47 +336,63 @@ fn visit_theme(editor: &mut Editor, args: &Args) -> Result<()> {
         );
         return Ok(());
     };
-    let before = editor.theme_before_preview.clone();
-    // Accepted, so the preview stands rather than being undone.
-    editor.end_theme_preview(false);
+    let before = editor
+        .theme_before_preview
+        .clone()
+        .unwrap_or_else(|| editor.settings.theme.clone());
+    let writes = std::mem::take(&mut editor.visit_theme_writes);
 
     let name = match input.trim() {
-        "" => before.unwrap_or_else(|| editor.settings.theme.clone()),
+        "" => before.clone(),
         typed => typed.to_string(),
     };
+    // Checked before the preview is let go of, so a name that is not a theme
+    // puts back the one that was showing instead of leaving it applied.
+    if !editor.theme_names().contains(&name) {
+        editor.end_theme_preview(true);
+        return Err(crate::CoreError::Message(format!(
+            "No theme named `{name}`"
+        )));
+    }
+    // Accepted, so the preview stands rather than being undone.
+    editor.end_theme_preview(false);
     editor.set_theme(&name)?;
 
-    // Nothing to write down if it is already what the configuration says.
-    if editor.config_says_theme.as_deref() == Some(name.as_str()) {
-        editor.message(format!("Theme {name}"));
-        return Ok(());
+    if writes {
+        return persist_theme(editor, &name);
     }
-    editor.prompt_for(
-        "visit-theme-keep",
-        MinibufferKind::YesNo,
-        format!("Keep {name} in the config file? (yes or no) "),
-        "",
-        Vec::new(),
-    );
+    // Said only when there is something to say: a theme the configuration
+    // already names will be there tomorrow whatever anyone does now.
+    match editor.config_says_theme.as_deref() == Some(name.as_str()) {
+        true => editor.message(format!("Theme {name}")),
+        false => editor.message(format!("Theme {name} — `save-theme` keeps it")),
+    }
     Ok(())
 }
 
-/// The answer to that question.
-fn visit_theme_keep(editor: &mut Editor, args: &Args) -> Result<()> {
-    let Some(answer) = args.input.clone() else {
-        return Ok(());
-    };
+/// `M-x save-theme`: write the theme in use into the configuration file.
+///
+/// The other half of `visit-theme`, and useful on its own: a theme arrived
+/// at by `load-theme`, or by editing the file and thinking better of it, is
+/// kept by the same command.
+///
+/// Only the one setting is rewritten. The rest of the file — the comments,
+/// the ordering, the keymaps — is left exactly as it was.
+fn save_theme(editor: &mut Editor, _: &Args) -> Result<()> {
     let name = editor.settings.theme.clone();
-    if !answer.eq_ignore_ascii_case("yes") && !answer.eq_ignore_ascii_case("y") {
-        editor.message(format!("Theme {name}, this session only"));
-        return Ok(());
-    }
+    persist_theme(editor, &name)
+}
+
+fn persist_theme(editor: &mut Editor, name: &str) -> Result<()> {
     let Some(path) = editor.config_path.clone() else {
         return Err(crate::CoreError::Message(
             "There is no configuration file to write to".into(),
         ));
     };
-    editor.spawn(Task::PersistTheme { path, theme: name });
+    editor.spawn(Task::PersistTheme {
+        path,
+        theme: name.to_string(),
+    });
     Ok(())
 }
 

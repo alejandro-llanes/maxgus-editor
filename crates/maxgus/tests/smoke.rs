@@ -1762,13 +1762,21 @@ fn visit_theme_previews_keeps_and_writes_the_choice() {
     );
 
     session.send(b"daylight\r");
+    // Choosing is the end of it: nothing is asked, and nothing is written.
     assert!(
-        session.shows("config file"),
-        "it did not offer to write the choice down:\n{:#?}",
+        session.shows("save-theme"),
+        "it did not say how to keep the choice:\n{:#?}",
         session.screen()
     );
+    assert_eq!(
+        std::fs::read_to_string(&config).unwrap(),
+        "set tab-width=4\nset theme=\"maxgus-dark\"\n",
+        "visiting a theme wrote to the configuration file"
+    );
 
-    session.send(b"yes\r");
+    // Keeping it is the other command.
+    session.send(b"\x1bx");
+    session.send(b"save-theme\r");
     assert!(
         session.shows("written to"),
         "it did not report the write:\n{:#?}",
@@ -1785,6 +1793,9 @@ fn visit_theme_previews_keeps_and_writes_the_choice() {
 
 #[test]
 fn visit_theme_can_keep_a_theme_without_touching_the_config() {
+    // Which is now simply what it does: keeping one for good is
+    // `save-theme`, and not reaching for it is how you keep a theme for the
+    // session.
     let fixture = Fixture::new("visit-theme-session");
     let config = fixture.path().join("config.kdl");
     let original = "set theme=\"maxgus-dark\"\n";
@@ -1794,17 +1805,11 @@ fn visit_theme_can_keep_a_theme_without_touching_the_config() {
     session.send(b"\x1bx");
     session.send(b"visit-theme\r");
     session.send(b"maxgus-light\r");
-    session.send(b"no\r");
 
-    assert!(
-        session.shows("session only"),
-        "got:\n{:#?}",
-        session.screen()
-    );
     assert_eq!(
         std::fs::read_to_string(&config).unwrap(),
         original,
-        "answering no wrote to the configuration file anyway"
+        "visiting a theme wrote to the configuration file"
     );
 
     // And the theme really is in use, not merely reported.

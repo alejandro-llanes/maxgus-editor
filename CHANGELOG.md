@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **`visit-theme` stops asking.** It applied each theme as it came under
+  the cursor, and then, once you had chosen one by *looking at it*, put a
+  yes-or-no question about the configuration file between you and the theme
+  you had just picked. Trying themes on and deciding to keep one for good
+  are two different intentions and only the first is what the command is
+  for. `RET` now keeps what is showing and that is the end of it, which is
+  how the same idea works elsewhere.
+
+  Keeping one is its own command: **`save-theme`** writes the theme in use
+  into the configuration file — of whatever theme is in use, however it got
+  there, so a theme arrived at by `load-theme` is kept the same way. A
+  prefix argument on `visit-theme` does both at once. Writing still changes
+  that one setting and leaves the rest of the file alone.
+
+  A name that is not a theme now leaves the theme you started with, rather
+  than accepting the preview and then reporting the error — the preview has
+  already changed the screen by the time `RET` is pressed, so there was
+  something to undo and it was not being undone.
+
 - **Scrolling and the cursor move on a spring now, not an easing curve.**
   This is the one that was felt before it was found. An exponential ease —
   a fixed fraction of the remaining distance each frame — is *fastest at its

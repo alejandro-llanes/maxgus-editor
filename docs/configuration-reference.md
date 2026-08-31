@@ -277,10 +277,12 @@ file you drop in rather than something to paste into `config.kdl`:
 
 `set theme=` finds them by name, and both `M-x load-theme` and
 `M-x visit-theme` offer them. **`M-x visit-theme` is the one to reach for**: it
-applies each theme as it comes under the cursor so you can see it, `C-g` puts
-back the one you started with, and choosing one asks whether to write
-`set theme=` into your configuration file or keep it for the session only.
-Writing it changes that one property and nothing else in the file. Files are
+applies each theme as it comes under the cursor so you can see it, `RET` keeps
+what is showing, and `C-g` puts back the one you started with. It changes
+nothing on disk. **`M-x save-theme`** is what writes `set theme=` into your
+configuration file — of whatever theme is in use, however it got there — and
+`C-u M-x visit-theme` does both in one go. Writing it changes that one property
+and nothing else in the file. Files are
 read in name order, and a `theme` block in `config.kdl` still wins face by face
 over a file of the same name, so you can adjust a downloaded theme without
 editing it. A file that will not parse, or that names a face that does not

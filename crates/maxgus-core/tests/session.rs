@@ -1872,7 +1872,11 @@ fn abandoning_the_visit_puts_the_old_theme_back() {
 }
 
 #[test]
-fn keeping_a_visited_theme_asks_whether_to_write_it_down() {
+fn choosing_a_theme_is_the_end_of_it() {
+    // It used to ask, here, whether to write the choice into the config —
+    // a yes-or-no question between someone and a theme they had already
+    // chosen by looking at it. Trying themes on and keeping one for good
+    // are two intentions, and this command is the first.
     let mut s = with_two_themes();
     s.keys("M-x");
     s.type_text("visit-theme");
@@ -1885,44 +1889,52 @@ fn keeping_a_visited_theme_asks_whether_to_write_it_down() {
         "daylight",
         "the choice did not stick"
     );
+    assert!(!s.editor.minibuffer.is_active(), "it asked something");
     assert!(
-        s.editor.minibuffer.is_active(),
-        "it did not ask about the config file"
-    );
-    assert!(
-        s.editor.minibuffer.prompt().contains("config file"),
-        "got `{}`",
-        s.editor.minibuffer.prompt()
+        s.editor.tasks.drain().is_empty(),
+        "it wrote to the configuration file without being asked to"
     );
 }
 
 #[test]
-fn answering_no_keeps_the_theme_for_the_session_only() {
+fn a_theme_the_config_does_not_name_says_how_to_keep_it() {
+    // The question that used to be asked, turned into an answer nobody has
+    // to give: the way to make it stick is named where it comes up.
     let mut s = with_two_themes();
     s.keys("M-x");
     s.type_text("visit-theme");
     s.keys("RET");
     s.type_text("daylight");
     s.keys("RET");
-    s.editor.tasks.drain();
-
-    s.type_text("no");
-    s.keys("RET");
-
-    assert_eq!(s.editor.theme.name(), "daylight", "the theme did not stay");
     assert!(
-        s.editor.tasks.drain().is_empty(),
-        "answering no still wrote to the configuration file"
-    );
-    assert!(
-        s.editor.minibuffer.display().contains("session"),
+        s.editor.minibuffer.display().contains("save-theme"),
         "got `{}`",
         s.editor.minibuffer.display()
     );
 }
 
 #[test]
-fn answering_yes_queues_the_write() {
+fn the_theme_the_config_already_names_is_not_offered_a_way_to_keep_it() {
+    // It will be there tomorrow whatever anyone does now, so saying how to
+    // keep it would be noise.
+    let mut s = with_two_themes();
+    s.keys("M-x");
+    s.type_text("visit-theme");
+    s.keys("RET");
+    s.type_text("maxgus-dark");
+    s.keys("RET");
+
+    assert!(!s.editor.minibuffer.is_active(), "it asked anyway");
+    assert_eq!(s.editor.theme.name(), "maxgus-dark");
+    assert!(
+        !s.editor.minibuffer.display().contains("save-theme"),
+        "got `{}`",
+        s.editor.minibuffer.display()
+    );
+}
+
+#[test]
+fn save_theme_writes_the_one_in_use() {
     let mut s = with_two_themes();
     s.keys("M-x");
     s.type_text("visit-theme");
@@ -1931,7 +1943,8 @@ fn answering_yes_queues_the_write() {
     s.keys("RET");
     s.editor.tasks.drain();
 
-    s.type_text("yes");
+    s.keys("M-x");
+    s.type_text("save-theme");
     s.keys("RET");
 
     let queued = s.editor.tasks.drain();
@@ -1942,17 +1955,66 @@ fn answering_yes_queues_the_write() {
 }
 
 #[test]
-fn visiting_the_theme_already_in_the_config_asks_nothing() {
-    // There would be nothing to write, so the question would be noise.
+fn a_prefix_argument_visits_and_keeps_in_one_go() {
+    // For someone who knew before they started. The argument is given when
+    // the prompt opens and wanted when it closes, which is the only reason
+    // it has to be remembered at all.
     let mut s = with_two_themes();
+    s.keys("C-u");
     s.keys("M-x");
     s.type_text("visit-theme");
     s.keys("RET");
-    s.type_text("maxgus-dark");
+    s.type_text("daylight");
     s.keys("RET");
 
-    assert!(!s.editor.minibuffer.is_active(), "it asked anyway");
-    assert_eq!(s.editor.theme.name(), "maxgus-dark");
+    assert_eq!(s.editor.theme.name(), "daylight");
+    let queued = s.editor.tasks.drain();
+    let wrote = queued.iter().any(
+        |task| matches!(task, maxgus_core::Task::PersistTheme { theme, .. } if theme == "daylight"),
+    );
+    assert!(wrote, "the prefix argument did not write it: {queued:?}");
+}
+
+#[test]
+fn a_name_that_is_not_a_theme_leaves_the_one_that_was_showing() {
+    // Half-applying something that does not exist is the failure here: the
+    // preview has already changed the screen by the time `RET` is pressed.
+    let mut s = with_two_themes();
+    let started_as = s.editor.theme.name().to_string();
+    s.keys("M-x");
+    s.type_text("visit-theme");
+    s.keys("RET");
+    s.type_text("daylight");
+    assert_eq!(s.editor.theme.name(), "daylight", "no preview to undo");
+    // Carry on typing until it is no longer any theme's name.
+    s.type_text("-and-a-half");
+    s.keys("RET");
+
+    assert_eq!(
+        s.editor.theme.name(),
+        started_as,
+        "a name that is not a theme was left applied"
+    );
+    assert!(
+        s.editor.minibuffer.message_is_error(),
+        "it was not reported: `{}`",
+        s.editor.minibuffer.display()
+    );
+}
+
+#[test]
+fn an_empty_answer_keeps_the_theme_that_was_already_in_use() {
+    // `RET` straight away is how someone leaves without choosing, and it
+    // has to be as harmless as `C-g`.
+    let mut s = with_two_themes();
+    let started_as = s.editor.theme.name().to_string();
+    s.keys("M-x");
+    s.type_text("visit-theme");
+    s.keys("RET");
+    s.keys("RET");
+
+    assert_eq!(s.editor.theme.name(), started_as);
+    assert!(!s.editor.minibuffer.is_active());
 }
 
 #[cfg(feature = "full")]

@@ -257,9 +257,14 @@ truecolor degraded to 256 and then 16 colours by what your terminal reports.
 
 **`M-x visit-theme` tries them on.** Each theme is applied as it comes under
 the cursor, so you choose by looking rather than by guessing what a name means.
-`C-g` puts back the one you started with. Choose one and it asks whether to
-write it into your config file or keep it for this session only — and writing
-changes that one setting, leaving the rest of the file exactly as it was.
+`RET` keeps what is showing and that is the end of it; `C-g` puts back the one
+you started with; a name that is not a theme leaves the one you started with
+too, rather than half-applying something that does not exist.
+
+Keeping one for good is a separate thought and a separate command:
+**`M-x save-theme`** writes the theme in use into your config file, and
+`C-u M-x visit-theme` does both at once for when you knew all along. Writing
+changes that one setting and leaves the rest of the file exactly as it was.
 
 **A theme is a file you drop in.** Anything in
 `~/.config/maxgus/themes/*.kdl` is picked up at startup; `set theme="nord"` is

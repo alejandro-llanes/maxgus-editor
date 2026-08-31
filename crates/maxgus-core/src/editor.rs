@@ -52,6 +52,11 @@ pub struct Editor {
     /// The theme that was in use before `visit-theme` started previewing, so
     /// abandoning the prompt puts it back.
     pub theme_before_preview: Option<String>,
+    /// Whether the visit now being made should be written down when it is
+    /// accepted, which is what a prefix argument on `visit-theme` asks for.
+    /// Remembered because the argument is given when the prompt opens and
+    /// wanted when it closes.
+    pub visit_theme_writes: bool,
     /// Where the configuration was read from, so a theme can be written back
     /// to it. `None` when the editor started without one.
     pub config_path: Option<PathBuf>,
@@ -319,6 +324,7 @@ impl Editor {
             #[cfg(feature = "full")]
             git_branch: None,
             theme_before_preview: None,
+            visit_theme_writes: false,
             config_path: None,
             state_dir: None,
             config_says_theme: None,

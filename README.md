@@ -84,7 +84,8 @@ path in it, because a launcher does not see your shell's `PATH`.
 | Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
 | Buffers, windows, `C-x` everything | ● | ● | ● |
 | The file tree, with treemacs' keys | ● | ● | ● |
-| **Several directories** in the tree, saved as workspaces | ● | ● | ● |
+| **Several directories** in the tree | ● | ● | ● |
+| **Workspaces**, saved and reopened by name | ● | ● | ● |
 | The side panel — tree and buffer list | ● | ● | ● |
 | The side panel — symbol outline | ○ | ● | ● |
 | Themes, and the configuration file | ● | ● | ● |

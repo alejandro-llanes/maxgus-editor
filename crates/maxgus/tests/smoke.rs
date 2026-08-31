@@ -76,6 +76,13 @@ impl Session {
         let pty =
             rustix::pty::openpt(rustix::pty::OpenptFlags::RDWR | rustix::pty::OpenptFlags::NOCTTY)
                 .expect("a pseudo-terminal");
+        // Reads have to be able to come back empty. Every loop here that
+        // waits for the editor to do something also has to keep draining
+        // what it writes — a loop that only waits will fill the terminal's
+        // buffer and block the editor in `write`, where it will never reach
+        // the keystroke it is being waited on for. With a blocking
+        // descriptor there is no way to do both.
+        rustix::io::ioctl_fionbio(&pty, true).expect("a terminal that can be read without waiting");
         rustix::pty::grantpt(&pty).expect("grant");
         rustix::pty::unlockpt(&pty).expect("unlock");
         let name = rustix::pty::ptsname(&pty, Vec::new()).expect("the terminal's name");
@@ -142,7 +149,9 @@ impl Session {
             match self.controller.read(&mut chunk) {
                 Ok(0) => break,
                 Ok(n) => self.output.extend_from_slice(&chunk[..n]),
-                // Nothing to read yet; wait rather than spin.
+                // Nothing to read yet — the descriptor is non-blocking, so
+                // this is the ordinary empty answer rather than a failure.
+                // Wait rather than spin.
                 Err(_) => std::thread::sleep(Duration::from_millis(10)),
             }
         }
@@ -187,12 +196,20 @@ impl Session {
             .expect("a state letter")
     }
 
-    /// Waits for the editor to stop itself, and drains what it wrote on the
-    /// way down. Nothing more can arrive from a stopped process, so the buffer
-    /// is complete once this returns.
+    /// Waits for the editor to stop itself, draining what it writes on the
+    /// way down. Nothing more can arrive from a stopped process, so the
+    /// buffer is complete once this returns.
+    ///
+    /// The draining is the part that matters. This used to poll the state
+    /// and sleep, reading nothing, for twenty seconds — so an editor that
+    /// filled the terminal's buffer on its way to suspending blocked in
+    /// `write` and never got as far as the `C-z` it had been sent. It
+    /// showed up as `never stopped; it is in state S`, and only under load,
+    /// where there is enough output in flight to fill the buffer.
     fn wait_until_stopped(&mut self) {
         let deadline = Instant::now() + EXIT_TIMEOUT;
         while Instant::now() < deadline {
+            self.drain();
             if self.state() == 'T' {
                 self.settle();
                 return;
@@ -200,6 +217,17 @@ impl Session {
             std::thread::sleep(Duration::from_millis(10));
         }
         panic!("the editor never stopped; it is in state {}", self.state());
+    }
+
+    /// Takes whatever is waiting, without waiting for more.
+    fn drain(&mut self) {
+        let mut chunk = [0u8; 8192];
+        while let Ok(n) = self.controller.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            self.output.extend_from_slice(&chunk[..n]);
+        }
     }
 
     /// Continues the editor, as `fg` does.

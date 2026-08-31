@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **The pseudo-terminal the smoke tests drive was blocking, and one loop
+  never drained it.** `wait_until_stopped` polled the editor's state for
+  twenty seconds while reading nothing, so an editor that filled the
+  terminal's buffer on the way to suspending blocked in `write` and never
+  reached the `C-z` it had been sent. It failed as `never stopped; it is in
+  state S`, only under load, and only in the one test that suspends.
+
+  The descriptor is non-blocking now — which is what the code already
+  claimed, since a read that reports "nothing to read yet" is not something
+  a blocking descriptor does — and every loop that waits also drains. The
+  smoke suite is a third quicker for it, because `settle` now keeps to the
+  250ms it was written to take instead of blocking past it.
+
 - **A review across every build, and what it found.** The three builds are
   a promise the README makes in a table, and most of that table had nothing
   holding it up.

@@ -400,6 +400,33 @@ A runaway loop is stopped rather than taking the editor with it.
 The language is [Rhai](https://rhai.rs): pure Rust, so it builds everywhere
 the editor does, with no C toolchain and no `unsafe`.
 
+### A file browser you type at
+
+`C-x C-f` is for when you know the path. `C-x C-d` is for when you know
+roughly where it is: a box over the frame listing the directory, narrowing
+fuzzily as you type, walked with the arrows.
+
+```
+╭─ ~/Projects/maxgus-editor/crates ──────────────── 2/14 ─╮
+│  spr                                                    │
+├─────────────────────────────────────────────────────────┤
+│  maxgus-gui/                              30 Aug 19:12  │
+│  spring.rs                        6.2k    30 Aug 19:12  │
+╰─ ↑↓ move · → in · ← out · RET open ─────────────────────╯
+```
+
+`→` goes into the directory under the cursor and `←` comes back out.
+Backspace rubs out a character, or goes up a directory when there is none
+left to rub out. `RET` opens a file or descends into a directory, `C-g` puts
+it away. Every row carries the glyph for its kind, and files carry their size
+and when they were last written.
+
+It is deliberately not dired, and does not replace it. dired is for working
+*on* a directory — marking a dozen files and doing one thing to all of them —
+and its single-letter keys are what make that quick. Those keys and typing to
+narrow want the same keyboard, so they are two commands rather than one
+command with a mode in it.
+
 ### Dired: a directory you can work on
 
 The tree is for browsing a project. `C-x d` is for working on a directory —
@@ -744,6 +771,9 @@ first.
 | `C->` `C-<` | A cursor at the next / previous occurrence |
 | `C-c C-<` | A cursor at every occurrence |
 | `C-x d` | Open a directory as a buffer |
+| `C-x C-d` | Find a file by looking — a box that narrows as you type |
+| `C-c p p` | Open a saved workspace |
+| `C-c p s` `C-c p d` | Save the tree's directories as one, forget one |
 | `C-x t t` `<f9>` `C-s-a` | Toggle the side panel |
 | `C-x t 1` / `2` / `3` | Select the tree, the outline, the buffer list |
 | `C-x t v` | Toggle the terminal panel |
@@ -791,9 +821,9 @@ To try them side by side, `./scripts/build-variants.sh` builds all three into
 
 ```console
 $ ./scripts/build-variants.sh
-minimal  ok    4.6M  maxgus 0.2.5 (minimal)
-full     ok     13M  maxgus 0.2.5 (full)
-gui      ok     20M  maxgus 0.2.5 (gui)
+minimal  ok    4.7M  maxgus 1.0.0 (minimal)
+full     ok   12.2M  maxgus 1.0.0 (full)
+gui      ok   20.7M  maxgus 1.0.0 (gui)
 ```
 
 `--debug` builds them faster, `--into DIR` puts them somewhere else. Every
@@ -1028,7 +1058,7 @@ What changed in each release is in [CHANGELOG.md](CHANGELOG.md). Tagging is
 the whole of publishing one:
 
 ```console
-$ git tag v0.2.5 && git push origin v0.2.5
+$ git tag v1.0.0 && git push origin v1.0.0
 ```
 
 [`.github/workflows/release.yml`](.github/workflows/release.yml) builds all

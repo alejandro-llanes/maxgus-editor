@@ -17,11 +17,11 @@ bytemuck = { version = "1.24.0", features = ["derive"] }
 fontdb = "0.24.0"
 fontdue = "0.9.4"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
-maxgus-config = { version = "0.2.5", path = "../maxgus-config" }
-maxgus-core = { version = "0.2.5", path = "../maxgus-core", default-features = false }
-maxgus-faces = { version = "0.2.5", path = "../maxgus-faces" }
-maxgus-keys = { version = "0.2.5", path = "../maxgus-keys" }
-maxgus-tui = { version = "0.2.5", path = "../maxgus-tui" }
+maxgus-config = { version = "1.0.0", path = "../maxgus-config" }
+maxgus-core = { version = "1.0.0", path = "../maxgus-core", default-features = false }
+maxgus-faces = { version = "1.0.0", path = "../maxgus-faces" }
+maxgus-keys = { version = "1.0.0", path = "../maxgus-keys" }
+maxgus-tui = { version = "1.0.0", path = "../maxgus-tui" }
 pollster = "0.4.0"
 rustybuzz = "0.20.1"
 tracing = "0.1.44"

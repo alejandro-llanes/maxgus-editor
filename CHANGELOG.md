@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## v1.0.0
+
+The editor has been usable for a while; this is the release that says so. The
+number is a promise about what happens next rather than a claim that anything
+suddenly got better — the keys, the command names, the configuration file and
+the faces are what they are now, and breaking any of them is a major version
+from here.
+
+What arrived with it:
 
 - **The pseudo-terminal the smoke tests drive was blocking, and one loop
   never drained it.** `wait_until_stopped` polled the editor's state for

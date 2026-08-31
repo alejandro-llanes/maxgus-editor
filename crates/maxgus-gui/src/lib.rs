@@ -12,6 +12,8 @@ pub mod mouse;
 pub mod quads;
 pub mod renderer;
 pub mod scroll;
+pub mod spring;
+pub mod vfx;
 pub mod window;
 
 pub use window::{Settings, run};

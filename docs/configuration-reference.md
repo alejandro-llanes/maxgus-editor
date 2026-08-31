@@ -155,10 +155,22 @@ KDL spells booleans `#true` and `#false`, and null `#null`.
 | `which-key` | boolean | `#true` | After a pause in the middle of a key sequence, show what the next key can be. |
 | `which-key-delay-ms` | integer | `400` | How long that pause is, capped at 10000. |
 | `mouse-wheel-lines` | integer | `3` | How far one notch of the wheel moves the view, in lines, clamped to 1–50. A touchpad reports the pixels it moved and is unaffected. Only read when drawing into a window. |
-| `smooth-scroll-ms` | integer | `120` | Roughly how long the view takes to come to rest after the wheel asks it to move, capped at 1000. Lower is brisker; `0` turns the animation off and the view arrives at once. A terminal cannot draw a fraction of a line and ignores it. |
+| `smooth-scroll-ms` | integer | `300` | Roughly how long the view takes to come to rest after being asked to move, capped at 1000. Nine tenths of the way is covered in this long; the sliver after it is sub-pixel. Lower is brisker; `0` turns the animation off and the view arrives at once. A terminal cannot draw a fraction of a line and ignores it. |
 | `scroll-animation-far-lines` | integer | `1` | How much of a jump the view animates when a command moves it a long way — a page, or `M->`. The last this many lines are drawn as a slide; the rest arrives at once. Capped at 8, `0` turns it off. Only read when drawing into a window. |
-| `cursor-animation-ms` | integer | `90` | Roughly how long the cursor takes to slide to where point went, capped at 1000. `0` turns it off and the cursor is simply where it is. Only read when drawing into a window, which draws this instead of the beacon. |
+| `cursor-animation-ms` | integer | `150` | Roughly how long the cursor takes to slide to where point went, capped at 1000. `0` turns it off and the cursor is simply where it is. Only read when drawing into a window, which draws this instead of the beacon. |
+| `cursor-short-animation-ms` | integer | `40` | How long a hop of a cell or two takes instead. Typing is mostly such hops, and giving them the full duration makes the cursor look like it is lagging behind the keyboard. Capped at 1000. |
 | `cursor-trail` | integer | `70` | How far the back of the cursor lags the front while it travels, in percent — the smear. `0` moves the block rigidly. Capped at 95, because a back that never leaves is a cursor that never arrives. |
+| `cursor-vfx` | string | `""` | What the cursor leaves behind it. `sonicboom`, `ripple` and `wireframe` mark where it landed; `railgun`, `torpedo` and `pixiedust` trail particles along the way it came. Empty is none of them, and nothing is drawn or computed. A name that is not one of these is reported rather than ignored. |
+| `cursor-vfx-opacity` | integer | `78` | How solid the effect is at its strongest, in percent, capped at 100. |
+| `cursor-vfx-particle-lifetime-ms` | integer | `500` | How long a trailing particle lives, capped at 5000. |
+| `cursor-vfx-highlight-lifetime-ms` | integer | `200` | How long a mark at the destination takes to swell and fade, capped at 5000. |
+| `cursor-vfx-particle-density` | integer | `70` | Particles per cell of distance travelled, in percent — `70` is seven for every ten cells. Capped at 2000, and a single jump never spawns more than 256 however high this is. |
+| `cursor-vfx-particle-speed` | integer | `10` | How fast particles fly away, capped at 1000. |
+| `cursor-vfx-particle-phase` | integer | `150` | How far round its arc a `railgun` flings them, in percent. Capped at 2000. |
+| `cursor-vfx-particle-curl` | integer | `100` | How sharply a particle's flight turns as it goes, in percent. Capped at 2000. |
+| `floating-blur` | boolean | `#true` | Blur what is behind a popup — the completion list, the doc box, the which-key panel, the doc box's own box. Costs the frame being drawn in two halves and three more passes over each popup's area, and nothing at all while none is open. Only read when drawing into a window. |
+| `floating-blur-radius` | integer | `8` | How far the blur reaches, in pixels, capped at 64. `0` turns it off as surely as `floating-blur=#false`. |
+| `floating-opacity` | integer | `82` | How solid a popup's own background is over the blur, in percent. Clamped to 20–100: a popup nobody can read is not a popup. Has nothing to show through unless the blur is on. |
 | `ligatures` | boolean | `#true` | Let the font join characters it was made to draw as one, such as `!=`. A font with no such joins is unaffected. Only read when drawing into a window; a terminal draws with whatever font the terminal was given. |
 | `shell` | string | `$SHELL` | The program a terminal tab starts. |
 

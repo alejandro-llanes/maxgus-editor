@@ -474,11 +474,88 @@ impl<'a> Parser<'a> {
                     self.config.settings.cursor_animation_ms = n.min(1000);
                 }
             }
+            "cursor-short-animation-ms" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.cursor_short_animation_ms = n.min(1000);
+                }
+            }
             "cursor-trail" => {
                 if let Some(n) = self.usize_value(node, key, value) {
                     // A hundred percent is a cursor whose back never leaves,
                     // so it stops short of it.
                     self.config.settings.cursor_trail = n.min(95);
+                }
+            }
+            "cursor-vfx" => {
+                if let Some(name) = self.string_value(node, key, value) {
+                    // Checked here rather than shrugged at later: a
+                    // misspelled effect is a setting that silently does
+                    // nothing, which is the failure this file is careful
+                    // about everywhere else.
+                    if crate::settings::CURSOR_VFX_NAMES.contains(&name.as_str()) || name.is_empty()
+                    {
+                        self.config.settings.cursor_vfx = name;
+                    } else {
+                        let known = crate::settings::CURSOR_VFX_NAMES.join("`, `");
+                        self.warn(
+                            node,
+                            format!("`{name}` is not a cursor effect; try `{known}`"),
+                        );
+                    }
+                }
+            }
+            "cursor-vfx-opacity" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.cursor_vfx_opacity = n.min(100);
+                }
+            }
+            "cursor-vfx-particle-lifetime-ms" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.cursor_vfx_particle_lifetime_ms = n.min(5000);
+                }
+            }
+            "cursor-vfx-highlight-lifetime-ms" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.cursor_vfx_highlight_lifetime_ms = n.min(5000);
+                }
+            }
+            "cursor-vfx-particle-density" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.cursor_vfx_particle_density = n.min(2000);
+                }
+            }
+            "cursor-vfx-particle-speed" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.cursor_vfx_particle_speed = n.min(1000);
+                }
+            }
+            "cursor-vfx-particle-phase" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.cursor_vfx_particle_phase = n.min(2000);
+                }
+            }
+            "cursor-vfx-particle-curl" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.cursor_vfx_particle_curl = n.min(2000);
+                }
+            }
+            "floating-blur" => {
+                if let Some(b) = self.bool_value(node, key, value) {
+                    self.config.settings.floating_blur = b;
+                }
+            }
+            "floating-blur-radius" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    // The blur takes nine samples across this, so a huge
+                    // one is a smear rather than a blur and costs the same.
+                    self.config.settings.floating_blur_radius = n.min(64);
+                }
+            }
+            "floating-opacity" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    // Never wholly see-through: a popup you cannot read is
+                    // not a popup.
+                    self.config.settings.floating_opacity = n.clamp(20, 100);
                 }
             }
             "ligatures" => {

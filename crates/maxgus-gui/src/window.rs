@@ -82,8 +82,11 @@ pub fn run(
         fonts: None,
         surface: Surface::new(Size::new(1, 1)),
         scratch: Surface::new(Size::new(1, 1)),
+        backdrop: Surface::new(Size::new(1, 1)),
         scroll: Scroll::new(),
+        incoming: None,
         cursor: crate::cursor::Cursor::new(),
+        vfx: crate::vfx::Vfx::new(),
         modifiers: ModifiersState::empty(),
         pointer: (0.0, 0.0),
         selecting: false,
@@ -100,6 +103,39 @@ pub fn run(
     match app.failure.take() {
         Some(error) => Err(error),
         None => Ok(()),
+    }
+}
+
+/// A rectangle with `reach` cells of margin, clipped at nothing: what a
+/// blur behind a popup has to be drawn over, since a blur reads outside the
+/// shape it fills.
+fn grow(area: Rect, reach: u16) -> Rect {
+    Rect::new(
+        area.x.saturating_sub(reach),
+        area.y.saturating_sub(reach),
+        area.width + reach * 2,
+        area.height + reach * 2,
+    )
+}
+
+/// The cursor's effects, as the configuration asks for them.
+///
+/// Read afresh each frame rather than captured at startup, because
+/// `cursor-vfx` can change under the window the way any setting can.
+fn vfx_settings(settings: &maxgus_config::Settings) -> crate::vfx::Settings {
+    let percent = |n: usize| n as f32 / 100.0;
+    let seconds = |ms: usize| ms as f32 / 1000.0;
+    crate::vfx::Settings {
+        // An unknown name was reported when the file was read; here it is
+        // simply nothing, which is what it draws.
+        mode: crate::vfx::Mode::parse(&settings.cursor_vfx).unwrap_or_default(),
+        opacity: percent(settings.cursor_vfx_opacity),
+        particle_lifetime: seconds(settings.cursor_vfx_particle_lifetime_ms),
+        highlight_lifetime: seconds(settings.cursor_vfx_highlight_lifetime_ms),
+        density: percent(settings.cursor_vfx_particle_density),
+        speed: settings.cursor_vfx_particle_speed as f32,
+        phase: percent(settings.cursor_vfx_particle_phase),
+        curl: percent(settings.cursor_vfx_particle_curl),
     }
 }
 
@@ -120,6 +156,10 @@ fn settle_the_beacon(settings: &mut maxgus_config::Settings) {
     }
 }
 
+/// What a set of cached incoming lines was fetched for: the window, its
+/// `top_line`, which edge they arrive at, and how many were asked for.
+type IncomingKey = (maxgus_core::WindowId, usize, isize, usize);
+
 struct App {
     editor: Editor,
     dispatcher: Dispatcher,
@@ -133,15 +173,30 @@ struct App {
     /// Somewhere to draw the line sliding in, kept rather than allocated
     /// every frame of an animation.
     scratch: Surface,
+    /// The frame without the things floating over it, which is what a blur
+    /// behind a popup is a blur *of*.
+    backdrop: Surface,
     scroll: Scroll,
     /// The block, and where it is on its way to.
     cursor: crate::cursor::Cursor,
+    /// What it leaves behind it, when it has been asked to leave anything.
+    vfx: crate::vfx::Vfx,
     modifiers: ModifiersState,
     pointer: (f64, f64),
     selecting: bool,
     /// The window the wheel is scrolling, which is the one under the pointer
     /// rather than the one being typed into.
     scrolling: Option<maxgus_core::WindowId>,
+    /// The lines just past the edge of the window being scrolled, and what
+    /// they were fetched for: the window, where its view is, which way it
+    /// is going, and how many were asked for.
+    ///
+    /// Fetching them means drawing the whole frame again into a scratch
+    /// surface. They do not change while a slide runs — the view has
+    /// already moved and the buffer cannot change without a key — so doing
+    /// it every frame, which is what this did, was a second full redisplay
+    /// per frame for the whole length of every scroll.
+    incoming: Option<(IncomingKey, Vec<Vec<maxgus_tui::Cell>>)>,
     /// A half-typed key sequence, and when it was half-typed.
     ///
     /// The echo area and the which-key panel each wait their own pause
@@ -186,6 +241,9 @@ impl App {
         }
         while let Ok(result) = self.results.try_recv() {
             self.apply(result);
+            // Highlighting arriving mid-slide changes how those lines are
+            // drawn, and the ones already fetched were drawn without it.
+            self.incoming = None;
             self.dirty = true;
         }
         // Applying a result can queue more work — a file read asks for
@@ -242,13 +300,31 @@ impl App {
         // than one, but a command that moved the view several lines slides
         // the last few of them and opens a gap that deep.
         let deep = (pixels.abs() / self.metrics().height).ceil().max(1.0) as usize;
-        let row = match direction > 0 {
-            true => area.height as i32,
-            false => -(deep as i32),
+        let top = self.editor.windows.get(id).map_or(0, |w| w.top_line);
+        // Reuse what was fetched for this same view unless it is no longer
+        // enough. A slide only ever gets shallower as it settles, so the
+        // first frame of one asks for the most and every frame after asks
+        // for nothing.
+        let stale = match self.incoming.as_ref() {
+            Some(((had_id, had_top, had_way, had_deep), _)) => {
+                (*had_id, *had_top, *had_way) != (id, top, direction) || *had_deep < deep
+            }
+            None => true,
         };
-        let incoming =
-            maxgus_core::edge_rows(&mut self.editor, id, direction, deep, &mut self.scratch)
-                .map(|rows| (row, rows));
+        if stale {
+            self.incoming =
+                maxgus_core::edge_rows(&mut self.editor, id, direction, deep, &mut self.scratch)
+                    .map(|rows| ((id, top, direction, deep), rows));
+        }
+        // Counted from the deepest the gap ever got, so the rows keep the
+        // places they were fetched for as it closes.
+        let incoming = self.incoming.as_ref().map(|(_, rows)| {
+            let row = match direction > 0 {
+                true => area.height as i32,
+                false => -(rows.len() as i32),
+            };
+            (row, rows.clone())
+        });
         Some(crate::quads::Shift {
             area,
             pixels,
@@ -282,15 +358,34 @@ impl App {
         // like any other — so the palette is what the theme says now rather
         // than what it said when the window opened.
         self.settings.palette = crate::quads::Palette::of(&self.editor.theme);
-        maxgus_core::draw(&self.editor, &mut self.surface);
+        // Drawn in its two halves — what the windows hold, then what floats
+        // over them — because a blur behind a popup needs what is behind it,
+        // and once the popup is in the grid there is nothing behind it. The
+        // two halves cost what the one did; the copy between them is what
+        // the blur is bought with, and only when there is a popup to blur
+        // behind.
+        maxgus_core::draw_background(&self.editor, &mut self.surface);
+        let blurring =
+            self.editor.settings.floating_blur && self.editor.settings.floating_blur_radius > 0;
+        if blurring {
+            self.backdrop.resize(self.surface.size());
+            self.backdrop.copy_from(&self.surface);
+        }
+        let floating = maxgus_core::draw_floating(&self.editor, &mut self.surface);
         let at = self.editor.cursor_position();
         let metrics = self.metrics();
-        self.cursor.go_to(crate::cursor::Cell {
-            x: at.0 as f32 * metrics.width,
-            y: at.1 as f32 * metrics.height,
-            width: metrics.width,
-            height: metrics.height,
-        });
+        let settings = &self.editor.settings;
+        self.cursor.go_to(
+            crate::cursor::Cell {
+                x: at.0 as f32 * metrics.width,
+                y: at.1 as f32 * metrics.height,
+                width: metrics.width,
+                height: metrics.height,
+            },
+            settings.cursor_animation_ms,
+            settings.cursor_short_animation_ms,
+            settings.cursor_trail,
+        );
         // While the block is in transit it *is* the cursor, and the cell it
         // is heading for is drawn like any other. Doing both would be a
         // cursor in two places, one of which is not where point is.
@@ -301,19 +396,34 @@ impl App {
         let shift = self.shift();
         let palette = self.settings.palette;
         let ligatures = self.editor.settings.ligatures;
+        let vfx = vfx_settings(&self.editor.settings);
 
         let (Some(renderer), Some(fonts)) = (self.renderer.as_mut(), self.fonts.as_mut()) else {
             return;
         };
         renderer.background = palette.background;
-        let frame = crate::quads::build(
-            &self.surface,
-            fonts,
-            &palette,
-            shift.as_ref(),
-            cell,
+        let opacity = self.editor.settings.floating_opacity as f32 / 100.0;
+        let blurring = blurring && !floating.is_empty();
+        let look = crate::quads::Look {
+            palette: &palette,
+            shift: shift.as_ref(),
+            cursor: cell,
             smear,
             ligatures,
+            only: &[],
+            // Only where there is something blurred underneath to show.
+            translucent: match blurring {
+                true => &floating,
+                false => &[],
+            },
+            opacity,
+        };
+        let mut frame = crate::quads::build(&self.surface, fonts, &look);
+        self.vfx.draw(
+            &mut frame,
+            palette.cursor,
+            (metrics.width, metrics.height),
+            &vfx,
         );
         if fonts.atlas().is_dirty() {
             let atlas = fonts.atlas();
@@ -322,7 +432,39 @@ impl App {
             renderer.upload_atlas(width, height, &pixels);
             fonts.atlas_mut().mark_uploaded();
         }
-        if let Err(error) = renderer.draw(&frame) {
+        // The backdrop, drawn only near the popups: a blur reaches no
+        // further than its radius, so the rest of the screen would be drawn
+        // a second time only to be thrown away.
+        let radius = self.editor.settings.floating_blur_radius as f32;
+        let (backdrop, areas) = match blurring {
+            true => {
+                let reach = (radius / metrics.width).ceil() as u16 + 1;
+                let near: Vec<Rect> = floating.iter().map(|area| grow(*area, reach)).collect();
+                let look = crate::quads::Look {
+                    only: &near,
+                    translucent: &[],
+                    opacity: 1.0,
+                    cursor: None,
+                    smear: None,
+                    ..look
+                };
+                let backdrop = crate::quads::build(&self.backdrop, fonts, &look);
+                let pixels: Vec<[f32; 4]> = floating
+                    .iter()
+                    .map(|area| {
+                        [
+                            area.x as f32 * metrics.width,
+                            area.y as f32 * metrics.height,
+                            area.width as f32 * metrics.width,
+                            area.height as f32 * metrics.height,
+                        ]
+                    })
+                    .collect();
+                (Some(backdrop), pixels)
+            }
+            false => (None, Vec::new()),
+        };
+        if let Err(error) = renderer.draw_over(&frame, backdrop.as_ref(), &areas, radius) {
             tracing::warn!("frame not drawn: {error}");
         }
     }
@@ -331,6 +473,7 @@ impl App {
     /// cross are crossed now, so the view is where the wheel asked for it
     /// rather than part of the way there.
     fn settle(&mut self) {
+        self.incoming = None;
         if let Some(id) = self.scrolling.take() {
             let lines = self.scroll.remaining(self.metrics().height);
             if lines != 0 {
@@ -723,12 +866,24 @@ impl ApplicationHandler for App {
         // time like the others, so the setting is the same speed whatever
         // the display refreshes at.
         if self.cursor.is_moving() {
-            let settings = &self.editor.settings;
-            let (settle, trail) = (settings.cursor_animation_ms, settings.cursor_trail);
-            self.cursor.step(since, settle, trail);
+            self.cursor.step(since);
             self.dirty = true;
         }
-        let cursor_moving = self.cursor.is_moving();
+        // And whatever it is leaving behind, which outlives the journey:
+        // the particles are still going out after the block has landed.
+        let vfx = vfx_settings(&self.editor.settings);
+        if vfx.mode != crate::vfx::Mode::None || self.vfx.is_running() {
+            let metrics = self.metrics();
+            let at = self.cursor.destination();
+            let centre = [(at[0][0] + at[3][0]) * 0.5, (at[0][1] + at[3][1]) * 0.5];
+            let was_running = self.vfx.is_running();
+            self.vfx
+                .step(since, centre, (metrics.width, metrics.height), &vfx);
+            if self.vfx.is_running() || was_running {
+                self.dirty = true;
+            }
+        }
+        let cursor_moving = self.cursor.is_moving() || self.vfx.is_running();
         // A half-typed sequence owes the echo and the panel a frame each,
         // at their own times.
         let was = (

@@ -76,6 +76,106 @@ fn quad_vertex(@builtin(vertex_index) vertex: u32, in: QuadIn) -> RectOut {
     return out;
 }
 
+// A disc, filled or as a ring. The cursor's particle effects are made of
+// these, and drawing them as geometry rather than as a texture is what keeps
+// their edges smooth at any size.
+struct CircleIn {
+    @location(0) center: vec2<f32>,
+    @location(1) radius: f32,
+    // Zero or less fills the disc; above zero draws a ring that thick.
+    @location(2) thickness: f32,
+    @location(3) color: vec4<f32>,
+};
+
+struct CircleOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) local: vec2<f32>,
+    @location(1) color: vec4<f32>,
+    @location(2) shape: vec2<f32>,
+};
+
+@vertex
+fn circle_vertex(@builtin(vertex_index) vertex: u32, in: CircleIn) -> CircleOut {
+    var out: CircleOut;
+    // The unit quad, about the centre rather than from a corner.
+    let at = corner(vertex) * 2.0 - vec2<f32>(1.0, 1.0);
+    // A pixel of margin, so the edge has somewhere to fade out into.
+    let reach = in.radius + max(in.thickness, 0.0) * 0.5 + 1.0;
+    out.clip = to_clip(in.center + at * reach);
+    out.local = at * reach;
+    out.color = in.color;
+    out.shape = vec2<f32>(in.radius, in.thickness);
+    return out;
+}
+
+@fragment
+fn circle_fragment(in: CircleOut) -> @location(0) vec4<f32> {
+    let distance = length(in.local);
+    let radius = in.shape.x;
+    let thickness = in.shape.y;
+    var coverage: f32;
+    if thickness <= 0.0 {
+        coverage = 1.0 - smoothstep(radius - 1.0, radius + 1.0, distance);
+    } else {
+        let inner = radius - thickness * 0.5;
+        let outer = radius + thickness * 0.5;
+        coverage = smoothstep(inner - 1.0, inner + 1.0, distance)
+            * (1.0 - smoothstep(outer - 1.0, outer + 1.0, distance));
+    }
+    return vec4<f32>(in.color.rgb, in.color.a * coverage);
+}
+
+// A pass over the whole target, sampling another one. Used twice for the
+// blur behind a popup — once across, once down, because a two-dimensional
+// gaussian is two one-dimensional ones and doing it that way is a handful of
+// samples rather than their square.
+struct Blur {
+    // How far one texel is, along the axis this pass blurs.
+    step: vec2<f32>,
+    radius: f32,
+    pad: f32,
+};
+
+@group(0) @binding(0) var<uniform> blur: Blur;
+@group(1) @binding(0) var source: texture_2d<f32>;
+@group(1) @binding(1) var source_sampler: sampler;
+
+struct BlitOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn blit_vertex(@builtin(vertex_index) vertex: u32) -> BlitOut {
+    var out: BlitOut;
+    let at = corner(vertex);
+    out.clip = vec4<f32>(at.x * 2.0 - 1.0, 1.0 - at.y * 2.0, 0.0, 1.0);
+    out.uv = at;
+    return out;
+}
+
+@fragment
+fn blur_fragment(in: BlitOut) -> @location(0) vec4<f32> {
+    // Nine taps, weighted by a gaussian whose spread is the radius asked
+    // for. Nine is enough at the sizes a popup border is drawn at, and the
+    // cost of a blur is the tap count times two passes times the area.
+    var total = vec4<f32>(0.0);
+    var weight = 0.0;
+    let sigma = max(blur.radius, 0.0001) * 0.5;
+    for (var i = -4; i <= 4; i = i + 1) {
+        let offset = f32(i) * blur.radius * 0.25;
+        let w = exp(-(offset * offset) / (2.0 * sigma * sigma));
+        total = total + textureSample(source, source_sampler, in.uv + blur.step * offset) * w;
+        weight = weight + w;
+    }
+    return total / weight;
+}
+
+@fragment
+fn blit_fragment(in: BlitOut) -> @location(0) vec4<f32> {
+    return textureSample(source, source_sampler, in.uv);
+}
+
 struct SpriteIn {
     @location(0) position: vec2<f32>,
     @location(1) size: vec2<f32>,

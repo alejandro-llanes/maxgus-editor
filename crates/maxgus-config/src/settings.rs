@@ -149,6 +149,13 @@ pub struct Settings {
     /// the cursor is simply where it is. A terminal cannot draw a block
     /// between two cells and ignores it.
     pub cursor_animation_ms: usize,
+    /// `cursor-short-animation-ms`: how long a hop of a cell or two takes.
+    ///
+    /// The common case — a key typed, a character rubbed out — and giving it
+    /// the same duration as a jump across the screen makes ordinary typing
+    /// look like it is lagging behind the keyboard. Neovide's
+    /// `cursor_short_animation_length`, and for the same reason.
+    pub cursor_short_animation_ms: usize,
     /// `cursor-trail`: how far the back of the cursor lags the front, as a
     /// percentage of the way.
     ///
@@ -157,6 +164,48 @@ pub struct Settings {
     /// Neovide's `cursor_trail_size`, in whole percent rather than a
     /// fraction because this file has no floats in it.
     pub cursor_trail: usize,
+    /// `cursor-vfx`: what the cursor leaves behind it.
+    ///
+    /// Neovide's six: `sonicboom`, `ripple` and `wireframe` mark where it
+    /// landed; `railgun`, `torpedo` and `pixiedust` trail particles along
+    /// the way it came. Empty — the default — is none of them, and nothing
+    /// is drawn or computed at all.
+    pub cursor_vfx: String,
+    /// `cursor-vfx-opacity`: how solid the effect is at its strongest, in
+    /// percent.
+    pub cursor_vfx_opacity: usize,
+    /// `cursor-vfx-particle-lifetime-ms`: how long a trailing particle
+    /// lives.
+    pub cursor_vfx_particle_lifetime_ms: usize,
+    /// `cursor-vfx-highlight-lifetime-ms`: how long a mark at the
+    /// destination takes to swell and fade.
+    pub cursor_vfx_highlight_lifetime_ms: usize,
+    /// `cursor-vfx-particle-density`: particles per cell travelled, in
+    /// percent — so `70` is seven for every ten cells.
+    pub cursor_vfx_particle_density: usize,
+    /// `cursor-vfx-particle-speed`: how fast they fly away.
+    pub cursor_vfx_particle_speed: usize,
+    /// `cursor-vfx-particle-phase`: how far round the arc a railgun flings
+    /// them, in percent.
+    pub cursor_vfx_particle_phase: usize,
+    /// `cursor-vfx-particle-curl`: how sharply a particle's flight turns as
+    /// it goes, in percent.
+    pub cursor_vfx_particle_curl: usize,
+    /// `floating-blur`: blur what is behind a popup.
+    ///
+    /// The completion list, the doc box, the which-key panel and the rest.
+    /// It costs the frame being drawn in two halves and three more passes
+    /// over the popup's own area — and nothing at all while no popup is
+    /// open, which is most of the time.
+    pub floating_blur: bool,
+    /// `floating-blur-radius`: how far the blur reaches, in pixels.
+    pub floating_blur_radius: usize,
+    /// `floating-opacity`: how solid a popup's own background is, in
+    /// percent, over whatever was blurred behind it.
+    ///
+    /// Only has anything to show through when `floating-blur` is on; a
+    /// popup over an unblurred buffer would just be hard to read.
+    pub floating_opacity: usize,
     /// `ligatures`: let the font join characters that it draws as one.
     ///
     /// `!=` as one glyph rather than two, where the font has been made to
@@ -215,10 +264,22 @@ impl Default for Settings {
             which_key: true,
             which_key_delay_ms: 400,
             mouse_wheel_lines: 3,
-            smooth_scroll_ms: 120,
+            smooth_scroll_ms: 300,
             scroll_animation_far_lines: 1,
-            cursor_animation_ms: 90,
+            cursor_animation_ms: 150,
+            cursor_short_animation_ms: 40,
             cursor_trail: 70,
+            cursor_vfx: String::new(),
+            cursor_vfx_opacity: 78,
+            cursor_vfx_particle_lifetime_ms: 500,
+            cursor_vfx_highlight_lifetime_ms: 200,
+            cursor_vfx_particle_density: 70,
+            cursor_vfx_particle_speed: 10,
+            cursor_vfx_particle_phase: 150,
+            cursor_vfx_particle_curl: 100,
+            floating_blur: true,
+            floating_blur_radius: 8,
+            floating_opacity: 82,
             ligatures: true,
             shell: None,
         }
@@ -227,6 +288,18 @@ impl Default for Settings {
 
 /// The settings a config file may name, used for the "did you mean" hint on a
 /// misspelled key.
+/// The cursor effects that can be named, which the window's `vfx` module
+/// implements. Here as well so a configuration can be checked without a
+/// window, which is where every other setting is checked too.
+pub const CURSOR_VFX_NAMES: &[&str] = &[
+    "sonicboom",
+    "ripple",
+    "wireframe",
+    "railgun",
+    "torpedo",
+    "pixiedust",
+];
+
 pub const SETTING_NAMES: &[&str] = &[
     "tab-width",
     "indent-with-tabs",
@@ -275,7 +348,19 @@ pub const SETTING_NAMES: &[&str] = &[
     "smooth-scroll-ms",
     "scroll-animation-far-lines",
     "cursor-animation-ms",
+    "cursor-short-animation-ms",
     "cursor-trail",
+    "cursor-vfx",
+    "cursor-vfx-opacity",
+    "cursor-vfx-particle-lifetime-ms",
+    "cursor-vfx-highlight-lifetime-ms",
+    "cursor-vfx-particle-density",
+    "cursor-vfx-particle-speed",
+    "cursor-vfx-particle-phase",
+    "cursor-vfx-particle-curl",
+    "floating-blur",
+    "floating-blur-radius",
+    "floating-opacity",
     "ligatures",
 ];
 

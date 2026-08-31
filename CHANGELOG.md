@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+- **Scrolling and the cursor move on a spring now, not an easing curve.**
+  This is the one that was felt before it was found. An exponential ease —
+  a fixed fraction of the remaining distance each frame — is *fastest at its
+  very first frame* and slower every frame after, which the eye reads as a
+  snap followed by a crawl, and the crawl is the part it notices. A
+  critically damped spring starts at rest, accelerates and settles without
+  overshooting, which is how something being moved actually moves.
+
+  It also carries a velocity, so a second wheel notch while the first is
+  still arriving adds to it instead of starting it over. Spinning a wheel
+  builds up rather than stuttering. Neovide's arithmetic, down to the choice
+  of `omega`, because the feel is the thing being copied.
+
+  What the duration setting means changed with it, and honestly: nine tenths
+  of the way is covered in the time it names — the same nine tenths whatever
+  the distance and whatever the duration — and the sliver after that happens
+  below a quarter of a pixel. The tests say that rather than claiming an
+  arrival time that was never true. Defaults are Neovide's too:
+  `smooth-scroll-ms` is 300 and `cursor-animation-ms` 150.
+
+- **Typing does not smear.** A hop of a cell or two now gets
+  `cursor-short-animation-ms` — 40ms against 150 — because animating a
+  keystroke over the duration meant for crossing the screen makes the cursor
+  look like it is lagging behind the keyboard. It is most of what a cursor
+  ever does, and it was the other half of why this felt worse than the thing
+  it was copied from.
+
+- **A slide no longer redraws the whole frame every frame.** The lines that
+  fill the gap it opens are fetched by drawing the frame again into a
+  scratch surface, and that was being done *per frame for the length of
+  every scroll* — a second complete redisplay, sixty times a second, of a
+  screen that had not changed. They are fetched once now and kept until the
+  view moves, the buffer changes or a key is pressed.
+
+- **Six things for the cursor to leave behind**, which are Neovide's:
+  `sonicboom`, `ripple` and `wireframe` mark where it landed with a disc, a
+  ring or a square that swells and fades; `railgun`, `torpedo` and
+  `pixiedust` trail particles along the way it came, each with its own
+  flight, rotation and lifetime. Off unless `cursor-vfx` names one, and then
+  eight more settings for tuning it. The renderer grew a disc primitive with
+  its edge worked out in the shader, so a sonic boom stays smooth however
+  large it gets.
+
+- **What is behind a popup is blurred.** The completion list, the doc box,
+  the which-key panel, the tree's `?` panel: each sits on a blurred copy of
+  what it covers rather than on a hole cut in the text.
+
+  Which needed the frame split in two. Redisplay composited the popups into
+  the same grid as everything else, so by the time a front end saw the cells
+  there was nothing behind them to blur — `draw` is now `draw_background`
+  and `draw_floating`, the second returning where it put things. Drawing the
+  two halves costs what drawing them together cost; the copy between them is
+  what the blur is bought with. The backdrop is only drawn near the popups,
+  because a blur reaches no further than its radius, and none of it happens
+  at all while no popup is open. `floating-blur`, `floating-blur-radius`,
+  `floating-opacity`.
+
 - **Ligatures, in the window.** `!=` drawn as the one mark the font's
   designer drew, and `->`, `=>`, `<=`, `>=`, `|>`, `...` with it. The text is
   *shaped* now — handed to a shaper a run at a time — rather than looked up a

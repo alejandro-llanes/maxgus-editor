@@ -48,6 +48,21 @@ pub struct Quad {
     pub color: [f32; 4],
 }
 
+/// A disc, filled or as a ring.
+///
+/// What the cursor's particle effects are made of. Drawn as geometry with
+/// the edge worked out in the shader rather than sampled from a texture, so
+/// it stays smooth however large a sonic boom gets.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Circle {
+    pub center: [f32; 2],
+    pub radius: f32,
+    /// Zero or less fills it; above zero draws a ring that thick.
+    pub thickness: f32,
+    pub color: [f32; 4],
+}
+
 /// Everything one frame draws.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Frame {
@@ -56,6 +71,9 @@ pub struct Frame {
     /// the cursor stays text.
     pub quads: Vec<Quad>,
     pub sprites: Vec<Sprite>,
+    /// The cursor's effects, drawn last so they are over the text they are
+    /// trailing away from.
+    pub circles: Vec<Circle>,
 }
 
 /// One colour component, from what a theme writes to what the GPU wants.
@@ -199,17 +217,70 @@ impl Shift {
     }
 }
 
+/// Everything about a frame that is not the cells themselves.
+///
+/// A struct rather than eight arguments because it had become eight
+/// arguments, and because the last two only make sense together: a window
+/// that blurs what is behind a popup draws the frame twice, once for the
+/// backdrop and once for the whole thing, and these say which of the two
+/// is being asked for.
+#[derive(Clone, Copy)]
+pub struct Look<'a> {
+    pub palette: &'a Palette,
+    pub shift: Option<&'a Shift>,
+    /// The cell to draw the other way round, when the cursor is resting.
+    pub cursor: Option<(u16, u16)>,
+    /// The block's four corners, when it is not.
+    pub smear: Option<[[f32; 2]; 4]>,
+    pub ligatures: bool,
+    /// Only the cells inside these, or all of them when it is empty. What
+    /// the backdrop pass uses: a blur only shows within a hand's breadth of
+    /// the popup it is behind, so the rest of the screen need not be drawn
+    /// a second time to be blurred and thrown away.
+    pub only: &'a [maxgus_tui::Rect],
+    /// Cells inside these get their background at `opacity` rather than
+    /// solid, so whatever was blurred underneath shows through them.
+    pub translucent: &'a [maxgus_tui::Rect],
+    pub opacity: f32,
+}
+
+impl<'a> Look<'a> {
+    /// The plain thing: the whole frame, opaque.
+    pub fn new(palette: &'a Palette) -> Look<'a> {
+        Look {
+            palette,
+            shift: None,
+            cursor: None,
+            smear: None,
+            ligatures: false,
+            only: &[],
+            translucent: &[],
+            opacity: 1.0,
+        }
+    }
+}
+
+/// Whether any of `areas` holds this cell. An empty list holds everything,
+/// which is what makes `only` optional without being an `Option`.
+fn within(areas: &[maxgus_tui::Rect], x: u16, y: u16) -> bool {
+    areas.is_empty()
+        || areas.iter().any(|area| {
+            x >= area.x && x < area.x + area.width && y >= area.y && y < area.y + area.height
+        })
+}
+
 /// Builds the frame for a drawn surface.
-#[allow(clippy::too_many_arguments)]
-pub fn build(
-    surface: &Surface,
-    fonts: &mut Fonts,
-    palette: &Palette,
-    shift: Option<&Shift>,
-    cursor: Option<(u16, u16)>,
-    smear: Option<[[f32; 2]; 4]>,
-    ligatures: bool,
-) -> Frame {
+pub fn build(surface: &Surface, fonts: &mut Fonts, look: &Look) -> Frame {
+    let Look {
+        palette,
+        shift,
+        cursor,
+        smear,
+        ligatures,
+        only,
+        translucent,
+        opacity,
+    } = *look;
     let metrics = fonts.metrics();
     let mut frame = Frame::default();
     // The block on its way somewhere. `cursor` is the cell to draw the other
@@ -251,10 +322,17 @@ pub fn build(
             if cell.continuation {
                 continue;
             }
+            if !within(only, x, y) {
+                continue;
+            }
             let on_cursor = cursor == Some((x, y));
             let moves = shift.filter(|shift| shift.holds(x, y));
             let top = y as f32 * metrics.height - moves.map(|s| s.pixels).unwrap_or(0.0);
             let band = moves.map(|s| s.band(metrics));
+            let behind = match within(translucent, x, y) {
+                true => opacity,
+                false => 1.0,
+            };
             push_cell(
                 &mut frame,
                 cell,
@@ -266,6 +344,7 @@ pub fn build(
                 fonts,
                 band,
                 on_cursor,
+                behind,
             );
         }
     }
@@ -298,6 +377,7 @@ pub fn build(
                     fonts,
                     Some(band),
                     false,
+                    1.0,
                 );
             }
         }
@@ -415,6 +495,9 @@ fn push_cell(
     fonts: &mut Fonts,
     band: Option<(f32, f32)>,
     on_cursor: bool,
+    // How solid the background is. Below one where something blurred is
+    // showing through from underneath.
+    behind: f32,
 ) {
     let face: &Face = &cell.face;
     let reverse = face.attributes.reverse.unwrap_or(false) ^ on_cursor;
@@ -430,6 +513,7 @@ fn push_cell(
     // The background, always: a cell that shares the window's colour still
     // has to cover whatever the last frame left there.
     if let Some((top, height, _)) = clipped(top, metrics.height, band) {
+        background[3] *= behind;
         frame.rects.push(Rect {
             position: [left, top],
             size: [metrics.width, height],
@@ -576,7 +660,7 @@ mod tests {
             return;
         };
         let surface = surface_of("a b", Face::default());
-        let frame = build(&surface, &mut fonts, &palette(), None, None, None, false);
+        let frame = build(&surface, &mut fonts, &Look::new(&palette()));
         assert_eq!(frame.rects.len(), 3, "one background per cell");
         assert_eq!(frame.sprites.len(), 2, "the space has no glyph");
     }
@@ -589,7 +673,7 @@ mod tests {
         };
         let metrics = fonts.metrics();
         let surface = surface_of("abc", Face::default());
-        let frame = build(&surface, &mut fonts, &palette(), None, None, None, false);
+        let frame = build(&surface, &mut fonts, &Look::new(&palette()));
         for (n, rect) in frame.rects.iter().enumerate() {
             assert_eq!(rect.position[0], n as f32 * metrics.width);
             assert_eq!(rect.position[1], 0.0);
@@ -626,15 +710,17 @@ mod tests {
             pixels: 5.0,
             incoming: None,
         };
-        let still = build(&surface, &mut fonts, &palette(), None, None, None, false);
+        let still = build(&surface, &mut fonts, &Look::new(&palette()));
         let moved = build(
             &surface,
             &mut fonts,
-            &palette(),
-            Some(&shift),
-            None,
-            None,
-            false,
+            &Look {
+                shift: Some(&shift),
+                cursor: None,
+                smear: None,
+                ligatures: false,
+                ..Look::new(&palette())
+            },
         );
 
         let row_of = |frame: &Frame, y: u16| -> Vec<f32> {
@@ -680,15 +766,17 @@ mod tests {
             pixels: 5.0,
             incoming: None,
         };
-        let still = build(&surface, &mut fonts, &palette(), None, None, None, false);
+        let still = build(&surface, &mut fonts, &Look::new(&palette()));
         let moved = build(
             &surface,
             &mut fonts,
-            &palette(),
-            Some(&shift),
-            None,
-            None,
-            false,
+            &Look {
+                shift: Some(&shift),
+                cursor: None,
+                smear: None,
+                ligatures: false,
+                ..Look::new(&palette())
+            },
         );
         // The first row's glyphs, which are inside the area either way.
         let first = |frame: &Frame| frame.sprites[0].position[1];
@@ -721,11 +809,13 @@ mod tests {
             let frame = build(
                 &surface,
                 &mut fonts,
-                &palette(),
-                Some(&shift),
-                None,
-                None,
-                false,
+                &Look {
+                    shift: Some(&shift),
+                    cursor: None,
+                    smear: None,
+                    ligatures: false,
+                    ..Look::new(&palette())
+                },
             );
             for rect in &frame.rects {
                 let (top, bottom) = (rect.position[1], rect.position[1] + rect.size[1]);
@@ -775,11 +865,13 @@ mod tests {
         let frame = build(
             &surface,
             &mut fonts,
-            &palette(),
-            Some(&shift),
-            None,
-            None,
-            false,
+            &Look {
+                shift: Some(&shift),
+                cursor: None,
+                smear: None,
+                ligatures: false,
+                ..Look::new(&palette())
+            },
         );
         let gap = (
             area.height as f32 * metrics.height - shift.pixels,
@@ -807,7 +899,7 @@ mod tests {
         };
         let metrics = fonts.metrics();
         let surface = stack("abc", 2);
-        let whole = build(&surface, &mut fonts, &palette(), None, None, None, false);
+        let whole = build(&surface, &mut fonts, &Look::new(&palette()));
         let shift = Shift {
             area: maxgus_tui::Rect::new(0, 0, 3, 1),
             pixels: metrics.height / 2.0,
@@ -816,11 +908,13 @@ mod tests {
         let cut = build(
             &surface,
             &mut fonts,
-            &palette(),
-            Some(&shift),
-            None,
-            None,
-            false,
+            &Look {
+                shift: Some(&shift),
+                cursor: None,
+                smear: None,
+                ligatures: false,
+                ..Look::new(&palette())
+            },
         );
         let first = cut.sprites.first().expect("some ink survived the cut");
         let before = whole.sprites[0];
@@ -995,11 +1089,13 @@ mod tests {
         let frame = build(
             &surface,
             &mut fonts,
-            &palette(),
-            None,
-            None,
-            Some(smear),
-            false,
+            &Look {
+                shift: None,
+                cursor: None,
+                smear: Some(smear),
+                ligatures: false,
+                ..Look::new(&palette())
+            },
         );
         assert_eq!(frame.quads.len(), 1, "no block was drawn");
         let quad = frame.quads[0];
@@ -1025,11 +1121,13 @@ mod tests {
         let frame = build(
             &surface,
             &mut fonts,
-            &palette(),
-            None,
-            Some((1, 0)),
-            None,
-            false,
+            &Look {
+                shift: None,
+                cursor: Some((1, 0)),
+                smear: None,
+                ligatures: false,
+                ..Look::new(&palette())
+            },
         );
         assert!(
             frame.quads.is_empty(),
@@ -1052,11 +1150,13 @@ mod tests {
         let frame = build(
             &surface,
             &mut fonts,
-            &palette(),
-            None,
-            Some((1, 0)),
-            None,
-            false,
+            &Look {
+                shift: None,
+                cursor: Some((1, 0)),
+                smear: None,
+                ligatures: false,
+                ..Look::new(&palette())
+            },
         );
         assert_eq!(frame.rects[0].color, [0.0, 0.0, 0.0, 1.0], "the plain cell");
         assert_eq!(
@@ -1082,7 +1182,7 @@ mod tests {
             ..Default::default()
         };
         let surface = surface_of("a", face);
-        let frame = build(&surface, &mut fonts, &palette(), None, None, None, false);
+        let frame = build(&surface, &mut fonts, &Look::new(&palette()));
         assert_eq!(frame.rects.len(), 2, "a background and a rule");
         let rule = frame.rects[1];
         assert!(

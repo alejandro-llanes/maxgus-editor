@@ -52,7 +52,7 @@ pub use minibuffer::{Completion, Minibuffer, MinibufferKind};
 #[cfg(feature = "full")]
 pub use position::{offset_of_position, position_of_offset};
 pub use prefix::Prefix;
-pub use render::{draw, edge_row, edge_rows, text_area};
+pub use render::{draw, draw_background, draw_floating, edge_row, edge_rows, text_area};
 
 /// What a language server said about a symbol, and where it was.
 #[cfg(feature = "full")]

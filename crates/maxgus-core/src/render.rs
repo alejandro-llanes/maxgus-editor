@@ -114,6 +114,20 @@ pub fn edge_rows(
 
 /// Paints the whole frame.
 pub fn draw(editor: &Editor, surface: &mut Surface) {
+    draw_background(editor, surface);
+    draw_floating(editor, surface);
+}
+
+/// Everything that is not floating over something else: the windows, their
+/// mode lines, and the echo area.
+///
+/// Apart from [`draw_floating`] because a window that blurs what is behind a
+/// popup needs *what is behind it*, and by the time the popup has been
+/// composited into the grid there is nothing behind it any more. Drawing the
+/// two halves in turn costs no more than drawing them together — the same
+/// cells are painted either way — and between the two calls is the only
+/// moment the backdrop exists.
+pub fn draw_background(editor: &Editor, surface: &mut Surface) {
     let theme = &editor.theme;
     let default = theme.resolve("default");
     surface.clear(default);
@@ -130,25 +144,42 @@ pub fn draw(editor: &Editor, surface: &mut Surface) {
             draw_window(editor, surface, window, area);
         }
     }
+    draw_echo_area(editor, surface, echo);
+}
+
+/// The things that go over the top of the windows, and where they went.
+///
+/// The rectangles come back so a front end that can blur knows which parts
+/// of the frame are floating. Reporting them rather than working them out
+/// again is the point: each of these decides its own size from the text it
+/// has to show, and a second copy of that arithmetic somewhere else would be
+/// a second copy to keep right.
+pub fn draw_floating(editor: &Editor, surface: &mut Surface) -> Vec<Rect> {
+    let frame = surface.area();
+    if frame.height == 0 {
+        return Vec::new();
+    }
+    let (body, echo) = frame.split_bottom(1);
+    let mut floating = Vec::new();
     // The popup goes over the top of the windows rather than resizing them, so
     // opening the list does not reflow what is being edited. It carries the
     // prompt with it, and the echo area stays out of the way while it is up.
     #[cfg(feature = "full")]
     if let Some(active) = editor.transient.as_ref() {
-        draw_transient(editor, surface, frame, active);
+        floating.extend(draw_transient(editor, surface, frame, active));
     }
     // What the language server said about the symbol under point, beside it
     // rather than over it.
     #[cfg(feature = "full")]
     if let Some(doc) = editor.doc.as_ref() {
-        draw_doc(editor, surface, body, doc);
+        floating.extend(draw_doc(editor, surface, body, doc));
     }
     // And what could follow what is being typed, at the cursor. Drawn after
     // the doc box, because a list you are choosing from matters more than a
     // description of what you have already written.
     #[cfg(feature = "full")]
     if let Some(list) = editor.autocomplete.as_ref() {
-        draw_autocomplete(editor, surface, body, list);
+        floating.extend(draw_autocomplete(editor, surface, body, list));
     }
     // What the next key can be, when someone has stopped in the middle of a
     // sequence. Over the windows like the popup, and under the echo area,
@@ -156,20 +187,21 @@ pub fn draw(editor: &Editor, surface: &mut Surface) {
     // A menu that was asked for outright wins over one a pause opened: the
     // pause is a guess at what was wanted and the question mark is not.
     match editor.key_menu.as_ref() {
-        Some(menu) => draw_key_menu(editor, surface, body, menu),
+        Some(menu) => floating.extend(draw_key_menu(editor, surface, body, menu)),
         None => {
             if let Some(prefix) = editor.which_key.as_ref() {
-                draw_which_key(editor, surface, body, prefix);
+                floating.extend(draw_which_key(editor, surface, body, prefix));
             }
         }
     }
-    match completion_popup(editor, frame) {
-        Some(area) => {
-            draw_completion_popup(editor, surface, area);
-            surface.clear_rect(echo, default);
-        }
-        None => draw_echo_area(editor, surface, echo),
+    // The completion popup takes the echo area with it: the prompt it is
+    // answering rides along the top of the box instead.
+    if let Some(area) = completion_popup(editor, frame) {
+        draw_completion_popup(editor, surface, area);
+        surface.clear_rect(echo, editor.theme.resolve("default"));
+        floating.push(area);
     }
+    floating
 }
 
 /// The list of suggestions, at the cursor.
@@ -183,19 +215,17 @@ fn draw_autocomplete(
     surface: &mut Surface,
     body: Rect,
     list: &crate::autocomplete::Autocomplete,
-) {
+) -> Option<Rect> {
     let window = editor.windows.current();
-    let Some(area) = window.rect.intersect(&body) else {
-        return;
-    };
+    let area = window.rect.intersect(&body)?;
     let (text_area, _) = area.split_bottom(1);
     if text_area.width < 16 || text_area.height < 4 {
-        return;
+        return None;
     }
     let (top, shown) = list.visible();
     let rows: Vec<&crate::autocomplete::Item> = shown.collect();
     if rows.is_empty() {
-        return;
+        return None;
     }
 
     // Wide enough for the widest row, and never more than half the window:
@@ -282,6 +312,7 @@ fn draw_autocomplete(
             count.chars().count() as u16,
         );
     }
+    Some(area)
 }
 
 /// How much room a row wants beyond its label.
@@ -306,16 +337,12 @@ fn label_extra(item: &crate::autocomplete::Item) -> usize {
 /// bulleted list of parameters and the signature in a fenced block — and it
 /// is drawn as those things rather than as the punctuation that spells them.
 #[cfg(feature = "full")]
-fn draw_doc(editor: &Editor, surface: &mut Surface, body: Rect, doc: &crate::Doc) {
-    let Some(window) = editor.windows.get(doc.window) else {
-        return;
-    };
-    let Some(area) = window.rect.intersect(&body) else {
-        return;
-    };
+fn draw_doc(editor: &Editor, surface: &mut Surface, body: Rect, doc: &crate::Doc) -> Option<Rect> {
+    let window = editor.windows.get(doc.window)?;
+    let area = window.rect.intersect(&body)?;
     let (text_area, _) = area.split_bottom(1);
     if text_area.width < 20 || text_area.height < 6 {
-        return;
+        return None;
     }
     // Three fifths of the window at most, and never wider than it needs.
     // The width wanted is the width of the *rendered* document, not of the
@@ -402,6 +429,7 @@ fn draw_doc(editor: &Editor, surface: &mut Surface, body: Rect, doc: &crate::Doc
         let shadow = on_panel(theme.resolve("shadow"), panel, buffer_bg);
         surface.set_string(left, y, &more, shadow, room);
     }
+    Some(area)
 }
 
 /// Puts `face` on a panel: its own colours, but the panel's background.
@@ -427,13 +455,18 @@ fn on_panel(mut face: Face, panel: Face, buffer: Option<maxgus_faces::Color>) ->
 /// stopped. What will not fit is counted rather than quietly dropped — a
 /// panel that shows twenty of thirty keys and says so is useful, and one
 /// that shows twenty and implies that is all of them is a liar.
-fn draw_which_key(editor: &Editor, surface: &mut Surface, body: Rect, prefix: &str) {
+fn draw_which_key(
+    editor: &Editor,
+    surface: &mut Surface,
+    body: Rect,
+    prefix: &str,
+) -> Option<Rect> {
     /// Between one column and the next.
     const GAP: usize = 2;
 
     let entries = crate::which_key::continuations(editor, prefix);
     if entries.is_empty() || body.width < 16 || body.height < 5 {
-        return;
+        return None;
     }
     let theme = &editor.theme;
     let plain = theme.resolve("default");
@@ -493,6 +526,7 @@ fn draw_which_key(editor: &Editor, surface: &mut Surface, body: Rect, prefix: &s
         let more = format!("… {} more", over + 1);
         surface.set_string(x, y, &more, group_face, cell as u16);
     }
+    Some(area)
 }
 
 /// The whole of a keymap, in the box `which-key` draws into.
@@ -512,14 +546,14 @@ fn draw_key_menu(
     surface: &mut Surface,
     body: Rect,
     menu: &crate::which_key::Menu,
-) {
+) -> Option<Rect> {
     /// Between one column and the next.
     const GAP: usize = 3;
     /// Between a key and what it does.
     const LEAD: usize = 2;
 
     if menu.sections.is_empty() || body.width < 16 || body.height < 6 {
-        return;
+        return None;
     }
     let theme = &editor.theme;
     let plain = theme.resolve("default");
@@ -632,6 +666,7 @@ fn draw_key_menu(
         let y = inner.bottom().saturating_sub(1);
         surface.set_string(inner.x, y, &more, theme.resolve("shadow"), inner.width);
     }
+    Some(area)
 }
 
 /// Fills columns `height` rows tall with whole sections.
@@ -2262,10 +2297,8 @@ fn draw_transient(
     surface: &mut Surface,
     frame: Rect,
     active: &crate::transient::Active,
-) {
-    let Some(transient) = active.current() else {
-        return;
-    };
+) -> Option<Rect> {
+    let transient = active.current()?;
     let theme = &editor.theme;
 
     let mut lines: Vec<Vec<(String, &'static str)>> = Vec::new();
@@ -2301,7 +2334,7 @@ fn draw_transient(
     let rows = lines.len().div_ceil(columns);
     let height = (rows as u16 + 2).min(frame.height.saturating_sub(2));
     if height < 3 {
-        return;
+        return None;
     }
     let area = Rect::new(
         frame.x,
@@ -2340,6 +2373,7 @@ fn draw_transient(
             );
         }
     }
+    Some(area)
 }
 
 /// Where the completion popup goes, when a completing prompt is open.

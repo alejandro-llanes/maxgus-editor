@@ -6,50 +6,48 @@
 //! `top_line` change. The wheel's own deltas are accumulated into the same
 //! offset, which is what makes a touchpad feel continuous rather than notched.
 //!
-//! The offset also *eases*: a wheel notch asks for a jump, and the text takes
-//! a few frames to get there rather than teleporting. That is the difference
-//! between a window that scrolls and one that flickers.
+//! The offset is also *animated*: a wheel notch asks for a jump, and the text
+//! takes a few frames to get there rather than teleporting. That is the
+//! difference between a window that scrolls and one that flickers.
+//!
+//! What animates it is a [`crate::spring::Spring`] rather than an easing
+//! curve, which is worth a sentence because it is most of the feel: a
+//! second notch while the first is still arriving adds to it instead of
+//! starting it over, so spinning a wheel builds up rather than stuttering.
+
+use crate::spring::Spring;
 
 /// How far the text is from where it is being asked to be, in pixels.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Scroll {
-    /// Where the view is, in pixels from the top of the buffer's first
-    /// visible line. Positive means the text is drawn shifted upwards.
+    /// Pixels the editor still owes the wheel: asked for, not yet arrived
+    /// at. Turns into whole lines as it is covered.
+    owed: Spring,
+    /// The part of what has been covered that is not yet a whole line, and
+    /// so is drawn as a shift. This is where the view rests between two
+    /// lines, which is the whole point of scrolling by pixels.
     offset: f32,
-    /// Where it is heading. Equal to `offset` when the animation has settled.
-    target: f32,
     /// How far behind the drawing starts when a *command* moved the view.
     ///
     /// The wheel and a command move the view from opposite ends. The wheel
-    /// asks for pixels and the editor follows, which is `offset` chasing
-    /// `target` and turning into whole lines as it crosses them. A command
-    /// has already moved `top_line` by the time anything is drawn, so there
-    /// is nothing left to ask for — what is wanted is for the drawing to
-    /// start where the view *was* and catch up. That is this, and it eases
-    /// to nothing rather than to a target, and never becomes a line,
-    /// because the line has already been crossed.
-    slide: f32,
+    /// asks for pixels and the editor follows, which is `owed` turning into
+    /// whole lines as it is covered. A command has already moved `top_line`
+    /// by the time anything is drawn, so there is nothing left to ask for —
+    /// what is wanted is for the drawing to start where the view *was* and
+    /// catch up. That is this, and it decays to nothing rather than to a
+    /// destination, and never becomes a line, because the line has already
+    /// been crossed.
+    slide: Spring,
 }
 
 impl Scroll {
-    /// Below this the animation is over: a fraction of a pixel is not worth a
-    /// frame, and floating point would otherwise never quite arrive.
-    const SETTLED: f32 = 0.5;
-
-    /// How many time constants of an exponential ease count as arrived.
-    ///
-    /// After four of them a fiftieth of the distance is left, which is where
-    /// the eye stops seeing movement — so `smooth-scroll-ms` can name the
-    /// whole slide and mean it.
-    const CONSTANTS: f32 = 4.0;
-
     pub fn new() -> Scroll {
         Scroll::default()
     }
 
     /// Asks to move `pixels` further down the buffer.
     pub fn nudge(&mut self, pixels: f32) {
-        self.target += pixels;
+        self.owed.push(pixels);
     }
 
     /// Stops where it is, forgetting any journey it was making.
@@ -58,9 +56,9 @@ impl Scroll {
     /// outright, and letting the wheel's animation continue over the top of
     /// that would drag the text away from where it was just put.
     pub fn settle(&mut self) {
+        self.owed.reset();
+        self.slide.reset();
         self.offset = 0.0;
-        self.target = 0.0;
-        self.slide = 0.0;
     }
 
     /// Starts the drawing `pixels` behind where the view has already gone.
@@ -68,49 +66,38 @@ impl Scroll {
     /// Positive is a view that moved *down* the buffer, which draws the text
     /// lower to begin with and lets it rise into place.
     pub fn catch_up(&mut self, pixels: f32) {
-        self.slide -= pixels;
+        self.slide.push(-pixels);
     }
 
     /// Advances the animation by however long the last frame took, and
     /// returns the whole lines that have been crossed, which is what the
     /// window's `top_line` moves by.
     ///
-    /// The remainder stays in `offset` as the sub-line shift the renderer
-    /// draws with, so a line that is half scrolled is drawn half scrolled.
+    /// The remainder stays as the sub-line shift the renderer draws with, so
+    /// a line that is half scrolled is drawn half scrolled.
     ///
-    /// `settle` is `smooth-scroll-ms`: how long the whole slide should take.
-    /// Zero arrives at once. Advancing by real time rather than by a frame
-    /// means the same setting means the same speed on a 60Hz display and on
-    /// a 144Hz one.
+    /// `settle` is `smooth-scroll-ms`: how long the slide should take. Zero
+    /// arrives at once. Advancing by real time rather than by a frame means
+    /// the same setting means the same speed on a 60Hz display and on a
+    /// 144Hz one.
     pub fn step(&mut self, line_height: f32, elapsed: std::time::Duration, settle: usize) -> isize {
-        let distance = self.target - self.offset;
-        if settle == 0 || distance.abs() < Scroll::SETTLED {
-            self.offset = self.target;
-        } else {
-            let tau = settle as f32 / Scroll::CONSTANTS / 1000.0;
-            let covered = 1.0 - (-elapsed.as_secs_f32() / tau).exp();
-            self.offset += distance * covered.clamp(0.0, 1.0);
-        }
-        // The catching-up eases the same way, and to nothing: its journey
-        // is already over as far as the editor is concerned.
-        if settle == 0 || self.slide.abs() < Scroll::SETTLED {
-            self.slide = 0.0;
-        } else {
-            let tau = settle as f32 / Scroll::CONSTANTS / 1000.0;
-            let covered = 1.0 - (-elapsed.as_secs_f32() / tau).exp();
-            self.slide -= self.slide * covered.clamp(0.0, 1.0);
-        }
+        let length = settle as f32 / 1000.0;
+        // Whatever the spring covered this frame is ground the view has now
+        // made up, so it comes off what is owed and goes onto what is drawn.
+        let before = self.owed.position;
+        self.owed.advance(elapsed, length);
+        self.offset += before - self.owed.position;
+        self.slide.advance(elapsed, length);
         let lines = (self.offset / line_height).trunc();
         if lines != 0.0 {
             self.offset -= lines * line_height;
-            self.target -= lines * line_height;
         }
         lines as isize
     }
 
     /// The sub-line shift to draw with, in pixels.
     pub fn pixels(&self) -> f32 {
-        self.offset + self.slide
+        self.offset + self.slide.position
     }
 
     /// The whole lines still owed, for an animation that is being cut short.
@@ -119,13 +106,13 @@ impl Scroll {
     /// away the distance left would leave the view short of where the wheel
     /// asked for it.
     pub fn remaining(&self, line_height: f32) -> isize {
-        ((self.target - self.offset) / line_height).round() as isize
+        (self.owed.position / line_height).round() as isize
     }
 
     /// True while there is still movement owed, which is what tells the event
     /// loop to ask for another frame.
     pub fn is_moving(&self) -> bool {
-        (self.target - self.offset).abs() >= Scroll::SETTLED || self.slide.abs() >= Scroll::SETTLED
+        self.owed.is_moving() || self.slide.is_moving()
     }
 }
 
@@ -141,21 +128,36 @@ mod tests {
 
     #[test]
     fn the_setting_is_how_long_the_slide_takes() {
-        // The point of `smooth-scroll-ms`: it names a duration, and the
-        // slide takes about that long whatever the frame rate.
+        // The point of `smooth-scroll-ms`: it names how long the movement
+        // lasts as far as anyone watching is concerned. Under a spring that
+        // is nine tenths of the way — the sliver after it is sub-pixel and
+        // takes about twice as long again, so asserting a hard arrival time
+        // would be asserting something untrue.
         for settle in [60usize, 120, 400] {
             let mut scroll = Scroll::new();
             scroll.nudge(3.0 * LINE);
+            let mut moved = 0.0;
             let mut spent = std::time::Duration::ZERO;
+            while spent.as_millis() < settle as u128 {
+                moved += scroll.step(LINE, FRAME, settle) as f32 * LINE;
+                spent += FRAME;
+            }
+            let covered = (moved + scroll.pixels()) / (3.0 * LINE);
+            assert!(
+                covered > 0.85,
+                "{settle}ms covered only {:.0}% of the slide",
+                covered * 100.0
+            );
+            // And it does come to a stop, rather than creeping forever.
             while scroll.is_moving() {
                 scroll.step(LINE, FRAME, settle);
                 spent += FRAME;
                 assert!(spent.as_millis() < 4_000, "it never settled");
             }
-            let took = spent.as_millis() as usize;
             assert!(
-                took >= settle / 2 && took <= settle * 2,
-                "{settle}ms of scrolling took {took}ms"
+                spent.as_millis() <= settle as u128 * 4,
+                "{settle}ms of scrolling was still going after {}ms",
+                spent.as_millis()
             );
         }
     }

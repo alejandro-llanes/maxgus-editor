@@ -106,6 +106,7 @@ path in it, because a launcher does not see your shell's `PATH`.
 | **Rhai scripting** | ○ | ● | ● |
 | **A window**: the GPU, the mouse, the clipboard | ○ | ○ | ● |
 | **Ligatures**, an animated cursor, smooth scrolling | ○ | ○ | ● |
+| **Cursor effects**, and blur behind the popups | ○ | ○ | ● |
 
 `minimal` is the editor and the file tree: no grammars, no protocol, no
 subprocess, nothing to install. Everything a text editor does, and none of
@@ -814,10 +815,34 @@ What the window has that a terminal cannot:
   takes and `cursor-trail` is how far the back lags, in percent; `0` for
   either turns that half off.
 
+  A hop of a cell or two — which is most of typing — is not smeared and gets
+  `cursor-short-animation-ms` instead, because animating a keystroke over the
+  same duration as a jump across the screen makes the cursor look like it is
+  lagging behind the keyboard.
+
   The window draws this **instead of the beacon**, not as well as it. They
   answer the same question — where did point go — and the beacon only exists
   because a terminal cannot show the journey. `set cursor-animation-ms=0`
   gives the beacon back.
+
+- **And six things for it to leave behind**, which are Neovide's and are off
+  unless asked for. `sonicboom`, `ripple` and `wireframe` mark where it
+  landed with a disc, a ring or a square that swells and fades; `railgun`,
+  `torpedo` and `pixiedust` trail particles along the way it came, each with
+  its own flight and lifetime. `set cursor-vfx="railgun"`, and eight more
+  settings for anyone who wants to tune one.
+
+- **What is behind a popup is blurred.** The completion list, the doc box,
+  the which-key panel: each sits on a blurred copy of what it covers rather
+  than on a hole cut in the text, which is what separates the two layers
+  without a drop shadow having to do it.
+
+  <img src="docs/screenshots/gui-floating-blur.png" alt="A buffer-switching popup over source code, with the code behind it blurred and showing faintly through the popup's background" width="100%">
+
+  It costs the frame being drawn in two halves — what the windows hold, then
+  what floats over them — and three more passes over each popup's own area.
+  While no popup is open it costs nothing at all. `set floating-blur=#false`,
+  `floating-blur-radius` and `floating-opacity`.
 
 - **Smooth scrolling.** A terminal scrolls by whole lines because it cannot
   draw half of one. The window keeps a pixel offset and eases towards it, so a
@@ -832,6 +857,14 @@ What the window has that a terminal cannot:
   in full — a thousand lines of animation is something to watch rather than
   a view to read — so the last few are, which is the part that says which
   way it went. `scroll-animation-far-lines` is how many.
+
+  What moves it is a **critically damped spring**, not an easing curve, and
+  the difference is most of how it feels: an ease is fastest at its very
+  first frame and slower every frame after, which reads as a snap and then a
+  crawl. A spring starts at rest and settles softly, and it carries a
+  velocity — so a second wheel notch while the first is still arriving adds
+  to it rather than starting it over. The cursor is animated by the same
+  spring.
 - **The mouse.** Click to put point where you clicked, drag to select, middle
   button to paste, wheel to scroll. A click in another window selects it; a
   turn of the wheel over one scrolls it without selecting it, so the wheel

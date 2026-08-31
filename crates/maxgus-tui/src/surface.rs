@@ -186,6 +186,19 @@ impl Surface {
         self.cells.fill(Cell::blank(face));
     }
 
+    /// Takes a copy of another surface's cells.
+    ///
+    /// For a front end that has to keep what a frame looked like before
+    /// something was drawn over it — which is what a blur behind a popup is
+    /// a blur of. Resizes to match rather than refusing, so the caller does
+    /// not have to keep the two in step itself.
+    pub fn copy_from(&mut self, other: &Surface) {
+        if self.size != other.size {
+            self.resize(other.size);
+        }
+        self.cells.copy_from_slice(&other.cells);
+    }
+
     /// Resizes, discarding the contents. Called on a terminal resize, where
     /// everything is redrawn anyway.
     pub fn resize(&mut self, size: Size) {

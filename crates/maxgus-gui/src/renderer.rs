@@ -4,7 +4,7 @@
 //! colour, one sampled from the atlas — so a frame is two draw calls however
 //! much text is on it.
 
-use crate::quads::{Frame, Quad, Rect, Sprite};
+use crate::quads::{Circle, Frame, Quad, Rect, Sprite};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
@@ -16,15 +16,43 @@ pub struct Renderer {
     rect_pipeline: wgpu::RenderPipeline,
     quad_pipeline: wgpu::RenderPipeline,
     sprite_pipeline: wgpu::RenderPipeline,
+    circle_pipeline: wgpu::RenderPipeline,
     screen: wgpu::Buffer,
     screen_group: wgpu::BindGroup,
     atlas_layout: wgpu::BindGroupLayout,
     atlas: Option<AtlasTexture>,
+    /// The two targets the backdrop is drawn into and blurred between, and
+    /// what to sample them with. Made on first use and remade on a resize:
+    /// a window that never opens a popup never pays for them.
+    blur: Option<Blur>,
+    blur_pipeline: wgpu::RenderPipeline,
+    blit_pipeline: wgpu::RenderPipeline,
+    /// The uniform each blur pass reads its direction and spread from. Two,
+    /// because both passes are recorded before either runs and a buffer
+    /// written twice would have the same value in it both times.
+    blur_across: (wgpu::Buffer, wgpu::BindGroup),
+    blur_down: (wgpu::Buffer, wgpu::BindGroup),
+    sample_layout: wgpu::BindGroupLayout,
     rects: Instances,
     quads: Instances,
     sprites: Instances,
+    circles: Instances,
     /// What the window is cleared to before anything is drawn.
     pub background: [f32; 4],
+}
+
+/// A pair of offscreen targets, ping-ponged between by the two blur passes.
+struct Blur {
+    width: u32,
+    height: u32,
+    /// The backdrop is drawn into the first and ends up back in it, so the
+    /// first is always the one to sample when compositing.
+    targets: [BlurTarget; 2],
+}
+
+struct BlurTarget {
+    view: wgpu::TextureView,
+    group: wgpu::BindGroup,
 }
 
 struct AtlasTexture {
@@ -240,6 +268,63 @@ impl Renderer {
             ],
         });
 
+        // What a blur pass reads its direction and spread from, and what
+        // both blur passes and the final composite sample a target with.
+        let blur_uniform_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("blur"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+        let sample_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("sample"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let blur_buffer = |label: &str| {
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: 16,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(label),
+                layout: &blur_uniform_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
+                }],
+            });
+            (buffer, group)
+        };
+        let blur_across = blur_buffer("blur across");
+        let blur_down = blur_buffer("blur down");
+
         let blend = Some(wgpu::BlendState::ALPHA_BLENDING);
         let rect_pipeline = pipeline(
             &device,
@@ -279,9 +364,65 @@ impl Renderer {
             blend,
         );
 
+        let circle_pipeline = pipeline(
+            &device,
+            &shader,
+            &[Some(&screen_layout)],
+            "circle_vertex",
+            "circle_fragment",
+            &wgpu::vertex_attr_array![
+                0 => Float32x2, 1 => Float32, 2 => Float32, 3 => Float32x4
+            ],
+            std::mem::size_of::<Circle>() as u64,
+            format,
+            blend,
+        );
+
+        // Both take no vertex buffer: the quad is generated from the vertex
+        // index, because a pass over the whole target has nothing to say
+        // per instance.
+        let full_screen = |vertex: &str, fragment: &str, blend| {
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some(fragment),
+                bind_group_layouts: &[Some(&blur_uniform_layout), Some(&sample_layout)],
+                immediate_size: 0,
+            });
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(fragment),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some(vertex),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(fragment),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let blur_pipeline = full_screen("blit_vertex", "blur_fragment", None);
+        let blit_pipeline = full_screen("blit_vertex", "blit_fragment", None);
+
         let rects = Instances::new(&device, "rects", std::mem::size_of::<Rect>());
         let quads = Instances::new(&device, "quads", std::mem::size_of::<Quad>());
         let sprites = Instances::new(&device, "sprites", std::mem::size_of::<Sprite>());
+        let circles = Instances::new(&device, "circles", std::mem::size_of::<Circle>());
         Ok(Renderer {
             surface,
             device,
@@ -290,13 +431,21 @@ impl Renderer {
             rect_pipeline,
             quad_pipeline,
             sprite_pipeline,
+            circle_pipeline,
             screen,
             screen_group,
             atlas_layout,
             atlas: None,
+            blur: None,
+            blur_pipeline,
+            blit_pipeline,
+            blur_across,
+            blur_down,
+            sample_layout,
             rects,
             quads,
             sprites,
+            circles,
             background,
         })
     }
@@ -312,6 +461,9 @@ impl Renderer {
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
+        // They are the size of the window, and the window is not that size
+        // any more.
+        self.blur = None;
     }
 
     /// Uploads the glyph atlas, growing the texture if it has changed size.
@@ -385,13 +537,95 @@ impl Renderer {
         );
     }
 
+    /// Makes the pair of offscreen targets, if they are not already the
+    /// size of the window.
+    fn ready_the_blur(&mut self) {
+        let (width, height) = (self.config.width.max(1), self.config.height.max(1));
+        if let Some(blur) = &self.blur
+            && blur.width == width
+            && blur.height == height
+        {
+            return;
+        }
+        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("blur"),
+            // Clamped, so a tap that reaches past the edge reads the edge
+            // rather than wrapping the other side of the screen into it.
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let mut targets = Vec::new();
+        for n in 0..2 {
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("blur"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: self.config.format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("blur"),
+                layout: &self.sample_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            });
+            let _ = n;
+            targets.push(BlurTarget { view, group });
+        }
+        let [first, second] = <[BlurTarget; 2]>::try_from(targets).ok().expect("two made");
+        self.blur = Some(Blur {
+            width,
+            height,
+            targets: [first, second],
+        });
+    }
+
     /// Draws one frame. A surface that has gone stale — the window was
     /// resized, the compositor took it back — is reconfigured and skipped
     /// rather than treated as an error.
     pub fn draw(&mut self, frame: &Frame) -> Result<()> {
-        let Some(atlas) = self.atlas.as_ref() else {
+        self.draw_over(frame, None, &[], 0.0)
+    }
+
+    /// Draws `frame`, over `backdrop` blurred within `areas`.
+    ///
+    /// The backdrop is the same frame without the things floating over it,
+    /// drawn only near where they are. It goes into an offscreen target,
+    /// is blurred across and then down, and what comes out is painted into
+    /// the popups' rectangles before the frame itself goes on top — whose
+    /// popup backgrounds are drawn short of solid, so it shows through.
+    ///
+    /// With no backdrop this is one pass, exactly as it was.
+    pub fn draw_over(
+        &mut self,
+        frame: &Frame,
+        backdrop: Option<&Frame>,
+        areas: &[[f32; 4]],
+        radius: f32,
+    ) -> Result<()> {
+        if self.atlas.is_none() {
             return Ok(());
-        };
+        }
         self.queue.write_buffer(
             &self.screen,
             0,
@@ -402,12 +636,28 @@ impl Renderer {
                 0.0,
             ]),
         );
+
+        // The backdrop, blurred, in a submission of its own. It has to be
+        // its own submission because both passes read the same instance
+        // buffers, and a buffer written twice before either runs would hold
+        // the second frame's contents in both of them.
+        let blurred = match backdrop.filter(|_| !areas.is_empty() && radius > 0.0) {
+            Some(backdrop) => {
+                self.ready_the_blur();
+                self.blur_backdrop(backdrop, radius);
+                true
+            }
+            None => false,
+        };
+
         self.rects
             .write(&self.device, &self.queue, "rects", &frame.rects);
         self.quads
             .write(&self.device, &self.queue, "quads", &frame.quads);
         self.sprites
             .write(&self.device, &self.queue, "sprites", &frame.sprites);
+        self.circles
+            .write(&self.device, &self.queue, "circles", &frame.circles);
 
         use wgpu::CurrentSurfaceTexture as Acquired;
         let target = match self.surface.get_current_texture() {
@@ -430,6 +680,7 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("frame"),
             });
+        let atlas = self.atlas.as_ref().expect("checked above");
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("frame"),
@@ -452,6 +703,27 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            // What is behind the popups, blurred, before anything else —
+            // and only inside them, which is the whole reason the frame is
+            // drawn twice. Scissored rather than clipped in the shader
+            // because a rectangle is what the hardware already does.
+            if blurred && let Some(blur) = self.blur.as_ref() {
+                pass.set_pipeline(&self.blit_pipeline);
+                pass.set_bind_group(0, &self.blur_across.1, &[]);
+                pass.set_bind_group(1, &blur.targets[0].group, &[]);
+                for area in areas {
+                    let x = area[0].max(0.0) as u32;
+                    let y = area[1].max(0.0) as u32;
+                    let width = (area[2].max(0.0) as u32).min(blur.width.saturating_sub(x));
+                    let height = (area[3].max(0.0) as u32).min(blur.height.saturating_sub(y));
+                    if width == 0 || height == 0 {
+                        continue;
+                    }
+                    pass.set_scissor_rect(x, y, width, height);
+                    pass.draw(0..4, 0..1);
+                }
+                pass.set_scissor_rect(0, 0, self.config.width, self.config.height);
+            }
             if self.rects.count > 0 {
                 pass.set_pipeline(&self.rect_pipeline);
                 pass.set_bind_group(0, &self.screen_group, &[]);
@@ -473,11 +745,117 @@ impl Renderer {
                 pass.set_vertex_buffer(0, self.sprites.buffer.slice(..));
                 pass.draw(0..4, 0..self.sprites.count);
             }
+            // Last, so an effect trailing away from the cursor is over the
+            // text it is trailing away from rather than under it.
+            if self.circles.count > 0 {
+                pass.set_pipeline(&self.circle_pipeline);
+                pass.set_bind_group(0, &self.screen_group, &[]);
+                pass.set_vertex_buffer(0, self.circles.buffer.slice(..));
+                pass.draw(0..4, 0..self.circles.count);
+            }
         }
         self.queue.submit(Some(encoder.finish()));
         self.queue.present(target);
         Ok(())
     }
+}
+
+impl Renderer {
+    /// Draws `backdrop` into the first offscreen target and blurs it, in
+    /// its own submission.
+    fn blur_backdrop(&mut self, backdrop: &Frame, radius: f32) {
+        let Some(atlas) = self.atlas.as_ref() else {
+            return;
+        };
+        let Some(blur) = self.blur.as_ref() else {
+            return;
+        };
+        let (width, height) = (blur.width as f32, blur.height as f32);
+        // One pass across and one down, each told how far a texel is along
+        // the axis it works on.
+        self.queue.write_buffer(
+            &self.blur_across.0,
+            0,
+            bytemuck::cast_slice(&[1.0 / width, 0.0, radius, 0.0]),
+        );
+        self.queue.write_buffer(
+            &self.blur_down.0,
+            0,
+            bytemuck::cast_slice(&[0.0, 1.0 / height, radius, 0.0]),
+        );
+        self.rects
+            .write(&self.device, &self.queue, "backdrop", &backdrop.rects);
+        self.sprites
+            .write(&self.device, &self.queue, "backdrop", &backdrop.sprites);
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("blur"),
+            });
+        let clear = wgpu::Color {
+            r: self.background[0] as f64,
+            g: self.background[1] as f64,
+            b: self.background[2] as f64,
+            a: 1.0,
+        };
+        {
+            let mut pass = onto(&mut encoder, &blur.targets[0].view, clear);
+            if self.rects.count > 0 {
+                pass.set_pipeline(&self.rect_pipeline);
+                pass.set_bind_group(0, &self.screen_group, &[]);
+                pass.set_vertex_buffer(0, self.rects.buffer.slice(..));
+                pass.draw(0..4, 0..self.rects.count);
+            }
+            if self.sprites.count > 0 {
+                pass.set_pipeline(&self.sprite_pipeline);
+                pass.set_bind_group(0, &self.screen_group, &[]);
+                pass.set_bind_group(1, &atlas.group, &[]);
+                pass.set_vertex_buffer(0, self.sprites.buffer.slice(..));
+                pass.draw(0..4, 0..self.sprites.count);
+            }
+        }
+        // Across into the second, then back down into the first, so what
+        // the composite samples is always the first.
+        for (uniform, from, to) in [
+            (&self.blur_across.1, 0usize, 1usize),
+            (&self.blur_down.1, 1, 0),
+        ] {
+            let mut pass = onto(&mut encoder, &blur.targets[to].view, clear);
+            pass.set_pipeline(&self.blur_pipeline);
+            pass.set_bind_group(0, uniform, &[]);
+            pass.set_bind_group(1, &blur.targets[from].group, &[]);
+            pass.draw(0..4, 0..1);
+        }
+        self.queue.submit(Some(encoder.finish()));
+    }
+}
+
+/// A pass onto one offscreen target, cleared first.
+///
+/// A function rather than a closure because the pass borrows the encoder
+/// and a closure cannot say so.
+fn onto<'a>(
+    encoder: &'a mut wgpu::CommandEncoder,
+    view: &'a wgpu::TextureView,
+    clear: wgpu::Color,
+) -> wgpu::RenderPass<'a> {
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("blur"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(clear),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

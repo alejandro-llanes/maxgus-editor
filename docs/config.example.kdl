@@ -81,7 +81,7 @@ set gui-font-size=16
 // long it takes. `smooth-scroll-ms=0` turns the slide off. A touchpad
 // reports the pixels it moved and ignores `mouse-wheel-lines`.
 set mouse-wheel-lines=3
-set smooth-scroll-ms=120
+set smooth-scroll-ms=300
 
 // And the same slide for the view a command moves: `C-v`, a search that
 // lands off the screen, `M->`. A long jump is not animated in full — that
@@ -95,12 +95,33 @@ set scroll-animation-far-lines=1
 // turns it off; `cursor-trail` is how far the back of the block lags the
 // front, in percent. The window draws this instead of the beacon, which is
 // the same job done twice.
-set cursor-animation-ms=90
+set cursor-animation-ms=150
+set cursor-short-animation-ms=40
 set cursor-trail=70
+
+// And what it leaves behind it, which is decoration and is off unless
+// asked for. `sonicboom`, `ripple` and `wireframe` mark where it landed;
+// `railgun`, `torpedo` and `pixiedust` trail particles along the way it
+// came. An empty name is none of them.
+set cursor-vfx=""
+set cursor-vfx-opacity=78                 // percent, at its strongest
+set cursor-vfx-particle-lifetime-ms=500   // how long a trailing particle lives
+set cursor-vfx-highlight-lifetime-ms=200  // how long a mark takes to fade
+set cursor-vfx-particle-density=70        // percent: particles per cell travelled
+set cursor-vfx-particle-speed=10          // how fast they fly away
+set cursor-vfx-particle-phase=150         // percent: how far round a railgun's arc
+set cursor-vfx-particle-curl=100          // percent: how sharply a flight turns
 
 // Let the font join characters it was made to draw as one — `!=` as a
 // single glyph. A font without such joins is unaffected.
 set ligatures=#true
+
+// What is behind a popup — the completion list, the doc box, the which-key
+// panel — is blurred, and the popup sits on it short of solid so it shows
+// through. Costs nothing while nothing is open.
+set floating-blur=#true
+set floating-blur-radius=8   // pixels
+set floating-opacity=82      // percent; never below 20, or it cannot be read
 
 // ---- key bindings ----
 //

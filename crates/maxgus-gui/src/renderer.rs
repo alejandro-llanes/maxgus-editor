@@ -61,6 +61,21 @@ fn need(capacity: usize, instances: usize, stride: usize) -> Need {
     }
 }
 
+/// The limits to ask a device for, given what the adapter reports.
+///
+/// The downlevel defaults are the right ask for everything this draws — two
+/// pipelines, one texture and a great many rectangles — so a laptop's
+/// integrated GPU is as good as anything else here. What they are not is a
+/// statement about how big the window may be: they cap a texture at 2048
+/// pixels either way, and the surface is a texture. A window filling a 4K
+/// display is 3816 across, `Surface::configure` refused it, and the editor
+/// panicked before it had drawn a frame — on the one machine where it was
+/// most obviously wanted. So the resolution comes from the adapter, and
+/// nothing else does.
+fn limits(adapter: &wgpu::Limits) -> wgpu::Limits {
+    wgpu::Limits::downlevel_defaults().using_resolution(adapter.clone())
+}
+
 /// An instance buffer that grows to fit and is rewritten each frame.
 struct Instances {
     buffer: wgpu::Buffer,
@@ -131,9 +146,7 @@ impl Renderer {
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("maxgus"),
                 required_features: wgpu::Features::empty(),
-                // The defaults every adapter meets, so a laptop's integrated
-                // GPU is as good as anything else here: this draws rectangles.
-                required_limits: wgpu::Limits::downlevel_defaults(),
+                required_limits: limits(&adapter.limits()),
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::Off,
                 ..Default::default()
@@ -495,6 +508,43 @@ mod tests {
     use super::*;
 
     const STRIDE: usize = std::mem::size_of::<Rect>();
+
+    #[test]
+    fn a_surface_may_be_as_wide_as_the_display_the_window_is_on() {
+        // The bug this is here for: the ask was the downlevel defaults
+        // whole, so a window filling a 4K display asked for a 3816-pixel
+        // surface against a 2048-pixel cap and the editor died configuring
+        // it. Nothing had been drawn yet, so all it left was a wgpu
+        // validation error where a window should have been.
+        let adapter = wgpu::Limits::default();
+        let asked = limits(&adapter);
+        assert_eq!(
+            asked.max_texture_dimension_2d,
+            adapter.max_texture_dimension_2d
+        );
+        assert!(
+            asked.max_texture_dimension_2d >= 3840,
+            "a 4K window will not fit in {} pixels",
+            asked.max_texture_dimension_2d
+        );
+    }
+
+    #[test]
+    fn nothing_but_the_resolution_is_asked_for_beyond_the_downlevel_defaults() {
+        // Raising the rest would turn away the modest GPU this is careful
+        // to run on, and none of it is anything a rectangle needs.
+        let downlevel = wgpu::Limits::downlevel_defaults();
+        let asked = limits(&wgpu::Limits::default());
+        assert_eq!(
+            wgpu::Limits {
+                max_texture_dimension_1d: downlevel.max_texture_dimension_1d,
+                max_texture_dimension_2d: downlevel.max_texture_dimension_2d,
+                max_texture_dimension_3d: downlevel.max_texture_dimension_3d,
+                ..asked.clone()
+            },
+            downlevel
+        );
+    }
 
     #[test]
     fn a_frame_that_fits_reuses_the_buffer() {

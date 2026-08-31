@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- **The window opens on a 4K display.** The `gui` build asked the GPU for
+  the downlevel default limits — the right ask for what it draws, and a cap
+  of 2048 pixels on any texture. The surface is a texture. A window filling
+  a 3840x2160 display is 3816 across, `Surface::configure` refused it, and
+  the editor panicked before it had drawn a frame: a wgpu validation error
+  where a window should have been, on the machine where a window was most
+  obviously wanted. Half that resolution worked, which is what made it look
+  like a size problem rather than a limit. It is the dimension and not the
+  area, so 2560x1440 was failing too.
+
+  The resolution now comes from the adapter and nothing else does, so a
+  modest GPU is still asked for nothing it cannot give.
+
 ## v0.2.5
 
 - **The file tree scrolls with its cursor.** It drew from the window's

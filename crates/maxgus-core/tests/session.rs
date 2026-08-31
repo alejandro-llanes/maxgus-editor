@@ -4593,7 +4593,7 @@ fn the_readme_quotes_the_right_totals() {
 #[cfg(feature = "full")]
 const README_BINDINGS: usize = 404;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 462;
+const README_COMMANDS: usize = 463;
 
 #[cfg(feature = "full")]
 #[test]
@@ -7624,6 +7624,172 @@ fn a_path_typed_in_full_answers_the_box_rather_than_narrowing_it() {
     );
 }
 
+/// Hands the box a walk's worth of directories, as the task would.
+fn walked(s: &mut Session, root: &str, paths: &[&str], capped: bool) {
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::DirectoriesFound {
+            root: root.into(),
+            paths: paths.iter().map(|p| (*p).to_string()).collect(),
+            capped,
+        })
+        .unwrap();
+}
+
+/// The box, opened by `r a` and showing `/project`.
+fn choosing_box() -> Session {
+    let mut s = with_tree();
+    s.keys("C-x t 1");
+    s.keys("r a");
+    listing(&mut s, "/project", &[("src", true)]);
+    s.editor.tasks.drain();
+    s
+}
+
+#[test]
+fn widening_the_search_walks_the_home_directory() {
+    // Walking is the wrong way to reach somewhere that is not under where
+    // you started: out to a common ancestor and back down the other side,
+    // one press per level, when you already know the name.
+    let home = std::env::var("HOME").expect("a home directory to search");
+    let mut s = choosing_box();
+    s.keys("C-s");
+    let queued = s.editor.tasks.drain();
+    assert!(
+        queued.iter().any(|task| matches!(
+            task,
+            maxgus_core::Task::FindDirectories { root } if root == std::path::Path::new(&home)
+        )),
+        "it did not ask for the walk: {queued:?}"
+    );
+    assert!(browsing(&mut s).searched, "the box is still a listing");
+    assert!(
+        browsing(&mut s).pending,
+        "it should say it is working while the walk runs"
+    );
+}
+
+#[test]
+fn what_the_walk_found_is_narrowed_by_typing_across_all_of_it() {
+    let mut s = choosing_box();
+    s.keys("C-s");
+    walked(
+        &mut s,
+        "/home/someone",
+        &["Projects", "Projects/editor", "Projects/website", "notes"],
+        false,
+    );
+    assert_eq!(browsing(&mut s).tally(), (4, 4));
+    // Neither `.` nor `..`: a walk is a list of answers and nothing else.
+    assert!(
+        !browsing(&mut s)
+            .rows()
+            .contains(&maxgus_core::browser::Row::Here)
+    );
+    assert!(
+        !browsing(&mut s)
+            .rows()
+            .contains(&maxgus_core::browser::Row::Parent)
+    );
+
+    s.type_text("edit");
+    let browser = browsing(&mut s);
+    let shown: Vec<&str> = browser
+        .rows()
+        .iter()
+        .filter_map(|row| browser.entry(*row))
+        .map(|entry| entry.name.as_str())
+        .collect();
+    assert_eq!(shown, ["Projects/editor"]);
+}
+
+#[test]
+fn choosing_from_a_search_answers_with_the_whole_path() {
+    // The rows are relative to the root that was walked, because that is the
+    // part worth typing at — under a home directory every answer starts with
+    // the same dozen characters.
+    let mut s = choosing_box();
+    s.keys("C-s");
+    walked(&mut s, "/home/someone", &["Projects/editor"], false);
+    s.editor.tasks.drain();
+    s.keys("RET");
+    assert_eq!(
+        added(&mut s),
+        Some(std::path::PathBuf::from("/home/someone/Projects/editor"))
+    );
+}
+
+#[test]
+fn a_slash_in_the_filter_is_part_of_the_search_once_the_rows_are_paths() {
+    // Outside a search a `/` means a path typed in full. Inside one it is
+    // the most ordinary thing to type, and taking it literally would answer
+    // with a directory relative to nowhere in particular.
+    let mut s = choosing_box();
+    s.keys("C-s");
+    walked(
+        &mut s,
+        "/home/someone",
+        &["Projects/editor", "notes"],
+        false,
+    );
+    s.type_text("Projects/ed");
+    assert_eq!(browsing(&mut s).typed_path(), None);
+    s.editor.tasks.drain();
+    s.keys("RET");
+    assert_eq!(
+        added(&mut s),
+        Some(std::path::PathBuf::from("/home/someone/Projects/editor"))
+    );
+}
+
+#[test]
+fn coming_out_of_a_search_goes_back_to_the_directory_it_searched() {
+    // Widening the search was not a move, so leaving it should not be one
+    // either — `←` out of a search that started at home should not land
+    // above home.
+    let mut s = choosing_box();
+    s.keys("C-s");
+    walked(&mut s, "/home/someone", &["Projects"], false);
+    s.editor.tasks.drain();
+    s.keys("<left>");
+    let queued = s.editor.tasks.drain();
+    assert!(
+        queued.iter().any(|task| matches!(
+            task,
+            maxgus_core::Task::Browse { path } if path == std::path::Path::new("/home/someone")
+        )),
+        "it climbed out of the root instead of listing it: {queued:?}"
+    );
+}
+
+#[test]
+fn a_walk_cut_short_says_the_list_is_not_all_of_them() {
+    let mut s = choosing_box();
+    s.keys("C-s");
+    walked(&mut s, "/home/someone", &["a", "b"], true);
+    assert!(browsing(&mut s).capped);
+}
+
+#[test]
+fn the_box_that_opens_a_file_says_why_it_will_not_search_wide() {
+    // A walk for files would turn up every file under a home directory, and
+    // `C-x C-f` is the command that takes a path.
+    let mut s = Session::editing(
+        "/project/main.rs",
+        "one
+",
+    );
+    s.keys("C-x C-d");
+    listing(&mut s, "/project", &[("src", true)]);
+    s.editor.tasks.drain();
+    s.keys("C-s");
+    assert!(
+        s.echo().contains("choosing a directory"),
+        "it said `{}`",
+        s.echo()
+    );
+    assert!(s.editor.tasks.drain().is_empty(), "it walked anyway");
+}
+
 #[test]
 fn abandoning_the_box_leaves_no_command_waiting_on_an_answer() {
     // A command left pending would be run by whatever prompt came next,
@@ -8034,7 +8200,7 @@ fn the_readme_quotes_the_right_total_for_a_minimal_build() {
 }
 
 #[cfg(not(feature = "full"))]
-const README_MINIMAL_COMMANDS: usize = 313;
+const README_MINIMAL_COMMANDS: usize = 314;
 
 #[test]
 fn the_box_says_what_it_is_asking_and_what_ret_will_do() {

@@ -452,6 +452,8 @@ pub const BROWSE_BINDINGS: &[(&str, &str)] = &[
     // with one hand.
     ("<right>", "browse-files-enter"),
     ("<left>", "browse-files-up"),
+    // Wider, which is what `C-s` means everywhere else in the editor.
+    ("C-s", "browse-files-search"),
     ("RET", "browse-files-open"),
     ("DEL", "browse-files-rub-out"),
     ("<backspace>", "browse-files-rub-out"),

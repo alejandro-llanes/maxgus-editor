@@ -224,6 +224,8 @@ pub enum Task {
     /// List a directory for the file browser. Its own task rather than
     /// dired's, so the two cannot answer each other's questions.
     Browse { path: PathBuf },
+    /// Walk `root` for every directory under it, for the browser to search.
+    FindDirectories { root: PathBuf },
     /// Act on files, from dired.
     DiredAct { action: FileAction },
     /// Read the script file.
@@ -677,6 +679,18 @@ pub enum TaskResult {
     Browsed {
         path: PathBuf,
         entries: Vec<crate::dired::Entry>,
+    },
+    /// Every directory under `root`, by its path relative to it, for the
+    /// browser to narrow by typing.
+    DirectoriesFound {
+        root: PathBuf,
+        /// Relative to `root`, so what is typed at is the part that
+        /// distinguishes one from another rather than the prefix they all
+        /// share.
+        paths: Vec<String>,
+        /// True when the walk stopped at its limit rather than at the end,
+        /// so the box can say the list is not all of them.
+        capped: bool,
     },
     /// A directory, listed with the detail dired shows.
     DiredListed {

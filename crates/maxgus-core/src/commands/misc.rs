@@ -134,6 +134,12 @@ pub fn register(registry: &mut Registry) {
             non_interactive
         ),
         command!(
+            "browse-files-search",
+            "Search every directory under the home directory.",
+            browse_search,
+            non_interactive
+        ),
+        command!(
             "browse-files-open",
             "Open what the cursor is on, or go into it.",
             browse_open,
@@ -457,12 +463,53 @@ fn browse_enter(editor: &mut Editor, _: &Args) -> Result<()> {
     Ok(())
 }
 
-/// Left: out to the directory above, wherever the cursor happens to be.
-fn browse_up(editor: &mut Editor, _: &Args) -> Result<()> {
-    let Some(parent) = editor.browser.as_ref().and_then(|b| b.parent()) else {
+/// `C-s`: widen the search to every directory under the home directory.
+///
+/// Walking is the wrong way to reach somewhere that is not under where you
+/// started — out to a common ancestor and back down the other side, one
+/// press per level, when you already know the name. This hands the box the
+/// whole tree at once, listed by path relative to home, and typing narrows
+/// across all of it. `←` comes back out of the search.
+fn browse_search(editor: &mut Editor, _: &Args) -> Result<()> {
+    let Some(browser) = editor.browser.as_ref() else {
         return Ok(());
     };
-    browse_to(editor, parent);
+    if !browser.is_choosing() {
+        // The other box opens a file, and a walk for those would turn up
+        // every file under a home directory. `C-x C-f` is the command that
+        // takes a path.
+        return Err(crate::CoreError::Message(
+            "Searching wide is for choosing a directory".into(),
+        ));
+    }
+    let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
+        return Err(crate::CoreError::Message(
+            "There is no HOME to search".into(),
+        ));
+    };
+    if let Some(browser) = editor.browser.as_mut() {
+        browser.searching(&home);
+    }
+    editor.spawn(Task::FindDirectories { root: home });
+    Ok(())
+}
+
+/// Left: out to the directory above, wherever the cursor happens to be.
+fn browse_up(editor: &mut Editor, _: &Args) -> Result<()> {
+    let Some(browser) = editor.browser.as_ref() else {
+        return Ok(());
+    };
+    // Out of a search is back to the directory it was searching, not up out
+    // of it: widening the search was not a move, so leaving it should not be
+    // one either.
+    let to = match browser.searched {
+        true => Some(browser.directory.clone()),
+        false => browser.parent(),
+    };
+    let Some(to) = to else {
+        return Ok(());
+    };
+    browse_to(editor, to);
     Ok(())
 }
 

@@ -2010,6 +2010,18 @@ impl Editor {
                 }
                 Ok(())
             }
+            TaskResult::DirectoriesFound {
+                root,
+                paths,
+                capped,
+            } => {
+                // Only into a box that is still waiting for one. A walk takes
+                // long enough that it can outlive the question.
+                if let Some(browser) = self.browser.as_mut().filter(|b| b.searched) {
+                    browser.found(root, paths, capped);
+                }
+                Ok(())
+            }
             TaskResult::DiredListed { path, entries } => {
                 if let Err(error) = crate::commands::dired::show(self, path, entries) {
                     self.error(error.to_string());

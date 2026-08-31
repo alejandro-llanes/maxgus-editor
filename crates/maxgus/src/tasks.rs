@@ -206,6 +206,7 @@ impl Executor {
             }
             Task::Dired { path } => self.dired(path).await,
             Task::Browse { path } => self.browse(path).await,
+            Task::FindDirectories { root } => self.find_directories(root).await,
             Task::DiredAct { action } => self.dired_act(action).await,
             #[cfg(feature = "full")]
             Task::ReadScript { path } => self.read_script(path).await,
@@ -399,6 +400,64 @@ impl Executor {
             Ok(entries) => self.send(TaskResult::Browsed { path, entries }),
             Err(error) => self.fail(&format!("browse {}", path.display()), error),
         }
+    }
+
+    /// Every directory under `root`, for the browser to narrow by typing.
+    ///
+    /// Breadth first, so what turns up first is what is nearest the top —
+    /// the thing being looked for is far more often two directories down
+    /// than ten, and a walk that has to be capped should be capped at the
+    /// far end rather than the near one.
+    async fn find_directories(&self, root: PathBuf) {
+        /// Deep enough to reach a project inside a couple of levels of
+        /// grouping, shallow enough not to wander into a source tree.
+        const DEPTH: usize = 6;
+        /// Enough to hold anyone's projects, and a bound on the memory and
+        /// the time either way.
+        const MOST: usize = 20_000;
+
+        let mut paths: Vec<String> = Vec::new();
+        let mut queue = std::collections::VecDeque::from([(root.clone(), 0usize)]);
+        let mut capped = false;
+        while let Some((directory, depth)) = queue.pop_front() {
+            if paths.len() >= MOST {
+                capped = true;
+                break;
+            }
+            let Ok(mut reader) = tokio::fs::read_dir(&directory).await else {
+                // Unreadable is not a failure here: somewhere under a home
+                // directory there is always something the owner cannot open,
+                // and one of them should not end the search.
+                continue;
+            };
+            while let Ok(Some(entry)) = reader.next_entry().await {
+                // `file_type` rather than `metadata`, so a symlink reads as a
+                // symlink instead of as whatever it points at. Following them
+                // is how a walk finds the same tree twice, or itself.
+                if !entry.file_type().await.is_ok_and(|kind| kind.is_dir()) {
+                    continue;
+                }
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if skip(&name) {
+                    continue;
+                }
+                let path = directory.join(&name);
+                if let Ok(relative) = path.strip_prefix(&root) {
+                    paths.push(relative.to_string_lossy().into_owned());
+                }
+                if depth + 1 < DEPTH {
+                    queue.push_back((path, depth + 1));
+                }
+            }
+        }
+        capped |= paths.len() >= MOST;
+        paths.truncate(MOST);
+        paths.sort();
+        self.send(TaskResult::DirectoriesFound {
+            root,
+            paths,
+            capped,
+        });
     }
 
     async fn dired(&self, path: PathBuf) {
@@ -3859,6 +3918,99 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
         false => mp - 9,
     } as u32;
     (y + i64::from(m <= 2), m, d)
+}
+
+/// Directories a search for somewhere to work should not walk into.
+///
+/// Dotfiles because a home directory is mostly caches and state, and the
+/// rest because they hold thousands of directories nobody is looking for and
+/// walking them is most of what a search would cost.
+fn skip(name: &str) -> bool {
+    const HEAVY: &[&str] = &[
+        "node_modules",
+        "target",
+        "vendor",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "dist",
+        "build",
+    ];
+    name.starts_with('.') || HEAVY.contains(&name)
+}
+
+#[cfg(test)]
+mod walk_tests {
+    use super::*;
+
+    /// A little tree with the things a real home directory has in it.
+    fn fixture(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("maxgus-walk-{name}"));
+        let _ = std::fs::remove_dir_all(&root);
+        for path in [
+            "Projects/editor/src",
+            "Projects/website",
+            "Projects/editor/target/debug",
+            "Projects/editor/node_modules/left-pad",
+            ".cache/nothing",
+            "notes",
+        ] {
+            std::fs::create_dir_all(root.join(path)).unwrap();
+        }
+        std::fs::write(root.join("notes/a.txt"), "a").unwrap();
+        root
+    }
+
+    /// The walk, run the way the task runs it.
+    async fn walk(root: &Path) -> (Vec<String>, bool) {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let executor = Executor::new(root.to_path_buf(), TreeConfig::default(), Vec::new(), tx);
+        executor.find_directories(root.to_path_buf()).await;
+        match rx.recv().await {
+            Some(TaskResult::DirectoriesFound { paths, capped, .. }) => (paths, capped),
+            other => panic!("expected a walk, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_walk_finds_directories_by_their_path_below_the_root() {
+        let root = fixture("finds");
+        let (paths, capped) = walk(&root).await;
+        assert!(!capped);
+        assert!(
+            paths.contains(&"Projects/editor/src".to_string()),
+            "got {paths:?}"
+        );
+        assert!(paths.contains(&"notes".to_string()), "got {paths:?}");
+    }
+
+    #[tokio::test]
+    async fn the_walk_leaves_out_files_caches_and_build_directories() {
+        // A home directory is mostly things nobody is looking for, and
+        // walking them is most of what a search would cost.
+        let root = fixture("skips");
+        let (paths, _) = walk(&root).await;
+        assert!(
+            !paths.iter().any(|p| p.contains("node_modules")),
+            "got {paths:?}"
+        );
+        assert!(!paths.iter().any(|p| p.contains("target")), "got {paths:?}");
+        assert!(!paths.iter().any(|p| p.starts_with('.')), "got {paths:?}");
+        assert!(
+            !paths.iter().any(|p| p.ends_with("a.txt")),
+            "a file was offered as a directory: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn what_a_search_for_somewhere_to_work_walks_past() {
+        assert!(skip(".git"));
+        assert!(skip(".cache"));
+        assert!(skip("node_modules"));
+        assert!(skip("target"));
+        assert!(!skip("src"));
+        assert!(!skip("Projects"));
+    }
 }
 
 #[cfg(test)]

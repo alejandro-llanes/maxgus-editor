@@ -11,6 +11,12 @@
   cursors of a multiple-cursor edit, the beacon, the region highlight, and the
   scrolling, where a page is now a screenful of *rows* rather than of lines
   that might each take three.
+- **`C-s` in that box searches every directory under your home directory.**
+  Walking is the wrong way to reach somewhere that is not under where you
+  started. The box takes the whole tree at once, listed by path relative to
+  home, and typing narrows across all of it — `maxgused` finds
+  `Projects/personalProjects/maxgus-editor` out of five thousand. Dotfiles,
+  `node_modules`, `target` and their like are walked past. `←` comes back out.
 - **`RET` on `..` in the box that asks the tree for a directory goes up**
   rather than answering with the parent. It is the row you press to get out of
   somewhere, and answering with it left you having added a directory you were

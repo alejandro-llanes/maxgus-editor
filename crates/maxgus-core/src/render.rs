@@ -726,6 +726,12 @@ fn draw_browser(
         true => String::new(),
         false => format!("{} · ", browser.prompt),
     };
+    // A search shows a root and every directory under it, which is a
+    // different thing from showing what is in that root.
+    let shown = match browser.searched {
+        true => format!("under {shown}"),
+        false => shown,
+    };
     let room = (area.width as usize)
         .saturating_sub(16 + asked.chars().count())
         .max(8);
@@ -746,7 +752,13 @@ fn draw_browser(
     let (shown_count, total) = browser.tally();
     // The tally in the top right: three of forty is a different thing from
     // a directory with three files in it.
-    let tally = format!(" {shown_count}/{total} ");
+    // `+` when the walk stopped at its limit rather than at the end: a list
+    // that is not all of them should not claim to be.
+    let more = match browser.capped {
+        true => "+",
+        false => "",
+    };
+    let tally = format!(" {shown_count}/{total}{more} ");
     let at = area
         .right()
         .saturating_sub(tally.chars().count() as u16 + 2);
@@ -797,9 +809,10 @@ fn draw_browser(
         inner.bottom().saturating_sub(rule + 1),
     );
     if browser.rows().is_empty() {
-        let note = match browser.pending {
-            true => "Reading…",
-            false => "Nothing matches",
+        let note = match (browser.pending, browser.searched) {
+            (true, true) => "Searching…",
+            (true, false) => "Reading…",
+            (false, _) => "Nothing matches",
         };
         surface.set_string(
             list.x + 1,
@@ -830,11 +843,23 @@ fn draw_browser(
     }
 
     // The keys, along the bottom border.
-    let hint = match browser.is_choosing() {
-        true => " ↑↓ move · → in · ← out · RET choose ",
-        false => " ↑↓ move · → in · ← out · RET open ",
+    // Longest first: a narrow box drops back to the keys it cannot do
+    // without, rather than to nothing at all.
+    let hints: &[&str] = match (browser.is_choosing(), browser.searched) {
+        (true, true) => &[
+            " ↑↓ move · → in · ← back · RET choose ",
+            " ↑↓ move · RET choose ",
+        ],
+        (true, false) => &[
+            " ↑↓ move · → in · ← out · C-s search ~ · RET choose ",
+            " ↑↓ move · → in · ← out · RET choose ",
+        ],
+        (false, _) => &[" ↑↓ move · → in · ← out · RET open "],
     };
-    if (hint.chars().count() as u16) < area.width.saturating_sub(4) {
+    if let Some(hint) = hints
+        .iter()
+        .find(|hint| (hint.chars().count() as u16) < area.width.saturating_sub(4))
+    {
         surface.set_string(
             area.x + 2,
             area.bottom().saturating_sub(1),
@@ -910,6 +935,9 @@ fn draw_browser_row(
         // no other file browser answers with a directory. Saying what it
         // is costs one dimmed phrase.
         crate::browser::Row::Here => "this directory".to_string(),
+        // A walk has no detail to show: it read the names and not the
+        // directories, which is most of why it is quick.
+        _ if browser.searched => String::new(),
         _ => entry
             .filter(|entry| !entry.is_dir)
             .map(|entry| format!("{:>7}  {}", human_size(entry.size), entry.modified))

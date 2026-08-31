@@ -18,6 +18,11 @@
 //! full is the slowest way to name one you could point at, so those prompts
 //! open this instead. See [`Purpose`].
 //!
+//! Walking is the wrong way to reach somewhere that is not under where you
+//! started, so that box can also be handed the whole of a directory tree at
+//! once — every directory under `$HOME`, listed by its path relative to it —
+//! and narrowed by typing across all of them. See [`Browser::found`].
+//!
 //! The model is here and the drawing is [`crate::render`]'s, so what it
 //! shows and what it selects can be checked without a window.
 
@@ -72,6 +77,15 @@ pub struct Browser {
     /// yet, so an empty box can say so rather than looking like an empty
     /// directory.
     pub pending: bool,
+    /// True when the rows came from a walk rather than from one directory.
+    ///
+    /// The names are then paths relative to [`Browser::directory`], which is
+    /// the root that was walked — so `current_path` joins them and needs to
+    /// know nothing about it.
+    pub searched: bool,
+    /// True when the walk stopped at its limit rather than at the end, so
+    /// the box can say the list is not all of them.
+    pub capped: bool,
     rows: Vec<Row>,
 }
 
@@ -122,6 +136,47 @@ impl Browser {
                 .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
         });
         self.pending = false;
+        self.searched = false;
+        self.capped = false;
+        self.selected = 0;
+        self.rebuild();
+    }
+
+    /// Puts the box into the state a walk is about to fill, so it can say
+    /// what it is doing while the walk runs.
+    pub fn searching(&mut self, root: impl Into<PathBuf>) {
+        self.directory = root.into();
+        self.entries.clear();
+        self.filter.clear();
+        self.selected = 0;
+        self.pending = true;
+        self.searched = true;
+        self.capped = false;
+        self.rebuild();
+    }
+
+    /// What a walk turned up: every directory under `root`, by its path
+    /// relative to it.
+    ///
+    /// Relative because that is the part worth typing at. Under a home
+    /// directory every answer starts with the same dozen characters, and a
+    /// fuzzy match against them matches everything.
+    pub fn found(&mut self, root: impl Into<PathBuf>, paths: Vec<String>, capped: bool) {
+        self.directory = root.into();
+        self.entries = paths
+            .into_iter()
+            .map(|name| Entry {
+                name,
+                is_dir: true,
+                link: None,
+                size: 0,
+                permissions: String::new(),
+                modified: String::new(),
+            })
+            .collect();
+        self.pending = false;
+        self.searched = true;
+        self.capped = capped;
         self.selected = 0;
         self.rebuild();
     }
@@ -192,7 +247,10 @@ impl Browser {
     /// box exists for the other case; a directory has no such command, so
     /// the box has to carry both ways of naming one.
     pub fn typed_path(&self) -> Option<&str> {
-        if !self.is_choosing() {
+        // Not while the rows are themselves paths: `src/main` is then the
+        // most ordinary thing to type, and taking it literally would answer
+        // with a directory relative to nowhere in particular.
+        if !self.is_choosing() || self.searched {
             return None;
         }
         let typed = self.filter.trim();
@@ -261,10 +319,13 @@ impl Browser {
     fn rebuild(&mut self) {
         let mut rows = Vec::new();
         if self.filter.is_empty() {
-            if self.is_choosing() {
+            // A walk is a list of answers and nothing else. `.` would be the
+            // root that was walked, which is not what anybody widened the
+            // search to find, and `..` would climb out of it.
+            if self.is_choosing() && !self.searched {
                 rows.push(Row::Here);
             }
-            if self.parent().is_some() {
+            if self.parent().is_some() && !self.searched {
                 rows.push(Row::Parent);
             }
             rows.extend((0..self.entries.len()).map(Row::Entry));

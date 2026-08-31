@@ -79,7 +79,7 @@ path in it, because a launcher does not see your shell's `PATH`.
 | | `minimal` | `full` *(default)* | `gui` |
 |---|:---:|:---:|:---:|
 | **Binary** | **4.8M** | **13M** | **21M** |
-| **Commands** | 313 | 462 | 462 |
+| **Commands** | 314 | 463 | 463 |
 | **Needs from the system** | nothing | nothing | a window system's headers |
 | Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
 | Buffers, windows, `C-x` everything | ● | ● | ● |
@@ -170,7 +170,7 @@ $ ./target/release/maxgus
 ### Emacs keys, and they behave like Emacs
 
 **404 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **462 commands**. Prefix
+the panel, tree, magit and terminal maps, driving **463 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -443,6 +443,17 @@ into one is what `→` already does. `.` leads the list and answers with the
 directory you are looking at, so adding the one you started in is a single
 `RET`. A path can still be typed or pasted: a filter with a `/` in it is
 nobody searching a listing, so `RET` takes it literally, and `~` means home.
+
+**`C-s` widens it to everything under your home directory.** Walking is the
+wrong way to reach somewhere that is not under where you started — out to a
+common ancestor and back down the other side, one press per level, when you
+already know the name. `C-s` hands the box the whole tree at once, listed by
+path relative to home, and typing narrows across all of it: `maxgused` finds
+`Projects/personalProjects/maxgus-editor`. Dotfiles, `node_modules`,
+`target` and their like are walked past, being most of what a home directory
+holds and none of what anybody is looking for. `←` comes back out of the
+search, `→` goes into the directory under the cursor and carries on browsing
+from there.
 
 It is deliberately not dired, and does not replace it. dired is for working
 *on* a directory — marking a dozen files and doing one thing to all of them —

@@ -401,8 +401,20 @@ fn the_file_tree_opens_beside_the_buffer_and_takes_the_keyboard() {
     // The tree is drawn on the left, the buffer beside it. Each panel window
     // holds one section and nothing else, so the tree's first row is a node.
     let screen = s.screen();
-    // `v` is the arrow, then the directory glyph, then the name.
-    assert!(screen[0].starts_with('v'), "the arrow, got `{}`", screen[0]);
+    // A column at the left is kept for the selection mark, then the open
+    // chevron, then the open-directory glyph, then the name — in that
+    // order, which is what makes the row read left to right.
+    let chevron = screen[0]
+        .find(maxgus_core::icons::CHEVRON_DOWN)
+        .unwrap_or_else(|| panic!("no open chevron in `{}`", screen[0]));
+    let folder = screen[0]
+        .find(maxgus_core::icons::DIRECTORY_OPEN)
+        .unwrap_or_else(|| panic!("no open-directory glyph in `{}`", screen[0]));
+    assert!(
+        chevron < folder,
+        "the chevron comes after the glyph: `{}`",
+        screen[0]
+    );
     assert!(screen[0].contains("project"), "got `{}`", screen[0]);
     assert!(screen[0].contains("fn main()"), "got `{}`", screen[0]);
 
@@ -4579,9 +4591,9 @@ fn the_readme_quotes_the_right_totals() {
 }
 
 #[cfg(feature = "full")]
-const README_BINDINGS: usize = 399;
+const README_BINDINGS: usize = 401;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 448;
+const README_COMMANDS: usize = 459;
 
 #[cfg(feature = "full")]
 #[test]

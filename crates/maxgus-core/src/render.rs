@@ -194,6 +194,11 @@ pub fn draw_floating(editor: &Editor, surface: &mut Surface) -> Vec<Rect> {
             }
         }
     }
+    // The file browser, over everything: it is the thing being looked at
+    // while it is up, not a note beside something else.
+    if let Some(browser) = editor.browser.as_ref() {
+        floating.extend(draw_browser(editor, surface, frame, browser));
+    }
     // The completion popup takes the echo area with it: the prompt it is
     // answering rides along the top of the box instead.
     if let Some(area) = completion_popup(editor, frame) {
@@ -669,7 +674,254 @@ fn draw_key_menu(
     Some(area)
 }
 
-/// Fills columns `height` rows tall with whole sections.
+/// The file browser: a box over the frame that narrows as you type.
+///
+/// Centred and wide, because it is the thing being looked at rather than a
+/// note in the corner. The directory is in the top border, the filter is
+/// the first row inside it with the cursor sitting in it, and the keys are
+/// along the bottom — a box that has to be explained somewhere else is a
+/// box people close again.
+fn draw_browser(
+    editor: &Editor,
+    surface: &mut Surface,
+    frame: Rect,
+    browser: &crate::browser::Browser,
+) -> Option<Rect> {
+    if frame.width < 30 || frame.height < 8 {
+        return None;
+    }
+    let theme = &editor.theme;
+    let icons = editor.settings.nerd_font_icons;
+
+    // Three fifths of the frame, and no wider than a path needs.
+    let width = ((frame.width as usize * 3) / 5).clamp(30, frame.width as usize) as u16;
+    // Two rows of chrome inside the border — the filter and its rule — and
+    // the rows themselves, up to two thirds of the frame.
+    let most = ((frame.height as usize * 2) / 3).saturating_sub(4).max(1);
+    let rows = browser.rows().len().clamp(1, most);
+    let height = (rows + 4) as u16;
+    let area = Rect::new(
+        frame.x + (frame.width.saturating_sub(width)) / 2,
+        frame.y + (frame.height.saturating_sub(height)) / 3,
+        width,
+        height.min(frame.height),
+    );
+
+    let plain = theme.resolve("default");
+    let border = theme.resolve("completion-border");
+    surface.clear_rect(area, plain);
+    draw_border(surface, area, border);
+    // The directory, shortened at the front: the end of a long path is the
+    // part that says where you are.
+    let home = std::env::var("HOME").unwrap_or_default();
+    let shown = browser.directory.to_string_lossy();
+    let shown = match !home.is_empty() && shown.starts_with(&home) {
+        true => format!("~{}", &shown[home.len()..]),
+        false => shown.into_owned(),
+    };
+    let room = area.width.saturating_sub(16) as usize;
+    let shown = match shown.chars().count() > room {
+        true => format!(
+            "…{}",
+            shown
+                .chars()
+                .skip(shown.chars().count() - room)
+                .collect::<String>()
+        ),
+        false => shown,
+    };
+    draw_border_title(surface, area, &shown, theme.resolve("menu-heading"));
+
+    let inner = area.inset(1);
+    let (shown_count, total) = browser.tally();
+    // The tally in the top right: three of forty is a different thing from
+    // a directory with three files in it.
+    let tally = format!(" {shown_count}/{total} ");
+    let at = area
+        .right()
+        .saturating_sub(tally.chars().count() as u16 + 2);
+    if at > area.x + shown.chars().count() as u16 + 4 {
+        surface.set_string(
+            at,
+            area.y,
+            &tally,
+            theme.resolve("completion-count"),
+            area.width,
+        );
+    }
+
+    // The filter, with the cursor in it.
+    let mut x = inner.x + 1;
+    if icons {
+        x = surface.set_string(
+            x,
+            inner.y,
+            "\u{f002} ",
+            theme.resolve("minibuffer-prompt"),
+            inner.width,
+        );
+    }
+    x = surface.set_string(
+        x,
+        inner.y,
+        &browser.filter,
+        theme.resolve("default"),
+        inner.right().saturating_sub(x),
+    );
+    if x < inner.right() {
+        surface.set_char(x, inner.y, ' ', theme.resolve("cursor"));
+    }
+    // A rule under it, joined to the border so it reads as a division of
+    // the box rather than a row of dashes in it.
+    let rule = inner.y + 1;
+    for x in inner.x..inner.right() {
+        surface.set_char(x, rule, '─', border);
+    }
+    surface.set_char(area.x, rule, '├', border);
+    surface.set_char(area.right().saturating_sub(1), rule, '┤', border);
+
+    let list = Rect::new(
+        inner.x,
+        rule + 1,
+        inner.width,
+        inner.bottom().saturating_sub(rule + 1),
+    );
+    if browser.rows().is_empty() {
+        let note = match browser.pending {
+            true => "Reading…",
+            false => "Nothing matches",
+        };
+        surface.set_string(
+            list.x + 1,
+            list.y,
+            note,
+            theme.resolve("panel-note"),
+            list.width,
+        );
+    }
+    // Scrolled so the cursor is always on screen, which a list you hold an
+    // arrow down on stops being otherwise.
+    let height = list.height as usize;
+    let top = browser.selected.saturating_sub(height.saturating_sub(1));
+    for row in 0..list.height {
+        let index = top + row as usize;
+        let Some(entry) = browser.rows().get(index) else {
+            break;
+        };
+        let y = list.y + row;
+        let selected = index == browser.selected;
+        if selected {
+            surface.clear_rect(
+                Rect::new(list.x, y, list.width, 1),
+                theme.resolve("completion-selected"),
+            );
+        }
+        draw_browser_row(editor, surface, browser, *entry, list, y, selected, icons);
+    }
+
+    // The keys, along the bottom border.
+    let hint = " ↑↓ move · → in · ← out · RET open ";
+    if (hint.chars().count() as u16) < area.width.saturating_sub(4) {
+        surface.set_string(
+            area.x + 2,
+            area.bottom().saturating_sub(1),
+            hint,
+            theme.resolve("shadow"),
+            area.width,
+        );
+    }
+    Some(area)
+}
+
+/// One entry: what it is, what it is called, how big and how old.
+#[allow(clippy::too_many_arguments)]
+fn draw_browser_row(
+    editor: &Editor,
+    surface: &mut Surface,
+    browser: &crate::browser::Browser,
+    row: crate::browser::Row,
+    area: Rect,
+    y: u16,
+    selected: bool,
+    icons: bool,
+) {
+    let theme = &editor.theme;
+    // A selected row keeps the selection's background whatever the face of
+    // the thing on it says, or the bar would have holes in it.
+    let background = match selected {
+        true => theme.resolve("completion-selected").background,
+        false => None,
+    };
+    let face = |name: &str| {
+        let mut face = theme.resolve(name);
+        if let Some(background) = background {
+            face.background = Some(background);
+        }
+        face
+    };
+
+    let entry = browser.entry(row);
+    let (glyph, name, kind) = match entry {
+        None => (crate::icons::DIRECTORY, "..".to_string(), "tree-directory"),
+        Some(entry) if entry.is_dir => (
+            crate::icons::DIRECTORY,
+            format!("{}/", entry.name),
+            "tree-directory",
+        ),
+        Some(entry) if entry.link.is_some() => {
+            (crate::icons::SYMLINK, entry.name.clone(), "tree-symlink")
+        }
+        Some(entry) => (
+            crate::icons::for_file(std::path::Path::new(&entry.name)),
+            entry.name.clone(),
+            "tree-file",
+        ),
+    };
+
+    let mut x = area.x + 1;
+    if icons {
+        x = surface.set_string(x, y, &format!("{glyph} "), face(kind), area.right() - x);
+    }
+    // The size and the date sit against the right edge, so they line up as
+    // columns rather than trailing after names of every length.
+    let detail = entry
+        .filter(|entry| !entry.is_dir)
+        .map(|entry| format!("{:>7}  {}", human_size(entry.size), entry.modified))
+        .or_else(|| entry.map(|entry| format!("{:>7}  {}", "", entry.modified)))
+        .unwrap_or_default();
+    let detail_at = area
+        .right()
+        .saturating_sub(detail.chars().count() as u16 + 1);
+    let room = detail_at.saturating_sub(x + 1).max(1);
+    surface.set_string(x, y, &name, face(kind), room);
+    if !detail.is_empty() && detail_at > x + 1 {
+        surface.set_string(
+            detail_at,
+            y,
+            &detail,
+            face("shadow"),
+            area.right() - detail_at,
+        );
+    }
+}
+
+/// A size as a person reads it: `6.2k`, `1.4M`.
+fn human_size(bytes: u64) -> String {
+    const STEP: f64 = 1024.0;
+    let bytes = bytes as f64;
+    for (limit, suffix) in [(STEP, ""), (STEP * STEP, "k"), (STEP * STEP * STEP, "M")] {
+        if bytes < limit {
+            let scaled = bytes / (limit / STEP);
+            return match suffix.is_empty() || scaled >= 10.0 {
+                true => format!("{scaled:.0}{suffix}"),
+                false => format!("{scaled:.1}{suffix}"),
+            };
+        }
+    }
+    format!("{:.1}G", bytes / (STEP * STEP * STEP))
+}
+
+/// Fills columns `height` rows tall with whole sections./// Fills columns `height` rows tall with whole sections.
 ///
 /// A section that will not fit in what is left starts the next column
 /// rather than being broken across the two: a heading in one column with
@@ -1433,6 +1685,7 @@ fn draw_tree(editor: &Editor, surface: &mut Surface, window: &Window, area: Rect
                 Rect::new(area.x, y, area.width, 1),
                 theme.resolve("tree-selected"),
             );
+            draw_selection_mark(surface, area, y, theme.resolve("tree-selection-mark"));
         }
         let face = section_face(theme, selected);
         draw_tree_row(editor, surface, node, area, y, &face);
@@ -1480,6 +1733,7 @@ fn draw_symbols(editor: &Editor, surface: &mut Surface, window: &Window, area: R
                 Rect::new(area.x, y, area.width, 1),
                 theme.resolve("tree-selected"),
             );
+            draw_selection_mark(surface, area, y, theme.resolve("tree-selection-mark"));
         }
         let face = section_face(theme, selected);
         draw_symbol_row(surface, symbol, area, y, icons, &face);
@@ -1527,6 +1781,53 @@ fn section_face(theme: &Theme, selected: bool) -> impl Fn(&str) -> Face + '_ {
     }
 }
 
+/// The mark that says whether a row can be opened, and whether it is.
+///
+/// A chevron where the font has one, and `>`/`v` where it does not — which
+/// are letters pretending to be arrows, and are what this drew before.
+/// Always two columns wide either way, so the indentation of everything
+/// after it does not move when the glyphs are turned off.
+fn expander(expandable: bool, expanded: bool, icons: bool) -> String {
+    if !expandable {
+        return "  ".to_string();
+    }
+    match (icons, expanded) {
+        (true, true) => format!("{} ", crate::icons::CHEVRON_DOWN),
+        (true, false) => format!("{} ", crate::icons::CHEVRON_RIGHT),
+        (false, true) => "v ".to_string(),
+        (false, false) => "> ".to_string(),
+    }
+}
+
+/// The vertical rules that say how deep a row is nested.
+///
+/// A panel of indented names is a panel where the eye has to measure
+/// whitespace to see what belongs to what. A line down each level is what
+/// turns the indentation into a shape. treemacs calls it an indent guide,
+/// and it is the difference between a list and a tree.
+///
+/// Drawn under everything else on the row, so a name or a glyph that
+/// reaches back over one covers it rather than being cut by it.
+fn draw_indent_guides(surface: &mut Surface, area: Rect, y: u16, depth: usize, face: Face) {
+    for level in 0..depth {
+        let x = area.x + (level as u16 * 2);
+        if x >= area.right() {
+            break;
+        }
+        surface.set_char(x, y, '│', face);
+    }
+}
+
+/// The bar down the left of the selected row.
+///
+/// The row already has a background of its own, which says *that* it is
+/// selected. This says where the selection is when the eye is somewhere
+/// else on the screen: a solid mark in an accent colour reads from the
+/// corner of the eye in a way a change of background does not.
+fn draw_selection_mark(surface: &mut Surface, area: Rect, y: u16, face: Face) {
+    surface.set_char(area.x, y, '▎', face);
+}
+
 fn draw_tree_row(
     editor: &Editor,
     surface: &mut Surface,
@@ -1535,12 +1836,23 @@ fn draw_tree_row(
     y: u16,
     face: &dyn Fn(&str) -> Face,
 ) {
+    // One column at the left for the selection mark, so the rows do not
+    // shift sideways as the cursor moves down them.
+    let area = Rect::new(
+        area.x + 1,
+        area.y,
+        area.width.saturating_sub(1),
+        area.height,
+    );
+    draw_indent_guides(surface, area, y, node.depth, face("tree-indent"));
     let mut x = area.x + (node.depth as u16 * 2).min(area.width);
-    // The arrow marks what can be opened.
-    x = surface.set_string(x, y, node.arrow(), face("tree-arrow"), area.right() - x);
+    // The chevron marks what can be opened.
+    let icons = editor.settings.nerd_font_icons;
+    let mark = expander(node.expandable, node.expanded, icons);
+    x = surface.set_string(x, y, &mark, face("tree-arrow"), area.right() - x);
     // The glyph says what kind of thing it is at a glance, in the face of
     // the node itself so a directory's icon reads as a directory.
-    if editor.settings.nerd_font_icons {
+    if icons {
         let icon = format!("{} ", tree_glyph(node));
         x = surface.set_string(
             x,
@@ -1578,9 +1890,19 @@ fn draw_symbol_row(
     icons: bool,
     face: &dyn Fn(&str) -> Face,
 ) {
+    let area = Rect::new(
+        area.x + 1,
+        area.y,
+        area.width.saturating_sub(1),
+        area.height,
+    );
+    // One level deeper than the tree's, because every symbol sits under the
+    // heading rather than beside it.
+    draw_indent_guides(surface, area, y, symbol.depth + 1, face("tree-indent"));
     let indent = ((symbol.depth as u16 + 1) * 2).min(area.width);
     let mut x = area.x + indent;
-    x = surface.set_string(x, y, symbol.arrow(), face("tree-arrow"), area.right() - x);
+    let mark = expander(symbol.has_children(), symbol.expanded, icons);
+    x = surface.set_string(x, y, &mark, face("tree-arrow"), area.right() - x);
     if icons {
         let icon = format!("{} ", crate::icons::for_symbol(symbol.kind));
         x = surface.set_string(
@@ -3278,9 +3600,25 @@ mod tests {
             },
         ];
         let lines = tree_rows(&mut e, &mut s);
-        assert!(lines[0].starts_with('v'), "the arrow, got `{}`", lines[0]);
+        // A column at the left is kept for the selection mark, so the rows
+        // do not shift sideways as the cursor moves down them. Then the
+        // chevron, in whichever form the settings ask for.
+        let icons = e.settings.nerd_font_icons;
+        let open = expander(true, true, icons);
+        let shut = expander(true, false, icons);
+        assert!(
+            lines[0]
+                .trim_start_matches('▎')
+                .starts_with(open.trim_end()),
+            "the open chevron, got `{}`",
+            lines[0]
+        );
         assert!(lines[0].contains("project"), "got `{}`", lines[0]);
-        assert!(lines[1].contains("> "), "got `{}`", lines[1]);
+        assert!(
+            lines[1].contains(shut.trim_end()),
+            "the shut chevron, got `{}`",
+            lines[1]
+        );
         assert!(lines[1].contains("src"), "got `{}`", lines[1]);
         assert!(lines[2].contains("main.rs"), "got `{}`", lines[2]);
 
@@ -3373,15 +3711,28 @@ mod tests {
 
         let top = first_tree_row(&e);
         let marked = e.theme.resolve("tree-selected").background;
+        // Read past the mark column, which is a foreground of its own.
         assert_eq!(
-            face_at(&s, 0, top + 1).background,
+            face_at(&s, 2, top + 1).background,
             marked,
             "the cursor row is not marked"
         );
         assert_ne!(
-            face_at(&s, 0, top).background,
+            face_at(&s, 2, top).background,
             marked,
             "and other rows are not"
+        );
+        // And the bar itself, which is what says where the selection is
+        // when the eye is somewhere else on the screen.
+        assert_eq!(
+            s.get(0, top + 1).map(|cell| cell.ch),
+            Some('▎'),
+            "the selected row has no mark down its left"
+        );
+        assert_ne!(
+            s.get(0, top).map(|cell| cell.ch),
+            Some('▎'),
+            "an unselected row has one"
         );
     }
 

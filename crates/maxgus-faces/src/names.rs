@@ -109,6 +109,10 @@ pub const DIAGNOSTIC_FACES: &[&str] = &[
 
 /// Faces for the file tree.
 pub const TREE_FACES: &[&str] = &[
+    // The rules that say how deep a row is nested, and the bar down the
+    // left of the selected one.
+    "tree-indent",
+    "tree-selection-mark",
     "tree-root",
     "tree-directory",
     "tree-file",

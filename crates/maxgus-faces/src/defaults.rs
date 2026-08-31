@@ -236,6 +236,10 @@ fn build(name: &str, p: &Palette) -> Theme {
     set("tree-symlink", Face::fg(p.aqua).italic());
     set("tree-selected", Face::bg(p.selection).bold());
     set("tree-arrow", Face::fg(p.comment));
+    // Barely there: a guide that competes with the names it is
+    // organising has stopped being a guide.
+    set("tree-indent", Face::fg(p.selection));
+    set("tree-selection-mark", Face::fg(p.aqua));
     set("tree-git-modified", Face::fg(p.yellow));
     set("tree-git-added", Face::fg(p.green));
     set("tree-git-deleted", Face::fg(p.red));

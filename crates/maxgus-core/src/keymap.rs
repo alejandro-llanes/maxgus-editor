@@ -183,6 +183,8 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-x C-x", "exchange-point-and-mark"),
     ("C-x h", "mark-whole-buffer"),
     ("C-x d", "dired"),
+    // Emacs' `list-directory` slot, which this editor has nothing else for.
+    ("C-x C-d", "browse-files"),
     ("C-x u", "undo"),
     ("S-TAB", "snippet-previous-field"),
     // Several cursors, spelled as `multiple-cursors` spells them.
@@ -268,6 +270,7 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-c c w", "delete-trailing-whitespace"),
     // `C-c f` — files.
     ("C-c f f", "find-file"),
+    ("C-c f b", "browse-files"),
     ("C-c f d", "dired"),
     ("C-c f D", "delete-this-file"),
     ("C-c f m", "move-this-file"),
@@ -424,6 +427,42 @@ pub const MINIBUFFER_BINDINGS: &[(&str, &str)] = &[
 ];
 
 /// Builds the minibuffer keymap.
+/// The keys the file browser answers to.
+///
+/// Everything else goes into the filter, by way of the map's default
+/// binding — which is what makes it a thing you type at rather than a thing
+/// you drive. So the keys it does keep are the ones that are not letters:
+/// the arrows, `RET`, `C-g`, and the `C-n`/`C-p` an Emacs hand reaches for
+/// without thinking.
+pub const BROWSE_BINDINGS: &[(&str, &str)] = &[
+    ("<down>", "browse-files-next"),
+    ("<up>", "browse-files-previous"),
+    ("C-n", "browse-files-next"),
+    ("C-p", "browse-files-previous"),
+    ("<next>", "browse-files-next"),
+    ("<prior>", "browse-files-previous"),
+    ("M-<", "browse-files-first"),
+    ("M->", "browse-files-last"),
+    // Right goes in, left comes out, which is the whole of walking a tree
+    // with one hand.
+    ("<right>", "browse-files-enter"),
+    ("<left>", "browse-files-up"),
+    ("RET", "browse-files-open"),
+    ("DEL", "browse-files-rub-out"),
+    ("<backspace>", "browse-files-rub-out"),
+    ("C-g", "browse-files-quit"),
+    ("<escape>", "browse-files-quit"),
+];
+
+pub fn browse_keymap() -> Result<Keymap> {
+    let mut map = Keymap::new("browse-files-mode");
+    for (keys, command) in BROWSE_BINDINGS {
+        map.define_str(keys, *command)?;
+    }
+    map.set_default_binding(Some("browse-files-self-insert".to_string()));
+    Ok(map)
+}
+
 pub fn minibuffer_keymap() -> Result<Keymap> {
     let mut map = Keymap::new("minibuffer-mode");
     for (keys, command) in MINIBUFFER_BINDINGS {

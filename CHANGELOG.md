@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- **Eight glyphs were drawing as hollow boxes and nothing said so.** Nerd
+  Fonts v3 moved the Material Design icons out of `U+F534..U+FD46` and up to
+  `U+F0001`, leaving the old codepoints unassigned — and eight of the
+  editor's were still down there. `DIRECTORY_OPEN` was one, so *every open
+  directory in the tree* had a box where its glyph should be, on any machine
+  with a font from the last few years. A test refuses that range now; it
+  would have caught all eight.
+
+- **The symbol outline uses one set of icons.** What it had was a handful
+  from Font Awesome, a handful from Material and a handful from an extension
+  pack, which reads as a ransom note even where the font has all of it —
+  and seven of them it did not, including `method`, `string`, `number` and
+  `boolean`. They are Codicons now: the icons the editor that invented the
+  protocol drew for `SymbolKind`, so an outline here looks like an outline
+  anywhere else.
+
+- **The tree marks what can be opened with a chevron** rather than with `>`
+  and `v`, which are letters pretending to be arrows. The symbol outline
+  does the same. `set nerd-font-icons=#false` still gets the letters, and
+  the mark is two columns wide either way so nothing shifts.
+
+- **A file browser you type at**, on `C-x C-d`. `C-x C-f` is for when you
+  know the path; this is for when you know roughly where it is. A box over
+  the frame that narrows fuzzily as you type, walked with the arrows —
+  right goes into a directory, left comes back out, backspace rubs out a
+  character or goes up when there is none. Filetype glyphs, sizes and dates.
+  It is not dired and does not touch it: dired is for working *on* a
+  directory, and its single-letter keys are what make that quick.
+
+- **The tree and the symbol outline read as trees.** A rule down each level
+  of nesting, so the shape is drawn rather than measured out of whitespace,
+  and a bar down the left of the selected row — the background says *that*
+  something is selected, the bar says *where* when the eye is elsewhere.
+  `tree-indent` and `tree-selection-mark`.
+
 - **The tree shows more than one directory.** `r a` adds another and `r k`
   takes one off — treemacs' projects, and for its reason: a workspace is
   usually more than one directory, and closing the tree to reopen it

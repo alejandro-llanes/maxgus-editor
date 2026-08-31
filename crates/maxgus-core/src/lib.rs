@@ -9,6 +9,7 @@
 
 pub mod autocomplete;
 pub mod beacon;
+pub mod browser;
 pub mod buffers;
 pub mod command;
 pub mod commands;

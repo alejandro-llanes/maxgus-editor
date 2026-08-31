@@ -205,6 +205,7 @@ impl Executor {
                 self.send(TaskResult::Grammars { report });
             }
             Task::Dired { path } => self.dired(path).await,
+            Task::Browse { path } => self.browse(path).await,
             Task::DiredAct { action } => self.dired_act(action).await,
             #[cfg(feature = "full")]
             Task::ReadScript { path } => self.read_script(path).await,
@@ -386,15 +387,29 @@ impl Executor {
     // ---- directories ---------------------------------------------------
 
     /// Lists a directory with the detail dired shows.
+    /// Lists a directory for the file browser.
+    ///
+    /// The same reading dired does, sent to a different place. A directory
+    /// that will not open is reported and nothing is sent, so the browser
+    /// stays where it was rather than emptying itself over a typo.
+    async fn browse(&self, path: PathBuf) {
+        match Self::listing(&path).await {
+            Ok(entries) => self.send(TaskResult::Browsed { path, entries }),
+            Err(error) => self.fail(&format!("browse {}", path.display()), error),
+        }
+    }
+
     async fn dired(&self, path: PathBuf) {
+        match Self::listing(&path).await {
+            Ok(entries) => self.send(TaskResult::DiredListed { path, entries }),
+            Err(error) => self.fail(&format!("dired {}", path.display()), error),
+        }
+    }
+
+    /// What is in a directory, with the detail dired shows.
+    async fn listing(path: &Path) -> std::io::Result<Vec<maxgus_core::dired::Entry>> {
         let mut entries = Vec::new();
-        let mut reader = match tokio::fs::read_dir(&path).await {
-            Ok(reader) => reader,
-            Err(error) => {
-                self.fail(&format!("dired {}", path.display()), error);
-                return;
-            }
-        };
+        let mut reader = tokio::fs::read_dir(path).await?;
         while let Ok(Some(entry)) = reader.next_entry().await {
             let name = entry.file_name().to_string_lossy().into_owned();
             let Ok(metadata) = entry.metadata().await else {
@@ -415,7 +430,7 @@ impl Executor {
                 modified: modified_of(&metadata),
             });
         }
-        self.send(TaskResult::DiredListed { path, entries });
+        Ok(entries)
     }
 
     /// Does what dired asked, and says which directory to list again.

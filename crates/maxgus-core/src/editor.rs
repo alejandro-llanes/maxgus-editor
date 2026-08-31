@@ -78,6 +78,9 @@ pub struct Editor {
     pub script_path: Option<PathBuf>,
     /// The directory listing, when one is open.
     pub dired: Option<crate::dired::DiredView>,
+    /// The file browser, when it is up: a box over the frame that narrows
+    /// as you type. Nothing to do with `dired`, which is a buffer.
+    pub browser: Option<crate::browser::Browser>,
     /// The snippets that have been loaded, from the configuration directory.
     pub snippets: Vec<crate::snippet::Snippet>,
     /// The fields of the snippet being filled in, as buffer offsets.
@@ -335,6 +338,7 @@ impl Editor {
             #[cfg(feature = "full")]
             script_path: None,
             dired: None,
+            browser: None,
             snippets: Vec::new(),
             snippet_fields: Vec::new(),
             snippet_field: 0,
@@ -1830,6 +1834,15 @@ impl Editor {
                     "Wrote {} line(s) in {} file(s)",
                     applied.lines, applied.files
                 ));
+                Ok(())
+            }
+            TaskResult::Browsed { path, entries } => {
+                // Only while it is still open: a listing arriving after the
+                // box has been closed is an answer to a question nobody is
+                // asking any more.
+                if let Some(browser) = self.browser.as_mut() {
+                    browser.listed(path, entries);
+                }
                 Ok(())
             }
             TaskResult::DiredListed { path, entries } => {

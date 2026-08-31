@@ -363,7 +363,8 @@ your `theme` blocks override.
 `diagnostic-hint`.
 
 **File tree** — `tree-root`, `tree-directory`, `tree-file`, `tree-symlink`,
-`tree-selected`, `tree-arrow`, `tree-git-modified`, `tree-git-added`,
+`tree-selected`, `tree-selection-mark`, `tree-arrow`, `tree-indent`,
+`tree-git-modified`, `tree-git-added`,
 `tree-git-deleted`, `tree-git-untracked`, `tree-git-ignored`,
 `tree-git-conflict`.
 

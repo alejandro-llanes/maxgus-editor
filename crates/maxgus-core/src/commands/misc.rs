@@ -86,6 +86,71 @@ pub fn register(registry: &mut Registry) {
             "Open the configuration file.",
             edit_configuration
         ),
+        command!(
+            "browse-files",
+            "Open a file by looking: a box that narrows as you type.",
+            browse_files
+        ),
+        command!(
+            "browse-files-quit",
+            "Close the file browser.",
+            browse_quit,
+            non_interactive
+        ),
+        command!(
+            "browse-files-next",
+            "Down one in the file browser.",
+            browse_next,
+            non_interactive
+        ),
+        command!(
+            "browse-files-previous",
+            "Up one in the file browser.",
+            browse_previous,
+            non_interactive
+        ),
+        command!(
+            "browse-files-first",
+            "To the top of the file browser.",
+            browse_first,
+            non_interactive
+        ),
+        command!(
+            "browse-files-last",
+            "To the bottom of the file browser.",
+            browse_last,
+            non_interactive
+        ),
+        command!(
+            "browse-files-enter",
+            "Go into the directory under the cursor.",
+            browse_enter,
+            non_interactive
+        ),
+        command!(
+            "browse-files-up",
+            "Go to the directory above this one.",
+            browse_up,
+            non_interactive
+        ),
+        command!(
+            "browse-files-open",
+            "Open what the cursor is on, or go into it.",
+            browse_open,
+            non_interactive
+        ),
+        command!(
+            "browse-files-rub-out",
+            "Rub out a character, or go up when there is none.",
+            browse_rub_out,
+            non_interactive
+        ),
+        command!(
+            "browse-files-self-insert",
+            "Narrow the browser by the typed character.",
+            browse_self_insert,
+            non_interactive
+        ),
         command!("load-theme", "Switch to another theme.", load_theme),
         command!(
             "consult-theme",
@@ -300,6 +365,138 @@ fn repeat(editor: &mut Editor, args: &Args) -> Result<()> {
         return Err(crate::CoreError::Message("Nothing to repeat".into()));
     }
     editor.deferred = Some((last, Args::new(args.prefix, args.key)));
+    Ok(())
+}
+
+// ---- the file browser ---------------------------------------------------
+
+/// `M-x browse-files`: open a file by looking rather than by spelling.
+///
+/// `C-x C-f` is for when you know the path. This is for when you know
+/// roughly where it is: a box over the frame, narrowing as you type, walked
+/// with the arrows. Right goes into a directory and left comes back out.
+fn browse_files(editor: &mut Editor, _: &Args) -> Result<()> {
+    let start = editor.default_directory().to_path_buf();
+    editor.browser = Some(crate::browser::Browser::opening(&start));
+    editor.push_minor_map(
+        crate::keymap::browse_keymap().expect("the built-in browse map is well formed"),
+    );
+    editor.spawn(Task::Browse { path: start });
+    Ok(())
+}
+
+/// Closes it, and takes its keymap away with it.
+pub fn browse_quit(editor: &mut Editor, _: &Args) -> Result<()> {
+    if editor.browser.take().is_some() {
+        editor.remove_minor_map("browse-files-mode");
+    }
+    Ok(())
+}
+
+/// Reads `path` into the browser, keeping what was typed.
+fn browse_to(editor: &mut Editor, path: std::path::PathBuf) {
+    if let Some(browser) = editor.browser.as_mut() {
+        browser.pending = true;
+        browser.clear_filter();
+    }
+    editor.spawn(Task::Browse { path });
+}
+
+fn browse_next(editor: &mut Editor, args: &Args) -> Result<()> {
+    if let Some(browser) = editor.browser.as_mut() {
+        browser.next(args.prefix.positive_count());
+    }
+    Ok(())
+}
+
+fn browse_previous(editor: &mut Editor, args: &Args) -> Result<()> {
+    if let Some(browser) = editor.browser.as_mut() {
+        browser.previous(args.prefix.positive_count());
+    }
+    Ok(())
+}
+
+fn browse_first(editor: &mut Editor, _: &Args) -> Result<()> {
+    if let Some(browser) = editor.browser.as_mut() {
+        browser.goto_first();
+    }
+    Ok(())
+}
+
+fn browse_last(editor: &mut Editor, _: &Args) -> Result<()> {
+    if let Some(browser) = editor.browser.as_mut() {
+        browser.goto_last();
+    }
+    Ok(())
+}
+
+/// Right: into the directory under the cursor, and nothing on a file —
+/// there is nothing to go *into*, and opening it would be a surprise from
+/// an arrow key.
+fn browse_enter(editor: &mut Editor, _: &Args) -> Result<()> {
+    let Some(browser) = editor.browser.as_ref() else {
+        return Ok(());
+    };
+    if !browser.current_is_dir() {
+        return Ok(());
+    }
+    let Some(path) = browser.current_path() else {
+        return Ok(());
+    };
+    browse_to(editor, path);
+    Ok(())
+}
+
+/// Left: out to the directory above, wherever the cursor happens to be.
+fn browse_up(editor: &mut Editor, _: &Args) -> Result<()> {
+    let Some(parent) = editor.browser.as_ref().and_then(|b| b.parent()) else {
+        return Ok(());
+    };
+    browse_to(editor, parent);
+    Ok(())
+}
+
+/// `RET`: open a file, or go into a directory.
+fn browse_open(editor: &mut Editor, _: &Args) -> Result<()> {
+    let Some(browser) = editor.browser.as_ref() else {
+        return Ok(());
+    };
+    let Some(path) = browser.current_path() else {
+        return Err(crate::CoreError::Message("Nothing to open".into()));
+    };
+    if browser.current_is_dir() {
+        browse_to(editor, path);
+        return Ok(());
+    }
+    browse_quit(editor, &Args::default())?;
+    editor.spawn(Task::ReadFile {
+        path,
+        reverting: None,
+        other_window: false,
+    });
+    Ok(())
+}
+
+/// Backspace: a character off the filter, or up a directory when there is
+/// none — which is what backspace does in every file browser there is.
+fn browse_rub_out(editor: &mut Editor, args: &Args) -> Result<()> {
+    let rubbed = editor
+        .browser
+        .as_mut()
+        .is_some_and(|browser| browser.rub_out());
+    if rubbed {
+        return Ok(());
+    }
+    browse_up(editor, args)
+}
+
+fn browse_self_insert(editor: &mut Editor, args: &Args) -> Result<()> {
+    let Some(c) = args.key.and_then(|key| key.as_char()) else {
+        return Ok(());
+    };
+    if let Some(browser) = editor.browser.as_mut() {
+        browser.type_char(c);
+    }
     Ok(())
 }
 

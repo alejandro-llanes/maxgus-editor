@@ -221,6 +221,9 @@ pub enum Task {
     PersistTheme { path: PathBuf, theme: String },
     /// List a directory with the detail dired shows.
     Dired { path: PathBuf },
+    /// List a directory for the file browser. Its own task rather than
+    /// dired's, so the two cannot answer each other's questions.
+    Browse { path: PathBuf },
     /// Act on files, from dired.
     DiredAct { action: FileAction },
     /// Read the script file.
@@ -655,6 +658,11 @@ pub enum TaskResult {
     /// A session was written.
     SessionSaved {
         path: PathBuf,
+    },
+    /// A directory, listed for the file browser.
+    Browsed {
+        path: PathBuf,
+        entries: Vec<crate::dired::Entry>,
     },
     /// A directory, listed with the detail dired shows.
     DiredListed {

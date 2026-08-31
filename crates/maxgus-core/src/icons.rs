@@ -98,34 +98,53 @@ fn for_extension(extension: &str) -> char {
 /// The outline is read by shape before it is read by name, so a function and
 /// a field should not look alike even when their names do.
 pub fn for_symbol(kind: u8) -> char {
+    // Codicons, which are the icons an LSP kind was drawn for: the editor
+    // that invented the protocol drew one per `SymbolKind`, so a reader who
+    // has seen a symbol outline anywhere else has already learnt these.
+    //
+    // They are also *one set*. What was here before was a handful from Font
+    // Awesome, a handful from Material and a handful from an extension pack,
+    // which read as a ransom note even where the font had them — and seven
+    // of them it did not.
     match kind {
-        2..=4 => '\u{f487}',        // module, namespace, package
-        5 | 11 | 23 => '\u{f0e8}',  // class, interface, struct
-        6 | 9 => '\u{f6a6}',        // method, constructor
-        7 | 8 => '\u{f30b}',        // property, field
-        10 | 22 | 24 => '\u{f0e7}', // enum, enum member, event
-        12 => '\u{f0295}',          // function
-        13 => '\u{f0b07}',          // variable
-        14 => '\u{f8ff}',           // constant
-        15 => '\u{f77e}',           // string
-        16 => '\u{f89f}',           // number
-        17 => '\u{f6a9}',           // boolean
-        18 => '\u{f0169}',          // array
-        19 => '\u{f0233}',          // object
-        20 => '\u{f80a}',           // key
-        21 => '\u{f6be}',           // null
-        25 => '\u{f04d6}',          // operator
-        26 => '\u{f0866}',          // type parameter
-        _ => '\u{f4a5}',
+        2..=4 => '\u{ea8b}',  // module, namespace, package
+        5 | 23 => '\u{eb5b}', // class, struct
+        11 => '\u{eb61}',     // interface
+        6 | 9 => '\u{ea8c}',  // method, constructor
+        7 => '\u{eb65}',      // property
+        8 => '\u{eb5f}',      // field
+        10 => '\u{ea95}',     // enum
+        22 => '\u{eb5e}',     // enum member
+        24 => '\u{ea86}',     // event
+        12 => '\u{ea8c}',     // function
+        13 => '\u{ea88}',     // variable
+        14 => '\u{eb5d}',     // constant
+        15 => '\u{eb8d}',     // string
+        16 => '\u{ea90}',     // number
+        17 => '\u{ea8f}',     // boolean
+        18 => '\u{ea8a}',     // array
+        19 => '\u{ea8b}',     // object
+        20 => '\u{eb11}',     // key
+        21 => '\u{eb63}',     // null
+        25 => '\u{eb64}',     // operator
+        26 => '\u{ea92}',     // type parameter
+        _ => '\u{eb60}',      // anything the protocol adds later
     }
 }
 
 pub const FILE: char = '\u{f4a5}';
 /// A directory, closed and open.
 pub const DIRECTORY: char = '\u{f4d4}';
-pub const DIRECTORY_OPEN: char = '\u{f770}';
+pub const DIRECTORY_OPEN: char = '\u{f0770}';
 /// A symbolic link.
 pub const SYMLINK: char = '\u{f481}';
+
+/// The mark on a row that can be opened, closed and open.
+///
+/// A chevron rather than `>` and `v`, which are letters pretending to be
+/// arrows. Codicons, to match the symbol kinds.
+pub const CHEVRON_RIGHT: char = '\u{eab6}';
+pub const CHEVRON_DOWN: char = '\u{eab4}';
 
 // ---- mode line ---------------------------------------------------------
 
@@ -145,6 +164,96 @@ pub const POSITION: char = '\u{f0c9}';
 
 #[cfg(test)]
 mod tests {
+    /// Every glyph this module can draw.
+    fn all() -> Vec<(String, char)> {
+        let mut out = vec![
+            ("FILE".into(), super::FILE),
+            ("DIRECTORY".into(), super::DIRECTORY),
+            ("DIRECTORY_OPEN".into(), super::DIRECTORY_OPEN),
+            ("SYMLINK".into(), super::SYMLINK),
+            ("CHEVRON_RIGHT".into(), super::CHEVRON_RIGHT),
+            ("CHEVRON_DOWN".into(), super::CHEVRON_DOWN),
+            ("MODIFIED".into(), super::MODIFIED),
+            ("SAVED".into(), super::SAVED),
+            ("READ_ONLY".into(), super::READ_ONLY),
+            ("BRANCH".into(), super::BRANCH),
+            ("ERROR".into(), super::ERROR),
+            ("WARNING".into(), super::WARNING),
+            ("POSITION".into(), super::POSITION),
+        ];
+        for kind in 0u8..=30 {
+            out.push((format!("symbol kind {kind}"), super::for_symbol(kind)));
+        }
+        for name in [
+            "main.rs",
+            "lib.py",
+            "app.js",
+            "x.json",
+            "y.c",
+            "z.html",
+            "a.yaml",
+            "Cargo.toml",
+            ".gitignore",
+            "b.md",
+            "c.png",
+            "d.zip",
+            "e.txt",
+            "Makefile",
+            "f.sh",
+            "g.go",
+            "h.rb",
+            "i.ts",
+            "j.css",
+            "k.xml",
+        ] {
+            out.push((name.into(), super::for_file(std::path::Path::new(name))));
+        }
+        out
+    }
+
+    #[test]
+    fn no_glyph_comes_from_the_range_nerd_fonts_renumbered() {
+        // The bug this is here for, and it was eight glyphs deep: Nerd
+        // Fonts v3 moved the Material Design icons out of `0xf534..0xfd46`
+        // and up to `0xf0001..`, leaving the old codepoints unassigned. A
+        // glyph left behind there does not fail, or warn, or look wrong to
+        // whoever wrote it — it draws a hollow box on every machine with a
+        // font from the last few years. `DIRECTORY_OPEN` was one, so every
+        // open directory in the tree had one, and nothing said so.
+        //
+        // The replacements are Codicons and the v3 Material range, both of
+        // which are outside this window.
+        for (name, glyph) in all() {
+            let code = glyph as u32;
+            assert!(
+                !(0xf534..=0xfd46).contains(&code),
+                "`{name}` is {glyph:?} (U+{code:04X}), which Nerd Fonts v3 \
+                 no longer assigns — it will draw as a hollow box"
+            );
+        }
+    }
+
+    #[test]
+    fn every_symbol_kind_has_a_glyph_of_its_own_family() {
+        // Codicons, which is one set: the previous mix of Font Awesome,
+        // Material and an extension pack read as a ransom note even where
+        // the font had all of it.
+        for kind in 1u8..=26 {
+            let code = super::for_symbol(kind) as u32;
+            assert!(
+                (0xea60..=0xebeb).contains(&code),
+                "symbol kind {kind} is U+{code:04X}, which is not a codicon"
+            );
+        }
+    }
+
+    #[test]
+    fn a_kind_the_protocol_has_not_invented_yet_still_draws_something() {
+        // `SymbolKind` is a number on the wire and a server may send one
+        // this was never told about.
+        assert_eq!(super::for_symbol(200), super::for_symbol(0));
+    }
+
     use super::*;
 
     #[test]

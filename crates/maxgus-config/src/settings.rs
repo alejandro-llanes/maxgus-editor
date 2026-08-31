@@ -133,6 +133,37 @@ pub struct Settings {
     /// brisker, `0` turns it off and the view arrives at once. A terminal
     /// cannot draw a fraction of a line and ignores it.
     pub smooth_scroll_ms: usize,
+    /// `scroll-animation-far-lines`: how much of a long jump is animated.
+    ///
+    /// A wheel notch is a line or two and slides in whole. A page down, or
+    /// `M->` in a long file, is a hundred, and animating that in full is an
+    /// animation being watched rather than a view being moved. So a jump
+    /// longer than this is drawn as a slide of this many lines — the last
+    /// of the journey, which is the part that says which way it went.
+    /// Neovide's `scroll_animation_far_lines`, and `0` turns it off.
+    pub scroll_animation_far_lines: usize,
+    /// `cursor-animation-ms`: how long the cursor takes to arrive.
+    ///
+    /// The block slides to where point went instead of appearing there, so
+    /// the eye follows it rather than looking for it. `0` turns it off and
+    /// the cursor is simply where it is. A terminal cannot draw a block
+    /// between two cells and ignores it.
+    pub cursor_animation_ms: usize,
+    /// `cursor-trail`: how far the back of the cursor lags the front, as a
+    /// percentage of the way.
+    ///
+    /// This is the smear. `0` moves the block rigidly; higher stretches it
+    /// out behind itself while it travels and lets it catch up on arrival.
+    /// Neovide's `cursor_trail_size`, in whole percent rather than a
+    /// fraction because this file has no floats in it.
+    pub cursor_trail: usize,
+    /// `ligatures`: let the font join characters that it draws as one.
+    ///
+    /// `!=` as one glyph rather than two, where the font has been made to
+    /// do it — a font that has not is unaffected, because the shaping asks
+    /// and takes the answer. Only the window: a terminal draws what its own
+    /// font does and is not asked.
+    pub ligatures: bool,
 }
 
 impl Default for Settings {
@@ -185,6 +216,10 @@ impl Default for Settings {
             which_key_delay_ms: 400,
             mouse_wheel_lines: 3,
             smooth_scroll_ms: 120,
+            scroll_animation_far_lines: 1,
+            cursor_animation_ms: 90,
+            cursor_trail: 70,
+            ligatures: true,
             shell: None,
         }
     }
@@ -238,6 +273,10 @@ pub const SETTING_NAMES: &[&str] = &[
     "which-key-delay-ms",
     "mouse-wheel-lines",
     "smooth-scroll-ms",
+    "scroll-animation-far-lines",
+    "cursor-animation-ms",
+    "cursor-trail",
+    "ligatures",
 ];
 
 /// Every attribute a `face` node may carry.

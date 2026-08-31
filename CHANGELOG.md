@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+- **Ligatures, in the window.** `!=` drawn as the one mark the font's
+  designer drew, and `->`, `=>`, `<=`, `>=`, `|>`, `...` with it. The text is
+  *shaped* now — handed to a shaper a run at a time — rather than looked up a
+  character at a time, so which characters join is the font's answer and not
+  a list kept here: a font that joins nothing is simply unaffected.
+
+  Glyphs are keyed by the font's own index rather than by character, because
+  a ligature is a glyph no character names. Runs stop at a space and at a
+  change of style, since a mark half in bold is two fonts pretending to be
+  one glyph. `set ligatures=#false` turns it off.
+
+  Worth knowing how a monospace coding font does this, because it is not what
+  it sounds like: it does *not* collapse two cells into one glyph — that
+  would cost it a column. It substitutes both cells with halves of the joined
+  mark and keeps the count. So `!=` is still two glyphs; they are simply not
+  the `!` and the `=` those characters draw alone.
+
+- **An animated cursor.** The block slides to where point went instead of
+  appearing there, and smears on the way: the four corners are animated
+  separately and the ones at the back are given less of the distance, so it
+  stretches out behind itself while it travels and gathers into a cell when
+  it lands. That is what lets the eye follow it across a long jump rather
+  than having to find it again. `cursor-animation-ms` is how long arriving
+  takes — the setting names the *slowest* corner, because that is the one
+  still arriving — and `cursor-trail` is how far the back lags, in percent.
+
+  The window draws this **instead of the beacon**. They answer the same
+  question, and the beacon only exists because a terminal cannot show the
+  journey; both at once is the answer given twice with the eye pulled two
+  ways. `set cursor-animation-ms=0` gives the beacon back.
+
+  The renderer grew a third pipeline for it. A smear is not upright, and a
+  shape with no width and height cannot be given as a position and a size.
+
+- **The view a command moves slides too.** Smooth scrolling was the wheel's
+  alone: `C-v`, a search landing off the screen and `M->` all teleported. The
+  wheel and a command move the view from opposite ends — the wheel asks and
+  the editor follows, a command has already gone before anything is drawn —
+  so this is the other direction, the drawing starting where the view was and
+  catching up. It never turns into a line of its own, because the line has
+  already been crossed.
+
+  A long jump is not slid in full; the last `scroll-animation-far-lines` of
+  it are, which is the part that says which way it went. The gap that opens
+  is filled with the lines arriving, which took one redraw however deep the
+  gap is — asking per line would have made a four-line slide cost four
+  screens a frame.
+
 - **`?` in the file tree shows the whole keymap at once.** It opened a
   fifty-line `*Help*` buffer in the window beside the tree — which is to
   say it took the file being edited off the screen to tell you which key

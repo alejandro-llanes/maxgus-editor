@@ -44,12 +44,13 @@ pub struct Settings {
 
 /// Runs the editor in a window until it is asked to leave.
 pub fn run(
-    editor: Editor,
+    mut editor: Editor,
     dispatcher: Dispatcher,
     settings: Settings,
     tasks: std::sync::mpsc::Sender<Task>,
     results_in: mpsc::Receiver<TaskResult>,
 ) -> Result<()> {
+    settle_the_beacon(&mut editor.settings);
     let event_loop = EventLoop::new()?;
     // Wait rather than poll. Results arrive from the executor on a channel
     // the window system knows nothing about, so a thread forwards them and
@@ -82,6 +83,7 @@ pub fn run(
         surface: Surface::new(Size::new(1, 1)),
         scratch: Surface::new(Size::new(1, 1)),
         scroll: Scroll::new(),
+        cursor: crate::cursor::Cursor::new(),
         modifiers: ModifiersState::empty(),
         pointer: (0.0, 0.0),
         selecting: false,
@@ -101,6 +103,23 @@ pub fn run(
     }
 }
 
+/// Puts the beacon away when the cursor animates.
+///
+/// They are the same job: after point has jumped, say where it went. The
+/// beacon does it by lighting the place it landed, because a terminal cannot
+/// show it travelling. A window can, so it shows it travelling instead —
+/// and the light is the half of the answer that only exists because the
+/// other half was impossible. Both at once is the question answered twice,
+/// with the eye pulled two ways.
+///
+/// Only in a window, and only in this direction: `cursor-animation-ms=0`
+/// gives the beacon back, and the terminal front end never asks.
+fn settle_the_beacon(settings: &mut maxgus_config::Settings) {
+    if settings.cursor_animation_ms > 0 {
+        settings.beacon = false;
+    }
+}
+
 struct App {
     editor: Editor,
     dispatcher: Dispatcher,
@@ -115,6 +134,8 @@ struct App {
     /// every frame of an animation.
     scratch: Surface,
     scroll: Scroll,
+    /// The block, and where it is on its way to.
+    cursor: crate::cursor::Cursor,
     modifiers: ModifiersState,
     pointer: (f64, f64),
     selecting: bool,
@@ -217,12 +238,17 @@ impl App {
             true => 1,
             false => -1,
         };
+        // As many lines as the gap is deep. A wheel notch never opens more
+        // than one, but a command that moved the view several lines slides
+        // the last few of them and opens a gap that deep.
+        let deep = (pixels.abs() / self.metrics().height).ceil().max(1.0) as usize;
         let row = match direction > 0 {
             true => area.height as i32,
-            false => -1,
+            false => -(deep as i32),
         };
-        let incoming = maxgus_core::edge_row(&mut self.editor, id, direction, &mut self.scratch)
-            .map(|cells| (row, cells));
+        let incoming =
+            maxgus_core::edge_rows(&mut self.editor, id, direction, deep, &mut self.scratch)
+                .map(|rows| (row, rows));
         Some(crate::quads::Shift {
             area,
             pixels,
@@ -257,16 +283,38 @@ impl App {
         // than what it said when the window opened.
         self.settings.palette = crate::quads::Palette::of(&self.editor.theme);
         maxgus_core::draw(&self.editor, &mut self.surface);
-        let cursor = self.editor.cursor_position();
+        let at = self.editor.cursor_position();
+        let metrics = self.metrics();
+        self.cursor.go_to(crate::cursor::Cell {
+            x: at.0 as f32 * metrics.width,
+            y: at.1 as f32 * metrics.height,
+            width: metrics.width,
+            height: metrics.height,
+        });
+        // While the block is in transit it *is* the cursor, and the cell it
+        // is heading for is drawn like any other. Doing both would be a
+        // cursor in two places, one of which is not where point is.
+        let (cell, smear) = match self.cursor.is_moving() {
+            true => (None, Some(self.cursor.corners())),
+            false => (Some(at), None),
+        };
         let shift = self.shift();
         let palette = self.settings.palette;
+        let ligatures = self.editor.settings.ligatures;
 
         let (Some(renderer), Some(fonts)) = (self.renderer.as_mut(), self.fonts.as_mut()) else {
             return;
         };
         renderer.background = palette.background;
-        let frame =
-            crate::quads::build(&self.surface, fonts, &palette, shift.as_ref(), Some(cursor));
+        let frame = crate::quads::build(
+            &self.surface,
+            fonts,
+            &palette,
+            shift.as_ref(),
+            cell,
+            smear,
+            ligatures,
+        );
         if fonts.atlas().is_dirty() {
             let atlas = fonts.atlas();
             let (width, height) = (atlas.width(), atlas.height());
@@ -292,14 +340,56 @@ impl App {
         self.scroll.settle();
     }
 
+    /// Where the current window's view is, for noticing that a command moved
+    /// it. `None` when there is somehow no current window to ask.
+    fn viewpoint(&self) -> (maxgus_core::WindowId, usize) {
+        let id = self.editor.windows.current_id();
+        let top = self.editor.windows.get(id).map_or(0, |w| w.top_line);
+        (id, top)
+    }
+
+    /// Slides the drawing in after a command that moved the view.
+    ///
+    /// The editor has already gone: `top_line` is where the command put it
+    /// before anything was drawn. So there is nothing left to ask for, and
+    /// what makes it a scroll rather than a jump is starting the drawing
+    /// back where the view was and letting it catch up.
+    ///
+    /// A long jump is not animated in full. `M->` in a long file is a
+    /// thousand lines and sliding a thousand lines is an animation to watch
+    /// rather than a view to read — so the last few are slid and the rest
+    /// simply arrives, which is Neovide's `scroll_animation_far_lines` and
+    /// for the same reason.
+    fn slide_after(&mut self, was: (maxgus_core::WindowId, usize)) {
+        let settings = &self.editor.settings;
+        let (far, ms) = (
+            settings.scroll_animation_far_lines,
+            settings.smooth_scroll_ms,
+        );
+        if far == 0 || ms == 0 {
+            return;
+        }
+        let (id, top) = self.viewpoint();
+        // A different window is a different view, not a scroll of this one.
+        if id != was.0 || top == was.1 {
+            return;
+        }
+        let moved = top as isize - was.1 as isize;
+        let slid = moved.signum() * (moved.abs().min(far as isize));
+        self.scrolling = None;
+        self.scroll.catch_up(slid as f32 * self.metrics().height);
+    }
+
     /// A key, and everything that has to happen around one.
     fn on_key(&mut self, key: maxgus_keys::Key) {
         // A keyboard motion owns the view: an animation still running would
         // drag the text away from where the motion just put it.
         self.settle();
+        let was = self.viewpoint();
         let outcome = self.dispatcher.handle_key(&mut self.editor, key);
         self.on_dispatch(&outcome);
         maxgus_core::frontend::after_key(&mut self.editor, &mut self.dispatcher);
+        self.slide_after(was);
         // Something changed, so the buffer needs re-highlighting and the
         // language server needs telling — once the typing stops.
         let delay = self.editor.settings.idle_delay_ms.max(1);
@@ -488,6 +578,9 @@ impl ApplicationHandler for App {
                     renderer.resize(size.width, size.height);
                 }
                 self.fit(size.width, size.height);
+                // Every cell is somewhere else now. The block did not travel
+                // there and should not be drawn as though it had.
+                self.cursor.snap();
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 // Moved to a display with a different scale: the glyphs have
@@ -499,6 +592,7 @@ impl ApplicationHandler for App {
                     Ok(fonts) => self.fonts = Some(fonts),
                     Err(error) => tracing::warn!("the font would not reload: {error}"),
                 }
+                self.cursor.snap();
                 if let Some(window) = self.window.as_ref() {
                     let size = window.inner_size();
                     self.fit(size.width, size.height);
@@ -625,6 +719,16 @@ impl ApplicationHandler for App {
             }
             self.dirty = true;
         }
+        // And the block, on its way to where point went. Advanced by real
+        // time like the others, so the setting is the same speed whatever
+        // the display refreshes at.
+        if self.cursor.is_moving() {
+            let settings = &self.editor.settings;
+            let (settle, trail) = (settings.cursor_animation_ms, settings.cursor_trail);
+            self.cursor.step(since, settle, trail);
+            self.dirty = true;
+        }
+        let cursor_moving = self.cursor.is_moving();
         // A half-typed sequence owes the echo and the panel a frame each,
         // at their own times.
         let was = (
@@ -653,7 +757,8 @@ impl ApplicationHandler for App {
         }
         // An animation owes a frame whether or not anything was typed;
         // everything else waits to be woken.
-        event_loop.set_control_flow(match (moving || self.editor.beacon.is_some(), deadline) {
+        let animating = moving || cursor_moving || self.editor.beacon.is_some();
+        event_loop.set_control_flow(match (animating, deadline) {
             (true, _) => ControlFlow::Poll,
             (false, Some(at)) => ControlFlow::WaitUntil(at),
             (false, None) => ControlFlow::Wait,
@@ -670,6 +775,44 @@ impl ApplicationHandler for App {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn the_animated_cursor_puts_the_beacon_away() {
+        // Both would answer "point went there" at once, in two different
+        // ways, in two different places.
+        let mut settings = maxgus_config::Settings {
+            beacon: true,
+            cursor_animation_ms: 90,
+            ..Default::default()
+        };
+        settle_the_beacon(&mut settings);
+        assert!(!settings.beacon, "the light is still on");
+    }
+
+    #[test]
+    fn turning_the_cursor_animation_off_gives_the_beacon_back() {
+        // Which is the only way to get it in a window, and has to work:
+        // otherwise `cursor-animation-ms=0` is a setting that takes a
+        // feature away and gives nothing back.
+        let mut settings = maxgus_config::Settings {
+            beacon: true,
+            cursor_animation_ms: 0,
+            ..Default::default()
+        };
+        settle_the_beacon(&mut settings);
+        assert!(settings.beacon, "the beacon was put away for nothing");
+    }
+
+    #[test]
+    fn a_beacon_nobody_asked_for_is_not_turned_on() {
+        let mut settings = maxgus_config::Settings {
+            beacon: false,
+            cursor_animation_ms: 0,
+            ..Default::default()
+        };
+        settle_the_beacon(&mut settings);
+        assert!(!settings.beacon);
+    }
 
     #[test]
     fn an_ordinary_frame_is_taken_at_its_word() {

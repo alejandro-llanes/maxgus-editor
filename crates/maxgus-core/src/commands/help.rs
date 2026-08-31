@@ -232,6 +232,10 @@ fn setting_value(editor: &Editor, name: &str) -> Option<String> {
         "which-key-delay-ms" => s.which_key_delay_ms.to_string(),
         "mouse-wheel-lines" => s.mouse_wheel_lines.to_string(),
         "smooth-scroll-ms" => s.smooth_scroll_ms.to_string(),
+        "scroll-animation-far-lines" => s.scroll_animation_far_lines.to_string(),
+        "cursor-animation-ms" => s.cursor_animation_ms.to_string(),
+        "cursor-trail" => s.cursor_trail.to_string(),
+        "ligatures" => s.ligatures.to_string(),
         "shell" => s.shell.clone().unwrap_or_else(|| "(from $SHELL)".into()),
         _ => return None,
     })

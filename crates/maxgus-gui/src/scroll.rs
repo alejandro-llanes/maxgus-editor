@@ -18,6 +18,17 @@ pub struct Scroll {
     offset: f32,
     /// Where it is heading. Equal to `offset` when the animation has settled.
     target: f32,
+    /// How far behind the drawing starts when a *command* moved the view.
+    ///
+    /// The wheel and a command move the view from opposite ends. The wheel
+    /// asks for pixels and the editor follows, which is `offset` chasing
+    /// `target` and turning into whole lines as it crosses them. A command
+    /// has already moved `top_line` by the time anything is drawn, so there
+    /// is nothing left to ask for — what is wanted is for the drawing to
+    /// start where the view *was* and catch up. That is this, and it eases
+    /// to nothing rather than to a target, and never becomes a line,
+    /// because the line has already been crossed.
+    slide: f32,
 }
 
 impl Scroll {
@@ -49,6 +60,15 @@ impl Scroll {
     pub fn settle(&mut self) {
         self.offset = 0.0;
         self.target = 0.0;
+        self.slide = 0.0;
+    }
+
+    /// Starts the drawing `pixels` behind where the view has already gone.
+    ///
+    /// Positive is a view that moved *down* the buffer, which draws the text
+    /// lower to begin with and lets it rise into place.
+    pub fn catch_up(&mut self, pixels: f32) {
+        self.slide -= pixels;
     }
 
     /// Advances the animation by however long the last frame took, and
@@ -71,6 +91,15 @@ impl Scroll {
             let covered = 1.0 - (-elapsed.as_secs_f32() / tau).exp();
             self.offset += distance * covered.clamp(0.0, 1.0);
         }
+        // The catching-up eases the same way, and to nothing: its journey
+        // is already over as far as the editor is concerned.
+        if settle == 0 || self.slide.abs() < Scroll::SETTLED {
+            self.slide = 0.0;
+        } else {
+            let tau = settle as f32 / Scroll::CONSTANTS / 1000.0;
+            let covered = 1.0 - (-elapsed.as_secs_f32() / tau).exp();
+            self.slide -= self.slide * covered.clamp(0.0, 1.0);
+        }
         let lines = (self.offset / line_height).trunc();
         if lines != 0.0 {
             self.offset -= lines * line_height;
@@ -81,7 +110,7 @@ impl Scroll {
 
     /// The sub-line shift to draw with, in pixels.
     pub fn pixels(&self) -> f32 {
-        self.offset
+        self.offset + self.slide
     }
 
     /// The whole lines still owed, for an animation that is being cut short.
@@ -96,7 +125,7 @@ impl Scroll {
     /// True while there is still movement owed, which is what tells the event
     /// loop to ask for another frame.
     pub fn is_moving(&self) -> bool {
-        (self.target - self.offset).abs() >= Scroll::SETTLED
+        (self.target - self.offset).abs() >= Scroll::SETTLED || self.slide.abs() >= Scroll::SETTLED
     }
 }
 
@@ -249,10 +278,84 @@ mod tests {
     }
 
     #[test]
+    fn catching_up_never_moves_the_view_again() {
+        // The bug this guards: the view has *already* moved — the command
+        // moved it before anything was drawn — so a catch-up that emitted
+        // lines the way the wheel does would move it a second time and undo
+        // the command.
+        let mut scroll = Scroll::new();
+        scroll.catch_up(3.0 * LINE);
+        let mut lines = 0;
+        for _ in 0..200 {
+            lines += scroll.step(LINE, FRAME, SETTLE);
+        }
+        assert_eq!(lines, 0, "the drawing caught up by moving the view");
+        assert!(!scroll.is_moving());
+        assert_eq!(scroll.pixels(), 0.0, "it never arrived");
+    }
+
+    #[test]
+    fn catching_up_starts_behind_and_eases_to_nothing() {
+        let mut scroll = Scroll::new();
+        scroll.catch_up(2.0 * LINE);
+        // Behind, and on the side that draws the text lower.
+        assert_eq!(scroll.pixels(), -2.0 * LINE);
+        assert!(scroll.is_moving());
+
+        let mut last = scroll.pixels();
+        for _ in 0..200 {
+            scroll.step(LINE, FRAME, SETTLE);
+            assert!(
+                scroll.pixels() >= last - 0.01,
+                "it went further behind rather than catching up"
+            );
+            last = scroll.pixels();
+        }
+        assert_eq!(scroll.pixels(), 0.0);
+    }
+
+    #[test]
+    fn a_view_moved_the_other_way_catches_up_from_the_other_side() {
+        let mut scroll = Scroll::new();
+        scroll.catch_up(-LINE);
+        assert_eq!(scroll.pixels(), LINE);
+        for _ in 0..200 {
+            assert_eq!(scroll.step(LINE, FRAME, SETTLE), 0);
+        }
+        assert_eq!(scroll.pixels(), 0.0);
+    }
+
+    #[test]
+    fn the_wheel_and_a_command_can_be_owed_at_once() {
+        // They are different journeys — one the editor still has to make,
+        // one it has already made — and adding them into a single number is
+        // what would make the second undo the first.
+        let mut scroll = Scroll::new();
+        scroll.nudge(2.0 * LINE);
+        scroll.catch_up(1.0 * LINE);
+        let mut lines = 0;
+        for _ in 0..200 {
+            lines += scroll.step(LINE, FRAME, SETTLE);
+        }
+        assert_eq!(lines, 2, "the wheel's two lines were not both crossed");
+        assert_eq!(scroll.pixels(), 0.0);
+    }
+
+    #[test]
+    fn turning_the_animation_off_catches_up_at_once() {
+        let mut scroll = Scroll::new();
+        scroll.catch_up(3.0 * LINE);
+        assert_eq!(scroll.step(LINE, FRAME, 0), 0);
+        assert_eq!(scroll.pixels(), 0.0);
+        assert!(!scroll.is_moving());
+    }
+
+    #[test]
     fn settling_forgets_where_it_was_going() {
         let mut scroll = Scroll::new();
         scroll.nudge(10.0 * LINE);
         scroll.step(LINE, FRAME, SETTLE);
+        scroll.catch_up(4.0 * LINE);
         scroll.settle();
         assert!(!scroll.is_moving());
         assert_eq!(scroll.pixels(), 0.0);

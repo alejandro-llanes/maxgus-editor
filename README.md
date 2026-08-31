@@ -104,7 +104,8 @@ path in it, because a launcher does not see your shell's `PATH`.
 | **A terminal panel**, in tabs | ○ | ● | ● |
 | **Project search**, and editing the results | ○ | ● | ● |
 | **Rhai scripting** | ○ | ● | ● |
-| **A window**: the GPU, the mouse, the clipboard, smooth scrolling | ○ | ○ | ● |
+| **A window**: the GPU, the mouse, the clipboard | ○ | ○ | ● |
+| **Ligatures**, an animated cursor, smooth scrolling | ○ | ○ | ● |
 
 `minimal` is the editor and the file tree: no grammars, no protocol, no
 subprocess, nothing to install. Everything a text editor does, and none of
@@ -794,13 +795,43 @@ overrides that and insists on a window.
 
 What the window has that a terminal cannot:
 
+- **Ligatures.** `!=` drawn as the one mark the font's designer drew it as,
+  and `->`, `=>`, `<=`, `>=`, `|>`, `...` with them. The text is *shaped*
+  rather than looked up a character at a time, so which characters join is
+  the font's answer and not a list kept here — a font that joins nothing is
+  simply unaffected. Runs stop at a space and at a change of style, because
+  a mark half in bold is two fonts pretending to be one glyph.
+  `set ligatures=#false` turns it off.
+
+  <img src="docs/screenshots/gui-ligatures.png" alt="A line of Rust with its operators drawn as ligatures: not-equal as a crossed equals, the arrow as a single arrow, less-than-or-equal as one glyph" width="100%">
+
+- **An animated cursor.** The block slides to where point went instead of
+  appearing there, and *smears* on the way: the four corners are animated
+  separately and the ones at the back are given less of the distance, so it
+  stretches out behind itself while it travels and gathers into a cell when
+  it lands. That is what makes the eye follow it across a long jump rather
+  than having to find it again. `cursor-animation-ms` is how long arriving
+  takes and `cursor-trail` is how far the back lags, in percent; `0` for
+  either turns that half off.
+
+  The window draws this **instead of the beacon**, not as well as it. They
+  answer the same question — where did point go — and the beacon only exists
+  because a terminal cannot show the journey. `set cursor-animation-ms=0`
+  gives the beacon back.
+
 - **Smooth scrolling.** A terminal scrolls by whole lines because it cannot
   draw half of one. The window keeps a pixel offset and eases towards it, so a
   wheel notch slides three lines instead of jumping them — `mouse-wheel-lines`
   is how far a notch goes and `smooth-scroll-ms` is how long the slide takes,
   `0` for none. Only the window being scrolled moves — its mode line, the echo area and the file tree hold
-  still — and the line arriving is drawn into the fraction of a row that
-  opens up at the edge, clipped where the window ends.
+  still — and the lines arriving are drawn into the rows that
+  open up at the edge, clipped where the window ends.
+
+  **The view a command moves slides too**, not just the one the wheel moves:
+  `C-v`, a search that lands off the screen, `M->`. A long jump is not slid
+  in full — a thousand lines of animation is something to watch rather than
+  a view to read — so the last few are, which is the part that says which
+  way it went. `scroll-animation-far-lines` is how many.
 - **The mouse.** Click to put point where you clicked, drag to select, middle
   button to paste, wheel to scroll. A click in another window selects it; a
   turn of the wheel over one scrolls it without selecting it, so the wheel

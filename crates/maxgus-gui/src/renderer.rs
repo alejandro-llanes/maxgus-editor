@@ -4,7 +4,7 @@
 //! colour, one sampled from the atlas — so a frame is two draw calls however
 //! much text is on it.
 
-use crate::quads::{Frame, Rect, Sprite};
+use crate::quads::{Frame, Quad, Rect, Sprite};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
@@ -14,12 +14,14 @@ pub struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     rect_pipeline: wgpu::RenderPipeline,
+    quad_pipeline: wgpu::RenderPipeline,
     sprite_pipeline: wgpu::RenderPipeline,
     screen: wgpu::Buffer,
     screen_group: wgpu::BindGroup,
     atlas_layout: wgpu::BindGroupLayout,
     atlas: Option<AtlasTexture>,
     rects: Instances,
+    quads: Instances,
     sprites: Instances,
     /// What the window is cleared to before anything is drawn.
     pub background: [f32; 4],
@@ -250,6 +252,19 @@ impl Renderer {
             format,
             blend,
         );
+        let quad_pipeline = pipeline(
+            &device,
+            &shader,
+            &[Some(&screen_layout)],
+            "quad_vertex",
+            "rect_fragment",
+            &wgpu::vertex_attr_array![
+                0 => Float32x2, 1 => Float32x2, 2 => Float32x2, 3 => Float32x2, 4 => Float32x4
+            ],
+            std::mem::size_of::<Quad>() as u64,
+            format,
+            blend,
+        );
         let sprite_pipeline = pipeline(
             &device,
             &shader,
@@ -265,6 +280,7 @@ impl Renderer {
         );
 
         let rects = Instances::new(&device, "rects", std::mem::size_of::<Rect>());
+        let quads = Instances::new(&device, "quads", std::mem::size_of::<Quad>());
         let sprites = Instances::new(&device, "sprites", std::mem::size_of::<Sprite>());
         Ok(Renderer {
             surface,
@@ -272,12 +288,14 @@ impl Renderer {
             queue,
             config,
             rect_pipeline,
+            quad_pipeline,
             sprite_pipeline,
             screen,
             screen_group,
             atlas_layout,
             atlas: None,
             rects,
+            quads,
             sprites,
             background,
         })
@@ -386,6 +404,8 @@ impl Renderer {
         );
         self.rects
             .write(&self.device, &self.queue, "rects", &frame.rects);
+        self.quads
+            .write(&self.device, &self.queue, "quads", &frame.quads);
         self.sprites
             .write(&self.device, &self.queue, "sprites", &frame.sprites);
 
@@ -437,6 +457,14 @@ impl Renderer {
                 pass.set_bind_group(0, &self.screen_group, &[]);
                 pass.set_vertex_buffer(0, self.rects.buffer.slice(..));
                 pass.draw(0..4, 0..self.rects.count);
+            }
+            // Between the two, so the cursor covers the backgrounds and the
+            // text is drawn over the cursor rather than under it.
+            if self.quads.count > 0 {
+                pass.set_pipeline(&self.quad_pipeline);
+                pass.set_bind_group(0, &self.screen_group, &[]);
+                pass.set_vertex_buffer(0, self.quads.buffer.slice(..));
+                pass.draw(0..4, 0..self.quads.count);
             }
             if self.sprites.count > 0 {
                 pass.set_pipeline(&self.sprite_pipeline);

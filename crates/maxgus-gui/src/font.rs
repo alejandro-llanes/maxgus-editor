@@ -9,6 +9,11 @@
 //! Four faces are kept, because the themes ask for bold and italic. A face
 //! the system does not have falls back to the regular one rather than to
 //! nothing: a missing bold should look unemphasised, not invisible.
+//!
+//! Glyphs are keyed by the font's own index rather than by character, which
+//! is what makes ligatures possible: `!=` drawn as one glyph is a glyph no
+//! character names. Which glyphs a run of text comes to is the shaper's
+//! answer, not a lookup — see [`Fonts::shape`].
 
 use std::collections::HashMap;
 
@@ -88,7 +93,20 @@ pub struct Glyph {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct Key {
     style: Style,
-    character: char,
+    /// The font's own glyph index. Not a character: a ligature is one glyph
+    /// standing for several characters and has no character of its own.
+    glyph: u16,
+}
+
+/// One glyph the shaper produced, and which character of the run it came
+/// from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shaped {
+    /// The byte offset into the shaped text of the first character this
+    /// glyph stands for. A ligature reports the offset of the first of the
+    /// characters it swallowed, which is the cell it gets drawn in.
+    pub cluster: usize,
+    pub glyph: u16,
 }
 
 /// A texture of rasterised glyphs, packed in shelves.
@@ -176,9 +194,16 @@ impl Atlas {
 /// The faces, their metrics, and the atlas they are rasterised into.
 pub struct Fonts {
     faces: Vec<(Style, fontdue::Font)>,
+    /// The bytes each face was built from, kept because the shaper needs the
+    /// font's own tables and `fontdue` does not hand them back out.
+    data: Vec<(Style, std::sync::Arc<Vec<u8>>)>,
     size: f32,
     metrics: CellMetrics,
     atlas: Atlas,
+    /// What the shaper said about a run of text, so it is asked once rather
+    /// than once a frame. A screen holds a few hundred distinct runs and
+    /// redraws them sixty times a second.
+    shaped: HashMap<(Style, String), std::sync::Arc<Vec<Shaped>>>,
 }
 
 impl Fonts {
@@ -188,9 +213,11 @@ impl Fonts {
         let mut database = fontdb::Database::new();
         database.load_system_fonts();
         let mut faces = Vec::new();
+        let mut data = Vec::new();
         for style in Style::ALL {
-            if let Some(font) = load_face(&database, family, style) {
+            if let Some((font, bytes)) = load_face(&database, family, style) {
                 faces.push((style, font));
+                data.push((style, std::sync::Arc::new(bytes)));
             }
         }
         if !faces.iter().any(|(style, _)| *style == Style::Regular) {
@@ -211,9 +238,11 @@ impl Fonts {
         };
         Ok(Fonts {
             faces,
+            data,
             size,
             metrics,
             atlas: Atlas::new(1024, 1024),
+            shaped: HashMap::new(),
         })
     }
 
@@ -232,12 +261,105 @@ impl Fonts {
     /// The glyph for a character, rasterising it if this is the first sight
     /// of it. `None` for a character with nothing to draw, such as a space.
     pub fn glyph(&mut self, character: char, style: Style) -> Option<Glyph> {
-        let key = Key { style, character };
+        let index = self.face(style).lookup_glyph_index(character);
+        self.glyph_indexed(index, style)
+    }
+
+    /// The font's own index for a character, without rasterising it.
+    pub fn index_of(&self, character: char, style: Style) -> u16 {
+        self.face(style).lookup_glyph_index(character)
+    }
+
+    /// What the shaper makes of `text` in this style: the glyphs to draw and
+    /// which character of the text each one came from.
+    ///
+    /// This is the whole of ligatures. Asked for `!=`, a font made to join
+    /// them answers with one glyph reporting itself as standing for the
+    /// first character, and the second character gets no glyph of its own —
+    /// so the pair is drawn as the single mark the font's designer drew,
+    /// across the two cells the two characters occupy. A font not made to
+    /// join them answers with two glyphs and nothing changes.
+    ///
+    /// Which is why this asks rather than deciding: the answer belongs to
+    /// the font, and a font that has no opinion is not a font this has to
+    /// know about.
+    pub fn shape(&mut self, style: Style, text: &str) -> std::sync::Arc<Vec<Shaped>> {
+        let key = (style, text.to_string());
+        if let Some(known) = self.shaped.get(&key) {
+            return known.clone();
+        }
+        // A screen's worth of distinct runs is small, but a session's worth
+        // is not: every line ever scrolled past would be kept for a run that
+        // may never come round again.
+        if self.shaped.len() > 4096 {
+            self.shaped.clear();
+        }
+        let shaped = std::sync::Arc::new(self.ask_the_shaper(style, text));
+        self.shaped.insert(key, shaped.clone());
+        shaped
+    }
+
+    fn ask_the_shaper(&self, style: Style, text: &str) -> Vec<Shaped> {
+        let fallback = || {
+            let font = self.face(style);
+            text.char_indices()
+                .map(|(cluster, ch)| Shaped {
+                    cluster,
+                    glyph: font.lookup_glyph_index(ch),
+                })
+                .collect::<Vec<_>>()
+        };
+        let Some(bytes) = self.bytes(style) else {
+            return fallback();
+        };
+        let Some(face) = rustybuzz::Face::from_slice(bytes, 0) else {
+            return fallback();
+        };
+        let mut buffer = rustybuzz::UnicodeBuffer::new();
+        buffer.push_str(text);
+        buffer.guess_segment_properties();
+        let shaped = rustybuzz::shape(&face, &[], buffer);
+        let glyphs: Vec<Shaped> = shaped
+            .glyph_infos()
+            .iter()
+            .map(|info| Shaped {
+                cluster: info.cluster as usize,
+                glyph: info.glyph_id as u16,
+            })
+            .collect();
+        // A shaper that came back with nothing to draw for text that has
+        // something in it is a shaper that has failed, and drawing nothing
+        // is worse than drawing it unjoined.
+        match glyphs.is_empty() && !text.is_empty() {
+            true => fallback(),
+            false => glyphs,
+        }
+    }
+
+    /// The bytes the face for `style` was built from, or the regular one's.
+    fn bytes(&self, style: Style) -> Option<&[u8]> {
+        self.data
+            .iter()
+            .find(|(had, _)| *had == style)
+            .or_else(|| self.data.first())
+            .map(|(_, bytes)| bytes.as_slice())
+    }
+
+    /// The glyph at a font's own index, rasterising it on first sight.
+    ///
+    /// `None` for a glyph with nothing to draw, such as a space — and for
+    /// one the atlas has no room left for, which is the same thing as far as
+    /// a frame is concerned.
+    pub fn glyph_indexed(&mut self, index: u16, style: Style) -> Option<Glyph> {
+        let key = Key {
+            style,
+            glyph: index,
+        };
         if let Some(known) = self.glyphs_get(key) {
             return known;
         }
         let font = self.face(style);
-        let (metrics, coverage) = font.rasterize(character, self.size);
+        let (metrics, coverage) = font.rasterize_indexed(index, self.size);
         let glyph = if metrics.width == 0 || metrics.height == 0 {
             None
         } else {
@@ -288,7 +410,16 @@ const FALLBACKS: &[&str] = &[
     "monospace",
 ];
 
-fn load_face(database: &fontdb::Database, family: &str, style: Style) -> Option<fontdue::Font> {
+/// The face for a style, and the bytes it was built from.
+///
+/// The bytes come back too because the shaper reads the font's own tables
+/// and `fontdue` keeps what it parsed to itself. Loading them twice would be
+/// two copies of every font in the process.
+fn load_face(
+    database: &fontdb::Database,
+    family: &str,
+    style: Style,
+) -> Option<(fontdue::Font, Vec<u8>)> {
     let (weight, slant) = style.query();
     for name in std::iter::once(family).chain(FALLBACKS.iter().copied()) {
         let query = fontdb::Query {
@@ -300,18 +431,19 @@ fn load_face(database: &fontdb::Database, family: &str, style: Style) -> Option<
         let Some(id) = database.query(&query) else {
             continue;
         };
-        let font = database.with_face_data(id, |data, index| {
-            fontdue::Font::from_bytes(
+        let loaded = database.with_face_data(id, |data, index| {
+            let font = fontdue::Font::from_bytes(
                 data,
                 fontdue::FontSettings {
                     collection_index: index,
                     ..Default::default()
                 },
             )
-            .ok()
+            .ok()?;
+            Some((font, data.to_vec()))
         });
-        if let Some(Some(font)) = font {
-            return Some(font);
+        if let Some(Some(loaded)) = loaded {
+            return Some(loaded);
         }
     }
     None

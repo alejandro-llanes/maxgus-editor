@@ -460,6 +460,32 @@ impl<'a> Parser<'a> {
                     self.config.settings.smooth_scroll_ms = n.min(1000);
                 }
             }
+            "scroll-animation-far-lines" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    // The gap a slide opens has to be filled with the lines
+                    // arriving, and they are fetched by drawing the frame
+                    // again. A handful is a smooth arrival; a screenful is
+                    // a screenful of redraws for a jump nobody watched.
+                    self.config.settings.scroll_animation_far_lines = n.min(8);
+                }
+            }
+            "cursor-animation-ms" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.cursor_animation_ms = n.min(1000);
+                }
+            }
+            "cursor-trail" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    // A hundred percent is a cursor whose back never leaves,
+                    // so it stops short of it.
+                    self.config.settings.cursor_trail = n.min(95);
+                }
+            }
+            "ligatures" => {
+                if let Some(b) = self.bool_value(node, key, value) {
+                    self.config.settings.ligatures = b;
+                }
+            }
             "blink-cursor" => {
                 if let Some(b) = self.bool_value(node, key, value) {
                     self.config.settings.blink_cursor = b;

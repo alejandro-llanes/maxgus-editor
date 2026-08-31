@@ -5,6 +5,7 @@
 //! drawing — commands, keymaps, buffers, redisplay — is shared; what is here
 //! is a window, a font, and the arithmetic between pixels and cells.
 
+pub mod cursor;
 pub mod font;
 pub mod keys;
 pub mod mouse;

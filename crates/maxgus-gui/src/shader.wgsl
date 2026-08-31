@@ -47,6 +47,35 @@ fn rect_fragment(in: RectOut) -> @location(0) vec4<f32> {
     return in.color;
 }
 
+// A quadrilateral given as its four corners rather than as a position and a
+// size, because the cursor's smear is not upright: while it travels its
+// corners are at different points along the journey, and that shape has no
+// width and height to be given.
+struct QuadIn {
+    @location(0) top_left: vec2<f32>,
+    @location(1) top_right: vec2<f32>,
+    @location(2) bottom_left: vec2<f32>,
+    @location(3) bottom_right: vec2<f32>,
+    @location(4) color: vec4<f32>,
+};
+
+@vertex
+fn quad_vertex(@builtin(vertex_index) vertex: u32, in: QuadIn) -> RectOut {
+    var out: RectOut;
+    // The same winding `corner` gives, so the triangle strip covers the same
+    // shape: x along the bottom bit, y along the one above it.
+    var at: vec2<f32>;
+    switch vertex {
+        case 0u: { at = in.top_left; }
+        case 1u: { at = in.top_right; }
+        case 2u: { at = in.bottom_left; }
+        default: { at = in.bottom_right; }
+    }
+    out.clip = to_clip(at);
+    out.color = in.color;
+    return out;
+}
+
 struct SpriteIn {
     @location(0) position: vec2<f32>,
     @location(1) size: vec2<f32>,

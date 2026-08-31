@@ -7230,3 +7230,81 @@ fn the_tree_help_goes_when_the_tree_stops_being_where_the_keys_go() {
         "a panel of tree keys is up over a window that is not the tree"
     );
 }
+
+// ---- the lines that fill a slide's gap ----------------------------------
+
+#[test]
+fn the_lines_arriving_are_the_ones_just_past_the_window() {
+    // What smooth scrolling draws into the gap it opens. Getting the edge
+    // wrong here shows as the window repeating a line it already had, or
+    // skipping one, every time it scrolls.
+    let text: String = (1..=200).map(|n| format!("line {n}\n")).collect();
+    let mut s = Session::new(40, 12);
+    let id = s.editor.buffers.visit_file("/project/main.rs", &text);
+    s.editor.switch_to_buffer(id).unwrap();
+    let window = s.editor.windows.current_id();
+    let area = maxgus_core::text_area(&s.editor, window).expect("a text area");
+    let mut scratch = Surface::new(Size::new(40, 12));
+
+    // Downwards: the first line arriving is the one just below the window,
+    // and they come in the order they will be drawn.
+    let rows = maxgus_core::edge_rows(&mut s.editor, window, 1, 3, &mut scratch)
+        .expect("three lines below the window");
+    assert_eq!(rows.len(), 3);
+    let said: Vec<String> = rows
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|c| c.ch)
+                .collect::<String>()
+                .trim_end()
+                .into()
+        })
+        .collect();
+    let first_below = area.height as usize + 1;
+    assert_eq!(
+        said,
+        [
+            format!("line {first_below}"),
+            format!("line {}", first_below + 1),
+            format!("line {}", first_below + 2),
+        ],
+        "the wrong lines are arriving"
+    );
+
+    // And one row is still the nearest one, so the wheel's own case is
+    // unchanged by there being a way to ask for more.
+    let one = maxgus_core::edge_row(&mut s.editor, window, 1, &mut scratch).expect("one line");
+    let text: String = one.iter().map(|c| c.ch).collect();
+    assert_eq!(text.trim_end(), format!("line {first_below}"));
+}
+
+#[test]
+fn asking_for_lines_beyond_the_window_leaves_the_view_where_it_was() {
+    // It moves `top_line` to draw them and has to put it back, or reading
+    // the gap would scroll the window that asked.
+    let text: String = (1..=200).map(|n| format!("line {n}\n")).collect();
+    let mut s = Session::new(40, 12);
+    let id = s.editor.buffers.visit_file("/project/main.rs", &text);
+    s.editor.switch_to_buffer(id).unwrap();
+    let window = s.editor.windows.current_id();
+    let was = s.editor.windows.get(window).unwrap().top_line;
+    let mut scratch = Surface::new(Size::new(40, 12));
+    maxgus_core::edge_rows(&mut s.editor, window, 1, 4, &mut scratch);
+    assert_eq!(s.editor.windows.get(window).unwrap().top_line, was);
+}
+
+#[test]
+fn nothing_arrives_past_the_end_of_the_buffer() {
+    // The gap there really is empty, and drawing a line into it would be
+    // drawing a line that does not exist.
+    let mut s = Session::new(40, 12);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/short.rs", "one\ntwo\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    let window = s.editor.windows.current_id();
+    let mut scratch = Surface::new(Size::new(40, 12));
+    assert!(maxgus_core::edge_rows(&mut s.editor, window, 1, 2, &mut scratch).is_none());
+}

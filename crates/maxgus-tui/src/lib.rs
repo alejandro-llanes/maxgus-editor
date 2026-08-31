@@ -15,7 +15,7 @@ pub mod terminal;
 pub use geometry::{Rect, Size};
 pub use job::Suspension;
 pub use render::{Change, diff, render_to};
-pub use surface::{Cell, Surface};
+pub use surface::{Cell, Surface, char_width};
 pub use terminal::{Terminal, TuiEvent};
 
 #[derive(Debug, thiserror::Error)]

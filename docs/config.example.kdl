@@ -83,6 +83,25 @@ set gui-font-size=16
 set mouse-wheel-lines=3
 set smooth-scroll-ms=120
 
+// And the same slide for the view a command moves: `C-v`, a search that
+// lands off the screen, `M->`. A long jump is not animated in full — that
+// would be an animation to watch rather than a view to read — but the last
+// few lines of it are, which is what says which way it went. `0` turns it
+// off.
+set scroll-animation-far-lines=1
+
+// The cursor slides to where point went instead of appearing there, and
+// smears while it travels so the eye can follow it. `cursor-animation-ms=0`
+// turns it off; `cursor-trail` is how far the back of the block lags the
+// front, in percent. The window draws this instead of the beacon, which is
+// the same job done twice.
+set cursor-animation-ms=90
+set cursor-trail=70
+
+// Let the font join characters it was made to draw as one — `!=` as a
+// single glyph. A font without such joins is unaffected.
+set ligatures=#true
+
 // ---- key bindings ----
 //
 // The command names are the ones M-x offers and C-h b lists.

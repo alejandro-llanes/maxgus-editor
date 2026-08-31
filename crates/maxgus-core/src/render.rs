@@ -45,13 +45,38 @@ pub fn edge_row(
     direction: isize,
     scratch: &mut Surface,
 ) -> Option<Vec<maxgus_tui::Cell>> {
+    edge_rows(editor, id, direction, 1, scratch)?.pop()
+}
+
+/// The `count` lines just beyond the edge of a window, in screen order.
+///
+/// One line is all a wheel notch ever needs, because the view never gets
+/// more than a line ahead of the drawing. A command is different: it can
+/// move the view a page, and `scroll-animation-far-lines` then asks for the
+/// last few lines of that jump to be drawn as a slide — which opens a gap
+/// several lines deep, with several lines' worth of nothing to put in it.
+///
+/// One redraw whatever `count` is: the frame is drawn once with the window
+/// moved the whole way, and the rows are taken off the edge it moved from.
+/// Drawing it once per line was the obvious way and would have made a
+/// four-line slide cost four screens a frame.
+pub fn edge_rows(
+    editor: &mut Editor,
+    id: crate::window::WindowId,
+    direction: isize,
+    count: usize,
+    scratch: &mut Surface,
+) -> Option<Vec<Vec<maxgus_tui::Cell>>> {
     let area = text_area(editor, id)?;
-    if area.height == 0 || area.width == 0 {
+    if area.height == 0 || area.width == 0 || count == 0 {
         return None;
     }
+    // Never more than the window holds: past that the "line arriving" is a
+    // line that was already on screen, which would be drawn twice.
+    let count = count.min(area.height as usize);
     let window = editor.windows.get(id)?;
     let (was, buffer_id) = (window.top_line, window.buffer);
-    let moved = was.checked_add_signed(direction)?;
+    let moved = was.checked_add_signed(direction * count as isize)?;
     // Past the last line there is nothing arriving, and drawing it would only
     // produce the blank the gap already is.
     let lines = editor.buffers.get(buffer_id).map_or(0, |b| b.len_lines());
@@ -67,13 +92,22 @@ pub fn edge_row(
         window.top_line = was;
     }
 
-    let row = match direction > 0 {
-        true => area.y + area.height - 1,
+    // Moving down the buffer, what is arriving is at the bottom of the frame
+    // just drawn; moving up, at the top. Returned top to bottom either way,
+    // so the caller lays them out in the order it has them: the first goes
+    // one row below the window when moving down, and `count` rows above it
+    // when moving up.
+    let first = match direction > 0 {
+        true => area.y + area.height - count as u16,
         false => area.y,
     };
     Some(
-        (area.x..area.x + area.width)
-            .map(|x| scratch.get(x, row).cloned().unwrap_or_default())
+        (0..count as u16)
+            .map(|n| {
+                (area.x..area.x + area.width)
+                    .map(|x| scratch.get(x, first + n).cloned().unwrap_or_default())
+                    .collect()
+            })
             .collect(),
     )
 }
@@ -378,6 +412,7 @@ fn draw_doc(editor: &Editor, surface: &mut Surface, body: Rect, doc: &crate::Doc
 /// and one that did — `doc-code`, which is a panel of its own — keeps what
 /// it chose. That is the whole rule, and it is the difference between a box
 /// that lifts off the text and a box with the text showing through it.
+#[cfg(feature = "full")]
 fn on_panel(mut face: Face, panel: Face, buffer: Option<maxgus_faces::Color>) -> Face {
     if face.background == buffer {
         face.background = panel.background;

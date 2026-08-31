@@ -31,10 +31,30 @@ pub struct Sprite {
     pub color: [f32; 4],
 }
 
+/// One quadrilateral of solid colour, given as its four corners.
+///
+/// A [`Rect`] is upright by construction and the cursor is not: the smear it
+/// leaves while it travels is a block whose corners have got out of step with
+/// each other, which is a shape no position-and-size can describe.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Quad {
+    /// The corners in the order the unit quad has them: top left, top right,
+    /// bottom left, bottom right.
+    pub top_left: [f32; 2],
+    pub top_right: [f32; 2],
+    pub bottom_left: [f32; 2],
+    pub bottom_right: [f32; 2],
+    pub color: [f32; 4],
+}
+
 /// Everything one frame draws.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Frame {
     pub rects: Vec<Rect>,
+    /// Drawn over the backgrounds and under the glyphs, so text on top of
+    /// the cursor stays text.
+    pub quads: Vec<Quad>,
     pub sprites: Vec<Sprite>,
 }
 
@@ -67,6 +87,13 @@ pub struct Palette {
     pub background: [f32; 4],
     /// The sixteen ANSI colours, for a theme that names them by index.
     pub ansi: [[f32; 4]; 16],
+    /// What the cursor block is filled with while it is travelling.
+    ///
+    /// The `cursor` face reversed is what a cell under the cursor is drawn
+    /// with, so the block's colour is that face's *background* — the same
+    /// colour the cell will have when the block arrives on it, which is what
+    /// makes the landing invisible.
+    pub cursor: [f32; 4],
 }
 
 impl Palette {
@@ -87,10 +114,24 @@ impl Palette {
             let (r, g, b) = maxgus_faces::xterm_palette_rgb(index as u8);
             *slot = linear_rgb(r, g, b);
         }
+        let foreground = plain(default.foreground, linear_rgb(217, 222, 230));
+        let background = plain(default.background, linear_rgb(23, 26, 31));
+        let cursor = theme.resolve("cursor");
         Palette {
-            foreground: plain(default.foreground, linear_rgb(217, 222, 230)),
-            background: plain(default.background, linear_rgb(23, 26, 31)),
+            foreground,
+            background,
             ansi,
+            cursor: match cursor.background {
+                Some(Color::Rgb(r, g, b)) => linear_rgb(r, g, b),
+                Some(Color::Indexed(index)) => {
+                    let (r, g, b) = maxgus_faces::xterm_palette_rgb(index);
+                    linear_rgb(r, g, b)
+                }
+                // A theme that leaves it to the terminal has no answer to
+                // give, and the text's own colour is what a block cursor
+                // has always been.
+                _ => foreground,
+            },
         }
     }
 
@@ -128,14 +169,17 @@ pub struct Shift {
     /// How far up the text in it is drawn, in pixels. Negative draws it
     /// lower, which is what scrolling towards the top of the buffer does.
     pub pixels: f32,
-    /// The line sliding into the gap the shift opens, and which cell row it
-    /// belongs at, counted from the top of the area — so `area.height` for
-    /// the line arriving at the bottom and `-1` for the one at the top.
+    /// The lines sliding into the gap the shift opens, top to bottom, and
+    /// which cell row the first of them belongs at, counted from the top of
+    /// the area — so `area.height` for lines arriving at the bottom and
+    /// `-n` for the `n` arriving at the top.
     ///
     /// The editor draws the lines that fit in the window and no others, so
-    /// this one has to be fetched separately. Without it the gap is left as
-    /// background, which is right only at the ends of a buffer.
-    pub incoming: Option<(i32, Vec<maxgus_tui::Cell>)>,
+    /// these have to be fetched separately. Without them the gap is left as
+    /// background, which is right only at the ends of a buffer. There is
+    /// more than one because a command can move the view several lines and
+    /// `scroll-animation-far-lines` slides the last few of them.
+    pub incoming: Option<(i32, Vec<Vec<maxgus_tui::Cell>>)>,
 }
 
 impl Shift {
@@ -156,15 +200,30 @@ impl Shift {
 }
 
 /// Builds the frame for a drawn surface.
+#[allow(clippy::too_many_arguments)]
 pub fn build(
     surface: &Surface,
     fonts: &mut Fonts,
     palette: &Palette,
     shift: Option<&Shift>,
     cursor: Option<(u16, u16)>,
+    smear: Option<[[f32; 2]; 4]>,
+    ligatures: bool,
 ) -> Frame {
     let metrics = fonts.metrics();
     let mut frame = Frame::default();
+    // The block on its way somewhere. `cursor` is the cell to draw the other
+    // way round, and while the block is in transit there is no such cell:
+    // the two together would be a cursor in two places at once.
+    if let Some(corners) = smear {
+        frame.quads.push(Quad {
+            top_left: corners[0],
+            top_right: corners[1],
+            bottom_left: corners[2],
+            bottom_right: corners[3],
+            color: palette.cursor,
+        });
+    }
     let size = surface.size();
     // The gap the shift opens has to be covered before the cells go over it,
     // or the frame before this one shows through it.
@@ -178,7 +237,13 @@ pub fn build(
             color: palette.background,
         });
     }
+    let width = size.width as usize;
     for y in 0..size.height {
+        // The font has its say a row at a time, because a ligature is a
+        // property of the characters beside each other and not of any one
+        // of them.
+        let row = y as usize * width;
+        let glyphs = row_glyphs(&surface.cells()[row..row + width], fonts, ligatures);
         for x in 0..size.width {
             let Some(cell) = surface.get(x, y) else {
                 continue;
@@ -191,39 +256,132 @@ pub fn build(
             let top = y as f32 * metrics.height - moves.map(|s| s.pixels).unwrap_or(0.0);
             let band = moves.map(|s| s.band(metrics));
             push_cell(
-                &mut frame, cell, x, top, metrics, palette, fonts, band, on_cursor,
-            );
-        }
-    }
-    // And the line sliding in, which the editor did not draw because it is
-    // not in the window yet.
-    if let Some(shift) = shift
-        && let Some((row, cells)) = shift.incoming.as_ref()
-    {
-        let band = shift.band(metrics);
-        let top = (shift.area.y as i32 + row) as f32 * metrics.height - shift.pixels;
-        for (n, cell) in cells.iter().enumerate() {
-            if cell.continuation {
-                continue;
-            }
-            let x = shift.area.x + n as u16;
-            if x >= shift.area.x + shift.area.width {
-                break;
-            }
-            push_cell(
                 &mut frame,
                 cell,
+                glyphs[x as usize],
                 x,
                 top,
                 metrics,
                 palette,
                 fonts,
-                Some(band),
-                false,
+                band,
+                on_cursor,
             );
         }
     }
+    // And the lines sliding in, which the editor did not draw because they
+    // are not in the window yet.
+    if let Some(shift) = shift
+        && let Some((row, rows)) = shift.incoming.as_ref()
+    {
+        let band = shift.band(metrics);
+        for (line, cells) in rows.iter().enumerate() {
+            let at = shift.area.y as i32 + row + line as i32;
+            let top = at as f32 * metrics.height - shift.pixels;
+            let glyphs = row_glyphs(cells, fonts, ligatures);
+            for (n, cell) in cells.iter().enumerate() {
+                if cell.continuation {
+                    continue;
+                }
+                let x = shift.area.x + n as u16;
+                if x >= shift.area.x + shift.area.width {
+                    break;
+                }
+                push_cell(
+                    &mut frame,
+                    cell,
+                    glyphs[n],
+                    x,
+                    top,
+                    metrics,
+                    palette,
+                    fonts,
+                    Some(band),
+                    false,
+                );
+            }
+        }
+    }
     frame
+}
+
+/// Which glyph each cell of a row draws, once the font has had its say.
+///
+/// One entry per cell. `None` is a cell with nothing to draw — a space, the
+/// second half of a wide character, or a cell whose character was swallowed
+/// by a ligature starting in an earlier one.
+///
+/// Runs are broken at a space, at a change of style and at anything not one
+/// cell wide. None of those can be inside a ligature, and short runs are
+/// both cheaper to shape and likelier to be asked for again.
+fn row_glyphs(cells: &[maxgus_tui::Cell], fonts: &mut Fonts, ligatures: bool) -> Vec<Option<u16>> {
+    let style_of = |cell: &maxgus_tui::Cell| {
+        Style::of(
+            cell.face.attributes.bold.unwrap_or(false),
+            cell.face.attributes.italic.unwrap_or(false),
+        )
+    };
+    let joinable = |cell: &maxgus_tui::Cell| {
+        !cell.continuation && cell.ch != ' ' && maxgus_tui::char_width(cell.ch) == 1
+    };
+
+    // One glyph per character to begin with, which is the answer whenever
+    // the font has no opinion and the whole answer when ligatures are off.
+    let mut out: Vec<Option<u16>> = cells
+        .iter()
+        .map(|cell| match cell.continuation || cell.ch == ' ' {
+            true => None,
+            false => Some(fonts.index_of(cell.ch, style_of(cell))),
+        })
+        .collect();
+    if !ligatures {
+        return out;
+    }
+
+    let mut at = 0;
+    while at < cells.len() {
+        if !joinable(&cells[at]) {
+            at += 1;
+            continue;
+        }
+        let style = style_of(&cells[at]);
+        let mut text = String::new();
+        // Where each character of the run starts, and which cell it is in.
+        let mut columns: Vec<(usize, usize)> = Vec::new();
+        let mut end = at;
+        while end < cells.len() && joinable(&cells[end]) && style_of(&cells[end]) == style {
+            columns.push((text.len(), end));
+            text.push(cells[end].ch);
+            end += 1;
+        }
+        // A single character cannot be joined to anything, and asking about
+        // it is the cost of shaping for an answer already known.
+        if end > at + 1 {
+            let shaped = fonts.shape(style, &text);
+            let mut assigned: Vec<Option<u16>> = vec![None; columns.len()];
+            let mut usable = true;
+            for glyph in shaped.iter() {
+                match columns
+                    .iter()
+                    .position(|(offset, _)| *offset == glyph.cluster)
+                {
+                    Some(n) => assigned[n] = Some(glyph.glyph),
+                    // A cluster that is not the start of any character in
+                    // the run means the shaper and this disagree about what
+                    // was asked. Drawing the disagreement would drop
+                    // characters, so the run is left as it was.
+                    None => usable = false,
+                }
+            }
+            if usable {
+                for ((_, column), glyph) in columns.iter().zip(assigned) {
+                    out[*column] = glyph;
+                }
+            }
+        }
+        at = end;
+    }
+    out
 }
 
 /// Cuts a rectangle down to a band of pixels, or drops it if it is wholly
@@ -246,6 +404,10 @@ fn clipped(top: f32, height: f32, band: Option<(f32, f32)>) -> Option<(f32, f32,
 fn push_cell(
     frame: &mut Frame,
     cell: &maxgus_tui::Cell,
+    // The glyph this cell draws, which is not always the one its character
+    // would pick: a ligature puts one glyph in the first of the cells it
+    // covers and nothing in the rest.
+    glyph: Option<u16>,
     x: u16,
     top: f32,
     metrics: CellMetrics,
@@ -275,9 +437,9 @@ fn push_cell(
         });
     }
 
-    if cell.ch != ' '
-        && let Some(glyph) = fonts.glyph(
-            cell.ch,
+    if let Some(index) = glyph
+        && let Some(glyph) = fonts.glyph_indexed(
+            index,
             Style::of(
                 face.attributes.bold.unwrap_or(false),
                 face.attributes.italic.unwrap_or(false),
@@ -320,6 +482,7 @@ mod tests {
 
     fn palette() -> Palette {
         Palette {
+            cursor: [1.0, 1.0, 1.0, 1.0],
             foreground: [1.0, 1.0, 1.0, 1.0],
             background: [0.0, 0.0, 0.0, 1.0],
             ansi: [[0.5, 0.5, 0.5, 1.0]; 16],
@@ -413,7 +576,7 @@ mod tests {
             return;
         };
         let surface = surface_of("a b", Face::default());
-        let frame = build(&surface, &mut fonts, &palette(), None, None);
+        let frame = build(&surface, &mut fonts, &palette(), None, None, None, false);
         assert_eq!(frame.rects.len(), 3, "one background per cell");
         assert_eq!(frame.sprites.len(), 2, "the space has no glyph");
     }
@@ -426,7 +589,7 @@ mod tests {
         };
         let metrics = fonts.metrics();
         let surface = surface_of("abc", Face::default());
-        let frame = build(&surface, &mut fonts, &palette(), None, None);
+        let frame = build(&surface, &mut fonts, &palette(), None, None, None, false);
         for (n, rect) in frame.rects.iter().enumerate() {
             assert_eq!(rect.position[0], n as f32 * metrics.width);
             assert_eq!(rect.position[1], 0.0);
@@ -463,8 +626,16 @@ mod tests {
             pixels: 5.0,
             incoming: None,
         };
-        let still = build(&surface, &mut fonts, &palette(), None, None);
-        let moved = build(&surface, &mut fonts, &palette(), Some(&shift), None);
+        let still = build(&surface, &mut fonts, &palette(), None, None, None, false);
+        let moved = build(
+            &surface,
+            &mut fonts,
+            &palette(),
+            Some(&shift),
+            None,
+            None,
+            false,
+        );
 
         let row_of = |frame: &Frame, y: u16| -> Vec<f32> {
             frame
@@ -509,8 +680,16 @@ mod tests {
             pixels: 5.0,
             incoming: None,
         };
-        let still = build(&surface, &mut fonts, &palette(), None, None);
-        let moved = build(&surface, &mut fonts, &palette(), Some(&shift), None);
+        let still = build(&surface, &mut fonts, &palette(), None, None, None, false);
+        let moved = build(
+            &surface,
+            &mut fonts,
+            &palette(),
+            Some(&shift),
+            None,
+            None,
+            false,
+        );
         // The first row's glyphs, which are inside the area either way.
         let first = |frame: &Frame| frame.sprites[0].position[1];
         assert_eq!(first(&moved), first(&still) - 5.0);
@@ -539,7 +718,15 @@ mod tests {
                 pixels,
                 incoming: None,
             };
-            let frame = build(&surface, &mut fonts, &palette(), Some(&shift), None);
+            let frame = build(
+                &surface,
+                &mut fonts,
+                &palette(),
+                Some(&shift),
+                None,
+                None,
+                false,
+            );
             for rect in &frame.rects {
                 let (top, bottom) = (rect.position[1], rect.position[1] + rect.size[1]);
                 // Rows outside the area are drawn where they always were.
@@ -583,9 +770,17 @@ mod tests {
         let shift = Shift {
             area,
             pixels: metrics.height - 2.0,
-            incoming: Some((area.height as i32, arriving)),
+            incoming: Some((area.height as i32, vec![arriving])),
         };
-        let frame = build(&surface, &mut fonts, &palette(), Some(&shift), None);
+        let frame = build(
+            &surface,
+            &mut fonts,
+            &palette(),
+            Some(&shift),
+            None,
+            None,
+            false,
+        );
         let gap = (
             area.height as f32 * metrics.height - shift.pixels,
             area.height as f32 * metrics.height,
@@ -612,13 +807,21 @@ mod tests {
         };
         let metrics = fonts.metrics();
         let surface = stack("abc", 2);
-        let whole = build(&surface, &mut fonts, &palette(), None, None);
+        let whole = build(&surface, &mut fonts, &palette(), None, None, None, false);
         let shift = Shift {
             area: maxgus_tui::Rect::new(0, 0, 3, 1),
             pixels: metrics.height / 2.0,
             incoming: None,
         };
-        let cut = build(&surface, &mut fonts, &palette(), Some(&shift), None);
+        let cut = build(
+            &surface,
+            &mut fonts,
+            &palette(),
+            Some(&shift),
+            None,
+            None,
+            false,
+        );
         let first = cut.sprites.first().expect("some ink survived the cut");
         let before = whole.sprites[0];
         if first.size[1] < before.size[1] {
@@ -628,6 +831,210 @@ mod tests {
                 "the glyph was squashed rather than cropped"
             );
         }
+    }
+
+    /// A row of cells all in one style, for asking what the font does with
+    /// them.
+    fn row(text: &str) -> Vec<maxgus_tui::Cell> {
+        text.chars()
+            .map(|ch| maxgus_tui::Cell::new(ch, Face::default()))
+            .collect()
+    }
+
+    /// A font that joins characters, if the machine has one.
+    ///
+    /// Detected by asking rather than by name: a family that is not
+    /// installed falls back to one that is, so the name proves nothing and
+    /// only the answer does.
+    fn ligature_font() -> Option<Fonts> {
+        for family in [
+            "FiraCode Nerd Font",
+            "Fira Code",
+            "JetBrainsMono Nerd Font",
+            "JetBrains Mono",
+        ] {
+            let Ok(mut fonts) = Fonts::load(family, 16.0) else {
+                continue;
+            };
+            if joins(&mut fonts, "!=") {
+                return Some(fonts);
+            }
+        }
+        None
+    }
+
+    /// Whether the font draws `text` with glyphs its characters would not
+    /// have picked on their own — which is what a ligature is.
+    ///
+    /// Not "fewer glyphs than characters", which is how a proportional font
+    /// does it. A monospace coding font cannot afford to lose a cell, so it
+    /// substitutes *every* cell of the pair with a piece of the joined mark
+    /// and keeps the count. `!=` in Fira Code is two glyphs, and neither is
+    /// the `!` or the `=` it would draw alone.
+    fn joins(fonts: &mut Fonts, text: &str) -> bool {
+        let shaped = fonts.shape(Style::Regular, text);
+        let alone: Vec<u16> = text
+            .chars()
+            .map(|ch| fonts.index_of(ch, Style::Regular))
+            .collect();
+        shaped.len() != alone.len() || shaped.iter().zip(&alone).any(|(s, a)| s.glyph != *a)
+    }
+
+    #[test]
+    fn a_ligature_draws_glyphs_no_character_would_pick_alone() {
+        let Some(mut fonts) = ligature_font() else {
+            eprintln!("skipping: no font on this machine joins `!=`");
+            return;
+        };
+        let cells = row("a != b");
+        let joined = row_glyphs(&cells, &mut fonts, true);
+        let apart = row_glyphs(&cells, &mut fonts, false);
+        assert_ne!(
+            (joined[2], joined[3]),
+            (apart[2], apart[3]),
+            "`!=` was drawn as a plain `!` and `=`, so nothing was joined"
+        );
+        // And only the run was touched: the letters either side are what
+        // they always were.
+        assert_eq!(joined[0], apart[0], "`a` changed");
+        assert_eq!(joined[5], apart[5], "`b` changed");
+        assert_eq!(joined[1], None, "a space drew something");
+    }
+
+    #[test]
+    fn a_space_will_not_be_joined_across() {
+        // `! =` is not `!=`. Shaping a whole line at once would leave the
+        // font free to decide otherwise.
+        let Some(mut fonts) = ligature_font() else {
+            eprintln!("skipping: no font on this machine joins `!=`");
+            return;
+        };
+        let cells = row("! =");
+        let joined = row_glyphs(&cells, &mut fonts, true);
+        let apart = row_glyphs(&cells, &mut fonts, false);
+        assert_eq!(joined, apart, "a space was joined across: {joined:?}");
+    }
+
+    #[test]
+    fn a_change_of_style_breaks_the_run() {
+        // Half a mark in bold and half in regular is two fonts pretending
+        // to be one glyph.
+        let Some(mut fonts) = ligature_font() else {
+            eprintln!("skipping: no font on this machine joins `!=`");
+            return;
+        };
+        let mut bold = Face::default();
+        bold.attributes.bold = Some(true);
+        let cells = vec![
+            maxgus_tui::Cell::new('!', Face::default()),
+            maxgus_tui::Cell::new('=', bold),
+        ];
+        let joined = row_glyphs(&cells, &mut fonts, true);
+        let apart = row_glyphs(&cells, &mut fonts, false);
+        assert_eq!(joined, apart, "a ligature was formed across two styles");
+    }
+
+    #[test]
+    fn turning_ligatures_off_draws_what_the_characters_say() {
+        // `set ligatures=#false` is how someone who does not want `!=` drawn
+        // as one mark says so, and it has to actually undo it.
+        let Some(mut fonts) = ligature_font() else {
+            eprintln!("skipping: no font on this machine joins `!=`");
+            return;
+        };
+        let cells = row("!=");
+        let apart = row_glyphs(&cells, &mut fonts, false);
+        let expected: Vec<Option<u16>> = "!="
+            .chars()
+            .map(|ch| Some(fonts.index_of(ch, Style::Regular)))
+            .collect();
+        assert_eq!(apart, expected);
+    }
+
+    #[test]
+    fn no_character_is_ever_lost_to_shaping() {
+        // The invariant that holds whatever font is installed: a cell only
+        // ever gives up its glyph to a ligature that starts before it, so
+        // the number of glyphs never falls below the number of runs.
+        let Some(mut fonts) = fonts() else {
+            eprintln!("skipping: no monospace font is installed");
+            return;
+        };
+        for text in [
+            "fn main() { a != b; }",
+            "-> => <= === |> ...",
+            "x",
+            "",
+            "     ",
+        ] {
+            let cells = row(text);
+            let glyphs = row_glyphs(&cells, &mut fonts, true);
+            assert_eq!(glyphs.len(), cells.len(), "`{text}` lost a cell");
+            let ink = text.chars().filter(|c| *c != ' ').count();
+            let drawn = glyphs.iter().filter(|g| g.is_some()).count();
+            assert!(
+                drawn <= ink,
+                "`{text}` drew more glyphs than it has characters"
+            );
+            if ink > 0 {
+                assert!(drawn > 0, "`{text}` drew nothing at all");
+            }
+        }
+    }
+
+    #[test]
+    fn a_travelling_cursor_is_a_quad_of_its_own() {
+        // While it is between two cells there is no cell to draw the other
+        // way round, so the block has to be a shape rather than a cell.
+        let Some(mut fonts) = fonts() else {
+            eprintln!("skipping: no monospace font is installed");
+            return;
+        };
+        let surface = stack("abc", 2);
+        let smear = [[0.0, 0.0], [40.0, 0.0], [5.0, 20.0], [45.0, 20.0]];
+        let frame = build(
+            &surface,
+            &mut fonts,
+            &palette(),
+            None,
+            None,
+            Some(smear),
+            false,
+        );
+        assert_eq!(frame.quads.len(), 1, "no block was drawn");
+        let quad = frame.quads[0];
+        assert_eq!(quad.top_left, [0.0, 0.0]);
+        assert_eq!(quad.bottom_right, [45.0, 20.0]);
+        assert_eq!(quad.color, palette().cursor);
+        assert_ne!(
+            quad.top_left[0] - quad.bottom_left[0],
+            0.0,
+            "a smear that is upright is not a smear"
+        );
+    }
+
+    #[test]
+    fn a_settled_cursor_draws_no_block_over_the_cell_it_is_on() {
+        // The two together would be a cursor in two places, one of which is
+        // not where point is.
+        let Some(mut fonts) = fonts() else {
+            eprintln!("skipping: no monospace font is installed");
+            return;
+        };
+        let surface = stack("abc", 2);
+        let frame = build(
+            &surface,
+            &mut fonts,
+            &palette(),
+            None,
+            Some((1, 0)),
+            None,
+            false,
+        );
+        assert!(
+            frame.quads.is_empty(),
+            "a block was drawn as well as a cell"
+        );
     }
 
     #[test]
@@ -642,7 +1049,15 @@ mod tests {
             attributes: Attributes::default(),
         };
         let surface = surface_of("ab", face);
-        let frame = build(&surface, &mut fonts, &palette(), None, Some((1, 0)));
+        let frame = build(
+            &surface,
+            &mut fonts,
+            &palette(),
+            None,
+            Some((1, 0)),
+            None,
+            false,
+        );
         assert_eq!(frame.rects[0].color, [0.0, 0.0, 0.0, 1.0], "the plain cell");
         assert_eq!(
             frame.rects[1].color,
@@ -667,7 +1082,7 @@ mod tests {
             ..Default::default()
         };
         let surface = surface_of("a", face);
-        let frame = build(&surface, &mut fonts, &palette(), None, None);
+        let frame = build(&surface, &mut fonts, &palette(), None, None, None, false);
         assert_eq!(frame.rects.len(), 2, "a background and a rule");
         let rule = frame.rects[1];
         assert!(

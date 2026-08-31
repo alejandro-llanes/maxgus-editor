@@ -156,6 +156,10 @@ KDL spells booleans `#true` and `#false`, and null `#null`.
 | `which-key-delay-ms` | integer | `400` | How long that pause is, capped at 10000. |
 | `mouse-wheel-lines` | integer | `3` | How far one notch of the wheel moves the view, in lines, clamped to 1–50. A touchpad reports the pixels it moved and is unaffected. Only read when drawing into a window. |
 | `smooth-scroll-ms` | integer | `120` | Roughly how long the view takes to come to rest after the wheel asks it to move, capped at 1000. Lower is brisker; `0` turns the animation off and the view arrives at once. A terminal cannot draw a fraction of a line and ignores it. |
+| `scroll-animation-far-lines` | integer | `1` | How much of a jump the view animates when a command moves it a long way — a page, or `M->`. The last this many lines are drawn as a slide; the rest arrives at once. Capped at 8, `0` turns it off. Only read when drawing into a window. |
+| `cursor-animation-ms` | integer | `90` | Roughly how long the cursor takes to slide to where point went, capped at 1000. `0` turns it off and the cursor is simply where it is. Only read when drawing into a window, which draws this instead of the beacon. |
+| `cursor-trail` | integer | `70` | How far the back of the cursor lags the front while it travels, in percent — the smear. `0` moves the block rigidly. Capped at 95, because a back that never leaves is a cursor that never arrives. |
+| `ligatures` | boolean | `#true` | Let the font join characters it was made to draw as one, such as `!=`. A font with no such joins is unaffected. Only read when drawing into a window; a terminal draws with whatever font the terminal was given. |
 | `shell` | string | `$SHELL` | The program a terminal tab starts. |
 
 ### Searching

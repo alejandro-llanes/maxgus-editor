@@ -211,6 +211,8 @@ impl Executor {
             Task::ReadScript { path } => self.read_script(path).await,
             Task::SaveSession { path, contents } => self.save_session(path, contents).await,
             Task::ReadSession { path } => self.read_session(path).await,
+            Task::SaveWorkspaces { path, contents } => self.save_workspaces(path, contents).await,
+            Task::ReadWorkspaces { path } => self.read_workspaces(path).await,
             Task::PersistTheme { path, theme } => {
                 self.persist_theme(path, theme).await;
             }
@@ -501,6 +503,28 @@ impl Executor {
         self.send(TaskResult::SessionRead { session });
     }
 
+    async fn save_workspaces(&self, path: PathBuf, contents: String) {
+        if let Some(parent) = path.parent()
+            && let Err(error) = tokio::fs::create_dir_all(parent).await
+        {
+            self.fail("saving the workspaces", error);
+            return;
+        }
+        if let Err(error) = tokio::fs::write(&path, contents).await {
+            self.fail("saving the workspaces", error);
+        }
+    }
+
+    /// Reads them back. Nobody having saved one is not a failure and is
+    /// reported as none, the way a project with no session is.
+    async fn read_workspaces(&self, path: PathBuf) {
+        let workspaces = match tokio::fs::read_to_string(&path).await {
+            Ok(source) => maxgus_core::workspace::Workspaces::from_kdl(&source),
+            Err(_) => maxgus_core::workspace::Workspaces::default(),
+        };
+        self.send(TaskResult::WorkspacesRead { workspaces });
+    }
+
     /// Writes the chosen theme into the configuration file.
     async fn persist_theme(&self, path: PathBuf, theme: String) {
         // A file that cannot be read is not one to overwrite: the user may
@@ -669,6 +693,29 @@ impl Executor {
             TreeAction::RemoveRoot(path) => {
                 select = None;
                 tree.remove_root(&path)
+            }
+            TreeAction::SetRoots(directories) => {
+                select = directories.first().cloned();
+                match tree.set_roots(directories).await {
+                    // Directories that have moved or gone are dropped
+                    // rather than refused, and said out loud: a workspace
+                    // outlives the disk it was saved on, and silently
+                    // showing three of four is how someone comes to think
+                    // they deleted something.
+                    Ok(dropped) if !dropped.is_empty() => {
+                        let names: Vec<String> = dropped
+                            .iter()
+                            .map(|path| path.display().to_string())
+                            .collect();
+                        self.send(TaskResult::Said(format!(
+                            "Not readable, left out: {}",
+                            names.join(", ")
+                        )));
+                        Ok(())
+                    }
+                    Ok(_) => Ok(()),
+                    Err(error) => Err(error),
+                }
             }
             TreeAction::ToggleHidden => tree.toggle_show_hidden().await,
             TreeAction::ToggleDirectoriesFirst => {
@@ -2131,6 +2178,14 @@ mod tests {
     struct Fixture(PathBuf);
 
     impl Fixture {
+        /// A directory of its own, named by `tag`.
+        ///
+        /// The tag has to be unique across the whole module. Two tests
+        /// sharing one share the directory, and `Drop` removes it — so the
+        /// first to finish deletes the ground out from under the second,
+        /// which then fails on an unwrap somewhere unrelated. Two did share
+        /// one, and it was an intermittent failure in a file it never
+        /// mentioned.
         async fn new(tag: &str) -> Fixture {
             let dir = std::env::temp_dir().join(format!("maxgus-exec-{tag}"));
             tokio::fs::remove_dir_all(&dir).await.ok();
@@ -2176,6 +2231,140 @@ mod tests {
     ) -> TaskResult {
         executor.handle(task).await;
         rx.try_recv().expect("the task produced no result")
+    }
+
+    #[tokio::test]
+    async fn workspaces_are_written_and_read_back() {
+        // The whole cycle on disk, which is the part the command tests
+        // cannot reach: they prove the right contents are queued, and this
+        // proves the queue puts them somewhere they come back from.
+        let f = Fixture::new("workspaces").await;
+        let (mut e, mut rx) = executor(f.path());
+        let path = maxgus_core::workspace::path_for(&f.path().join("state"));
+
+        let mut workspaces = maxgus_core::workspace::Workspaces::default();
+        workspaces.save("editor", vec![f.path().join("src"), f.path().to_path_buf()]);
+        e.handle(Task::SaveWorkspaces {
+            path: path.clone(),
+            contents: workspaces.to_kdl(),
+        })
+        .await;
+        assert!(
+            tokio::fs::try_exists(&path).await.unwrap(),
+            "nothing was written to {}",
+            path.display()
+        );
+
+        let result = run_one(&mut e, &mut rx, Task::ReadWorkspaces { path }).await;
+        let TaskResult::WorkspacesRead { workspaces: read } = result else {
+            panic!("{result:?}")
+        };
+        assert_eq!(read, workspaces);
+    }
+
+    #[tokio::test]
+    async fn a_missing_workspace_file_is_no_workspaces_rather_than_a_failure() {
+        // Nobody having saved one yet is the normal state of a new install.
+        let f = Fixture::new("workspaces-none").await;
+        let (mut e, mut rx) = executor(f.path());
+        let result = run_one(
+            &mut e,
+            &mut rx,
+            Task::ReadWorkspaces {
+                path: f.path().join("nothing-here.kdl"),
+            },
+        )
+        .await;
+        let TaskResult::WorkspacesRead { workspaces } = result else {
+            panic!("{result:?}")
+        };
+        assert!(workspaces.is_empty());
+    }
+
+    #[tokio::test]
+    async fn opening_a_workspace_shows_exactly_its_directories() {
+        let f = Fixture::new("workspaces-open").await;
+        tokio::fs::create_dir_all(f.path().join("docs"))
+            .await
+            .unwrap();
+        let (mut e, mut rx) = executor(f.path());
+        run_one(&mut e, &mut rx, Task::Tree(TreeAction::Refresh)).await;
+
+        let result = run_one(
+            &mut e,
+            &mut rx,
+            Task::Tree(TreeAction::SetRoots(vec![
+                f.path().join("src"),
+                f.path().join("docs"),
+            ])),
+        )
+        .await;
+        let TaskResult::TreeUpdated { nodes, .. } = result else {
+            panic!("{result:?}")
+        };
+        let roots: Vec<&std::path::Path> = nodes
+            .iter()
+            .filter(|node| node.is_root)
+            .map(|node| node.path.as_path())
+            .collect();
+        assert_eq!(roots, [f.path().join("src"), f.path().join("docs")]);
+    }
+
+    #[tokio::test]
+    async fn a_workspace_whose_directories_have_moved_opens_what_is_left() {
+        // A saved workspace outlives the disk it was saved on. Losing one
+        // directory of two is not a reason to open neither, and the one
+        // that went is said out loud rather than quietly left out.
+        let f = Fixture::new("workspaces-moved").await;
+        let (mut e, mut rx) = executor(f.path());
+        run_one(&mut e, &mut rx, Task::Tree(TreeAction::Refresh)).await;
+
+        e.handle(Task::Tree(TreeAction::SetRoots(vec![
+            f.path().join("src"),
+            f.path().join("gone-away"),
+        ])))
+        .await;
+        let mut said = Vec::new();
+        let mut roots = Vec::new();
+        while let Ok(result) = rx.try_recv() {
+            match result {
+                TaskResult::Said(note) => said.push(note),
+                TaskResult::TreeUpdated { nodes, .. } => {
+                    roots = nodes
+                        .iter()
+                        .filter(|node| node.is_root)
+                        .map(|node| node.path.clone())
+                        .collect();
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(
+            roots,
+            [f.path().join("src")],
+            "it did not open what was left"
+        );
+        assert!(
+            said.iter().any(|note| note.contains("gone-away")),
+            "it did not say what it left out: {said:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_workspace_with_nothing_readable_in_it_is_refused() {
+        // Rather than emptying the tree, which has nothing to draw and no
+        // way to ask for a directory back.
+        let f = Fixture::new("workspaces-all-gone").await;
+        let (mut e, mut rx) = executor(f.path());
+        run_one(&mut e, &mut rx, Task::Tree(TreeAction::Refresh)).await;
+
+        let result = run_one(
+            &mut e,
+            &mut rx,
+            Task::Tree(TreeAction::SetRoots(vec![f.path().join("nowhere")])),
+        )
+        .await;
+        assert!(result.is_error(), "{result:?}");
     }
 
     #[tokio::test]
@@ -2983,7 +3172,7 @@ mod tests {
     #[tokio::test]
     #[cfg(feature = "full")]
     async fn a_request_to_a_server_that_is_not_running_is_a_no_op() {
-        let f = Fixture::new("noserver").await;
+        let f = Fixture::new("norequest").await;
         let (mut e, mut rx) = executor(f.path());
         e.handle(Task::LspRequest {
             language: "rust".into(),

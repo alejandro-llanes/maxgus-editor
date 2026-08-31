@@ -102,6 +102,7 @@ impl Menu {
 pub const GROUP_NAMES: &[(&str, &str)] = &[
     ("C-c c", "+code"),
     ("C-c f", "+file"),
+    ("C-c p", "+project"),
     ("C-c s", "+search"),
     ("C-c o", "+open"),
     ("C-c t", "+toggle"),

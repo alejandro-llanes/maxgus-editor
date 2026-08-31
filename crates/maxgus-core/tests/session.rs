@@ -4591,9 +4591,9 @@ fn the_readme_quotes_the_right_totals() {
 }
 
 #[cfg(feature = "full")]
-const README_BINDINGS: usize = 401;
+const README_BINDINGS: usize = 404;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 459;
+const README_COMMANDS: usize = 462;
 
 #[cfg(feature = "full")]
 #[test]
@@ -7460,5 +7460,158 @@ fn a_relative_directory_is_relative_to_where_the_tree_already_is() {
         named,
         Some(s.editor.default_directory().join("../lib")),
         "got {queued:?}"
+    );
+}
+
+// ---- workspaces ----------------------------------------------------------
+
+/// A session with a tree open and somewhere to keep workspaces.
+fn with_workspaces() -> Session {
+    let mut s = with_tree();
+    s.editor.state_dir = Some(std::path::PathBuf::from("/state"));
+    s.editor.tasks.drain();
+    s
+}
+
+/// The workspace file a queued write would produce, if one was queued.
+fn queued_workspace_write(s: &mut Session) -> Option<String> {
+    s.editor
+        .tasks
+        .drain()
+        .into_iter()
+        .find_map(|task| match task {
+            maxgus_core::Task::SaveWorkspaces { contents, .. } => Some(contents),
+            _ => None,
+        })
+}
+
+#[test]
+fn the_trees_directories_can_be_saved_under_a_name() {
+    let mut s = with_workspaces();
+    s.keys("C-c p s");
+    assert!(
+        s.editor.minibuffer.prompt().contains("Save workspace"),
+        "got `{}`",
+        s.editor.minibuffer.prompt()
+    );
+    s.type_text("editor");
+    s.keys("RET");
+
+    assert_eq!(s.editor.workspaces.names(), ["editor"]);
+    assert_eq!(
+        s.editor.workspaces.get("editor").unwrap().directories,
+        [std::path::PathBuf::from("/project")]
+    );
+    let written = queued_workspace_write(&mut s).expect("nothing was queued to write");
+    assert!(written.contains("editor"), "got `{written}`");
+    assert!(written.contains("/project"), "got `{written}`");
+}
+
+#[test]
+fn saving_again_offers_the_name_it_was_opened_as() {
+    // So adding a directory and saving is `RET` rather than retyping.
+    let mut s = with_workspaces();
+    s.editor.workspaces.save("editor", vec!["/project".into()]);
+    s.editor.workspace = Some("editor".into());
+    s.keys("C-c p s");
+    assert_eq!(s.editor.minibuffer.input(), "editor");
+}
+
+#[test]
+fn a_saved_workspace_can_be_opened_by_name() {
+    let mut s = with_workspaces();
+    s.editor
+        .workspaces
+        .save("other", vec!["/one".into(), "/two".into()]);
+
+    s.keys("C-c p p");
+    assert!(
+        s.editor.minibuffer.completion().visible,
+        "the workspaces were not listed"
+    );
+    s.type_text("other");
+    s.keys("RET");
+
+    let queued = s.editor.tasks.drain();
+    let roots = queued.iter().find_map(|task| match task {
+        maxgus_core::Task::Tree(maxgus_core::TreeAction::SetRoots(roots)) => Some(roots.clone()),
+        _ => None,
+    });
+    assert_eq!(
+        roots,
+        Some(vec![
+            std::path::PathBuf::from("/one"),
+            std::path::PathBuf::from("/two")
+        ]),
+        "got {queued:?}"
+    );
+    assert_eq!(s.editor.workspace.as_deref(), Some("other"));
+}
+
+#[test]
+fn opening_a_workspace_opens_the_tree_when_it_is_closed() {
+    // A workspace is a set of directories to look at, and choosing one with
+    // nowhere to show it is choosing nothing.
+    let mut s = Session::editing("/project/main.rs", "fn main() {}\n");
+    s.editor.state_dir = Some(std::path::PathBuf::from("/state"));
+    s.editor.workspaces.save("other", vec!["/one".into()]);
+    assert!(s.editor.tree_window.is_none(), "the tree is already open");
+    s.editor.tasks.drain();
+
+    s.keys("C-c p p");
+    s.type_text("other");
+    s.keys("RET");
+
+    assert!(s.editor.tree_window.is_some(), "the tree was not opened");
+}
+
+#[test]
+fn a_workspace_can_be_forgotten_without_touching_the_directories() {
+    let mut s = with_workspaces();
+    s.editor.workspaces.save("editor", vec!["/project".into()]);
+    s.editor.workspaces.save("website", vec!["/site".into()]);
+    s.editor.workspace = Some("editor".into());
+    s.editor.tasks.drain();
+
+    s.keys("C-c p d");
+    s.type_text("editor");
+    s.keys("RET");
+
+    assert_eq!(s.editor.workspaces.names(), ["website"]);
+    assert_eq!(s.editor.workspace, None, "it is still said to be open");
+    let written = queued_workspace_write(&mut s).expect("nothing was queued to write");
+    assert!(!written.contains("editor"), "got `{written}`");
+    // The tree is where it was: forgetting a list is not deleting what is
+    // on it.
+    assert!(
+        s.editor.tree.iter().any(|node| node.is_root),
+        "the tree was emptied"
+    );
+}
+
+#[test]
+fn a_name_that_is_not_a_workspace_is_reported() {
+    let mut s = with_workspaces();
+    s.editor.workspaces.save("editor", vec!["/project".into()]);
+    s.keys("C-c p p");
+    s.type_text("nothing-like-it");
+    s.keys("RET");
+    assert!(
+        s.editor.minibuffer.message_is_error(),
+        "got `{}`",
+        s.editor.minibuffer.display()
+    );
+}
+
+#[test]
+fn switching_with_none_saved_says_how_to_make_one() {
+    // Rather than an empty list with nothing in it and no hint.
+    let mut s = with_workspaces();
+    s.keys("C-c p p");
+    assert!(!s.editor.minibuffer.is_active(), "it prompted with nothing");
+    assert!(
+        s.editor.minibuffer.display().contains("workspace-save"),
+        "got `{}`",
+        s.editor.minibuffer.display()
     );
 }

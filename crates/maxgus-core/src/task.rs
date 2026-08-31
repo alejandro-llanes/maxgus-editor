@@ -231,6 +231,10 @@ pub enum Task {
     ReadScript { path: PathBuf },
     /// Write the session for a project.
     SaveSession { path: PathBuf, contents: String },
+    /// Write the saved workspaces out.
+    SaveWorkspaces { path: PathBuf, contents: String },
+    /// Read them back at startup.
+    ReadWorkspaces { path: PathBuf },
     /// Read one back.
     ReadSession { path: PathBuf },
     /// Ask git which branch the project is on, for the mode line.
@@ -389,6 +393,9 @@ pub enum TreeAction {
     AddRoot(PathBuf),
     /// Stop showing one of them. The last one stays.
     RemoveRoot(PathBuf),
+    /// Show exactly these and no others, which is what opening a workspace
+    /// does. Directories that cannot be read are dropped and reported.
+    SetRoots(Vec<PathBuf>),
     /// Show or hide dotfiles.
     ToggleHidden,
     /// Show directories before files, or sort strictly by name.
@@ -659,6 +666,13 @@ pub enum TaskResult {
     SessionSaved {
         path: PathBuf,
     },
+    /// Something worth saying and nothing else: a note for the echo area
+    /// from work that otherwise has no result to report.
+    Said(String),
+    /// The saved workspaces, as they were on disk.
+    WorkspacesRead {
+        workspaces: crate::workspace::Workspaces,
+    },
     /// A directory, listed for the file browser.
     Browsed {
         path: PathBuf,
@@ -692,6 +706,7 @@ impl TaskResult {
     /// The message to show in the echo area, if any.
     pub fn message(&self) -> Option<String> {
         match self {
+            TaskResult::Said(said) => Some(said.clone()),
             TaskResult::FileRead { path, .. } => Some(format!("Read {}", path.display())),
             TaskResult::FileWritten { path, bytes, .. } => {
                 Some(format!("Wrote {} ({bytes} bytes)", path.display()))

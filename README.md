@@ -79,7 +79,7 @@ path in it, because a launcher does not see your shell's `PATH`.
 | | `minimal` | `full` *(default)* | `gui` |
 |---|:---:|:---:|:---:|
 | **Binary** | **4.6M** | **13M** | **20M** |
-| **Commands** | 310 | 459 | 459 |
+| **Commands** | 313 | 462 | 462 |
 | **Needs from the system** | nothing | nothing | a window system's headers |
 | Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
 | Buffers, windows, `C-x` everything | ● | ● | ● |
@@ -166,8 +166,8 @@ $ ./target/release/maxgus
 
 ### Emacs keys, and they behave like Emacs
 
-**401 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **459 commands**. Prefix
+**404 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
+the panel, tree, magit and terminal maps, driving **462 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -331,6 +331,15 @@ it somewhere else is not having both. The *first* one stays the project: what
 a language server is told about and what a project search walks does not move
 because you looked at something else. `r d` and `r u` move whichever
 directory the cursor is in and leave the rest alone.
+
+**A set of directories can be saved as a workspace.** `C-c p s` names the
+ones the tree is showing, `C-c p p` opens a saved one — opening the tree
+first if it is closed, because a set of directories to look at is nothing
+without somewhere to look at them — and `C-c p d` forgets one, which forgets
+a list and not what is on it. They are kept as KDL beside the sessions, so
+they survive restarts and can be read, edited or deleted by hand. A
+directory that has moved since it was saved is left out and said out loud
+rather than quietly skipped.
 
 **`?` shows all of them at once**, the way treemacs' helpful hydra does: the
 whole map in named columns — Navigation, Nodes, Files, Toggles — in the same

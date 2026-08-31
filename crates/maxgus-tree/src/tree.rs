@@ -184,6 +184,33 @@ impl FileTree {
         self.refresh().await
     }
 
+    /// Shows exactly these directories and no others.
+    ///
+    /// What opening a workspace does. Directories that cannot be read are
+    /// dropped rather than refused — a saved workspace outlives the disk it
+    /// was saved on, and losing one directory of four is not a reason to
+    /// open none of them. Refuses only when *nothing* in the list can be
+    /// read, since a tree with no roots has nothing to draw.
+    pub async fn set_roots(&mut self, directories: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
+        let mut roots = Vec::new();
+        let mut dropped = Vec::new();
+        for path in directories {
+            let readable = tokio::fs::metadata(&path)
+                .await
+                .is_ok_and(|meta| meta.is_dir());
+            match readable && !roots.iter().any(|node: &Node| node.path == path) {
+                true => roots.push(Node::new(path, NodeKind::Directory)),
+                false => dropped.push(path),
+            }
+        }
+        if roots.is_empty() {
+            return Err(TreeError::NoReadableRoot);
+        }
+        self.roots = roots;
+        self.refresh().await?;
+        Ok(dropped)
+    }
+
     /// Stops looking at one of them.
     ///
     /// The last one stays: a tree with nothing in it has no row to put a

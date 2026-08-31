@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- **Workspaces: a set of directories, named and kept.** The tree can show
+  several at once; a workspace is that list given a name and written down,
+  so the set you work in is one command to come back to rather than several
+  to rebuild. treemacs has the same idea and the same word for it.
+
+  `C-c p s` saves what the tree is showing, `C-c p p` opens a saved one and
+  `C-c p d` forgets one. Opening a workspace **opens the tree if it is
+  closed** — a set of directories to look at is nothing without somewhere to
+  look at them. Deleting one forgets a list, not the directories on it.
+
+  Kept as KDL beside the sessions, and read at startup whether or not a
+  session is being restored: a session is where you left off and a workspace
+  is what you are working on, so one is restored for you and the other is
+  chosen. A directory that has moved since it was saved is left out and said
+  out loud, because a workspace outlives the disk it was saved on and
+  silently showing three of four is how someone comes to think they deleted
+  something.
+
+- Two tests were sharing a temporary directory, and its `Drop` removes it —
+  so whichever finished first deleted the ground out from under the other.
+  It surfaced as an intermittent failure in a file that had nothing to do
+  with either of them. They have their own now, and the fixture says why.
+
 - **Eight glyphs were drawing as hollow boxes and nothing said so.** Nerd
   Fonts v3 moved the Material Design icons out of `U+F534..U+FD46` and up to
   `U+F0001`, leaving the old codepoints unassigned — and eight of the

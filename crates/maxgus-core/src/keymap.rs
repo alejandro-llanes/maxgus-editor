@@ -269,6 +269,11 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-c c R", "lsp-restart-server"),
     ("C-c c w", "delete-trailing-whitespace"),
     // `C-c f` — files.
+    // The workspace: a named set of directories for the tree. `p` for
+    // project, the way Doom's leader spells it.
+    ("C-c p p", "workspace-switch"),
+    ("C-c p s", "workspace-save"),
+    ("C-c p d", "workspace-delete"),
     ("C-c f f", "find-file"),
     ("C-c f b", "browse-files"),
     ("C-c f d", "dired"),

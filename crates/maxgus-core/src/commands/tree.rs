@@ -116,6 +116,21 @@ pub fn register(registry: &mut Registry) {
             root_down
         ),
         command!(
+            "workspace-save",
+            "Remember the tree's directories under a name.",
+            workspace_save
+        ),
+        command!(
+            "workspace-switch",
+            "Open a saved workspace, opening the tree if it is closed.",
+            workspace_switch
+        ),
+        command!(
+            "workspace-delete",
+            "Forget a saved workspace. The directories are not touched.",
+            workspace_delete
+        ),
+        command!(
             "treefile-add-project",
             "Show another directory in the tree, below the ones already there.",
             add_project
@@ -689,6 +704,149 @@ fn remove_project(editor: &mut Editor, _: &Args) -> Result<()> {
         .map(|candidate| candidate.path.clone())
         .ok_or_else(|| crate::CoreError::Message("No directory here to remove".into()))?;
     act(editor, TreeAction::RemoveRoot(root));
+    Ok(())
+}
+
+// ---- workspaces ---------------------------------------------------------
+
+/// Where the saved workspaces live, or an error saying why there is nowhere.
+fn workspaces_path(editor: &Editor) -> Result<PathBuf> {
+    let state = editor
+        .state_dir
+        .clone()
+        .ok_or_else(|| crate::CoreError::Message("There is nowhere to keep workspaces".into()))?;
+    Ok(crate::workspace::path_for(&state))
+}
+
+/// Writes the list out after it has changed.
+fn persist_workspaces(editor: &mut Editor) -> Result<()> {
+    let path = workspaces_path(editor)?;
+    let contents = editor.workspaces.to_kdl();
+    editor.spawn(Task::SaveWorkspaces { path, contents });
+    Ok(())
+}
+
+/// `M-x workspace-save`: remember the tree's directories under a name.
+///
+/// The set you work in, given a name, so coming back to it is one command
+/// rather than several. Saving over a name replaces it, which is how a
+/// workspace is edited.
+fn workspace_save(editor: &mut Editor, args: &Args) -> Result<()> {
+    let Some(name) = args.input.clone() else {
+        let directories = tree_directories(editor)?;
+        if directories.is_empty() {
+            return Err(crate::CoreError::Message("There is no tree to save".into()));
+        }
+        // Offered back under the name it was opened as, so saving again
+        // after adding a directory is `RET` rather than retyping.
+        let initial = editor.workspace.clone().unwrap_or_default();
+        editor.prompt_for(
+            "workspace-save",
+            MinibufferKind::Text,
+            "Save workspace as: ",
+            &initial,
+            editor.workspaces.names(),
+        );
+        return Ok(());
+    };
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(crate::CoreError::Message("No name given".into()));
+    }
+    let directories = tree_directories(editor)?;
+    editor.workspaces.save(&name, directories);
+    editor.workspace = Some(name.clone());
+    persist_workspaces(editor)?;
+    editor.message(format!("Workspace {name} saved"));
+    Ok(())
+}
+
+/// The directories the tree is showing, in order.
+fn tree_directories(editor: &Editor) -> Result<Vec<PathBuf>> {
+    let directories: Vec<PathBuf> = editor
+        .tree
+        .iter()
+        .filter(|node| node.is_root)
+        .map(|node| node.path.clone())
+        .collect();
+    match directories.is_empty() {
+        true => Err(crate::CoreError::Message("There is no tree to save".into())),
+        false => Ok(directories),
+    }
+}
+
+/// `C-c p p`: open a saved workspace.
+///
+/// Opens the tree if it is not already open, because a workspace *is* a set
+/// of directories to look at and choosing one with nowhere to show it is
+/// choosing nothing.
+fn workspace_switch(editor: &mut Editor, args: &Args) -> Result<()> {
+    let Some(name) = args.input.clone() else {
+        if editor.workspaces.is_empty() {
+            return Err(crate::CoreError::Message(
+                "No workspaces saved yet — `M-x workspace-save` makes one".into(),
+            ));
+        }
+        editor.prompt_for(
+            "workspace-switch",
+            MinibufferKind::Choice,
+            "Workspace: ",
+            "",
+            editor.workspaces.names(),
+        );
+        return Ok(());
+    };
+    let name = name.trim().to_string();
+    let Some(workspace) = editor.workspaces.get(&name).cloned() else {
+        return Err(crate::CoreError::Message(format!(
+            "No workspace named `{name}`"
+        )));
+    };
+    // The tree first, so there is something for the directories to arrive
+    // in. Opening it reads its own root, and setting the roots straight
+    // after replaces that with the workspace's.
+    if editor.tree_window.is_none() {
+        let first = workspace
+            .directories
+            .first()
+            .cloned()
+            .unwrap_or_else(|| editor.default_directory().to_path_buf());
+        open(editor, first)?;
+    }
+    editor.workspace = Some(name.clone());
+    act(editor, TreeAction::SetRoots(workspace.directories));
+    editor.message(format!("Workspace {name}"));
+    Ok(())
+}
+
+/// `M-x workspace-delete`: forget one.
+fn workspace_delete(editor: &mut Editor, args: &Args) -> Result<()> {
+    let Some(name) = args.input.clone() else {
+        if editor.workspaces.is_empty() {
+            return Err(crate::CoreError::Message("No workspaces saved".into()));
+        }
+        editor.prompt_for(
+            "workspace-delete",
+            MinibufferKind::Choice,
+            "Delete workspace: ",
+            "",
+            editor.workspaces.names(),
+        );
+        return Ok(());
+    };
+    let name = name.trim().to_string();
+    if !editor.workspaces.remove(&name) {
+        return Err(crate::CoreError::Message(format!(
+            "No workspace named `{name}`"
+        )));
+    }
+    // Only the name goes. Deleting a workspace is forgetting a list, not
+    // deleting the directories on it, and the tree stays where it is.
+    if editor.workspace.as_deref() == Some(name.as_str()) {
+        editor.workspace = None;
+    }
+    persist_workspaces(editor)?;
+    editor.message(format!("Workspace {name} deleted"));
     Ok(())
 }
 

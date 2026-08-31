@@ -42,6 +42,7 @@ pub mod transient;
 pub mod undo_tree;
 pub mod which_key;
 pub mod window;
+pub mod workspace;
 
 pub use buffers::{BufferList, SCRATCH_NAME};
 pub use command::{Args, Command, Registry};

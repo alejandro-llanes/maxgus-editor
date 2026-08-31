@@ -198,10 +198,19 @@ async fn main() -> Result<()> {
     // `maxgus file.rs` means that file, not the last twelve.
     if config.settings.session
         && arguments.files.is_empty()
-        && let Some(state) = &editor.state_dir
+        && let Some(state) = editor.state_dir.clone()
     {
         editor.spawn(maxgus_core::Task::ReadSession {
-            path: maxgus_core::session::path_for(state, &root),
+            path: maxgus_core::session::path_for(&state, &root),
+        });
+    }
+
+    // The saved workspaces, always: they are a list of places to work, not
+    // a record of where you left off, so they are worth having whether or
+    // not a session is being restored and whether or not a file was named.
+    if let Some(state) = editor.state_dir.clone() {
+        editor.spawn(maxgus_core::Task::ReadWorkspaces {
+            path: maxgus_core::workspace::path_for(&state),
         });
     }
 

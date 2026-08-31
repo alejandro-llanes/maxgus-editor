@@ -63,6 +63,11 @@ pub struct Editor {
     /// Where the editor keeps what is its own business rather than the
     /// user's — sessions, and whatever else comes to want a home.
     pub state_dir: Option<PathBuf>,
+    /// The saved sets of directories, read at startup.
+    pub workspaces: crate::workspace::Workspaces,
+    /// Which of them is open, when one was opened by name. For the message
+    /// that says what you are in, and so saving again offers the same name.
+    pub workspace: Option<String>,
     /// The theme the configuration file names, as distinct from the one in
     /// use — which is how `consult-theme` knows whether there is anything worth
     /// writing down.
@@ -330,6 +335,8 @@ impl Editor {
             consult_theme_writes: false,
             config_path: None,
             state_dir: None,
+            workspaces: crate::workspace::Workspaces::default(),
+            workspace: None,
             config_says_theme: None,
             pending_line: None,
             beacon: None,
@@ -1834,6 +1841,11 @@ impl Editor {
                     "Wrote {} line(s) in {} file(s)",
                     applied.lines, applied.files
                 ));
+                Ok(())
+            }
+            TaskResult::Said(_) => Ok(()),
+            TaskResult::WorkspacesRead { workspaces } => {
+                self.workspaces = workspaces;
                 Ok(())
             }
             TaskResult::Browsed { path, entries } => {

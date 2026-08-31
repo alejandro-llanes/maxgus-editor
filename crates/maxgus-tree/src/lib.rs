@@ -36,6 +36,8 @@ pub enum TreeError {
     NotARoot(std::path::PathBuf),
     #[error("the tree must be showing at least one directory")]
     LastRoot,
+    #[error("none of those directories can be read")]
+    NoReadableRoot,
 }
 
 pub type Result<T> = std::result::Result<T, TreeError>;

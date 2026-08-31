@@ -719,7 +719,16 @@ fn draw_browser(
         true => format!("~{}", &shown[home.len()..]),
         false => shown.into_owned(),
     };
-    let room = area.width.saturating_sub(16) as usize;
+    // The question goes first and keeps its room: a box that says where you
+    // are but not what it wants is a box you have to remember why you
+    // opened. It is the path that gets shortened when the two will not fit.
+    let asked = match browser.prompt.is_empty() {
+        true => String::new(),
+        false => format!("{} · ", browser.prompt),
+    };
+    let room = (area.width as usize)
+        .saturating_sub(16 + asked.chars().count())
+        .max(8);
     let shown = match shown.chars().count() > room {
         true => format!(
             "…{}",
@@ -730,6 +739,7 @@ fn draw_browser(
         ),
         false => shown,
     };
+    let shown = format!("{asked}{shown}");
     draw_border_title(surface, area, &shown, theme.resolve("menu-heading"));
 
     let inner = area.inset(1);
@@ -820,7 +830,10 @@ fn draw_browser(
     }
 
     // The keys, along the bottom border.
-    let hint = " ↑↓ move · → in · ← out · RET open ";
+    let hint = match browser.is_choosing() {
+        true => " ↑↓ move · → in · ← out · RET choose ",
+        false => " ↑↓ move · → in · ← out · RET open ",
+    };
     if (hint.chars().count() as u16) < area.width.saturating_sub(4) {
         surface.set_string(
             area.x + 2,
@@ -861,17 +874,25 @@ fn draw_browser_row(
     };
 
     let entry = browser.entry(row);
-    let (glyph, name, kind) = match entry {
-        None => (crate::icons::DIRECTORY, "..".to_string(), "tree-directory"),
-        Some(entry) if entry.is_dir => (
+    let (glyph, name, kind) = match (row, entry) {
+        // The directory being looked at, offered as an answer to a question
+        // about which directory. Open, where the rest are shut: it is the
+        // one you are standing in.
+        (crate::browser::Row::Here, _) => (
+            crate::icons::DIRECTORY_OPEN,
+            ".".to_string(),
+            "tree-directory",
+        ),
+        (_, None) => (crate::icons::DIRECTORY, "..".to_string(), "tree-directory"),
+        (_, Some(entry)) if entry.is_dir => (
             crate::icons::DIRECTORY,
             format!("{}/", entry.name),
             "tree-directory",
         ),
-        Some(entry) if entry.link.is_some() => {
+        (_, Some(entry)) if entry.link.is_some() => {
             (crate::icons::SYMLINK, entry.name.clone(), "tree-symlink")
         }
-        Some(entry) => (
+        (_, Some(entry)) => (
             crate::icons::for_file(std::path::Path::new(&entry.name)),
             entry.name.clone(),
             "tree-file",
@@ -884,11 +905,17 @@ fn draw_browser_row(
     }
     // The size and the date sit against the right edge, so they line up as
     // columns rather than trailing after names of every length.
-    let detail = entry
-        .filter(|entry| !entry.is_dir)
-        .map(|entry| format!("{:>7}  {}", human_size(entry.size), entry.modified))
-        .or_else(|| entry.map(|entry| format!("{:>7}  {}", "", entry.modified)))
-        .unwrap_or_default();
+    let detail = match row {
+        // `.` is a row nobody has seen in a file browser before, because
+        // no other file browser answers with a directory. Saying what it
+        // is costs one dimmed phrase.
+        crate::browser::Row::Here => "this directory".to_string(),
+        _ => entry
+            .filter(|entry| !entry.is_dir)
+            .map(|entry| format!("{:>7}  {}", human_size(entry.size), entry.modified))
+            .or_else(|| entry.map(|entry| format!("{:>7}  {}", "", entry.modified)))
+            .unwrap_or_default(),
+    };
     let detail_at = area
         .right()
         .saturating_sub(detail.chars().count() as u16 + 1);

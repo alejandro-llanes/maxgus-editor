@@ -1364,6 +1364,30 @@ impl Editor {
         self.refresh_completions();
     }
 
+    /// Opens the file browser to answer `command` with a directory.
+    ///
+    /// The counterpart of [`Editor::prompt_for`] for the one question a
+    /// path prompt is worst at. Typing a directory in full is the slowest
+    /// way to name one you could point at, and completion only helps once
+    /// you know how it is spelt; the box is walked with the arrows and
+    /// answers with `RET`. The command is re-entered exactly as a prompt
+    /// re-enters it, with the chosen path in `Args::input`, so a command
+    /// written for the prompt needs nothing new to be asked this way.
+    pub fn browse_for(
+        &mut self,
+        command: &str,
+        prompt: impl Into<String>,
+        start: impl Into<std::path::PathBuf>,
+    ) {
+        let start = start.into();
+        self.pending_input = Some((command.to_string(), self.prefix));
+        self.browser = Some(crate::browser::Browser::choosing(&start, prompt));
+        self.push_minor_map(
+            crate::keymap::browse_keymap().expect("the built-in browse map is well formed"),
+        );
+        self.spawn(crate::task::Task::Browse { path: start });
+    }
+
     /// How many candidate rows the popup has room for.
     ///
     /// Shared with the drawing code so a page moves exactly one screenful:

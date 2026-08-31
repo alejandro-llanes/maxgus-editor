@@ -386,9 +386,14 @@ fn browse_files(editor: &mut Editor, _: &Args) -> Result<()> {
 }
 
 /// Closes it, and takes its keymap away with it.
+///
+/// The command waiting on an answer goes too. A box opened to ask which
+/// directory and then abandoned has no answer to give, and a command left
+/// pending would be run by whatever prompt came next.
 pub fn browse_quit(editor: &mut Editor, _: &Args) -> Result<()> {
     if editor.browser.take().is_some() {
         editor.remove_minor_map("browse-files-mode");
+        editor.pending_input = None;
     }
     Ok(())
 }
@@ -443,6 +448,11 @@ fn browse_enter(editor: &mut Editor, _: &Args) -> Result<()> {
     let Some(path) = browser.current_path() else {
         return Ok(());
     };
+    // `.` is where we already are. Reading it again would only throw away
+    // the filter and the cursor to arrive back here.
+    if path == browser.directory {
+        return Ok(());
+    }
     browse_to(editor, path);
     Ok(())
 }
@@ -456,14 +466,37 @@ fn browse_up(editor: &mut Editor, _: &Args) -> Result<()> {
     Ok(())
 }
 
-/// `RET`: open a file, or go into a directory.
+/// `RET`: open a file, or go into a directory — or, when a directory is
+/// what was asked for, answer with the one under the cursor.
+///
+/// The two meanings do not collide, because the two boxes do not list the
+/// same rows. Asked for a file, every row but a directory is an answer and
+/// `RET` on a directory can only sensibly descend. Asked for a directory,
+/// every row is an answer and descending is what the right arrow is for.
 fn browse_open(editor: &mut Editor, _: &Args) -> Result<()> {
     let Some(browser) = editor.browser.as_ref() else {
         return Ok(());
     };
-    let Some(path) = browser.current_path() else {
+    // A path typed in full answers before the listing does: somebody who
+    // has pasted one is not asking about what is on the screen.
+    let typed = browser.typed_path().map(str::to_string);
+    let Some(path) = typed
+        .clone()
+        .map(std::path::PathBuf::from)
+        .or_else(|| browser.current_path())
+    else {
         return Err(crate::CoreError::Message("Nothing to open".into()));
     };
+    if browser.is_choosing() {
+        let answer = typed.unwrap_or_else(|| path.to_string_lossy().into_owned());
+        // Before the quit, which drops the command waiting on it.
+        let waiting = editor.pending_input.take();
+        browse_quit(editor, &Args::default())?;
+        if let Some((command, prefix)) = waiting {
+            editor.deferred = Some((command, Args::with_input(prefix, answer)));
+        }
+        return Ok(());
+    }
     if browser.current_is_dir() {
         browse_to(editor, path);
         return Ok(());

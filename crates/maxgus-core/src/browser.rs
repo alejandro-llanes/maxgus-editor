@@ -13,6 +13,11 @@
 //! same keyboard, and the answer is two commands rather than one command
 //! with a mode in it.
 //!
+//! The same box answers the other question a path prompt asks — *which
+//! directory* — for the tree's `r a` and `C-x t d`. Typing a directory in
+//! full is the slowest way to name one you could point at, so those prompts
+//! open this instead. See [`Purpose`].
+//!
 //! The model is here and the drawing is [`crate::render`]'s, so what it
 //! shows and what it selects can be checked without a window.
 
@@ -22,16 +27,41 @@ use std::path::{Path, PathBuf};
 /// One row of the listing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Row {
+    /// `.`, the directory being looked at. Only when the answer is a
+    /// directory, where it is the one row that is otherwise unreachable:
+    /// every other row names something *in* here.
+    Here,
     /// `..`, which is offered whenever there is a directory above.
     Parent,
     /// An entry, by its index into [`Browser::entries`].
     Entry(usize),
 }
 
+/// What the box is being used to answer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Purpose {
+    /// A file to open. Everything in the directory is listed, and `RET` on
+    /// a directory goes into it, there being nothing else it could mean.
+    #[default]
+    Open,
+    /// A directory to hand back to the command that asked.
+    ///
+    /// Only directories are listed — a file is not an answer, and rows that
+    /// cannot be chosen are rows to arrow past. That frees `RET` to *choose*
+    /// rather than to descend, which the right arrow already does, so
+    /// picking one is: arrow to it, `RET`.
+    Directory,
+}
+
 /// A directory, what is in it, and what has been typed to narrow it.
 #[derive(Debug, Clone, Default)]
 pub struct Browser {
     pub directory: PathBuf,
+    /// What is being asked, and so what `RET` does.
+    pub purpose: Purpose,
+    /// The question, for the box to show. Empty when it is just a file
+    /// being opened, where the box itself is the question.
+    pub prompt: String,
     /// Everything in the directory, directories first and then by name.
     pub entries: Vec<Entry>,
     /// What has been typed. Narrows the listing fuzzily.
@@ -46,7 +76,7 @@ pub struct Browser {
 }
 
 impl Browser {
-    /// A browser waiting for `directory` to be read.
+    /// A browser waiting for `directory` to be read, to open a file from.
     pub fn opening(directory: impl Into<PathBuf>) -> Browser {
         Browser {
             directory: directory.into(),
@@ -55,12 +85,35 @@ impl Browser {
         }
     }
 
+    /// The same box, asking `prompt` and answering with a directory.
+    pub fn choosing(directory: impl Into<PathBuf>, prompt: impl Into<String>) -> Browser {
+        Browser {
+            directory: directory.into(),
+            purpose: Purpose::Directory,
+            prompt: prompt.into(),
+            pending: true,
+            ..Browser::default()
+        }
+    }
+
+    /// True when only directories are listed and `RET` chooses one.
+    pub fn is_choosing(&self) -> bool {
+        self.purpose == Purpose::Directory
+    }
+
     /// What was read. The filter is kept — a listing arriving should not
     /// undo what was typed while it was being read — but the cursor goes
     /// back to the top, because it was pointing into a different directory.
     pub fn listed(&mut self, directory: impl Into<PathBuf>, entries: Vec<Entry>) {
         self.directory = directory.into();
         self.entries = entries;
+        // Dropped here rather than when the rows are built, so the tally,
+        // the filter and everything downstream count what can be chosen
+        // rather than what happens to be in the directory. `3/40` with 37
+        // of them files nobody can pick is a count of the wrong thing.
+        if self.is_choosing() {
+            self.entries.retain(|entry| entry.is_dir);
+        }
         // Directories first and then by name, which is the order anyone
         // walking a tree by eye expects. The reader gives no order at all.
         self.entries.sort_by(|a, b| {
@@ -81,7 +134,7 @@ impl Browser {
     /// The entry a row names, if it names one.
     pub fn entry(&self, row: Row) -> Option<&Entry> {
         match row {
-            Row::Parent => None,
+            Row::Here | Row::Parent => None,
             Row::Entry(index) => self.entries.get(index),
         }
     }
@@ -95,6 +148,7 @@ impl Browser {
     /// into. `None` when the listing is empty.
     pub fn current_path(&self) -> Option<PathBuf> {
         match self.current()? {
+            Row::Here => Some(self.directory.clone()),
             Row::Parent => self.parent(),
             Row::Entry(index) => Some(self.directory.join(&self.entries.get(index)?.name)),
         }
@@ -103,7 +157,7 @@ impl Browser {
     /// True when the cursor is on something to go into rather than open.
     pub fn current_is_dir(&self) -> bool {
         match self.current() {
-            Some(Row::Parent) => true,
+            Some(Row::Here | Row::Parent) => true,
             Some(Row::Entry(index)) => self.entries.get(index).is_some_and(|e| e.is_dir),
             None => false,
         }
@@ -125,6 +179,27 @@ impl Browser {
             .filter(|row| matches!(row, Row::Entry(_)))
             .count();
         (shown, self.entries.len())
+    }
+
+    /// What has been typed, when it is a path rather than a search.
+    ///
+    /// A filename cannot contain `/`, so a filter with one in it is nobody
+    /// searching — it is somebody typing or pasting a path, and narrowing a
+    /// listing to nothing is not what they meant by it. `~` says the same.
+    ///
+    /// Only where a directory is being chosen. For a file there is already
+    /// a command that takes a path and completes it, `C-x C-f`, and this
+    /// box exists for the other case; a directory has no such command, so
+    /// the box has to carry both ways of naming one.
+    pub fn typed_path(&self) -> Option<&str> {
+        if !self.is_choosing() {
+            return None;
+        }
+        let typed = self.filter.trim();
+        match typed.contains('/') || typed.starts_with('~') {
+            true => Some(typed),
+            false => None,
+        }
     }
 
     pub fn type_char(&mut self, c: char) {
@@ -174,13 +249,21 @@ impl Browser {
 
     /// Recomputes which rows are shown, in the order they are shown.
     ///
-    /// With nothing typed the listing is in its own order, `..` first.
-    /// With something typed it is in score order — the best match at the
-    /// top, where the cursor already is — and `..` is dropped, because
-    /// somebody typing a name is looking for a name.
+    /// With nothing typed the listing is in its own order, `.` and `..`
+    /// first. With something typed it is in score order — the best match at
+    /// the top, where the cursor already is — and neither is offered,
+    /// because somebody typing a name is looking for a name.
+    ///
+    /// When a directory is what is wanted, `.` leads: the box opens on the
+    /// directory the command started from, so `RET` straight away answers
+    /// with it, which is the answer often enough to be worth being the
+    /// default. Walking somewhere else first is what the arrows are for.
     fn rebuild(&mut self) {
         let mut rows = Vec::new();
         if self.filter.is_empty() {
+            if self.is_choosing() {
+                rows.push(Row::Here);
+            }
             if self.parent().is_some() {
                 rows.push(Row::Parent);
             }
@@ -376,6 +459,111 @@ mod tests {
         assert_eq!(browser.filter, "l", "it forgot what was typed");
         assert_eq!(browser.selected, 0);
         assert_eq!(browser.directory, PathBuf::from("/other"));
+    }
+
+    // ---- choosing a directory rather than opening a file ----------
+
+    fn choosing() -> Browser {
+        let mut browser = Browser::choosing("/project/src", "Add to tree");
+        browser.listed(
+            "/project/src",
+            vec![
+                entry("main.rs", false),
+                entry("inner", true),
+                entry("lib.rs", false),
+                entry("assets", true),
+            ],
+        );
+        browser
+    }
+
+    #[test]
+    fn only_directories_are_listed_when_a_directory_is_what_is_wanted() {
+        // A file is not an answer, and rows that cannot be chosen are rows
+        // to arrow past. Dropped from the entries rather than from the
+        // rows, so the tally counts what can be chosen: `1/4`, with three
+        // of them files nobody can pick, is a count of the wrong thing.
+        let browser = choosing();
+        let names: Vec<&str> = browser.entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["assets", "inner"]);
+        assert_eq!(browser.tally(), (2, 2));
+    }
+
+    #[test]
+    fn the_directory_being_looked_at_leads_and_answers_with_itself() {
+        // The box opens where the command started, and that is the answer
+        // often enough to be the default. It is also the one row nothing
+        // else can reach: every other row names something *inside* here.
+        let browser = choosing();
+        assert_eq!(browser.rows()[0], Row::Here);
+        assert_eq!(browser.rows()[1], Row::Parent);
+        assert_eq!(browser.current(), Some(Row::Here));
+        assert_eq!(browser.current_path(), Some(PathBuf::from("/project/src")));
+        assert!(browser.current_is_dir());
+    }
+
+    #[test]
+    fn opening_a_file_offers_no_here_row() {
+        // There is nothing it could mean: `RET` on it would open a
+        // directory, and going into one is what the right arrow is for.
+        let browser = browser();
+        assert!(!browser.rows().contains(&Row::Here));
+        assert!(!browser.is_choosing());
+    }
+
+    #[test]
+    fn typing_drops_both_the_here_and_the_parent_rows() {
+        let mut browser = choosing();
+        browser.type_char('n');
+        assert_eq!(
+            browser
+                .rows()
+                .iter()
+                .filter_map(|row| browser.entry(*row))
+                .map(|e| e.name.as_str())
+                .collect::<Vec<_>>(),
+            ["inner"]
+        );
+        assert!(!browser.rows().contains(&Row::Here));
+        assert!(!browser.rows().contains(&Row::Parent));
+    }
+
+    #[test]
+    fn a_filter_with_a_slash_in_it_is_a_path_rather_than_a_search() {
+        // A filename cannot contain `/`, so somebody who typed one is
+        // pasting a path, and narrowing a listing to nothing is not what
+        // they meant by it.
+        let mut browser = choosing();
+        for c in "/other/place".chars() {
+            browser.type_char(c);
+        }
+        assert!(browser.rows().is_empty(), "it matched something");
+        assert_eq!(browser.typed_path(), Some("/other/place"));
+
+        browser.clear_filter();
+        for c in "~/src".chars() {
+            browser.type_char(c);
+        }
+        assert_eq!(browser.typed_path(), Some("~/src"), "`~` names a path too");
+    }
+
+    #[test]
+    fn a_plain_name_is_a_search_rather_than_a_path() {
+        let mut browser = choosing();
+        browser.type_char('i');
+        assert_eq!(browser.typed_path(), None);
+    }
+
+    #[test]
+    fn a_path_typed_at_a_box_opening_a_file_is_just_a_search() {
+        // `C-x C-f` is the command that takes a path and completes it, and
+        // this box exists for the other case. A directory has no such
+        // command, which is why the other box carries both.
+        let mut browser = browser();
+        for c in "/etc".chars() {
+            browser.type_char(c);
+        }
+        assert_eq!(browser.typed_path(), None);
     }
 
     #[test]

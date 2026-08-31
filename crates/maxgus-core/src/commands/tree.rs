@@ -468,21 +468,21 @@ fn select(editor: &mut Editor, _: &Args) -> Result<()> {
 
 fn select_directory(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(input) = args.input.clone() else {
-        let initial = editor.default_directory().to_string_lossy().into_owned();
-        editor.prompt_for(
+        // The same question as `r a`, asked the same way: point at the
+        // directory rather than spelling it out.
+        editor.browse_for(
             "treefile-select-directory",
-            MinibufferKind::File,
-            "Tree root: ",
-            &initial,
-            Vec::new(),
+            "Tree root",
+            near_the_tree(editor),
         );
         return Ok(());
     };
     if input.trim().is_empty() {
         return Err(crate::CoreError::Message("No directory given".into()));
     }
+    let root = crate::commands::file::expand(editor, &input);
     close(editor);
-    open(editor, PathBuf::from(input.trim()))
+    open(editor, root)
 }
 
 fn quit(editor: &mut Editor, _: &Args) -> Result<()> {
@@ -661,29 +661,23 @@ fn root_down(editor: &mut Editor, _: &Args) -> Result<()> {
 /// looking at a second one is not changing which project you are in.
 fn add_project(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(input) = args.input.clone() else {
-        // Empty rather than filled in with the directory under the cursor.
-        // A second project is usually somewhere else entirely, and a path
-        // typed over a prefix that was already there gives `/a//b` — which
-        // Emacs reads as "start again at the root" and this does not.
-        editor.prompt_for(
-            "treefile-add-project",
-            MinibufferKind::File,
-            "Add directory to tree: ",
-            "",
-            Vec::new(),
-        );
+        // The browser rather than a path prompt. A directory is the one
+        // thing worst to type: you are naming somewhere you could point at,
+        // and completion only helps once you know how it is spelt. This
+        // opens on the directory the tree is already in, so `RET` adds
+        // that, the arrows walk to anywhere else, and typing narrows.
+        editor.browse_for("treefile-add-project", "Add to tree", near_the_tree(editor));
         return Ok(());
     };
     let typed = input.trim();
     if typed.is_empty() {
         return Err(crate::CoreError::Message("No directory given".into()));
     }
-    // A relative answer is relative to where the tree already is, which is
-    // what someone typing `../lib` means by it.
-    let path = match Path::new(typed).is_absolute() {
-        true => PathBuf::from(typed),
-        false => editor.default_directory().join(typed),
-    };
+    // The box answers with a full path, but it can also be typed at, and a
+    // relative answer is relative to where the tree already is — which is
+    // what someone typing `../lib` means by it. `~` means home, as at every
+    // other prompt in the editor.
+    let path = crate::commands::file::expand(editor, typed);
     act(editor, TreeAction::AddRoot(path));
     Ok(())
 }
@@ -762,6 +756,22 @@ fn workspace_save(editor: &mut Editor, args: &Args) -> Result<()> {
 }
 
 /// The directories the tree is showing, in order.
+/// Where a box asking for a directory should open.
+///
+/// The tree's own first directory, not the buffer's: `r a` is a question
+/// about the tree, and answering it from wherever the file you happen to be
+/// editing lives would start the walk in the wrong place whenever the two
+/// are not the same. Nothing open, and the buffer's directory is the best
+/// guess there is.
+fn near_the_tree(editor: &Editor) -> PathBuf {
+    editor
+        .tree
+        .iter()
+        .find(|node| node.is_root)
+        .map(|node| node.path.clone())
+        .unwrap_or_else(|| editor.default_directory().to_path_buf())
+}
+
 fn tree_directories(editor: &Editor) -> Result<Vec<PathBuf>> {
     let directories: Vec<PathBuf> = editor
         .tree

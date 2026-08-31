@@ -121,7 +121,11 @@ fn expand_against(directory: &Path, home: Option<&Path>, input: &str) -> PathBuf
     }
 }
 
-fn expand(editor: &Editor, input: &str) -> PathBuf {
+/// The same, against the editor's default directory and real `HOME`.
+///
+/// Shared with the tree, so `~/src` means there whether it was typed at a
+/// file prompt or at the box that asks the tree which directory to add.
+pub(crate) fn expand(editor: &Editor, input: &str) -> PathBuf {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     expand_against(&editor.default_directory(), home.as_deref(), input)
 }

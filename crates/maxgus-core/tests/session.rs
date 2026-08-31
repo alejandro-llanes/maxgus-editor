@@ -7387,32 +7387,190 @@ fn nothing_arrives_past_the_end_of_the_buffer() {
 
 // ---- more than one directory in the tree ---------------------------------
 
+/// What `r a` puts on the screen, once the listing has arrived.
+fn browsing(s: &mut Session) -> &maxgus_core::browser::Browser {
+    s.editor
+        .browser
+        .as_ref()
+        .expect("`r a` should have opened the box")
+}
+
+fn listing(s: &mut Session, directory: &str, names: &[(&str, bool)]) {
+    let entries = names
+        .iter()
+        .map(|(name, is_dir)| maxgus_core::dired::Entry {
+            name: (*name).to_string(),
+            is_dir: *is_dir,
+            link: None,
+            size: 10,
+            permissions: "rw-r--r--".into(),
+            modified: "Aug 30 12:00".into(),
+        })
+        .collect();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::Browsed {
+            path: directory.into(),
+            entries,
+        })
+        .unwrap();
+}
+
+/// The path the tree was asked to add, if it was asked.
+fn added(s: &mut Session) -> Option<std::path::PathBuf> {
+    s.editor.tasks.drain().iter().find_map(|task| match task {
+        maxgus_core::Task::Tree(maxgus_core::TreeAction::AddRoot(path)) => Some(path.clone()),
+        _ => None,
+    })
+}
+
 #[test]
-fn a_second_directory_can_be_asked_for_from_the_tree() {
+fn a_second_directory_is_pointed_at_rather_than_typed_out() {
     // A workspace is usually more than one directory, and closing the tree
-    // to reopen it somewhere else is not having both.
+    // to reopen it somewhere else is not having both. Naming the second one
+    // used to mean typing its whole path, which is the slowest way to say
+    // something you could point at.
     let mut s = with_tree();
     s.keys("C-x t 1");
     s.editor.tasks.drain();
     s.keys("r a");
-    assert!(s.editor.minibuffer.is_active(), "it did not ask for one");
     assert!(
-        s.editor.minibuffer.prompt().contains("Add directory"),
-        "got `{}`",
-        s.editor.minibuffer.prompt()
+        !s.editor.minibuffer.is_active(),
+        "it went back to asking for a path"
+    );
+    assert!(browsing(&mut s).is_choosing(), "the box is opening a file");
+    assert_eq!(browsing(&mut s).prompt, "Add to tree");
+    let queued = s.editor.tasks.drain();
+    assert!(
+        queued.iter().any(|task| matches!(
+            task,
+            maxgus_core::Task::Browse { path } if path == std::path::Path::new("/project")
+        )),
+        "it did not ask to read the directory the tree is in: {queued:?}"
     );
 
-    s.type_text("/other/project");
+    listing(
+        &mut s,
+        "/project",
+        &[("src", true), ("main.rs", false), ("assets", true)],
+    );
+    // Down off `.`, past `..`, onto the first directory.
+    s.keys("<down> <down>");
     s.keys("RET");
+    assert!(s.editor.browser.is_none(), "the box stayed open");
+    assert_eq!(
+        added(&mut s),
+        Some(std::path::PathBuf::from("/project/assets"))
+    );
+}
+
+#[test]
+fn the_box_that_asks_for_a_directory_offers_only_directories() {
+    // Every row is an answer, so there is nothing to arrow past. It is also
+    // what makes `RET` mean *choose* rather than *go into*: descending is
+    // what the right arrow is for.
+    let mut s = with_tree();
+    s.keys("C-x t 1");
+    s.keys("r a");
+    listing(
+        &mut s,
+        "/project",
+        &[("src", true), ("main.rs", false), ("Cargo.toml", false)],
+    );
+    let names: Vec<String> = browsing(&mut s)
+        .entries
+        .iter()
+        .map(|entry| entry.name.clone())
+        .collect();
+    assert_eq!(names, ["src"], "a file was offered as a directory");
+    assert_eq!(browsing(&mut s).tally(), (1, 1), "the files were counted");
+}
+
+#[test]
+fn the_directory_being_looked_at_is_the_first_answer_on_offer() {
+    // `r a` opens on the directory the tree is already in, and that is
+    // often the answer. It is also the one row nothing else can reach:
+    // every other row names something *inside* here.
+    let mut s = with_tree();
+    s.keys("C-x t 1");
+    s.editor.tasks.drain();
+    s.keys("r a");
+    listing(&mut s, "/project/src", &[("inner", true)]);
+    assert_eq!(
+        browsing(&mut s).current(),
+        Some(maxgus_core::browser::Row::Here)
+    );
+    s.keys("RET");
+    assert_eq!(
+        added(&mut s),
+        Some(std::path::PathBuf::from("/project/src"))
+    );
+}
+
+#[test]
+fn walking_in_and_out_moves_the_box_and_the_right_arrow_does_not_stall_on_here() {
+    let mut s = with_tree();
+    s.keys("C-x t 1");
+    s.keys("r a");
+    listing(&mut s, "/project", &[("src", true)]);
+    s.editor.tasks.drain();
+
+    // `.` is where we already are; reading it again would only throw away
+    // the filter and the cursor to arrive back here.
+    s.keys("<right>");
+    assert!(
+        s.editor.tasks.drain().is_empty(),
+        "the right arrow re-read the directory it was already in"
+    );
+
+    s.keys("<down> <down> <right>");
     let queued = s.editor.tasks.drain();
-    let asked = queued.iter().any(|task| {
-        matches!(
+    assert!(
+        queued.iter().any(|task| matches!(
             task,
-            maxgus_core::Task::Tree(maxgus_core::TreeAction::AddRoot(path))
-                if path == std::path::Path::new("/other/project")
-        )
-    });
-    assert!(asked, "nothing was queued to add it: {queued:?}");
+            maxgus_core::Task::Browse { path } if path == std::path::Path::new("/project/src")
+        )),
+        "the right arrow did not go in: {queued:?}"
+    );
+}
+
+#[test]
+fn a_path_typed_in_full_answers_the_box_rather_than_narrowing_it() {
+    // A path prompt could be pasted into, and losing that would be a poor
+    // trade for the box. A filename cannot contain `/`, so a filter with
+    // one in it is nobody searching a listing.
+    let mut s = with_tree();
+    s.keys("C-x t 1");
+    s.keys("r a");
+    listing(&mut s, "/project", &[("src", true)]);
+    s.editor.tasks.drain();
+    s.type_text("/other/project");
+    assert!(
+        browsing(&mut s).rows().is_empty(),
+        "it matched something, so the test proves nothing"
+    );
+    s.keys("RET");
+    assert_eq!(
+        added(&mut s),
+        Some(std::path::PathBuf::from("/other/project"))
+    );
+}
+
+#[test]
+fn abandoning_the_box_leaves_no_command_waiting_on_an_answer() {
+    // A command left pending would be run by whatever prompt came next,
+    // with that prompt's answer.
+    let mut s = with_tree();
+    s.keys("C-x t 1");
+    s.keys("r a");
+    listing(&mut s, "/project", &[("src", true)]);
+    s.keys("C-g");
+    assert!(s.editor.browser.is_none());
+    s.editor.tasks.drain();
+
+    s.keys("C-x b");
+    s.type_text("main.rs");
+    s.keys("RET");
+    assert_eq!(added(&mut s), None, "switching buffer added a directory");
 }
 
 #[test]
@@ -7808,3 +7966,43 @@ fn the_readme_quotes_the_right_total_for_a_minimal_build() {
 
 #[cfg(not(feature = "full"))]
 const README_MINIMAL_COMMANDS: usize = 313;
+
+#[test]
+fn the_box_says_what_it_is_asking_and_what_ret_will_do() {
+    // The same box opens a file and answers with a directory, and the two
+    // are told apart by what `RET` does. A box that says where you are but
+    // not what it wants is a box you have to remember why you opened.
+    let mut s = Session::new(80, 24);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "one\ntwo\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.editor.tasks.drain();
+    s.keys("C-x t t");
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::TreeUpdated {
+            nodes: vec![node("/project", "project", true, 0, true)],
+            select: None,
+            show_hidden: false,
+        })
+        .unwrap();
+    s.keys("C-x t 1");
+    s.keys("r a");
+    listing(&mut s, "/project", &[("src", true), ("assets", true)]);
+
+    let screen = s.screen().join("\n");
+    assert!(
+        screen.contains("Add to tree · /project"),
+        "the box does not say what it wants:\n{screen}"
+    );
+    assert!(
+        screen.contains("RET choose"),
+        "the box still says it opens things:\n{screen}"
+    );
+    assert!(
+        screen.contains("this directory"),
+        "`.` is a row nobody has seen in a file browser, and it says nothing \
+         about itself:\n{screen}"
+    );
+}

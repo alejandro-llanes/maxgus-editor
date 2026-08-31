@@ -338,7 +338,8 @@ The tree keeps **56 bindings and 50 commands** from treemacs' own keymap:
 paths, `t h`/`t w`/`t f`/`t g`/`t d` to toggle, `g r` to refresh. Git status
 in the gutter, follow mode.
 
-**More than one directory at a time.** `r a` adds another to the tree and
+**More than one directory at a time.** `r a` adds another to the tree —
+[pointed at rather than typed out](#a-file-browser-you-type-at) — and
 `r k` takes one off again — treemacs' projects, and for its reason: a
 workspace is usually more than one directory, and closing the tree to reopen
 it somewhere else is not having both. The *first* one stays the project: what
@@ -431,6 +432,17 @@ Backspace rubs out a character, or goes up a directory when there is none
 left to rub out. `RET` opens a file or descends into a directory, `C-g` puts
 it away. Every row carries the glyph for its kind, and files carry their size
 and when they were last written.
+
+**The same box asks the tree which directory.** `r a` and `C-x t d` used to
+want a path typed out in full, which is the slowest way to name somewhere you
+could point at, and completion only helps once you know how it is spelt. They
+open this instead, on the directory the tree is already in. Only directories
+are listed, so every row is an answer and there is nothing to arrow past —
+which is what frees `RET` to mean *choose* rather than *go into*, since going
+into one is what `→` already does. `.` leads the list and answers with the
+directory you are looking at, so adding the one you started in is a single
+`RET`. A path can still be typed or pasted: a filter with a `/` in it is
+nobody searching a listing, so `RET` takes it literally, and `~` means home.
 
 It is deliberately not dired, and does not replace it. dired is for working
 *on* a directory — marking a dozen files and doing one thing to all of them —

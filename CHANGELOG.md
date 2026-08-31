@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **The tree asks which directory by showing you one.** `r a` and `C-x t d`
+  wanted a path typed out in full. They open the file browser instead, on the
+  directory the tree is already in: only directories are listed, so every row
+  is an answer, `→` goes in, `←` comes out, and `RET` chooses. `.` leads the
+  list and answers with the directory being looked at, so adding the one you
+  started in is one keypress. A path can still be typed or pasted — a filter
+  with a `/` in it is taken literally rather than searched for — and `~` now
+  means home at both, which it did not before.
+
 ## v1.0.0
 
 The editor has been usable for a while; this is the release that says so. The

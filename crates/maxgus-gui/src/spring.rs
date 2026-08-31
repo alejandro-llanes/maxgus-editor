@@ -14,10 +14,9 @@
 //! still arriving adds to it rather than restarting it: three notches of a
 //! wheel in quick succession build up instead of stuttering.
 //!
-//! Neovide reached the same conclusion and this is its arithmetic, down to
-//! the choice of `omega`. `position` is the distance still to travel, not
-//! where anything is: it decays to zero, and whatever is being animated is
-//! its destination minus this.
+//! `position` is the distance still to travel, not where anything is: it
+//! decays to zero, and whatever is being animated is its destination minus
+//! this.
 
 /// The distance something still has to travel, and how fast it is going.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -35,11 +34,11 @@ impl Spring {
 
     /// How many time constants of the decay `length` is asked to cover.
     ///
-    /// Neovide's choice, kept because the feel is the thing being copied.
-    /// What it buys is a constant: whatever the distance and whatever the
-    /// duration, **nine tenths of the way is covered by `length`**. The
-    /// sliver after that takes about twice as long again, and happens
-    /// below a quarter of a pixel where there is nothing to see.
+    /// Four of them, which buys a constant: whatever the distance and
+    /// whatever the duration, **nine tenths of the way is covered by
+    /// `length`**. The sliver after that takes about twice as long again,
+    /// and happens below a quarter of a pixel where there is nothing to
+    /// see.
     ///
     /// So a setting in milliseconds names when the movement is over as far
     /// as anyone watching is concerned, which is what a setting should

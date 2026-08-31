@@ -139,8 +139,8 @@ pub struct Settings {
     /// `M->` in a long file, is a hundred, and animating that in full is an
     /// animation being watched rather than a view being moved. So a jump
     /// longer than this is drawn as a slide of this many lines — the last
-    /// of the journey, which is the part that says which way it went.
-    /// Neovide's `scroll_animation_far_lines`, and `0` turns it off.
+    /// of the journey, which is the part that says which way it went. `0`
+    /// turns it off.
     pub scroll_animation_far_lines: usize,
     /// `cursor-animation-ms`: how long the cursor takes to arrive.
     ///
@@ -153,20 +153,19 @@ pub struct Settings {
     ///
     /// The common case — a key typed, a character rubbed out — and giving it
     /// the same duration as a jump across the screen makes ordinary typing
-    /// look like it is lagging behind the keyboard. Neovide's
-    /// `cursor_short_animation_length`, and for the same reason.
+    /// look like it is lagging behind the keyboard.
     pub cursor_short_animation_ms: usize,
     /// `cursor-trail`: how far the back of the cursor lags the front, as a
     /// percentage of the way.
     ///
     /// This is the smear. `0` moves the block rigidly; higher stretches it
     /// out behind itself while it travels and lets it catch up on arrival.
-    /// Neovide's `cursor_trail_size`, in whole percent rather than a
-    /// fraction because this file has no floats in it.
+    /// In whole percent rather than a fraction, because this file has no
+    /// floats in it.
     pub cursor_trail: usize,
     /// `cursor-vfx`: what the cursor leaves behind it.
     ///
-    /// Neovide's six: `sonicboom`, `ripple` and `wireframe` mark where it
+    /// Six of them: `sonicboom`, `ripple` and `wireframe` mark where it
     /// landed; `railgun`, `torpedo` and `pixiedust` trail particles along
     /// the way it came. Empty — the default — is none of them, and nothing
     /// is drawn or computed at all.

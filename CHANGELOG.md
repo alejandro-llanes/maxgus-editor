@@ -12,14 +12,13 @@
 
   It also carries a velocity, so a second wheel notch while the first is
   still arriving adds to it instead of starting it over. Spinning a wheel
-  builds up rather than stuttering. Neovide's arithmetic, down to the choice
-  of `omega`, because the feel is the thing being copied.
+  builds up rather than stuttering.
 
   What the duration setting means changed with it, and honestly: nine tenths
   of the way is covered in the time it names — the same nine tenths whatever
   the distance and whatever the duration — and the sliver after that happens
   below a quarter of a pixel. The tests say that rather than claiming an
-  arrival time that was never true. Defaults are Neovide's too:
+  arrival time that was never true. The defaults moved with it:
   `smooth-scroll-ms` is 300 and `cursor-animation-ms` 150.
 
 - **Typing does not smear.** A hop of a cell or two now gets
@@ -36,9 +35,9 @@
   screen that had not changed. They are fetched once now and kept until the
   view moves, the buffer changes or a key is pressed.
 
-- **Six things for the cursor to leave behind**, which are Neovide's:
-  `sonicboom`, `ripple` and `wireframe` mark where it landed with a disc, a
-  ring or a square that swells and fades; `railgun`, `torpedo` and
+- **Six things for the cursor to leave behind.** `sonicboom`, `ripple` and
+  `wireframe` mark where it landed with a disc, a ring or a square that
+  swells and fades; `railgun`, `torpedo` and
   `pixiedust` trail particles along the way it came, each with its own
   flight, rotation and lifetime. Off unless `cursor-vfx` names one, and then
   eight more settings for tuning it. The renderer grew a disc primitive with

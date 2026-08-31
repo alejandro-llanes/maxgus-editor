@@ -501,8 +501,7 @@ impl App {
     /// A long jump is not animated in full. `M->` in a long file is a
     /// thousand lines and sliding a thousand lines is an animation to watch
     /// rather than a view to read — so the last few are slid and the rest
-    /// simply arrives, which is Neovide's `scroll_animation_far_lines` and
-    /// for the same reason.
+    /// simply arrives. `scroll-animation-far-lines` is how many.
     fn slide_after(&mut self, was: (maxgus_core::WindowId, usize)) {
         let settings = &self.editor.settings;
         let (far, ms) = (

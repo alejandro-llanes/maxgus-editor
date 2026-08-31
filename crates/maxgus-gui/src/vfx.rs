@@ -1,10 +1,10 @@
 //! What the cursor leaves behind it.
 //!
-//! Neovide's six, and its arithmetic: three that mark where the cursor
-//! landed, and three that trail particles along the way it came. They are
-//! decoration and they are meant to be — the editor works identically with
-//! `cursor-vfx` unset, which is the default, and nothing here runs at all
-//! until a name is put in it.
+//! Six of them: three that mark where the cursor landed, and three that
+//! trail particles along the way it came. They are decoration and they are
+//! meant to be — the editor works identically with `cursor-vfx` unset,
+//! which is the default, and nothing here runs at all until a name is put
+//! in it.
 //!
 //! The two families are quite different animals. A *highlight* is one shape
 //! at the destination that grows and fades over a fixed lifetime. A *trail*
@@ -88,8 +88,8 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Settings {
-        // Neovide's, converted out of the percentages the configuration
-        // takes them as.
+        // Converted out of the percentages the configuration takes them
+        // as.
         Settings {
             mode: Mode::None,
             opacity: 0.78,

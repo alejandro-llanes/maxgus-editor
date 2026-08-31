@@ -10,8 +10,7 @@
 //! corners has its own pair of [`crate::spring::Spring`]s and its own time
 //! to get there — the ones at the back are given longer — so the block
 //! stretches out behind itself while it travels and gathers back into a
-//! cell when it arrives. Neovide does this and calls the amount
-//! `cursor_trail_size`; the name here is `cursor-trail`.
+//! cell when it arrives. How far the back lags is `cursor-trail`.
 //!
 //! A hop of a cell or two is not smeared at all. That is the common case —
 //! a key typed, a character rubbed out — and animating it over the same
@@ -110,8 +109,7 @@ impl Cursor {
         let middle = centre(&self.destination);
         // A short hop is the common case — a key typed, a character deleted
         // — and smearing it makes ordinary typing look like it is lagging.
-        // treated as its own, much quicker animation, which is what Neovide
-        // calls `short_animation_length` and does for the same reason.
+        // treated as its own, much quicker animation.
         let hop = distance(centre(&self.destination), centre(&was));
         let short_hop = hop <= cell.width * 2.001
             && (centre(&self.destination)[1] - centre(&was)[1]).abs() < 0.001;
@@ -458,7 +456,7 @@ mod tests {
     #[test]
     fn a_hop_down_a_line_is_not_a_hop() {
         // Moving down a line is a whole cell height and reads as a jump,
-        // however few columns it also moved. Neovide draws the same line.
+        // however few columns it also moved.
         let hop = frames_to(cell(10.0, 0.0));
         let down = frames_to(cell(0.0, 20.0));
         assert!(

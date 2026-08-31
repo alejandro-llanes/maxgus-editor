@@ -825,11 +825,11 @@ What the window has that a terminal cannot:
   because a terminal cannot show the journey. `set cursor-animation-ms=0`
   gives the beacon back.
 
-- **And six things for it to leave behind**, which are Neovide's and are off
-  unless asked for. `sonicboom`, `ripple` and `wireframe` mark where it
-  landed with a disc, a ring or a square that swells and fades; `railgun`,
-  `torpedo` and `pixiedust` trail particles along the way it came, each with
-  its own flight and lifetime. `set cursor-vfx="railgun"`, and eight more
+- **And six things for it to leave behind**, off unless asked for.
+  `sonicboom`, `ripple` and `wireframe` mark where it landed with a disc, a
+  ring or a square that swells and fades; `railgun`, `torpedo` and
+  `pixiedust` trail particles along the way it came, each with its own
+  flight and lifetime. `set cursor-vfx="railgun"`, and eight more
   settings for anyone who wants to tune one.
 
 - **What is behind a popup is blurred.** The completion list, the doc box,

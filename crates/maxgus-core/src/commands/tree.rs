@@ -835,7 +835,15 @@ fn workspace_switch(editor: &mut Editor, args: &Args) -> Result<()> {
     Ok(())
 }
 
-/// `M-x workspace-delete`: forget one.
+/// `M-x workspace-delete`: a list of the saved ones, to take one off.
+///
+/// A picker rather than a question: the popup is the list, the arrows walk
+/// it and `RET` forgets the row under the cursor. It asked for a name typed
+/// out in full before, on the grounds that a prompt which deletes whatever
+/// it is pointing at deletes things by accident — but the thing it deletes
+/// is a list of directories and not the directories, the row is on screen
+/// while it is being chosen, and saving it again takes a name and a `RET`.
+/// The caution was not worth what it cost to answer.
 fn workspace_delete(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(name) = args.input.clone() else {
         if editor.workspaces.is_empty() {
@@ -843,7 +851,7 @@ fn workspace_delete(editor: &mut Editor, args: &Args) -> Result<()> {
         }
         editor.prompt_for(
             "workspace-delete",
-            MinibufferKind::Choice,
+            MinibufferKind::Pick,
             "Delete workspace: ",
             "",
             editor.workspaces.names(),
@@ -851,9 +859,6 @@ fn workspace_delete(editor: &mut Editor, args: &Args) -> Result<()> {
         return Ok(());
     };
     let name = name.trim().to_string();
-    // No default here on purpose. A prompt that deletes whatever it was
-    // pointing at when `RET` was pressed by accident is a prompt that
-    // deletes things by accident.
     if name.is_empty() {
         return Err(crate::CoreError::Message("No workspace given".into()));
     }

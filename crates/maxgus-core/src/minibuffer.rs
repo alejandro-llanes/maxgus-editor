@@ -27,6 +27,16 @@ pub enum MinibufferKind {
     /// A prompt completing over a fixed set of answers, such as a theme name
     /// or a coding system.
     Choice,
+    /// A prompt that answers with whatever the list is pointing at, and only
+    /// ever with that.
+    ///
+    /// `Choice` takes the candidate once something has been typed, so an
+    /// untouched prompt can mean "the default". A picker has no default and
+    /// nothing to type: the list *is* the question, and `RET` on the row
+    /// under the cursor is the whole of answering it — which is how `M-x`
+    /// has always behaved, and the only reason that is not `Command` here
+    /// is that this is not `M-x`.
+    Pick,
     /// A `yes`/`no` question.
     YesNo,
     /// A single-character answer, as `query-replace` and registers use.
@@ -42,6 +52,7 @@ impl MinibufferKind {
                 | MinibufferKind::File
                 | MinibufferKind::Buffer
                 | MinibufferKind::Choice
+                | MinibufferKind::Pick
         )
     }
 
@@ -62,7 +73,7 @@ impl MinibufferKind {
     /// still there to be chosen from with `TAB` or the arrows.
     pub fn takes_the_candidate(self, queried: bool) -> bool {
         match self {
-            MinibufferKind::Command => true,
+            MinibufferKind::Command | MinibufferKind::Pick => true,
             MinibufferKind::Buffer | MinibufferKind::Choice => queried,
             _ => false,
         }
@@ -75,7 +86,12 @@ impl MinibufferKind {
 
     /// True when the input should be remembered in a history ring.
     pub fn has_history(self) -> bool {
-        !matches!(self, MinibufferKind::YesNo | MinibufferKind::Char)
+        // A picker's answers are names it already knows; remembering them
+        // would fill the ring with things it can offer anyway.
+        !matches!(
+            self,
+            MinibufferKind::YesNo | MinibufferKind::Char | MinibufferKind::Pick
+        )
     }
 }
 

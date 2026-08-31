@@ -45,6 +45,15 @@
   so the set you work in is one command to come back to rather than several
   to rebuild. treemacs has the same idea and the same word for it.
 
+  **`M-x workspace-delete` is a list to pick from**, not a name to type.
+  The popup is the question: it opens with the first row under the cursor,
+  the arrows walk it, and `RET` forgets the row it is pointing at. It asked
+  for the name in full before, on the grounds that a prompt which deletes
+  whatever it is pointing at deletes things by accident — but what it
+  deletes is a list of directories and not the directories, the row is on
+  screen while it is being chosen, and saving it again takes a name and a
+  `RET`. The caution was not worth what it cost to answer.
+
   Saving is something you do rather than something that happens: `r a` and
   `r k` change the tree in front of you and nothing else, so the tree is
   somewhere to rearrange freely and the workspace on disk is what it was

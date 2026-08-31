@@ -338,8 +338,8 @@ directory the cursor is in and leave the rest alone.
 **A set of directories can be saved as a workspace.** `C-c p s` names the
 ones the tree is showing, `C-c p p` opens a saved one — opening the tree
 first if it is closed, because a set of directories to look at is nothing
-without somewhere to look at them — and `C-c p d` forgets one, which forgets
-a list and not what is on it. They are kept as KDL beside the sessions, so
+without somewhere to look at them — and `C-c p d` — or `M-x workspace-delete` — opens the list to
+pick one off, which forgets a list and not what is on it. They are kept as KDL beside the sessions, so
 they survive restarts and can be read, edited or deleted by hand. A
 directory that has moved since it was saved is left out and said out loud
 rather than quietly skipped.

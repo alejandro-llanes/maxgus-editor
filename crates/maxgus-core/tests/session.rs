@@ -7660,16 +7660,60 @@ fn the_default_offered_is_the_one_already_open() {
 }
 
 #[test]
-fn the_delete_prompt_offers_nothing_at_all() {
-    // A prompt that deletes whatever it was pointing at when `RET` was hit
-    // by accident is a prompt that deletes things by accident.
+fn the_workspace_commands_are_all_reachable_from_m_x() {
+    // `M-x workspace-delete` is how it was asked for, and a command that is
+    // only a key is a command nobody finds.
+    let s = Session::new(80, 24);
+    let names = s.dispatcher.registry.interactive_names();
+    for command in ["workspace-save", "workspace-switch", "workspace-delete"] {
+        assert!(
+            names.iter().any(|n| n == command),
+            "`{command}` is not offered by `M-x`"
+        );
+    }
+}
+
+#[test]
+fn deleting_is_a_list_to_pick_from_rather_than_a_name_to_type() {
+    // The popup is the question: the arrows walk it and `RET` forgets the
+    // row under the cursor, without a name having to be typed out.
     let mut s = with_workspaces();
     s.editor.workspaces.save("first", vec!["/one".into()]);
+    s.editor.workspaces.save("second", vec!["/two".into()]);
     s.editor.tasks.drain();
 
     s.keys("C-c p d");
+    assert!(
+        s.editor.minibuffer.completion().visible,
+        "no list to pick from"
+    );
     s.keys("RET");
-    assert_eq!(s.editor.workspaces.names(), ["first"], "it deleted one");
+    assert_eq!(
+        s.editor.workspaces.names(),
+        ["second"],
+        "`RET` did not take the row it was pointing at"
+    );
+}
+
+#[test]
+fn the_arrows_choose_which_one_is_deleted() {
+    let mut s = with_workspaces();
+    s.editor.workspaces.save("first", vec!["/one".into()]);
+    s.editor.workspaces.save("second", vec!["/two".into()]);
+    s.editor.workspaces.save("third", vec!["/three".into()]);
+    s.editor.tasks.drain();
+
+    s.keys("C-c p d");
+    s.keys("<down>");
+    s.keys("RET");
+    assert_eq!(s.editor.workspaces.names(), ["first", "third"]);
+}
+
+#[test]
+fn a_picker_over_nothing_says_so_rather_than_opening_an_empty_list() {
+    let mut s = with_workspaces();
+    s.keys("C-c p d");
+    assert!(!s.editor.minibuffer.is_active(), "it opened an empty list");
     assert!(
         s.editor.minibuffer.message_is_error(),
         "got `{}`",

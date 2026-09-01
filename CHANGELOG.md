@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.3.0
 
 - **The editor can fetch and build a grammar for you.** `M-x install-grammar`
   lists every parser on tree-sitter's own wiki — five hundred of them — and

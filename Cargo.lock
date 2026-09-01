@@ -1441,7 +1441,7 @@ dependencies = [
 
 [[package]]
 name = "maxgus"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "maxgus-config"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "kdl",
  "maxgus-keys",
@@ -1481,7 +1481,7 @@ dependencies = [
 
 [[package]]
 name = "maxgus-core"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "kdl",
  "maxgus-config",
@@ -1505,7 +1505,7 @@ dependencies = [
 
 [[package]]
 name = "maxgus-faces"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "crossterm",
  "maxgus-config",
@@ -1514,11 +1514,11 @@ dependencies = [
 
 [[package]]
 name = "maxgus-git"
-version = "1.3.0"
+version = "1.3.1"
 
 [[package]]
 name = "maxgus-grep"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "ignore",
  "regex",
@@ -1527,7 +1527,7 @@ dependencies = [
 
 [[package]]
 name = "maxgus-gui"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "anyhow",
  "arboard",
@@ -1549,7 +1549,7 @@ dependencies = [
 
 [[package]]
 name = "maxgus-keys"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "crossterm",
  "serde",
@@ -1558,7 +1558,7 @@ dependencies = [
 
 [[package]]
 name = "maxgus-lsp"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "lsp-types",
  "percent-encoding",
@@ -1572,7 +1572,7 @@ dependencies = [
 
 [[package]]
 name = "maxgus-script"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "rhai",
  "thiserror 2.0.20",
@@ -1580,7 +1580,7 @@ dependencies = [
 
 [[package]]
 name = "maxgus-syntax"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "libloading 0.9.0",
  "maxgus-faces",
@@ -1603,7 +1603,7 @@ dependencies = [
 
 [[package]]
 name = "maxgus-term"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "maxgus-faces",
  "maxgus-keys",
@@ -1613,7 +1613,7 @@ dependencies = [
 
 [[package]]
 name = "maxgus-text"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "regex",
  "ropey",
@@ -1625,7 +1625,7 @@ dependencies = [
 
 [[package]]
 name = "maxgus-tree"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "maxgus-config",
  "maxgus-keys",
@@ -1635,7 +1635,7 @@ dependencies = [
 
 [[package]]
 name = "maxgus-tui"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "crossterm",
  "futures-util",

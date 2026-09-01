@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.3.1
 
 - **`; inherits: c` in a highlights query is read.** A grammar that extends
   another ships a query covering only what it added: `tree-sitter-cpp`'s has

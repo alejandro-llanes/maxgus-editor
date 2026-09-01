@@ -1,0 +1,34 @@
+// The configuration the demo clips are recorded under.
+//
+// `scripts/record-demos.sh` starts the editor with this rather than with
+// whoever is recording's own configuration, so a clip shows the editor as it
+// ships instead of as one person has bent it, and so the clips do not change
+// when that person changes their theme.
+//
+// It is the shipped example with two things turned off:
+//
+//   - the language server. Nothing in the clips asks it anything, and a
+//     server that is missing or that exits writes a red line across the echo
+//     area that would be in every take.
+//   - the session, so a clip always opens on the file it was told to and
+//     never on whatever the last recording left behind.
+
+set theme="maxgus-dark"
+set line-numbers=#true
+set truncate-lines=#false
+set syntax-highlighting=#true
+set grammar-auto-install=#false   // no network, and no question mid-take
+
+set lsp-enabled=#false
+set session=#false
+set backup-files=#false
+
+set which-key=#true
+set beacon=#true
+
+set ligatures=#true
+set floating-blur=#true
+
+set panel-tree=#true
+set panel-symbols=#true
+set panel-buffers=#true

@@ -173,6 +173,22 @@ section > .wrap > h2::before { content: "## "; color: var(--purple); }
 }
 .shot[hidden] { display: none; }
 
+/* ---- demo clips ---- */
+.demo {
+  border: 1px solid var(--selection); border-radius: var(--radius);
+  overflow: hidden; background: #000; margin: 0;
+}
+.demo video {
+  display: block; width: 100%; height: auto;
+  aspect-ratio: 16 / 9; background: #000;
+}
+.demo figcaption {
+  padding: .7rem 1rem; color: var(--comment); font-size: .88rem;
+  border-top: 1px solid var(--selection); background: var(--surface);
+}
+.demo figcaption b { color: var(--fg); font-weight: 600; }
+.demo[hidden] { display: none; }
+
 /* ---- features ---- */
 .features { display: grid; gap: 1.6rem 2rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .feature h3 { font-family: var(--mono); font-size: 1rem; margin: 0 0 .3rem; color: var(--fg); }
@@ -210,6 +226,7 @@ footer .sp { margin-left: auto; }
   <span class="brand">max<span>gus</span></span>
   <a class="link" href="#install">Install</a>
   <a class="link" href="#builds">Builds</a>
+  <a class="link" href="#demos">Demos</a>
   <a class="link" href="#platforms">Platforms</a>
   <a class="link" href="#screenshots">Screenshots</a>
   <a class="link" href="#features">Features</a>
@@ -297,6 +314,108 @@ footer .sp { margin-left: auto; }
     </div>
 
   </div>
+</div></section>
+
+<section id="demos"><div class="wrap">
+  <h2>See it work</h2>
+  <p class="lede">
+    Eight clips of the <code>gui</code> build, recorded from the editor
+    itself — nothing sped up, nothing narrated, no cuts. Each is silent and
+    loops. <a href="https://github.com/alejandro-llanes/maxgus-editor/blob/main/scripts/record-demos.sh">The
+    script that records them</a> runs the editor in a compositor of its own,
+    so they can be made again and come out the same.
+  </p>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-shot="d-scrolling">scrolling</button>
+    <button role="tab" aria-selected="false" data-shot="d-blur">blur</button>
+    <button role="tab" aria-selected="false" data-shot="d-cursor">cursor</button>
+    <button role="tab" aria-selected="false" data-shot="d-treefile">file tree</button>
+    <button role="tab" aria-selected="false" data-shot="d-magit">magit</button>
+    <button role="tab" aria-selected="false" data-shot="d-whichkey">which-key</button>
+    <button role="tab" aria-selected="false" data-shot="d-ligatures">ligatures</button>
+    <button role="tab" aria-selected="false" data-shot="d-grammar">install a grammar</button>
+  </div>
+
+  <figure class="demo" id="d-scrolling">
+    <video muted loop playsinline preload="none" controls
+           poster="media/scrolling.jpg" width="1280" height="720">
+      <source src="media/scrolling.mp4" type="video/mp4">
+      <source src="media/scrolling.webm" type="video/webm">
+      <a href="media/scrolling.mp4">The clip, as a file.</a>
+    </video>
+    <figcaption>A long file under <kbd>C-v</kbd> and <kbd>M-v</kbd>, then <kbd>M-&gt;</kbd> to the end of it. <b>The window scrolls by pixels rather than by rows</b>, which is the one thing a terminal cannot do.</figcaption>
+  </figure>
+
+  <figure class="demo" id="d-blur" hidden>
+    <video muted loop playsinline preload="none" controls
+           poster="media/blur.jpg" width="1280" height="720">
+      <source src="media/blur.mp4" type="video/mp4">
+      <source src="media/blur.webm" type="video/webm">
+      <a href="media/blur.mp4">The clip, as a file.</a>
+    </video>
+    <figcaption><kbd>C-x b</kbd> and <kbd>M-x</kbd>, each on a blurred copy of the code underneath. <b>What is behind a popup is blurred rather than hidden</b>, so you keep your place while you read the list. While nothing is open it costs nothing.</figcaption>
+  </figure>
+
+  <figure class="demo" id="d-cursor" hidden>
+    <video muted loop playsinline preload="none" controls
+           poster="media/cursor.jpg" width="1280" height="720">
+      <source src="media/cursor.mp4" type="video/mp4">
+      <source src="media/cursor.webm" type="video/webm">
+      <a href="media/cursor.mp4">The clip, as a file.</a>
+    </video>
+    <figcaption><kbd>M-&gt;</kbd>, <kbd>M-&lt;</kbd> and a search, each landing the cursor somewhere new. <b>A light marks where it went</b> and fades — beacon, for Emacs.</figcaption>
+  </figure>
+
+  <figure class="demo" id="d-treefile" hidden>
+    <video muted loop playsinline preload="none" controls
+           poster="media/treefile.jpg" width="1280" height="720">
+      <source src="media/treefile.mp4" type="video/mp4">
+      <source src="media/treefile.webm" type="video/webm">
+      <a href="media/treefile.mp4">The clip, as a file.</a>
+    </video>
+    <figcaption><kbd>C-c C-t</kbd> opens the side panel: the file tree, the symbols in the buffer and the open buffers, each its own window. <b>treemacs' keys</b>, and git status in the margin.</figcaption>
+  </figure>
+
+  <figure class="demo" id="d-magit" hidden>
+    <video muted loop playsinline preload="none" controls
+           poster="media/magit.jpg" width="1280" height="720">
+      <source src="media/magit.mp4" type="video/mp4">
+      <source src="media/magit.webm" type="video/webm">
+      <a href="media/magit.mp4">The clip, as a file.</a>
+    </video>
+    <figcaption><kbd>C-x g</kbd> for the status view, then <kbd>TAB</kbd> to open a diff. <b>Stage a hunk, write a commit, read a log</b> without leaving the editor.</figcaption>
+  </figure>
+
+  <figure class="demo" id="d-whichkey" hidden>
+    <video muted loop playsinline preload="none" controls
+           poster="media/whichkey.jpg" width="1280" height="720">
+      <source src="media/whichkey.mp4" type="video/mp4">
+      <source src="media/whichkey.webm" type="video/webm">
+      <a href="media/whichkey.mp4">The clip, as a file.</a>
+    </video>
+    <figcaption>Stop in the middle of <kbd>C-c</kbd> or <kbd>C-x</kbd> and <b>a panel says what the next key can be</b>, with the groups a key opens named rather than listed. In all three builds.</figcaption>
+  </figure>
+
+  <figure class="demo" id="d-ligatures" hidden>
+    <video muted loop playsinline preload="none" controls
+           poster="media/ligatures.jpg" width="1280" height="720">
+      <source src="media/ligatures.mp4" type="video/mp4">
+      <source src="media/ligatures.webm" type="video/webm">
+      <a href="media/ligatures.mp4">The clip, as a file.</a>
+    </video>
+    <figcaption>A search through Rust operators. <b>Ligatures are drawn where the font has them</b> — <code>-&gt;</code> as one arrow, <code>!=</code> as a crossed equals — without changing a byte of the file.</figcaption>
+  </figure>
+
+  <figure class="demo" id="d-grammar" hidden>
+    <video muted loop playsinline preload="none" controls
+           poster="media/grammar.jpg" width="1280" height="720">
+      <source src="media/grammar.mp4" type="video/mp4">
+      <source src="media/grammar.webm" type="video/webm">
+      <a href="media/grammar.mp4">The clip, as a file.</a>
+    </video>
+    <figcaption><kbd>M-x install-grammar</kbd>: <b>the five hundred parsers tree-sitter's wiki lists</b>, narrowed by typing. Choosing one clones it, builds it and loads it.</figcaption>
+  </figure>
 </div></section>
 
 <section id="platforms"><div class="wrap">
@@ -640,19 +759,52 @@ document.getElementById("copy").addEventListener("click", function () {
   }
 });
 
-// The screenshot gallery. Without JavaScript every picture is simply shown,
-// which is a worse gallery and a perfectly good page.
+// The galleries: screenshots in one, clips in the other. Without JavaScript
+// every picture is simply shown and every clip has its own controls, which is
+// a worse gallery and a perfectly good page.
 (function () {
-  var tabs = Array.prototype.slice.call(document.querySelectorAll(".tabs button"));
-  var shots = tabs.map(function (tab) { return document.getElementById(tab.dataset.shot); });
-  tabs.forEach(function (tab, n) {
-    tab.addEventListener("click", function () {
-      tabs.forEach(function (other, m) {
-        other.setAttribute("aria-selected", String(m === n));
-        shots[m].hidden = m !== n;
+  var quiet = window.matchMedia &&
+              window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Someone who has asked their system for less movement gets the poster
+  // frame and a play button, which is what asking for that means.
+  function play(panel) {
+    var video = panel.querySelector("video");
+    if (!video || quiet) { return; }
+    var started = video.play();
+    if (started && started.catch) { started.catch(function () {}); }
+  }
+  function stop(panel) {
+    var video = panel.querySelector("video");
+    if (video) { video.pause(); }
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll(".tabs"), function (bar) {
+    var tabs = Array.prototype.slice.call(bar.querySelectorAll("button"));
+    var panels = tabs.map(function (tab) { return document.getElementById(tab.dataset.shot); });
+    tabs.forEach(function (tab, n) {
+      tab.addEventListener("click", function () {
+        tabs.forEach(function (other, m) {
+          other.setAttribute("aria-selected", String(m === n));
+          panels[m].hidden = m !== n;
+          if (m === n) { play(panels[m]); } else { stop(panels[m]); }
+        });
       });
     });
   });
+
+  // The first clip starts when it is scrolled to rather than when the page
+  // loads: a video playing above a fold nobody has reached is somebody's
+  // data spent on nothing.
+  var first = document.querySelector("#demos .demo:not([hidden])");
+  if (first && "IntersectionObserver" in window) {
+    var watch = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) { play(first); watch.disconnect(); }
+      });
+    }, { threshold: 0.35 });
+    watch.observe(first);
+  }
 })();
 </script>
 </body>

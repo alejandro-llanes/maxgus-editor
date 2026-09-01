@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+- **`; inherits: c` in a highlights query is read.** A grammar that extends
+  another ships a query covering only what it added: `tree-sitter-cpp`'s has
+  templates, `namespace` and `co_await` in it and no comments, no strings and
+  no `int`, because it is meant to be read after C's. Used alone it coloured a
+  handful of C++ keywords and left the rest of the file plain, which looks
+  like a grammar that does not work rather than half a query — and it is what
+  a `.cpp` file did after `M-x install-grammar`.
+
+  The directive is Neovim's and Helix's, and their query trees — the ones
+  `queries "/usr/share/nvim/runtime/queries"` points at — are full of it, so
+  this was wrong for the configured road as well as the installed one. The
+  inherited query is read in front of the one inheriting it, from a
+  compiled-in grammar where there is one and from the `queries` directories
+  otherwise. Cycles stop, and a parent nobody has costs only the patterns it
+  would have added.
+
+- **An installed grammar is told what its query is written on top of.**
+  Upstream repositories mostly do not carry the directive, because they
+  expect whoever consumes the query to know. `M-x install-grammar` now reads
+  the grammar's own `grammar.js` — C++ opens with
+  `require('tree-sitter-c/grammar')` — and writes `; inherits: c` into the
+  installed query when it says so, noting it in the install log. A query that
+  already says what it inherits is left alone.
+
 ## v1.3.0
 
 - **The editor can fetch and build a grammar for you.** `M-x install-grammar`

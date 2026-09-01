@@ -170,6 +170,11 @@ buffer has the commands and their output. The usual ones:
 | `built, but it would not load` | It compiled and then `dlopen` refused it. Almost always the ABI: the grammar is older or newer than this build reads. |
 | `installed, but … has no queries/highlights.scm` | It parses and cannot colour. Put a `highlights.scm` in the language's directory yourself. |
 
+It can also work and look as though it has not. A grammar that extends
+another ships a query covering only what it added, so a `.cpp` file with
+nothing but its keywords coloured means the query is being read without its
+parent — see [Where the queries come from](#where-the-queries-come-from).
+
 ## Turning it on
 
 Everything below is the other way in: grammars the system already has, which
@@ -407,6 +412,29 @@ good the colouring looks. Three usual sources, in rough order of quality:
 
 You can point at all three; the `queries` directories are tried in order and
 the first with a `highlights.scm` for the language is used.
+
+**A query can be written on top of another.** `tree-sitter-cpp`'s covers
+templates, `namespace` and `co_await` and nothing else — no comments, no
+strings, no `int` — because C++ extends C and the query is meant to be read
+after C's. A query says so in a comment at the top, which is Neovim's and
+Helix's convention and what their query trees are full of:
+
+```scheme
+; inherits: c
+```
+
+maxgus reads the named language's query in first, from a compiled-in grammar
+where there is one and from the same `queries` directories otherwise. Several
+parents are comma-separated, brackets around an optional one are ignored, and
+a parent that cannot be found costs nothing but the patterns it would have
+added.
+
+A repository's own query often lacks the line even when it needs it, because
+upstream expects whoever consumes it to know. `M-x install-grammar` writes it
+in when the grammar's `grammar.js` says which grammar it extends, and says so
+in the install log. If you are installing by hand and a language colours only
+its own keywords and nothing a plain C file would have, that missing line is
+why.
 
 A query using captures maxgus has no face for is not an error — those parts
 simply stay the default colour. The full list of captures that map to

@@ -206,6 +206,7 @@ pub fn load(language: &str, search: &Search) -> Result<SyntaxLanguage, GrammarEr
         Some(path) => read_query(&path)?,
         None => find_query(language, &search.queries)?,
     };
+    let query = with_inherited(query, &search.queries, &mut vec![language.to_string()]);
     Ok(SyntaxLanguage {
         name: language.to_string(),
         language: grammar,
@@ -245,6 +246,77 @@ fn find_query(language: &str, directories: &[PathBuf]) -> Result<String, Grammar
         language: language.to_string(),
         searched: directories.iter().map(|p| display(p)).collect(),
     })
+}
+
+/// The languages a query is written on top of: `; inherits: c` in the
+/// comments at the top of it.
+///
+/// A grammar that extends another usually ships a query that only covers
+/// what it added. `tree-sitter-cpp`'s `highlights.scm` has templates,
+/// `namespace` and `co_await` in it and nothing else — no comments, no
+/// strings, no `int` — because it is meant to be read after C's. Used alone
+/// it colours a handful of keywords and leaves the rest of the file plain,
+/// which is worse than not being installed: it looks broken rather than
+/// absent.
+///
+/// `; inherits: c,preproc` is how Neovim and Helix write that down, and both
+/// ship whole query trees using it — which is exactly what the `queries`
+/// directories in the documentation point at. Parentheses appear around an
+/// optional parent in some of them and mean nothing here.
+fn inherits(query: &str) -> Vec<String> {
+    query
+        .lines()
+        // Only the comment block at the top. A `; inherits:` written in the
+        // middle of a query is a comment about one, not a directive.
+        .take_while(|line| {
+            let line = line.trim_start();
+            line.is_empty() || line.starts_with(';')
+        })
+        .filter_map(|line| line.split_once("inherits:"))
+        .flat_map(|(_, named)| named.split(','))
+        .map(|name| name.trim().trim_matches(['(', ')']).trim().to_string())
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
+/// Puts the queries a query inherits in front of it.
+///
+/// In front, because the inherited patterns are the general ones and a
+/// tree-sitter query takes the first pattern that matches. A compiled-in
+/// grammar's query is used where there is one — that is the whole of C for a
+/// C++ grammar — and otherwise the parent is looked for in the same
+/// directories as the child.
+///
+/// `seen` stops a cycle: two grammars that inherit each other would
+/// otherwise be read until the stack ran out. A parent that cannot be found
+/// is not an error; the child's own patterns still colour what they cover.
+fn with_inherited(query: String, directories: &[PathBuf], seen: &mut Vec<String>) -> String {
+    let mut inherited = String::new();
+    for parent in inherits(&query) {
+        if seen.contains(&parent) {
+            continue;
+        }
+        seen.push(parent.clone());
+        let Some(base) = parent_query(&parent, directories, seen) else {
+            continue;
+        };
+        inherited.push_str(&base);
+        inherited.push('\n');
+    }
+    match inherited.is_empty() {
+        true => query,
+        false => inherited + &query,
+    }
+}
+
+/// One parent's highlights: compiled in if this build has it, otherwise from
+/// the query directories, itself expanded.
+fn parent_query(language: &str, directories: &[PathBuf], seen: &mut Vec<String>) -> Option<String> {
+    if let Some(built_in) = crate::languages::compiled_in(language) {
+        return Some(built_in.highlights.to_string());
+    }
+    let found = find_query(language, directories).ok()?;
+    Some(with_inherited(found, directories, seen))
 }
 
 fn read_query(path: &Path) -> Result<String, GrammarError> {
@@ -525,6 +597,73 @@ mod tests {
             "got {error:?}"
         );
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_query_says_what_it_is_written_on_top_of() {
+        assert_eq!(inherits("; inherits: c\n(x) @y"), ["c"]);
+        assert_eq!(
+            inherits("; some note\n; inherits: c,preproc\n"),
+            ["c", "preproc"]
+        );
+        // Neovim brackets a parent it can do without. It is still a parent.
+        assert_eq!(inherits("; inherits: c,(preproc)\n"), ["c", "preproc"]);
+        assert!(inherits("(x) @y\n").is_empty());
+        // Below the query's own comment block it is prose about a query
+        // rather than a directive.
+        assert!(inherits("(x) @y\n; inherits: c\n").is_empty());
+    }
+
+    #[test]
+    fn an_inherited_query_is_read_in_front_of_the_one_that_inherits_it() {
+        // C is compiled in, so a query inheriting it needs no directory at
+        // all — which is the case that matters, since a grammar extending a
+        // language this editor already has is the common one.
+        let query = with_inherited(
+            "; inherits: c\n(template_function) @function\n".to_string(),
+            &[],
+            &mut vec!["cpp".to_string()],
+        );
+        assert!(
+            query.ends_with("(template_function) @function\n"),
+            "the query's own patterns come last"
+        );
+        assert!(
+            query.len() > 1000,
+            "C's whole query is in front of it, not a mention of it"
+        );
+    }
+
+    #[test]
+    fn a_query_inheriting_something_nobody_has_is_still_used() {
+        let query = with_inherited(
+            "; inherits: wombat\n(x) @y\n".to_string(),
+            &[],
+            &mut vec!["z".to_string()],
+        );
+        assert_eq!(query, "; inherits: wombat\n(x) @y\n");
+    }
+
+    #[test]
+    fn two_queries_inheriting_each_other_do_not_read_for_ever() {
+        let directory = std::env::temp_dir().join("maxgus-inherit-cycle");
+        for (language, parent) in [("ping", "pong"), ("pong", "ping")] {
+            std::fs::create_dir_all(directory.join(language)).unwrap();
+            std::fs::write(
+                directory.join(language).join("highlights.scm"),
+                format!("; inherits: {parent}\n({language}) @x\n"),
+            )
+            .unwrap();
+        }
+        let query = with_inherited(
+            "; inherits: ping\n(start) @x\n".to_string(),
+            std::slice::from_ref(&directory),
+            &mut vec!["start".to_string()],
+        );
+        assert!(query.contains("(ping) @x"));
+        assert!(query.contains("(pong) @x"));
+        assert!(query.ends_with("(start) @x\n"));
+        std::fs::remove_dir_all(&directory).ok();
     }
 
     /// A real shared library that is not a grammar: the C library, which

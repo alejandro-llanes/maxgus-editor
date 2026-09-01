@@ -27,6 +27,7 @@
 //! root-owned files in a home directory.
 
 use crate::dynamic::library_names;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 /// The wiki, as the git repository it is.
@@ -192,7 +193,18 @@ pub fn install(request: &Request) -> Result<Report, InstallError> {
     let library = request.into.join(&library_names(&request.language)[0]);
     let mut warnings = Vec::new();
     let queries = match install_queries(&repository, &source, &request.language, &request.into)? {
-        Some(path) => Some(path),
+        Some(path) => {
+            // `path` is `<into>/<language>`, which is where the query
+            // that may need the directive actually is.
+            if let Some(base) = note_inheritance(&repository, &source, &request.language, &path) {
+                let _ = writeln!(
+                    log,
+                    "note: {} extends {base}, whose query is read first",
+                    request.language
+                );
+            }
+            Some(path)
+        }
         None => {
             warnings.push(format!(
                 "{} has no queries/highlights.scm, so {} will parse but not colour. \
@@ -378,7 +390,73 @@ fn install_queries(
     Ok(Some(to))
 }
 
-/// Runs one program to completion and returns what it printed.
+/// The grammar this one is written on top of, as its own `grammar.js` says.
+///
+/// A grammar that extends another says so in one line — C++ opens with
+/// `const C = require('tree-sitter-c/grammar')` — and that line is the only
+/// place it is written down: `grammar.json` records the result rather than
+/// where it came from.
+///
+/// It matters because such a repository's `highlights.scm` covers only what
+/// it added. Installed by itself it colours `namespace` and `template` and
+/// leaves every comment, string and `int` in the file plain, which reads as
+/// a grammar that does not work rather than as half a query.
+fn base_grammar(directories: &[&Path]) -> Option<String> {
+    let source = directories
+        .iter()
+        .map(|directory| directory.join("grammar.js"))
+        .find_map(|path| std::fs::read_to_string(path).ok())?;
+    source.lines().find_map(|line| {
+        let (_, required) = line.split_once("require(")?;
+        let name = required
+            .trim_start()
+            .trim_start_matches(['\'', '"'])
+            .strip_prefix("tree-sitter-")?
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+            .collect::<String>();
+        // `tree-sitter-cli` is the tool, not a parent.
+        match name.is_empty() || name == "cli" {
+            true => None,
+            false => Some(name),
+        }
+    })
+}
+
+/// Writes `; inherits: <base>` into an installed query that needs one.
+///
+/// Only when the repository says it extends another grammar and the query
+/// does not already say so itself — Neovim's and Helix's query trees do, and
+/// a directive written twice would read the parent twice.
+///
+/// The line is a comment: the file stays a query anyone else can use, and
+/// [`crate::dynamic`] is what acts on it.
+fn note_inheritance(
+    repository: &Path,
+    source: &Path,
+    language: &str,
+    installed: &Path,
+) -> Option<String> {
+    let query = installed.join("highlights.scm");
+    let text = std::fs::read_to_string(&query).ok()?;
+    if text.contains("inherits:") {
+        return None;
+    }
+    let base = base_grammar(&[source, repository])?;
+    if base == language || base == language.replace('-', "_") {
+        return None;
+    }
+    let noted = format!(
+        "; inherits: {base}\n\
+         ; ^ written by maxgus: this grammar extends {base}, and its query\n\
+         ; covers only what it adds. Delete the line to use it on its own.\n\
+         {text}"
+    );
+    std::fs::write(&query, noted).ok()?;
+    Some(base)
+}
+
+/// Runs one program to completion and returns what it printed./// Runs one program to completion and returns what it printed.
 ///
 /// `GIT_TERMINAL_PROMPT=0` is the important part of this: a repository that
 /// has been renamed or made private asks for a username, and there is no
@@ -572,6 +650,90 @@ mod tests {
             install_queries(repository.path(), repository.path(), "zig", into.path()).unwrap(),
             None,
             "the install reports it as a warning instead"
+        );
+    }
+
+    #[test]
+    fn a_grammar_that_extends_another_is_recognised_from_its_own_source() {
+        let dir = TempDir::new("maxgus-test-base").unwrap();
+        fake_repository(
+            dir.path(),
+            &[(
+                "grammar.js",
+                "// @ts-check\nconst C = require('tree-sitter-c/grammar');\n\nmodule.exports = grammar(C, {});\n",
+            )],
+        );
+        assert_eq!(base_grammar(&[dir.path()]), Some("c".to_string()));
+
+        // A repository that requires nothing but the tooling extends nothing.
+        let plain = TempDir::new("maxgus-test-plain").unwrap();
+        fake_repository(
+            plain.path(),
+            &[(
+                "grammar.js",
+                "/// <reference types=\"tree-sitter-cli/dsl\" />\nmodule.exports = grammar({});\n",
+            )],
+        );
+        assert_eq!(base_grammar(&[plain.path()]), None);
+        assert_eq!(base_grammar(&[Path::new("/nowhere/at/all")]), None);
+    }
+
+    #[test]
+    fn a_delta_query_is_told_which_query_to_be_read_after() {
+        let repository = TempDir::new("maxgus-test-inherit").unwrap();
+        let into = TempDir::new("maxgus-test-inherit-into").unwrap();
+        fake_repository(
+            repository.path(),
+            &[
+                (
+                    "grammar.js",
+                    "const C = require('tree-sitter-c/grammar');\n",
+                ),
+                ("queries/highlights.scm", "(template_function) @function\n"),
+            ],
+        );
+        let installed = install_queries(repository.path(), repository.path(), "cpp", into.path())
+            .unwrap()
+            .expect("there is a highlights.scm");
+        assert_eq!(
+            note_inheritance(repository.path(), repository.path(), "cpp", &installed),
+            Some("c".to_string())
+        );
+        let written = std::fs::read_to_string(installed.join("highlights.scm")).unwrap();
+        assert!(written.starts_with("; inherits: c\n"), "{written}");
+        assert!(
+            written.ends_with("(template_function) @function\n"),
+            "the query itself is untouched below the note"
+        );
+
+        // Said once. A second install must not stack the directive up.
+        assert_eq!(
+            note_inheritance(repository.path(), repository.path(), "cpp", &installed),
+            None
+        );
+    }
+
+    #[test]
+    fn a_query_that_already_says_what_it_inherits_is_left_alone() {
+        let repository = TempDir::new("maxgus-test-said").unwrap();
+        let into = TempDir::new("maxgus-test-said-into").unwrap();
+        fake_repository(
+            repository.path(),
+            &[
+                (
+                    "grammar.js",
+                    "const C = require('tree-sitter-c/grammar');\n",
+                ),
+                ("queries/highlights.scm", "; inherits: c,preproc\n(x) @y\n"),
+            ],
+        );
+        let installed = install_queries(repository.path(), repository.path(), "cpp", into.path())
+            .unwrap()
+            .expect("there is a highlights.scm");
+        assert_eq!(
+            note_inheritance(repository.path(), repository.path(), "cpp", &installed),
+            None,
+            "Neovim's and Helix's queries say it themselves"
         );
     }
 

@@ -144,6 +144,7 @@ section > .wrap > h2::before { content: "## "; color: var(--purple); }
 .build ul { margin: 0 0 1.1rem; padding-left: 1.1rem; color: var(--comment); font-size: .9rem; }
 .build ul li { margin: .15rem 0; }
 .build ul li.no { color: #6a6d70; text-decoration: line-through; }
+.build pre { overflow-x: auto; }
 .build pre {
   margin: 0; background: var(--bg); border: 1px solid var(--selection);
   border-radius: 7px; padding: .6rem .8rem; font-size: .78rem;
@@ -209,6 +210,7 @@ footer .sp { margin-left: auto; }
   <span class="brand">max<span>gus</span></span>
   <a class="link" href="#install">Install</a>
   <a class="link" href="#builds">Builds</a>
+  <a class="link" href="#platforms">Platforms</a>
   <a class="link" href="#screenshots">Screenshots</a>
   <a class="link" href="#features">Features</a>
   <a class="link" href="https://github.com/alejandro-llanes/maxgus-editor">GitHub</a>
@@ -251,7 +253,7 @@ footer .sp { margin-left: auto; }
   <div class="builds">
 
     <div class="build">
-      <h3>minimal <span class="size">4.6 MB</span></h3>
+      <h3>minimal <span class="size">4.8 MB</span></h3>
       <p>The editor and the file tree. Starts instantly, builds in a fraction
          of the time, and fits anywhere.</p>
       <ul>
@@ -262,8 +264,8 @@ footer .sp { margin-left: auto; }
         <li class="no">tree-sitter, LSP, autocomplete</li>
         <li class="no">magit, terminal, project search</li>
       </ul>
-      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh -s -- \
-    --build minimal</pre>
+      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh \
+    -s -- --build minimal</pre>
     </div>
 
     <div class="build pick">
@@ -272,7 +274,7 @@ footer .sp { margin-left: auto; }
          install line above gives you.</p>
       <ul>
         <li>Everything in <code>minimal</code></li>
-        <li>tree-sitter highlighting, and grammars from the system</li>
+        <li>tree-sitter: eleven grammars in it, and it can fetch more</li>
         <li>A language server: autocomplete, lsp-ui-doc, the lot</li>
         <li>magit, a terminal panel, project search, scripting</li>
       </ul>
@@ -280,17 +282,114 @@ footer .sp { margin-left: auto; }
     </div>
 
     <div class="build">
-      <h3>gui <span class="size">20 MB</span></h3>
+      <h3>gui <span class="size">21 MB</span></h3>
       <p>Everything, and a window drawn by the GPU as well as a terminal.
          Which one it opens is decided when it starts.</p>
       <ul>
         <li>Everything in <code>full</code></li>
         <li>Smooth, sub-line scrolling</li>
+        <li>Ligatures, and blur behind every popup</li>
         <li>Mouse, system clipboard, any font</li>
         <li><code>maxgus -nw</code> for the terminal</li>
       </ul>
-      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh -s -- \
-    --build gui</pre>
+      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh \
+    -s -- --build gui</pre>
+    </div>
+
+  </div>
+</div></section>
+
+<section id="platforms"><div class="wrap">
+  <h2>On your machine</h2>
+  <p class="lede">
+    Every release carries all three builds for Linux, macOS, Windows and
+    FreeBSD, each with a <code>.sha256</code> beside it. The install line
+    above works out which one you want; below is the same thing said
+    per platform, and the archives are there if you would rather not pipe
+    anything into a shell.
+  </p>
+
+  <div class="builds">
+
+    <div class="build">
+      <h3>Linux</h3>
+      <p>glibc, musl and aarch64. A musl system gets the static build, which
+         runs anywhere; the script works that out from <code>ldd</code>.</p>
+      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh
+<span class="c"># or the window build:</span>
+<span class="p">$ </span>curl -fsSL …/install.sh | sh \
+    -s -- --build gui</pre>
+      <ul>
+        <li><code>x86_64</code> — all three builds</li>
+        <li><code>x86_64</code> static (musl) — no <code>gui</code></li>
+        <li><code>aarch64</code> — no <code>gui</code></li>
+      </ul>
+    </div>
+
+    <div class="build">
+      <h3>macOS</h3>
+      <p>Intel and Apple Silicon, all three builds. The same line: the script
+         reads <code>uname</code> and takes the right archive.</p>
+      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh</pre>
+      <ul>
+        <li>Goes to <code>~/.local/bin</code> unless <code>--prefix</code>
+            says otherwise</li>
+        <li>Gatekeeper: the binary is not notarised, so the first run may
+            need Open anyway in Privacy &amp; Security</li>
+      </ul>
+    </div>
+
+    <div class="build">
+      <h3>Windows</h3>
+      <p>All three builds, as a <code>.zip</code>. There is no shell script
+         for it — unzip it and put <code>maxgus.exe</code> somewhere on your
+         <code>PATH</code>.</p>
+      <pre><span class="p">&gt; </span>set V=maxgus-full-windows-x86_64
+<span class="p">&gt; </span>curl.exe -LO …/%V%.zip
+<span class="p">&gt; </span>tar -xf %V%.zip</pre>
+      <ul>
+        <li>Windows Terminal or any VT-capable console</li>
+        <li><kbd>C-z</kbd> reports there is nothing to suspend into; the
+            rest is the same editor</li>
+      </ul>
+    </div>
+
+    <div class="build">
+      <h3>FreeBSD</h3>
+      <p><code>minimal</code> and <code>full</code> for x86_64. No
+         <code>gui</code>: the release has no window system to compile it
+         against.</p>
+      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh</pre>
+      <ul>
+        <li>Needs <code>curl</code> or <code>fetch</code></li>
+      </ul>
+    </div>
+
+    <div class="build">
+      <h3>An archive, by hand</h3>
+      <p>No script, no pipe. Every asset has a checksum beside it, and
+         nothing here needs installing anywhere in particular.</p>
+      <pre><span class="p">$ </span>f=maxgus-full-linux-x86_64.tar.gz
+<span class="p">$ </span>curl -fsSLO …/download/$f
+<span class="p">$ </span>curl -fsSLO …/download/$f.sha256
+<span class="p">$ </span>sha256sum -c $f.sha256
+<span class="p">$ </span>tar xzf $f</pre>
+    </div>
+
+    <div class="build">
+      <h3>From source</h3>
+      <p>Rust stable, edition 2024. <code>minimal</code> and <code>full</code>
+         need nothing but a terminal; <code>gui</code> needs a window
+         system's headers.</p>
+      <pre><span class="p">$ </span>git clone …/maxgus-editor
+<span class="p">$ </span>cd maxgus-editor
+<span class="p">$ </span>cargo build --release   <span class="c"># full</span>
+<span class="p">$ </span>cargo build --release \
+    --features gui      <span class="c"># gui</span></pre>
+      <ul>
+        <li>Debian and relatives: <code>libwayland-dev</code>,
+            <code>libxkbcommon-dev</code></li>
+      </ul>
     </div>
 
   </div>
@@ -373,9 +472,18 @@ footer .sp { margin-left: auto; }
          leader is learned rather than memorised.</p>
     </div>
     <div class="feature">
+      <h3>Grammars it installs itself <span class="new">new</span></h3>
+      <p><kbd>M-x install-grammar</kbd> lists the five hundred parsers
+         tree-sitter's wiki names, then clones, builds and loads the one you
+         pick. Open a file in a language it has no grammar for and it offers,
+         naming the repository it would clone. Nothing is fetched or built
+         until you answer.</p>
+    </div>
+    <div class="feature">
       <h3>tree-sitter highlighting</h3>
       <p>Eleven grammars built in, re-parsed incrementally as you type — and
-         any other language coloured by a grammar already on the system.</p>
+         any other language coloured by a grammar the system already has, or
+         one the editor fetches and builds for you.</p>
     </div>
     <div class="feature">
       <h3>A language-server client</h3>
@@ -402,6 +510,13 @@ footer .sp { margin-left: auto; }
       <h3>A file tree</h3>
       <p>treemacs' keys, git status in the margin, and a side panel that
          stacks the tree, the symbol outline and the buffer list.</p>
+    </div>
+    <div class="feature">
+      <h3>Lines that wrap, when you ask <span class="new">new</span></h3>
+      <p><code>truncate-lines</code> off wraps a long line across the rows
+         below it rather than clipping it at the edge, and everything that
+         counts lines — the cursor, the region, the beacon, a page of
+         scrolling — counts rows with it.</p>
     </div>
     <div class="feature">
       <h3>A window, as well as a terminal <span class="new">new</span></h3>

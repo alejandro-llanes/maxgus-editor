@@ -7,13 +7,17 @@ name: Pages
 #     curl -fsSL https://alejandrollanes.com/maxgus-editor/install.sh | sh
 #
 # It is static: `site/` plus the screenshots, which live in `docs/screenshots`
-# so the README and the site share one copy of each rather than drifting.
+# so the README and the site share one copy of each rather than drifting, and
+# the demo clips in `docs/media`, which are made by
+# `scripts/record-demos.sh` and committed rather than built here — recording
+# them needs a compositor, a window and a keyboard.
 on:
   push:
     branches: ["main"]
     paths:
       - "site/**"
       - "docs/screenshots/**"
+      - "docs/media/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -40,10 +44,16 @@ jobs:
           cp -r site/. _site/
           mkdir -p _site/screenshots
           cp docs/screenshots/* _site/screenshots/
-          # Every picture the page asks for has to be there: a gallery of
-          # broken images is worse than no gallery.
+          if [ -d docs/media ] && [ -n "$(ls -A docs/media 2>/dev/null)" ]; then
+            mkdir -p _site/media
+            cp docs/media/* _site/media/
+          fi
+          # Every picture and clip the page asks for has to be there: a
+          # gallery of broken images is worse than no gallery, and a video
+          # that does not load is a hole in the page where a demo was
+          # promised.
           missing=0
-          for src in $(grep -o 'screenshots/[A-Za-z0-9._-]*' site/index.html | sort -u); do
+          for src in $(grep -oE '(screenshots|media)/[A-Za-z0-9._-]*' site/index.html | sort -u); do
             if [ ! -f "_site/$src" ]; then
               echo "the page wants $src, which is not there" >&2
               missing=1
@@ -53,6 +63,7 @@ jobs:
           # The install script has to be valid sh, since it is piped into one.
           sh -n _site/install.sh
           ls -lh _site _site/screenshots
+          ls -lh _site/media 2>/dev/null || true
 
       # Pages has to be switched to the Actions source once, by hand, at
       # Settings → Pages. `enablement: true` here looks like it would do

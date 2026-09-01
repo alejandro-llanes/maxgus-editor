@@ -9,6 +9,11 @@ set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 mkdir -p "$here/screenshots"
 cp "$here/../docs/screenshots/"* "$here/screenshots/"
+# The demo clips, when there are any. `scripts/record-demos.sh` makes them.
+if [ -n "$(ls -A "$here/../docs/media" 2>/dev/null)" ]; then
+    mkdir -p "$here/media"
+    cp "$here/../docs/media/"* "$here/media/"
+fi
 port="${1:-8000}"
 echo "http://127.0.0.1:$port"
 cd "$here" && python3 -m http.server "$port"

@@ -86,6 +86,12 @@ grammar "zig" library="/home/me/grammars/libtree-sitter-zig.so" \
 `queries=` is optional there — without it the `queries` directories are
 searched as usual.
 
+**Paths may start with `~`.** No shell reads this file, so the editor expands
+a leading `~` or `~/` against `$HOME` itself. Everything else is taken as
+written: `~someone` is not another user's home here, and a relative path is
+relative to wherever the editor was started, so prefer `~/…` or an absolute
+path.
+
 **`M-x describe-grammars`** shows what is built in, what loaded, what did
 not and why, and every directory being searched. It is the first thing to
 run when something is not coloured.

@@ -126,6 +126,34 @@ fn string_args(node: &KdlNode) -> Vec<String> {
         .collect()
 }
 
+/// A path from the configuration, with a leading `~` expanded.
+///
+/// Nothing has expanded it already: a configuration file is read by the
+/// editor rather than by a shell, so `~/.local/share/maxgus/grammars` arrives
+/// as those literal characters. Left alone it would be looked for in a
+/// directory called `~` under wherever the editor was started, which exists
+/// nowhere and reads as a grammar that is simply missing.
+fn config_path(text: &str) -> std::path::PathBuf {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    expand_home(home.as_deref(), text)
+}
+
+/// The same, with `HOME` passed in so it can be tested without it.
+///
+/// Only `~` and `~/…` are expanded. `~someone` is another person's home
+/// directory, which needs the password database rather than an environment
+/// variable, and is left as it was written.
+fn expand_home(home: Option<&std::path::Path>, text: &str) -> std::path::PathBuf {
+    let Some(home) = home else {
+        return std::path::PathBuf::from(text);
+    };
+    match text.strip_prefix("~/") {
+        Some(rest) => home.join(rest),
+        None if text == "~" => home.to_path_buf(),
+        None => std::path::PathBuf::from(text),
+    }
+}
+
 /// A named property, if present.
 fn prop<'a>(node: &'a KdlNode, key: &str) -> Option<&'a KdlValue> {
     node.entries()
@@ -770,12 +798,12 @@ impl<'a> Parser<'a> {
                     .config
                     .grammars
                     .search
-                    .extend(paths.into_iter().map(std::path::PathBuf::from)),
+                    .extend(paths.iter().map(|p| config_path(p))),
                 "queries" => self
                     .config
                     .grammars
                     .queries
-                    .extend(paths.into_iter().map(std::path::PathBuf::from)),
+                    .extend(paths.iter().map(|p| config_path(p))),
                 other => self.warn(child, format!("unknown `grammars` node `{other}`, ignored")),
             }
         }
@@ -797,8 +825,8 @@ impl<'a> Parser<'a> {
         let queries = self.string_property(node, "queries");
         self.config.grammars.named.push(crate::spec::NamedGrammar {
             language,
-            library: library.into(),
-            queries: queries.map(std::path::PathBuf::from),
+            library: config_path(&library),
+            queries: queries.as_deref().map(config_path),
         });
     }
 
@@ -1338,6 +1366,71 @@ mod tests {
                 .any(|w| w.to_string().contains("library")),
             "{:?}",
             config.warnings
+        );
+    }
+
+    #[test]
+    fn a_leading_tilde_is_the_home_directory_and_nothing_else_is_touched() {
+        let home = std::path::Path::new("/home/someone");
+        assert_eq!(
+            expand_home(Some(home), "~/.local/share/maxgus/grammars"),
+            std::path::PathBuf::from("/home/someone/.local/share/maxgus/grammars")
+        );
+        assert_eq!(expand_home(Some(home), "~"), home);
+        // A tilde anywhere but the front, and `~someone`, are left alone:
+        // one is a legal file name and the other needs the password
+        // database rather than an environment variable.
+        assert_eq!(
+            expand_home(Some(home), "~other/lib"),
+            std::path::PathBuf::from("~other/lib")
+        );
+        assert_eq!(
+            expand_home(Some(home), "/usr/lib/~backup"),
+            std::path::PathBuf::from("/usr/lib/~backup")
+        );
+        assert_eq!(
+            expand_home(Some(home), "/usr/lib"),
+            std::path::PathBuf::from("/usr/lib")
+        );
+        // Without a home there is nothing to expand to, and a literal `~`
+        // is better than a path invented out of nothing.
+        assert_eq!(
+            expand_home(None, "~/grammars"),
+            std::path::PathBuf::from("~/grammars")
+        );
+    }
+
+    #[test]
+    fn grammar_paths_are_expanded_because_no_shell_read_them() {
+        let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
+            eprintln!("skipping: no HOME to expand against");
+            return;
+        };
+        let config = Config::parse(
+            r#"
+            grammars {
+                search "~/.local/share/maxgus/grammars"
+                queries "~/.local/share/maxgus/grammars"
+            }
+            grammar "zig" library="~/lib/libtree-sitter-zig.so" queries="~/q/zig.scm"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.grammars.search,
+            [home.join(".local/share/maxgus/grammars")]
+        );
+        assert_eq!(
+            config.grammars.queries,
+            [home.join(".local/share/maxgus/grammars")]
+        );
+        assert_eq!(
+            config.grammars.named[0].library,
+            home.join("lib/libtree-sitter-zig.so")
+        );
+        assert_eq!(
+            config.grammars.named[0].queries.as_deref(),
+            Some(home.join("q/zig.scm").as_path())
         );
     }
 

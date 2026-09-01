@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **`~` in a grammar path from the configuration is your home directory.**
+  `search "~/.local/share/maxgus/grammars"` was taken literally: no shell has
+  read that file, so nothing had expanded it, and the editor looked for a
+  directory called `~` under wherever it was started — which exists nowhere,
+  so the grammar it named was reported as simply missing. The documentation
+  had been recommending exactly that spelling. `~` and `~/…` now expand
+  against `$HOME` for every path in a `grammars` block. `~someone` is left
+  alone: another person's home directory needs the password database rather
+  than an environment variable.
+
 ## v1.2.0
 
 - **`truncate-lines` off now wraps.** It only ever turned off the horizontal

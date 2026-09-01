@@ -185,6 +185,7 @@ KDL spells booleans `#true` and `#false`, and null `#null`.
 | Option | Type | Default | Meaning |
 |---|---|---|---|
 | `syntax-highlighting` | bool | `#true` | Use tree-sitter where a grammar is compiled in. |
+| `grammar-auto-install` | bool | `#true` | Offer to fetch and build a grammar for a language that has none. Asks before doing anything; see [grammars.md](grammars.md). |
 | `lsp-enabled` | bool | `#true` | Start a language server for buffers whose language has one configured. |
 | `idle-delay-ms` | integer | `150` | Quiet time before re-highlighting and syncing with the server. |
 

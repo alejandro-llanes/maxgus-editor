@@ -32,8 +32,15 @@
 //!
 //! So the safety of this is not a property of the code — it is a property of
 //! what the user points it at. Which is exactly why loading one is
-//! **opt-in**: nothing is loaded unless a configuration file names a
-//! directory to look in. The editor never searches for grammars on its own.
+//! **opt-in**. Two directories can be searched and no others:
+//!
+//! - the ones a configuration file names, which the user wrote down; and
+//! - the one the editor installs into itself ([`crate::install`]), which
+//!   holds nothing except grammars the user was asked about by name and
+//!   agreed to.
+//!
+//! The editor still never goes looking anywhere else, and still never
+//! installs anything without being told to.
 //!
 //! # What is checked anyway
 //!
@@ -105,8 +112,10 @@ pub enum GrammarError {
 
 /// Where to look for grammars, and for the queries that colour them.
 ///
-/// Empty by default, and empty means nothing is ever loaded. The editor does
-/// not go looking for shared libraries it was not told about.
+/// Empty by default, and empty means nothing is ever loaded. Two things fill
+/// it: a `grammars` block in the configuration, and the directory the editor
+/// installs into — which is added by whoever builds this, and holds only
+/// what the user agreed to install. Nothing else is searched.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Search {
     /// Directories holding `libtree-sitter-<language>.so` and friends.
@@ -139,19 +148,42 @@ impl Search {
 /// Unix packages them as `libtree-sitter-<language>.so`; macOS as `.dylib`;
 /// Windows drops the `lib` prefix. Both Unix spellings are tried everywhere
 /// because a hand-built grammar often lands with the other one.
+///
+/// Each spelling is tried for each way the language's punctuation can be
+/// written, because the two ends disagree: a `.cs` file is `c-sharp` here
+/// and the grammar that colours it calls itself `c_sharp`. The name this
+/// editor uses comes first, so `library_names(l)[0]` is still the file an
+/// install should write.
 pub fn library_names(language: &str) -> Vec<String> {
-    match cfg!(target_os = "windows") {
-        true => vec![
-            format!("tree-sitter-{language}.dll"),
-            format!("libtree-sitter-{language}.dll"),
-        ],
-        false => vec![
-            format!("libtree-sitter-{language}.so"),
-            format!("libtree-sitter-{language}.dylib"),
-            format!("tree-sitter-{language}.so"),
-            format!("tree-sitter-{language}.dylib"),
-        ],
+    spellings(language)
+        .into_iter()
+        .flat_map(|language| match cfg!(target_os = "windows") {
+            true => vec![
+                format!("tree-sitter-{language}.dll"),
+                format!("libtree-sitter-{language}.dll"),
+            ],
+            false => vec![
+                format!("libtree-sitter-{language}.so"),
+                format!("libtree-sitter-{language}.dylib"),
+                format!("tree-sitter-{language}.so"),
+                format!("tree-sitter-{language}.dylib"),
+            ],
+        })
+        .collect()
+}
+
+/// The ways a language's name is punctuated, the given one first.
+///
+/// Grammar authors use `_` and this editor names a language after its file
+/// extension, so both turn up. Nothing else about the name is guessed.
+fn spellings(language: &str) -> Vec<String> {
+    let mut names = vec![language.to_string()];
+    for other in [language.replace('-', "_"), language.replace('_', "-")] {
+        if !names.contains(&other) {
+            names.push(other);
+        }
     }
+    names
 }
 
 /// The symbol a grammar for `language` exports.
@@ -202,9 +234,11 @@ fn find_library(language: &str, directories: &[PathBuf]) -> Result<PathBuf, Gram
 /// distribution and Neovim itself puts them.
 fn find_query(language: &str, directories: &[PathBuf]) -> Result<String, GrammarError> {
     for directory in directories {
-        let candidate = directory.join(language).join("highlights.scm");
-        if candidate.is_file() {
-            return read_query(&candidate);
+        for spelling in spellings(language) {
+            let candidate = directory.join(spelling).join("highlights.scm");
+            if candidate.is_file() {
+                return read_query(&candidate);
+            }
         }
     }
     Err(GrammarError::NoQuery {
@@ -369,6 +403,17 @@ impl Grammars {
             language.to_string(),
             outcome.map_err(|error| error.to_string()),
         );
+    }
+
+    /// Forgets what came of asking for `language`, so the next buffer in it
+    /// looks again.
+    ///
+    /// This is what an install needs. A language is tried once and the
+    /// answer kept — including "there is no such file" — so without this the
+    /// grammar just installed would not be looked for until the editor was
+    /// restarted.
+    pub fn forget(&mut self, language: &str) {
+        self.tried.remove(language);
     }
 
     /// Why `language` has no grammar, for the report that says so. `None`

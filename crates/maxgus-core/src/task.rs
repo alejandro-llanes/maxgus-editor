@@ -197,6 +197,24 @@ pub enum Task {
     /// about would not load. Only the executor knows: it is what holds them.
     #[cfg(feature = "full")]
     DescribeGrammars,
+    /// Fetch the list of parsers tree-sitter publishes, for the menu that
+    /// installs one.
+    ///
+    /// `language` carries the reason for asking: `Some` when a buffer in
+    /// that language has no grammar, so the answer can be narrowed to the
+    /// parsers that would colour it, and `None` for the whole list.
+    #[cfg(feature = "full")]
+    GrammarCatalog {
+        /// Fetch even if a recent copy is cached.
+        refresh: bool,
+        language: Option<String>,
+    },
+    /// Clone `url`, compile the grammar in it and install it as `language`.
+    ///
+    /// Queued only by a command the user answered `yes` to: it runs `git`
+    /// and a C compiler, and what it produces is loaded into this process.
+    #[cfg(feature = "full")]
+    InstallGrammar { language: String, url: String },
     /// Read a file, creating or reverting a buffer with its contents.
     ReadFile {
         path: PathBuf,
@@ -498,6 +516,42 @@ pub enum TaskResult {
     #[cfg(feature = "full")]
     Grammars {
         report: String,
+    },
+    /// The parser list, or why it could not be had.
+    #[cfg(feature = "full")]
+    GrammarCatalog {
+        /// The language the question was asked about, if it was about one.
+        language: Option<String>,
+        parsers: Vec<maxgus_syntax::Parser>,
+        error: Option<String>,
+    },
+    /// A buffer's language has no grammar, and none of the places the editor
+    /// looks has one.
+    ///
+    /// Sent once per language per session: the pause that re-highlights
+    /// comes round on every lull in typing, and a question that came back
+    /// every few seconds would be unusable.
+    ///
+    /// `candidates` are the parsers a cached list says would colour it. It
+    /// is empty when there is no cached list to consult — never because the
+    /// list was consulted and had nothing, since then nothing is sent at
+    /// all. That distinction is what keeps a `.txt` file from being asked
+    /// about: an offer is only made when there is something to offer.
+    #[cfg(feature = "full")]
+    GrammarMissing {
+        language: String,
+        candidates: Vec<maxgus_syntax::Parser>,
+    },
+    /// An install finished, one way or the other.
+    #[cfg(feature = "full")]
+    GrammarInstalled {
+        language: String,
+        /// One line for the echo area.
+        summary: String,
+        /// Every command that was run and what it printed, for the buffer
+        /// that shows what the editor just did on the user's behalf.
+        log: String,
+        failed: bool,
     },
     FileRead {
         path: PathBuf,

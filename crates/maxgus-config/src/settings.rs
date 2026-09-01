@@ -34,6 +34,15 @@ pub struct Settings {
     pub backup_files: bool,
     /// Enable tree-sitter highlighting when a grammar is available.
     pub syntax_highlighting: bool,
+    /// `grammar-auto-install`: when a file's language has no grammar, offer
+    /// to fetch and build one for it.
+    ///
+    /// The offer names the language and the repository it would clone, and
+    /// nothing is downloaded, compiled or loaded until it is answered `yes`.
+    /// Turning this off does not take the feature away — `M-x
+    /// install-grammar` still asks for one by name — it only stops the
+    /// editor from asking first.
+    pub grammar_auto_install: bool,
     /// Start language servers for buffers whose language has one configured.
     pub lsp_enabled: bool,
     /// Milliseconds of idle time before the editor asks the server for
@@ -230,6 +239,7 @@ impl Default for Settings {
             delete_trailing_whitespace: false,
             backup_files: false,
             syntax_highlighting: true,
+            grammar_auto_install: true,
             lsp_enabled: true,
             idle_delay_ms: 150,
             fill_column_indicator: false,
@@ -313,6 +323,7 @@ pub const SETTING_NAMES: &[&str] = &[
     "delete-trailing-whitespace",
     "backup-files",
     "syntax-highlighting",
+    "grammar-auto-install",
     "lsp-enabled",
     "idle-delay-ms",
     "fill-column-indicator",

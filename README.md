@@ -79,7 +79,7 @@ path in it, because a launcher does not see your shell's `PATH`.
 | | `minimal` | `full` *(default)* | `gui` |
 |---|:---:|:---:|:---:|
 | **Binary** | **4.8M** | **13M** | **21M** |
-| **Commands** | 314 | 463 | 463 |
+| **Commands** | 314 | 466 | 466 |
 | **Needs from the system** | nothing | nothing | a window system's headers |
 | Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
 | Buffers, windows, `C-x` everything | ● | ● | ● |
@@ -170,7 +170,7 @@ $ ./target/release/maxgus
 ### Emacs keys, and they behave like Emacs
 
 **404 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **463 commands**. Prefix
+the panel, tree, magit and terminal maps, driving **466 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -214,10 +214,13 @@ it matched — otherwise you could never create `notes` next to a `notes-2024.md
 
 ### Tree-sitter highlighting
 
-Any other language can be coloured by a grammar already installed on the
-system — [docs/grammars.md](docs/grammars.md) has the per-platform
-instructions and says what loading one means for trust. Nothing is loaded
-unless the configuration says where to look.
+Any other language can be coloured too. `M-x install-grammar` picks one from
+the five hundred parsers tree-sitter's wiki lists, clones it, builds it and
+loads it; opening a file in a language with no grammar offers the same thing,
+naming the repository it would clone. Or point the editor at grammars your
+package manager already installed. [docs/grammars.md](docs/grammars.md) has
+both roads and says what each means for trust: nothing is fetched, built or
+loaded until you have answered a question about it.
 
 Grammars for **Rust, Python, JavaScript, JSON, C, HTML, YAML, TOML, INI, XML
 and Markdown** compiled

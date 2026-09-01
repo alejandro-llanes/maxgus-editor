@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- **The editor can fetch and build a grammar for you.** `M-x install-grammar`
+  lists every parser on tree-sitter's own wiki — five hundred of them — and
+  installing one is choosing a line: it is cloned, compiled, put where the
+  loader looks and loaded, with no configuration written anywhere. Opening a
+  file in a language with no grammar offers the same thing and names the
+  repository it would clone, because saying yes means running that
+  repository's C on your machine. `set grammar-auto-install=#false` stops the
+  asking; `M-x install-grammar` still works, since the setting governs the
+  question rather than the feature. `M-x install-grammar-for-buffer` takes up
+  a refused offer later and `M-x refresh-grammar-list` fetches the list
+  again.
+
+  Nothing reaches the network before a question has been answered, and the
+  question is only asked when there is something to offer. The *names* of the
+  parsers ship in the binary — six kilobytes, no repositories — purely so
+  that `main.zig` can be offered a grammar while `notes.txt` is left alone;
+  a file extension nothing is known about *is* the language here, so without
+  that list a `.txt` file would be asked about as readily as a `.zig` one.
+  Where a parser lives is read from the wiki when you ask for it, so a
+  repository that moves is followed without a new release.
+
+  Installs go to `~/.local/share/maxgus/grammars`, which is searched without
+  appearing in any configuration file — everything in it was put there by an
+  install you agreed to. The configured directories are still searched first,
+  so a grammar your package manager installed is not shadowed by one built
+  here. `M-x describe-grammars` says what loaded, and a `*Grammar install*`
+  buffer keeps every command that was run and everything it printed.
+
+  `git` and a C compiler are what it needs, and it uses `cc` — `$CC` and
+  `$CXX` are respected, `c++` is used for a C++ scanner, macOS gets
+  `-dynamiclib`, and nothing is ever run with `sudo`. C is compiled with
+  `-Wno-implicit-function-declaration`, because scanners written before GCC
+  14 call `iswspace` without including `<wctype.h>` and a third of the list
+  would otherwise fail to build over an include its author never had to
+  write.
+
 - **`~` in a grammar path from the configuration is your home directory.**
   `search "~/.local/share/maxgus/grammars"` was taken literally: no shell has
   read that file, so nothing had expanded it, and the editor looked for a
@@ -11,6 +47,11 @@
   against `$HOME` for every path in a `grammars` block. `~someone` is left
   alone: another person's home directory needs the password database rather
   than an environment variable.
+
+- **A grammar is found whichever way its name is punctuated.** A `.cs` file
+  is `c-sharp` here and the grammar that colours it calls itself `c_sharp`,
+  and the two never met. Both spellings are now tried, for the library and
+  for the query directory beside it.
 
 ## v1.2.0
 

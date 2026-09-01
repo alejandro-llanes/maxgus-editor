@@ -11,6 +11,8 @@ pub mod file;
 #[cfg(feature = "full")]
 pub mod git;
 #[cfg(feature = "full")]
+pub mod grammar;
+#[cfg(feature = "full")]
 pub mod grep;
 pub mod help;
 #[cfg(feature = "full")]
@@ -54,6 +56,8 @@ pub fn standard_registry() -> Registry {
     panel::register(&mut registry);
     #[cfg(feature = "full")]
     git::register(&mut registry);
+    #[cfg(feature = "full")]
+    grammar::register(&mut registry);
     #[cfg(feature = "full")]
     grep::register(&mut registry);
     #[cfg(feature = "full")]

@@ -199,6 +199,7 @@ fn setting_value(editor: &Editor, name: &str) -> Option<String> {
         "delete-trailing-whitespace" => s.delete_trailing_whitespace.to_string(),
         "backup-files" => s.backup_files.to_string(),
         "syntax-highlighting" => s.syntax_highlighting.to_string(),
+        "grammar-auto-install" => s.grammar_auto_install.to_string(),
         "lsp-enabled" => s.lsp_enabled.to_string(),
         "idle-delay-ms" => s.idle_delay_ms.to_string(),
         "fill-column-indicator" => s.fill_column_indicator.to_string(),

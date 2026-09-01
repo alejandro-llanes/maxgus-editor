@@ -334,6 +334,11 @@ impl<'a> Parser<'a> {
                     self.config.settings.syntax_highlighting = b;
                 }
             }
+            "grammar-auto-install" => {
+                if let Some(b) = self.bool_value(node, key, value) {
+                    self.config.settings.grammar_auto_install = b;
+                }
+            }
             "lsp-enabled" => {
                 if let Some(b) = self.bool_value(node, key, value) {
                     self.config.settings.lsp_enabled = b;

@@ -5,13 +5,17 @@
 //! re-parsing is incremental, and highlighting a screenful only queries the
 //! byte range on display.
 
+pub mod catalog;
 pub mod dynamic;
 pub mod highlight;
+pub mod install;
 pub mod languages;
 pub mod span;
 
+pub use catalog::{Catalog, Parser, is_known};
 pub use dynamic::{GrammarError, Grammars, Named, Ready, Search};
 pub use highlight::Highlighter;
+pub use install::{InstallError, Report as InstallReport, Request as InstallRequest};
 pub use languages::{SyntaxLanguage, is_supported, language, supported_languages};
 pub use span::{Highlight, InputEdit, flatten};
 

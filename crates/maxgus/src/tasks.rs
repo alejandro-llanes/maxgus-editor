@@ -66,6 +66,23 @@ pub struct Executor {
     /// Shells running on pseudo-terminals, by tab.
     #[cfg(feature = "full")]
     terminals: HashMap<TerminalId, Terminal>,
+    /// Where a grammar the editor installs goes, and where the parser list
+    /// is cached. Unset in a build that was never told, which is every
+    /// caller but the editor itself — and then nothing can be installed.
+    #[cfg(feature = "full")]
+    grammar_home: Option<PathBuf>,
+    /// Languages already reported as having no grammar, so the offer is
+    /// made once rather than on every pause in typing.
+    #[cfg(feature = "full")]
+    announced: std::collections::HashSet<String>,
+    /// The parser list as cached on disk, read once and kept.
+    ///
+    /// `None` until it has been looked for; `Some(None)` when there is no
+    /// cache, which is how the editor knows it cannot say whether a parser
+    /// for a language exists.
+    #[cfg(feature = "full")]
+    catalog: Option<Option<maxgus_syntax::Catalog>>,
+
     results: mpsc::UnboundedSender<TaskResult>,
 }
 
@@ -93,6 +110,20 @@ enum PtyCommand {
     Close,
 }
 
+/// The configured directories, with the editor's own install directory
+/// after them.
+///
+/// After, not before: a grammar a package manager installed and the user
+/// pointed at is the one they meant, and it should not be shadowed by
+/// something this editor built earlier.
+#[cfg(feature = "full")]
+fn with_home(mut directories: Vec<PathBuf>, home: Option<&Path>) -> Vec<PathBuf> {
+    if let Some(home) = home {
+        directories.push(home.to_path_buf());
+    }
+    directories
+}
+
 impl Executor {
     /// An executor that looks for no grammars beyond the compiled-in ones,
     /// which is every caller that is not reading a configuration file.
@@ -103,7 +134,14 @@ impl Executor {
         #[cfg_attr(not(feature = "full"), allow(unused_variables))] lsp_specs: Vec<LspSpec>,
         results: mpsc::UnboundedSender<TaskResult>,
     ) -> Executor {
-        Executor::with_grammars(root, tree_config, lsp_specs, Default::default(), results)
+        Executor::with_grammars(
+            root,
+            tree_config,
+            lsp_specs,
+            Default::default(),
+            None,
+            results,
+        )
     }
 
     /// The same, told where to look for grammars the editor was not built
@@ -114,6 +152,10 @@ impl Executor {
         #[cfg_attr(not(feature = "full"), allow(unused_variables))] lsp_specs: Vec<LspSpec>,
         #[cfg_attr(not(feature = "full"), allow(unused_variables))]
         grammars: maxgus_config::GrammarConfig,
+        // `grammar_home` is the directory the editor installs grammars into.
+        // It is searched as well as the configured ones, because everything
+        // in it was put there by an install the user agreed to.
+        #[cfg_attr(not(feature = "full"), allow(unused_variables))] grammar_home: Option<PathBuf>,
         results: mpsc::UnboundedSender<TaskResult>,
     ) -> Executor {
         Executor {
@@ -124,8 +166,8 @@ impl Executor {
             highlighters: HashMap::new(),
             #[cfg(feature = "full")]
             grammars: maxgus_syntax::Grammars::new(maxgus_syntax::Search {
-                libraries: grammars.search,
-                queries: grammars.queries,
+                libraries: with_home(grammars.search, grammar_home.as_deref()),
+                queries: with_home(grammars.queries, grammar_home.as_deref()),
                 named: grammars
                     .named
                     .into_iter()
@@ -144,6 +186,12 @@ impl Executor {
             documents: HashMap::new(),
             #[cfg(feature = "full")]
             lsp_specs,
+            #[cfg(feature = "full")]
+            grammar_home,
+            #[cfg(feature = "full")]
+            announced: std::collections::HashSet::new(),
+            #[cfg(feature = "full")]
+            catalog: None,
             results,
         }
     }
@@ -204,6 +252,12 @@ impl Executor {
                 let report = self.grammar_report();
                 self.send(TaskResult::Grammars { report });
             }
+            #[cfg(feature = "full")]
+            Task::GrammarCatalog { refresh, language } => {
+                self.grammar_catalog(refresh, language).await
+            }
+            #[cfg(feature = "full")]
+            Task::InstallGrammar { language, url } => self.install_grammar(language, url).await,
             Task::Dired { path } => self.dired(path).await,
             Task::Browse { path } => self.browse(path).await,
             Task::FindDirectories { root } => self.find_directories(root).await,
@@ -891,6 +945,196 @@ impl Executor {
         grammar
     }
 
+    /// Says once that a language has no grammar, so the editor can offer to
+    /// fetch one.
+    ///
+    /// Once per language per session. Re-highlighting happens on every lull
+    /// in typing, and a question that came back every few seconds would make
+    /// the file unusable rather than helpful.
+    ///
+    /// What is sent depends on what can be known without going to the
+    /// network, which is where the names compiled into
+    /// [`maxgus_syntax::is_known`] earn their place. A cached parser list is
+    /// consulted first and its rows go with the message. Failing that, the
+    /// shipped names say whether anyone has written a parser for this
+    /// language at all — and if nobody has, **nothing is sent**. `txt`,
+    /// `log` and `bak` are languages as far as a file extension is
+    /// concerned, and a question about installing a `txt` grammar in front
+    /// of a file being typed into is the feature making itself unusable.
+    #[cfg(feature = "full")]
+    async fn announce_missing(&mut self, language: &str) {
+        // Nowhere to install to means nothing to offer.
+        if self.grammar_home.is_none() || !self.announced.insert(language.to_string()) {
+            return;
+        }
+        let candidates = match self.cached_catalog().await {
+            Some(catalog) => match catalog.for_language(language) {
+                found if found.is_empty() => return,
+                found => found.into_iter().cloned().collect(),
+            },
+            // No list on disk yet. The names say whether it is worth asking
+            // to fetch one; the repository can only be named afterwards.
+            None => match maxgus_syntax::is_known(language) {
+                true => Vec::new(),
+                false => return,
+            },
+        };
+        self.send(TaskResult::GrammarMissing {
+            language: language.to_string(),
+            candidates,
+        });
+    }
+
+    /// The parser list as already cached, read once per session and never
+    /// fetched. Nothing here goes to the network: an editor that phoned home
+    /// on opening a file would be doing it without being asked.
+    #[cfg(feature = "full")]
+    async fn cached_catalog(&mut self) -> Option<&maxgus_syntax::Catalog> {
+        if self.catalog.is_none() {
+            let cache = Executor::catalog_cache(self.grammar_home.as_ref()?);
+            let read =
+                tokio::task::spawn_blocking(move || maxgus_syntax::install::cached_catalog(&cache))
+                    .await
+                    .ok()
+                    .flatten();
+            self.catalog = Some(read.map(|text| maxgus_syntax::Catalog::parse(&text)));
+        }
+        self.catalog.as_ref()?.as_ref()
+    }
+
+    /// The file the parser list is cached in, beside the grammars rather
+    /// than among them.
+    #[cfg(feature = "full")]
+    fn catalog_cache(home: &Path) -> PathBuf {
+        home.parent().unwrap_or(home).join("parser-list.md")
+    }
+
+    /// Reads tree-sitter's list of parsers, from the cache or the wiki.
+    ///
+    /// Cloning a repository blocks, so it goes to the blocking pool for the
+    /// same reason opening a shared library does.
+    #[cfg(feature = "full")]
+    async fn grammar_catalog(&mut self, refresh: bool, language: Option<String>) {
+        let Some(home) = self.grammar_home.clone() else {
+            self.send(TaskResult::GrammarCatalog {
+                language,
+                parsers: Vec::new(),
+                error: Some("this build has nowhere to install grammars".to_string()),
+            });
+            return;
+        };
+        let cache = Executor::catalog_cache(&home);
+        let read =
+            tokio::task::spawn_blocking(move || maxgus_syntax::install::catalog(&cache, refresh))
+                .await;
+        let (parsers, error) = match read {
+            Ok(Ok(text)) => {
+                let catalog = maxgus_syntax::Catalog::parse(&text);
+                // Asked about a language: the parsers that would colour it,
+                // best first. Asked about nothing: all of them, in the
+                // order the wiki lists them, which is alphabetical.
+                let parsers = match &language {
+                    Some(language) => catalog
+                        .for_language(language)
+                        .into_iter()
+                        .cloned()
+                        .collect(),
+                    None => catalog.entries().to_vec(),
+                };
+                (parsers, None)
+            }
+            Ok(Err(error)) => (Vec::new(), Some(error.to_string())),
+            Err(_) => (Vec::new(), Some("the fetch did not finish".to_string())),
+        };
+        self.send(TaskResult::GrammarCatalog {
+            language,
+            parsers,
+            error,
+        });
+    }
+
+    /// Clones, builds and installs one grammar, then loads it.
+    ///
+    /// Loading it here rather than leaving it for the next keystroke is what
+    /// turns "the files are on disk" into an answer: a grammar built against
+    /// a different tree-sitter, or exporting a symbol under another name,
+    /// fails at `dlopen` and the user finds out now, next to the install
+    /// that caused it.
+    #[cfg(feature = "full")]
+    async fn install_grammar(&mut self, language: String, url: String) {
+        let Some(home) = self.grammar_home.clone() else {
+            self.send(TaskResult::GrammarInstalled {
+                language,
+                summary: "This build has nowhere to install grammars".to_string(),
+                log: String::new(),
+                failed: true,
+            });
+            return;
+        };
+        let request = maxgus_syntax::InstallRequest {
+            language: language.clone(),
+            url: url.clone(),
+            into: home,
+        };
+        let built =
+            tokio::task::spawn_blocking(move || maxgus_syntax::install::install(&request)).await;
+        let report = match built {
+            Ok(Ok(report)) => report,
+            Ok(Err(error)) => {
+                self.send(TaskResult::GrammarInstalled {
+                    language,
+                    summary: format!("{url} would not install: {error}"),
+                    log: error.to_string(),
+                    failed: true,
+                });
+                return;
+            }
+            Err(_) => {
+                self.send(TaskResult::GrammarInstalled {
+                    language,
+                    summary: format!("The install of {url} did not finish"),
+                    log: String::new(),
+                    failed: true,
+                });
+                return;
+            }
+        };
+
+        // It was looked for once and found missing; that answer is now out
+        // of date, and so is having said so.
+        self.grammars.forget(&language);
+        self.announced.remove(&language);
+        // The list was just fetched to get here, so what was read from the
+        // cache before is out of date.
+        self.catalog = None;
+        let loaded = self.grammar_for(&language).await.is_some();
+
+        let mut log = report.log.clone();
+        for warning in &report.warnings {
+            log.push_str(warning);
+            log.push('\n');
+        }
+        let summary = match (loaded, report.warnings.first()) {
+            (true, None) => format!(
+                "{language}: installed {} from {url}",
+                report.library.display()
+            ),
+            (true, Some(warning)) => format!("{language}: installed, but {warning}"),
+            (false, _) => format!(
+                "{language}: built, but it would not load: {}",
+                self.grammars
+                    .failure(&language)
+                    .unwrap_or("no grammar for it after all")
+            ),
+        };
+        self.send(TaskResult::GrammarInstalled {
+            language,
+            summary,
+            log,
+            failed: !loaded,
+        });
+    }
+
     /// What `describe-grammars` shows: what is built in, what was loaded,
     /// and what would not load and why — which is the only way to find out
     /// that a path in the configuration has a typo in it.
@@ -947,6 +1191,13 @@ impl Executor {
                 }
             }
         }
+        if let Some(home) = &self.grammar_home {
+            let _ = write!(
+                out,
+                "\nInstalled by this editor into\n  {}\n                   M-x install-grammar chooses one to fetch and build.\n",
+                home.display()
+            );
+        }
         let _ = write!(
             out,
             "\ntree-sitter ABI {}..={} is what this build reads.\n",
@@ -984,6 +1235,7 @@ impl Executor {
                 // unhighlighted, as it did before there was a grammar for
                 // anything.
                 let Some(grammar) = self.grammar_for(language).await else {
+                    self.announce_missing(language).await;
                     return;
                 };
                 let Ok(highlighter) = Highlighter::with_grammar(language, grammar) else {
@@ -2001,6 +2253,11 @@ mod tests {
         // reached only through `spawn_blocking`, which the test below
         // holds to.
         "maxgus-syntax/src/dynamic.rs",
+        // Installing a grammar is a clone and a C compile: two subprocesses
+        // and the files they leave behind. Blocking is what it is, and it
+        // too is reached only through `spawn_blocking` — held to by the
+        // test below.
+        "maxgus-syntax/src/install.rs",
     ];
 
     fn rust_files(dir: &Path, found: &mut Vec<PathBuf>) {
@@ -2040,6 +2297,36 @@ mod tests {
             assert!(
                 line.contains("spawn_blocking"),
                 "line {n}: `{}` loads a grammar on the runtime",
+                line.trim()
+            );
+        }
+    }
+
+    /// The install exception above is only safe while it holds.
+    #[cfg(feature = "full")]
+    #[test]
+    fn a_grammar_is_only_ever_fetched_or_built_off_a_blocking_thread() {
+        let source = include_str!("tasks.rs");
+        let ships = source
+            .lines()
+            .take_while(|line| !line.starts_with("#[cfg(test)]"))
+            .collect::<Vec<_>>();
+        let calls: Vec<(usize, &str)> = ships
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| {
+                line.contains("install::install") || line.contains("install::catalog")
+            })
+            .map(|(n, line)| (n + 1, *line))
+            .collect();
+        assert!(
+            !calls.is_empty(),
+            "nothing installs a grammar any more; this test has nothing to hold"
+        );
+        for (n, line) in calls {
+            assert!(
+                line.contains("spawn_blocking"),
+                "line {n}: `{}` runs git or a compiler on the runtime",
                 line.trim()
             );
         }
@@ -3136,6 +3423,100 @@ mod tests {
         };
         assert!(!highlights.is_empty(), "the new grammar was used");
         assert_eq!(e.highlighters[&BufferId(1)].language, "python");
+    }
+
+    /// The whole of installing a grammar, against the real wiki and the
+    /// real compiler: fetch the list, clone a repository, build it, install
+    /// it, load it, and colour a buffer with it.
+    ///
+    /// Ignored by default because it needs the network, `git` and a C
+    /// compiler, and takes seconds rather than milliseconds. `cargo test --
+    /// --ignored` runs it. Nothing else covers the seam between the pieces,
+    /// each of which is unit-tested on its own.
+    #[cfg(feature = "full")]
+    #[tokio::test]
+    #[ignore = "clones a repository and runs a C compiler"]
+    async fn a_grammar_is_fetched_built_installed_and_then_colours_a_buffer() {
+        let f = Fixture::new("grammarinstall").await;
+        let home = f.path().join("state/grammars");
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut e = Executor::with_grammars(
+            f.path().to_path_buf(),
+            TreeConfig {
+                git_status: false,
+                ..Default::default()
+            },
+            Vec::new(),
+            Default::default(),
+            Some(home.clone()),
+            tx,
+        );
+
+        // KDL: not compiled in, and this editor's own configuration language.
+        let result = run_one(
+            &mut e,
+            &mut rx,
+            Task::GrammarCatalog {
+                refresh: true,
+                language: Some("kdl".into()),
+            },
+        )
+        .await;
+        let TaskResult::GrammarCatalog { parsers, error, .. } = result else {
+            panic!("{result:?}")
+        };
+        assert_eq!(error, None, "the wiki should be readable");
+        // Asked about a language, so the answer is that language's parsers
+        // rather than all five hundred, best first.
+        let kdl = parsers.first().cloned().expect("the wiki lists kdl");
+        assert_eq!(kdl.name, "kdl", "narrowed to the language asked about");
+
+        let result = run_one(
+            &mut e,
+            &mut rx,
+            Task::InstallGrammar {
+                language: "kdl".into(),
+                url: kdl.url.clone(),
+            },
+        )
+        .await;
+        let TaskResult::GrammarInstalled {
+            summary,
+            log,
+            failed,
+            ..
+        } = result
+        else {
+            panic!("{result:?}")
+        };
+        assert!(!failed, "{summary}\n{log}");
+        assert!(
+            home.join(&maxgus_syntax::dynamic::library_names("kdl")[0])
+                .is_file(),
+            "the library is where the loader looks"
+        );
+        assert!(
+            home.join("kdl/highlights.scm").is_file(),
+            "and so is the query"
+        );
+
+        // The point of all of it: a buffer in that language is coloured.
+        let result = run_one(
+            &mut e,
+            &mut rx,
+            Task::Reparse {
+                buffer: BufferId(1),
+                language: "kdl".into(),
+                text: "node \"argument\" key=1\n".into(),
+                revision: 1,
+                range: 0..usize::MAX,
+            },
+        )
+        .await;
+        let TaskResult::Reparsed { highlights, .. } = result else {
+            panic!("{result:?}")
+        };
+        assert!(!highlights.is_empty(), "the grammar just built is in use");
     }
 
     #[cfg(feature = "full")]

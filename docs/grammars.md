@@ -2,13 +2,19 @@
 
 maxgus is built with eleven tree-sitter grammars in it — **Rust, Python,
 JavaScript, JSON, C, HTML, YAML, TOML, INI, XML and Markdown**. Every other
-language can be coloured too, by pointing the editor at grammars already
-installed on the system. That is what this document is about.
+language can be coloured too: by letting the editor fetch and build a grammar
+for it, or by pointing the editor at grammars already installed on the
+system. That is what this document is about.
 
 Nothing here is needed to use the editor. A language with no grammar is
 edited without colours, which is how it worked before you read this.
 
 - [How it works](#how-it-works)
+- [Letting the editor install one](#letting-the-editor-install-one)
+  - [What it runs](#what-it-runs)
+  - [When it asks, and when it does not](#when-it-asks-and-when-it-does-not)
+  - [Where it puts things](#where-it-puts-things)
+  - [When an install fails](#when-an-install-fails)
 - [Turning it on](#turning-it-on)
 - [Installing grammars](#installing-grammars)
   - [Arch Linux](#arch-linux)
@@ -57,9 +63,118 @@ file name. Where nothing is known about an extension, the extension *is* the
 language: `main.zig` is `zig`, `init.lua` is `lua`. That is why a grammar
 named the usual way is found without listing it anywhere.
 
+## Letting the editor install one
+
+`M-x install-grammar` opens a menu of every parser tree-sitter's own wiki
+lists — some five hundred of them — and installing one is choosing a line.
+The editor clones the repository, compiles it, puts the library and its
+queries where it looks for them, loads it, and colours the buffer. No
+configuration is involved.
+
+The other direction is the editor asking. Open a file in a language it has
+no grammar for and it says so, naming the repository it would clone:
+
+```
+Clone https://github.com/tree-sitter-grammars/tree-sitter-zig, build it and
+load it? (yes or no)
+```
+
+Answering `no` is the end of it, and it is not asked again for that language
+while the editor is running. `set grammar-auto-install=#false` stops it
+asking at all; `M-x install-grammar` still works, because the setting governs
+the question rather than the feature.
+
+Three commands, and `M-x describe-grammars` to see what came of them:
+
+| Command | What it does |
+|---|---|
+| `install-grammar` | The menu of every parser there is. |
+| `install-grammar-for-buffer` | The one for this buffer's language, which is what a refused offer can be taken up with later. |
+| `refresh-grammar-list` | Fetches the list again. It is cached for a week. |
+
+### What it runs
+
+This is the part to read before saying yes, because installing a grammar is
+a good deal more than downloading a file:
+
+```sh
+git clone --depth=1 <repository> <a temporary directory>
+cc -shared -fPIC -O2 -std=c11 -I src src/parser.c src/scanner.c -o libtree-sitter-<language>.so
+```
+
+Then the library is `dlopen`ed into the editor's own process. So saying yes
+means running that repository's C code on your machine, with your compiler,
+in your editor. That is why the question names the repository rather than
+the language, and why the whole command line and everything it printed is
+kept in a `*Grammar install*` buffer afterwards.
+
+`git` and a C compiler have to be installed. `$CC` and `$CXX` are respected;
+without them it uses `cc`, or `c++` for a grammar whose external scanner is
+C++. Nothing is run with `sudo` and nothing is written outside your home
+directory — a grammar in `~/.local/share` needs no privileges, and using
+`sudo` to put it there would leave root-owned files in your own home.
+
+`-Wno-implicit-function-declaration` is passed for C. Scanners written years
+ago call `iswspace` without including `<wctype.h>`, which every compiler
+accepted until GCC 14; without that flag a good third of the list fails to
+build over a missing include its author never had to write.
+
+### When it asks, and when it does not
+
+A file extension the editor knows nothing about *is* the language — `main.zig`
+is `zig`, and that is what makes a grammar nobody configured findable at all.
+It also means `notes.txt` is `txt`, and a question about installing a `txt`
+grammar in front of a file you are typing into would be worse than no
+feature.
+
+So the editor only asks when a parser for the language actually exists. The
+names of every parser on the wiki ship inside the binary — names only, about
+six kilobytes — purely to answer that question before anything is fetched.
+`zig` is on it and `txt` is not, so one is offered and the other is silent.
+Where the repository *is* comes from the wiki at the moment you ask for it,
+so a project that moves is followed without a new release of the editor.
+
+Nothing reaches the network until you have answered a question. On a machine
+that has never fetched the list, the first offer asks to look one up; after
+that the list is cached and the offer names the repository straight away.
+
+### Where it puts things
+
+`~/.local/share/maxgus/grammars`, in the layout the loader expects:
+
+```
+~/.local/share/maxgus/grammars/
+├── libtree-sitter-zig.so
+├── parser-list.md          ← the cached list, beside rather than among them
+└── zig/
+    └── highlights.scm
+```
+
+That directory is searched without appearing in any configuration file,
+because everything in it was put there by an install you agreed to. Nothing
+else is searched unless a `grammars` block says so, which is what the rest of
+this document is about. A grammar the system already has wins over one
+installed here: the configured directories are searched first.
+
+### When an install fails
+
+`M-x describe-grammars` says what happened, and the `*Grammar install*`
+buffer has the commands and their output. The usual ones:
+
+| What it says | What happened |
+|---|---|
+| `` `cc` is not installed `` | There is no C compiler. Install one, or use your package manager's grammar instead. |
+| `clone failed` | The repository has moved or gone private. `M-x refresh-grammar-list`, or install it by hand. |
+| `has no src/parser.c in it` | The repository ships no pre-generated parser. It needs `tree-sitter generate`, which means node; build it by hand as below. |
+| `holds several grammars` | One repository, several languages — `tree-sitter-sfapex` has three. Pick the one you want from `M-x install-grammar`. |
+| `built, but it would not load` | It compiled and then `dlopen` refused it. Almost always the ABI: the grammar is older or newer than this build reads. |
+| `installed, but … has no queries/highlights.scm` | It parses and cannot colour. Put a `highlights.scm` in the language's directory yourself. |
+
 ## Turning it on
 
-Nothing is loaded until the configuration says where to look. Add a
+Everything below is the other way in: grammars the system already has, which
+need no compiler and no network. Nothing is loaded until the configuration
+says where to look. Add a
 `grammars` block to `~/.config/maxgus/config.kdl`:
 
 ```kdl
@@ -210,6 +325,10 @@ Forward slashes are fine in the configuration file and avoid escaping.
 
 ### Building one yourself
 
+`M-x install-grammar` does all of this for you and is the easier road. By
+hand is worth knowing for a grammar the wiki does not list, one that needs
+`tree-sitter generate`, or one you are writing.
+
 Anything not packaged can be built from its grammar repository. It needs the
 tree-sitter CLI and a C compiler:
 
@@ -319,8 +438,10 @@ shared library can run code the moment it is opened. maxgus cannot check
 that a file is what it claims to be — nothing can — so it does the next best
 things:
 
-- **Nothing is loaded unless you said where to look.** There are no default
-  directories. An editor with no `grammars` block never opens a library.
+- **Nothing is loaded unless you said where to look.** The directories in
+  your `grammars` block, and the one the editor installs into — which holds
+  only grammars you were asked about by name and agreed to. There are no
+  others.
 - **Only files named for a language you are editing** are opened, in
   directories you named. A directory is not swept.
 - **The symbol is derived from the language, not from the file**, so a
@@ -328,6 +449,13 @@ things:
 - **The result is checked** — non-null, and an ABI version this build can
   read — before it is used to parse anything.
 - **Failure is a message**, not a crash: the language goes uncoloured.
+
+Installing one asks for more than that, and asks for it explicitly.
+Compiling a repository's C and loading the result is running its code on
+your machine; the question names the repository rather than the language for
+exactly that reason, nothing is fetched or built before it is answered, and
+what ran is kept in `*Grammar install*` afterwards. `set
+grammar-auto-install=#false` if you would rather never be asked.
 
 This is the same arrangement Neovim and Helix use, and the same one your
 package manager already relies on. Point it at `/usr/lib`, or at grammars

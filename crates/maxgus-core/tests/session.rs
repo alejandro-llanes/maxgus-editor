@@ -459,6 +459,224 @@ fn syntax_highlighting_reaches_the_screen() {
 }
 
 #[cfg(feature = "full")]
+fn a_parser(name: &str, url: &str) -> maxgus_syntax::Parser {
+    maxgus_syntax::Parser {
+        name: name.to_string(),
+        url: url.to_string(),
+        last_commit: "2025-01-01".to_string(),
+        abi: Some(maxgus_syntax::MAX_ABI),
+        grammar_json: true,
+        external_scanner: false,
+    }
+}
+
+/// The offer, from the language having no grammar to the install being
+/// queued. The question in the middle names the repository, because that is
+/// what saying yes agrees to run.
+#[cfg(feature = "full")]
+#[test]
+fn a_language_with_no_grammar_is_offered_one_and_yes_queues_the_install() {
+    let mut s = Session::editing("/project/main.zig", "const a = 1;\n");
+    s.editor.tasks.drain();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GrammarMissing {
+            language: "zig".into(),
+            candidates: vec![a_parser(
+                "zig",
+                "https://github.com/tree-sitter-grammars/tree-sitter-zig",
+            )],
+        })
+        .unwrap();
+
+    assert_eq!(s.editor.minibuffer.kind(), Some(MinibufferKind::YesNo));
+    assert!(
+        s.editor.minibuffer.prompt().contains("tree-sitter-zig"),
+        "the question names what would be cloned: `{}`",
+        s.editor.minibuffer.prompt()
+    );
+
+    s.type_text("yes");
+    s.keys("RET");
+    let tasks = s.editor.tasks.drain();
+    assert!(
+        tasks.iter().any(|t| matches!(
+            t,
+            Task::InstallGrammar { language, url }
+                if language == "zig"
+                    && url == "https://github.com/tree-sitter-grammars/tree-sitter-zig"
+        )),
+        "{tasks:?}"
+    );
+}
+
+/// The same offer, refused. Once is enough: re-highlighting comes round on
+/// every pause in typing, and a question that came back with it would make
+/// the file unusable.
+#[cfg(feature = "full")]
+#[test]
+fn refusing_the_offer_installs_nothing_and_is_not_asked_again() {
+    let mut s = Session::editing("/project/main.zig", "const a = 1;\n");
+    let missing = maxgus_core::TaskResult::GrammarMissing {
+        language: "zig".into(),
+        candidates: vec![a_parser("zig", "https://github.com/x/tree-sitter-zig")],
+    };
+    s.editor.apply_task_result(missing.clone()).unwrap();
+    s.editor.tasks.drain();
+    s.type_text("no");
+    s.keys("RET");
+    let tasks = s.editor.tasks.drain();
+    assert!(
+        !tasks
+            .iter()
+            .any(|t| matches!(t, Task::InstallGrammar { .. })),
+        "{tasks:?}"
+    );
+
+    s.editor.apply_task_result(missing).unwrap();
+    assert_eq!(
+        s.editor.minibuffer.kind(),
+        None,
+        "the answer was no, and it is remembered"
+    );
+}
+
+/// With no list fetched yet there is no repository to name, so the question
+/// is the smaller one — may it look? — and the answer sends it looking.
+#[cfg(feature = "full")]
+#[test]
+fn with_no_parser_list_yet_the_offer_asks_only_to_go_and_look() {
+    let mut s = Session::editing("/project/main.zig", "const a = 1;\n");
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GrammarMissing {
+            language: "zig".into(),
+            candidates: Vec::new(),
+        })
+        .unwrap();
+    assert_eq!(s.editor.minibuffer.kind(), Some(MinibufferKind::YesNo));
+    assert!(
+        s.editor.minibuffer.prompt().contains("Look one up"),
+        "`{}`",
+        s.editor.minibuffer.prompt()
+    );
+    s.editor.tasks.drain();
+    s.type_text("yes");
+    s.keys("RET");
+    let tasks = s.editor.tasks.drain();
+    assert!(
+        tasks.iter().any(|t| matches!(
+            t,
+            Task::GrammarCatalog { language: Some(l), .. } if l == "zig"
+        )),
+        "it goes to the list rather than installing something unnamed: {tasks:?}"
+    );
+}
+
+/// Several parsers for one language is the menu, not a guess.
+#[cfg(feature = "full")]
+#[test]
+fn a_language_with_several_parsers_is_a_menu_of_them() {
+    let mut s = Session::editing("/project/thing.kdl", "node 1\n");
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GrammarMissing {
+            language: "kdl".into(),
+            candidates: vec![
+                a_parser(
+                    "kdl",
+                    "https://github.com/tree-sitter-grammars/tree-sitter-kdl",
+                ),
+                a_parser("kdl", "https://github.com/spaarmann/tree-sitter-kdl"),
+            ],
+        })
+        .unwrap();
+    assert_eq!(s.editor.minibuffer.kind(), Some(MinibufferKind::Pick));
+    assert_eq!(
+        s.editor.completion_candidates.len(),
+        2,
+        "both are offered rather than one being chosen for the user"
+    );
+    s.editor.tasks.drain();
+    s.keys("RET");
+    let tasks = s.editor.tasks.drain();
+    assert!(
+        tasks.iter().any(|t| matches!(
+            t,
+            Task::InstallGrammar { url, .. }
+                if url == "https://github.com/tree-sitter-grammars/tree-sitter-kdl"
+        )),
+        "the highlighted row is the one installed: {tasks:?}"
+    );
+}
+
+/// The setting turns the question off without taking the feature away.
+#[cfg(feature = "full")]
+#[test]
+fn the_offer_can_be_switched_off_and_the_command_still_works() {
+    let settings = Settings {
+        grammar_auto_install: false,
+        ..Settings::default()
+    };
+    let mut s = Session::configured(settings, 60, 10);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.zig", "const a = 1;\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GrammarMissing {
+            language: "zig".into(),
+            candidates: vec![a_parser("zig", "https://github.com/x/tree-sitter-zig")],
+        })
+        .unwrap();
+    assert_eq!(s.editor.minibuffer.kind(), None, "nothing was asked");
+
+    // Asking for it by hand still works, which is the whole difference
+    // between the question being off and the feature being gone.
+    s.editor.tasks.drain();
+    s.keys("M-x");
+    s.type_text("install-grammar");
+    s.keys("RET");
+    let tasks = s.editor.tasks.drain();
+    assert!(
+        tasks
+            .iter()
+            .any(|t| matches!(t, Task::GrammarCatalog { .. })),
+        "{tasks:?}"
+    );
+}
+
+/// An install that worked asks for the buffer to be coloured again, which is
+/// the only thing that makes the new grammar visible.
+#[cfg(feature = "full")]
+#[test]
+fn a_finished_install_re_highlights_the_buffers_in_that_language() {
+    let mut s = Session::editing("/project/main.zig", "const a = 1;\n");
+    s.editor.tasks.drain();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GrammarInstalled {
+            language: "zig".into(),
+            summary: "zig: installed".into(),
+            log: "$ git clone ...\n".into(),
+            failed: false,
+        })
+        .unwrap();
+    let tasks = s.editor.tasks.drain();
+    assert!(
+        tasks.iter().any(|t| matches!(
+            t,
+            Task::Reparse { language, .. } if language == "zig"
+        )),
+        "{tasks:?}"
+    );
+    assert!(
+        s.editor
+            .buffers
+            .find_by_name(maxgus_core::commands::grammar::INSTALL_BUFFER_NAME)
+            .is_some(),
+        "what was run is kept, so a compile that said something can be read"
+    );
+}
+
+#[cfg(feature = "full")]
 #[test]
 fn a_diagnostic_is_underlined_and_counted_in_the_mode_line() {
     let mut s = Session::editing("/project/main.rs", "let unused = 1;\n");
@@ -4593,7 +4811,7 @@ fn the_readme_quotes_the_right_totals() {
 #[cfg(feature = "full")]
 const README_BINDINGS: usize = 404;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 463;
+const README_COMMANDS: usize = 466;
 
 #[cfg(feature = "full")]
 #[test]
@@ -7154,6 +7372,8 @@ fn each_build_has_the_families_the_table_promises_it() {
         "grep-",
         "project-grep",
         "describe-grammars",
+        "install-grammar",
+        "refresh-grammar-list",
         "reload-scripts",
         "expand-region",
     ];

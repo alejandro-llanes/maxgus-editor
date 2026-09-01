@@ -49,6 +49,24 @@ pub struct Editor {
     /// executor has been able to ask git, and when it is not a repository.
     #[cfg(feature = "full")]
     pub git_branch: Option<String>,
+    /// The parser list as last fetched, so a line picked out of the menu
+    /// finds the repository it came from.
+    #[cfg(feature = "full")]
+    pub grammar_catalog: Vec<maxgus_syntax::Parser>,
+    /// The language an offer to install is about, held while the question is
+    /// on screen. The current buffer can change under a prompt; the question
+    /// asked cannot.
+    #[cfg(feature = "full")]
+    pub grammar_offer: Option<String>,
+    /// The one parser a `yes` would install, held while that question is on
+    /// screen. Set only just before the question is asked.
+    #[cfg(feature = "full")]
+    pub grammar_pending: Option<maxgus_syntax::Parser>,
+    /// Languages the user has said no to. Asked once, not once a keystroke:
+    /// the answer to "shall I install a grammar for this" does not change
+    /// because the file was edited again.
+    #[cfg(feature = "full")]
+    pub grammars_declined: std::collections::HashSet<String>,
     /// The theme that was in use before `consult-theme` started previewing, so
     /// abandoning the prompt puts it back.
     pub theme_before_preview: Option<String>,
@@ -335,6 +353,14 @@ impl Editor {
             pending_overwrite: None,
             #[cfg(feature = "full")]
             git_branch: None,
+            #[cfg(feature = "full")]
+            grammar_catalog: Vec::new(),
+            #[cfg(feature = "full")]
+            grammar_offer: None,
+            #[cfg(feature = "full")]
+            grammar_pending: None,
+            #[cfg(feature = "full")]
+            grammars_declined: std::collections::HashSet::new(),
             theme_before_preview: None,
             consult_theme_writes: false,
             config_path: None,
@@ -1934,6 +1960,24 @@ impl Editor {
                 self.message(String::new());
                 Ok(())
             }
+            #[cfg(feature = "full")]
+            TaskResult::GrammarCatalog {
+                language,
+                parsers,
+                error,
+            } => crate::commands::grammar::show_catalog(self, language, parsers, error),
+            #[cfg(feature = "full")]
+            TaskResult::GrammarMissing {
+                language,
+                candidates,
+            } => crate::commands::grammar::offer(self, &language, candidates),
+            #[cfg(feature = "full")]
+            TaskResult::GrammarInstalled {
+                language,
+                summary,
+                log,
+                failed,
+            } => crate::commands::grammar::installed(self, &language, &summary, &log, failed),
             TaskResult::TreeUpdated {
                 nodes,
                 select,

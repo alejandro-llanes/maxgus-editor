@@ -247,6 +247,7 @@ async fn main() -> Result<()> {
         config.tree.clone(),
         config.lsp.clone(),
         config.grammars.clone(),
+        grammar_home(),
         result_tx,
     );
     tokio::spawn(executor.run(task_rx));
@@ -460,6 +461,16 @@ fn read_snippets(
 /// Where the editor keeps what is its own business: sessions, for now.
 fn default_state_dir() -> Option<PathBuf> {
     directories::ProjectDirs::from("", "", "maxgus").map(|dirs| dirs.data_local_dir().to_path_buf())
+}
+
+/// Where a grammar the editor installs for itself goes.
+///
+/// `~/.local/share/maxgus/grammars` on Linux, and whatever the platform puts
+/// in its place elsewhere — the same directory the editor already keeps its
+/// sessions beside. It is searched without being configured, because nothing
+/// gets into it except by an install the user was asked about first.
+fn grammar_home() -> Option<PathBuf> {
+    default_state_dir().map(|dir| dir.join("grammars"))
 }
 
 fn default_config_path() -> Option<PathBuf> {

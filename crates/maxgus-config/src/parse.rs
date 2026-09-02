@@ -476,6 +476,11 @@ impl<'a> Parser<'a> {
                     self.config.settings.gui_prose_font = text;
                 }
             }
+            "gui-title-format" => {
+                if let Some(text) = self.string_value(node, key, value) {
+                    self.config.settings.gui_title_format = text;
+                }
+            }
             "autocomplete" => {
                 if let Some(b) = self.bool_value(node, key, value) {
                     self.config.settings.autocomplete = b;

@@ -1014,8 +1014,12 @@ What the window has that a terminal cannot:
   draws the same box:
 
   <img src="docs/screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and its documentation, from clangd" width="100%">
-- **A window that behaves like one.** Its title is the buffer being edited,
-  with a `*` while there is unsaved work in it; the close button runs the
+- **A window that behaves like one.** Its title says the file, the
+  project and the program — `main.rs — maxgus-editor — maxgus` — with a
+  `•` in front while there is unsaved work, so a taskbar of three of them
+  tells them apart (`set gui-title-format` writes it otherwise, from the
+  buffer's name, the file's path, the project's name or path and the
+  mark); the close button runs the
   same command `C-x C-c` does, so it refuses to throw that work away; it
   opens at the size it was last closed at; its cursor is an outline while
   another window has the keyboard; and it sleeps when nothing is happening

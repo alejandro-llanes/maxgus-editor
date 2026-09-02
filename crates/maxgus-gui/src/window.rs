@@ -436,12 +436,20 @@ impl App {
     /// Names the window after what is in it, the way every other program
     /// does: a taskbar full of windows called `maxgus` names nothing.
     fn retitle(&mut self) {
-        let name = self.editor.current_buffer().name().to_string();
-        let modified = match self.editor.current_buffer().is_modified() {
-            true => "* ",
-            false => "",
-        };
-        let title = format!("{modified}{name} — {}", self.settings.title);
+        let buffer = self.editor.current_buffer();
+        let project = self.editor.project_root();
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+        let title = crate::title::render(
+            &self.editor.settings.gui_title_format,
+            &crate::title::Subject {
+                buffer: buffer.name(),
+                file: buffer.path(),
+                project: &project,
+                modified: buffer.is_modified(),
+                program: &self.settings.title,
+                home: home.as_deref(),
+            },
+        );
         if self.title.as_deref() != Some(title.as_str())
             && let Some(window) = self.window.as_ref()
         {

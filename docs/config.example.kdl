@@ -88,6 +88,9 @@ set gui-padding=0
 set gui-scroll-indicator=#true
 // What the language server says about a symbol is set in a reading face.
 set gui-prose-font="sans-serif"
+// What the window is called: the file, the project and the program, with
+// a mark in front when the file is not yet saved.
+set gui-title-format="%m%b — %p — %a"
 
 // The wheel, in a window. A window can draw a fraction of a line, so a
 // notch slides rather than jumping; these are how far it goes and how

@@ -118,6 +118,14 @@ pub struct Settings {
     /// lined up with anything. `sans-serif` is whatever the system has
     /// set up as its sans-serif.
     pub gui_prose_font: String,
+    /// `gui-title-format`: what the window's title says.
+    ///
+    /// `%b` is the buffer's name, `%f` the file's path with home as `~`,
+    /// `%p` the project's name, `%P` its path, `%m` a mark when the
+    /// buffer is modified, `%a` the program's name, `%%` a per-cent sign.
+    /// A taskbar full of windows called `maxgus` names nothing; the
+    /// default names the file, the project and the program.
+    pub gui_title_format: String,
     /// `mouse-wheel-lines`: how far one notch of the wheel moves the view.
     ///
     /// Three is what most programs do with a notch. A touchpad reports the
@@ -285,6 +293,7 @@ impl Default for Settings {
             gui_padding: 0,
             gui_scroll_indicator: true,
             gui_prose_font: "sans-serif".into(),
+            gui_title_format: "%m%b — %p — %a".into(),
             autocomplete: true,
             autocomplete_min_chars: 2,
             lsp_doc: true,
@@ -371,6 +380,7 @@ pub const SETTING_NAMES: &[&str] = &[
     "gui-padding",
     "gui-scroll-indicator",
     "gui-prose-font",
+    "gui-title-format",
     "autocomplete",
     "autocomplete-min-chars",
     "lsp-doc",

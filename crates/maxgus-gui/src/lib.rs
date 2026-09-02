@@ -20,6 +20,7 @@ pub mod renderer;
 pub mod scroll;
 pub mod scrollbar;
 pub mod spring;
+pub mod title;
 pub mod vfx;
 pub mod window;
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The window's title names the project.** `• main.rs — maxgus-editor —
+  maxgus` rather than `* main.rs — maxgus`, so three windows on three
+  projects can be told apart from the taskbar. `set gui-title-format`
+  writes it otherwise, from `%b` the buffer's name, `%f` the file's path,
+  `%p` the project's name, `%P` its path, `%m` the mark of unsaved work
+  and `%a` the program's name.
+
 - **What the language server says is set in prose, on a card.** The
   GUI no longer draws the `C-c c k` answer in a box of cells: the
   markdown is set in a proportional face — `set gui-prose-font`, the

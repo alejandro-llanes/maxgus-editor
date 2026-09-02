@@ -242,6 +242,7 @@ fn setting_value(editor: &Editor, name: &str) -> Option<String> {
         "gui-padding" => s.gui_padding.to_string(),
         "gui-scroll-indicator" => s.gui_scroll_indicator.to_string(),
         "gui-prose-font" => s.gui_prose_font.clone(),
+        "gui-title-format" => s.gui_title_format.clone(),
         "autocomplete" => s.autocomplete.to_string(),
         "autocomplete-min-chars" => s.autocomplete_min_chars.to_string(),
         "lsp-doc" => s.lsp_doc.to_string(),

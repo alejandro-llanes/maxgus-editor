@@ -466,6 +466,11 @@ impl<'a> Parser<'a> {
                     self.config.settings.gui_padding = n.min(64);
                 }
             }
+            "gui-scroll-indicator" => {
+                if let Some(on) = self.bool_value(node, key, value) {
+                    self.config.settings.gui_scroll_indicator = on;
+                }
+            }
             "autocomplete" => {
                 if let Some(b) = self.bool_value(node, key, value) {
                     self.config.settings.autocomplete = b;

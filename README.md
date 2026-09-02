@@ -1038,6 +1038,12 @@ What the window has that a terminal cannot:
   is already loaded rather than looked up on the system, so it is as quick
   as a keypress should be. The configured size is what `C-x C-0` returns
   to; the setting itself is not changed.
+- **A mark at the edge while the window moves.** A thin bar at the right
+  of the text says where the window is in its buffer and how much of it
+  it shows, the way a phone's does: it appears when the window scrolls
+  and fades a moment after it stops, so a page being read has nothing at
+  its edge. Each window has its own. `set gui-scroll-indicator=#false`
+  turns it off.
 
 `C-c o b` (`M-x open-externally`) hands the file being edited to whatever the
 desktop opens it with — an image viewer for an image, a reader for a PDF —

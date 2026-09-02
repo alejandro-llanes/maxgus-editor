@@ -50,6 +50,45 @@ pub fn code_areas(editor: &Editor) -> Vec<Rect> {
         .collect()
 }
 
+/// Where a window is in its buffer, for a front end that draws a bar to
+/// say so.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScrollPosition {
+    pub window: crate::window::WindowId,
+    /// The text area the bar belongs beside.
+    pub area: Rect,
+    /// How much of the buffer is above the window, as a fraction of it.
+    pub above: f32,
+    /// How much of the buffer the window shows, as a fraction of it.
+    pub shown: f32,
+}
+
+/// Every window that is not showing its whole buffer, and where in the
+/// buffer it is. Counted in lines rather than rows: a wrapped line is one
+/// line of the buffer whatever it takes to draw, and a bar is a rough
+/// answer anyway.
+pub fn scroll_positions(editor: &Editor) -> Vec<ScrollPosition> {
+    editor
+        .windows
+        .iter()
+        .filter_map(|window| {
+            let buffer = editor.buffers.get(window.buffer)?;
+            let total = buffer.len_lines();
+            let height = window.text_height();
+            if height == 0 || height >= total {
+                return None;
+            }
+            let area = text_area(editor, window.id)?;
+            Some(ScrollPosition {
+                window: window.id,
+                area,
+                above: window.top_line as f32 / total as f32,
+                shown: height as f32 / total as f32,
+            })
+        })
+        .collect()
+}
+
 /// The windows with another to their right: where a divider belongs.
 ///
 /// The terminal has no pixel to draw one in — the windows simply abut, and
@@ -3500,6 +3539,38 @@ mod tests {
     fn rendered(editor: &Editor, surface: &mut Surface) -> Vec<String> {
         draw(editor, surface);
         surface.to_lines()
+    }
+
+    #[test]
+    fn a_window_showing_its_whole_buffer_gets_no_scroll_bar() {
+        let (editor, _) = setup("one\ntwo\nthree\n", 40, 10);
+        assert!(scroll_positions(&editor).is_empty());
+    }
+
+    #[test]
+    fn a_scrolled_window_says_how_far_down_it_is_and_how_much_it_shows() {
+        // A hundred lines in a window eight rows tall: the bar is eight
+        // hundredths long, and starts where the window does.
+        let text = (1..=100)
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (mut editor, _) = setup(&text, 40, 10);
+        let id = editor.windows.current_id();
+        let at_top = scroll_positions(&editor);
+        assert_eq!(at_top.len(), 1);
+        assert_eq!(at_top[0].window, id);
+        assert_eq!(at_top[0].above, 0.0);
+        assert!((at_top[0].shown - 0.08).abs() < 1e-6, "{:?}", at_top[0]);
+        assert_eq!(
+            at_top[0].area,
+            text_area(&editor, id).unwrap(),
+            "the bar goes beside the text, not the mode line"
+        );
+        editor.scroll_window_lines(id, 50);
+        let down = scroll_positions(&editor);
+        assert!((down[0].above - 0.5).abs() < 1e-6, "{:?}", down[0]);
+        assert_eq!(down[0].shown, at_top[0].shown);
     }
 
     /// The face of the cell at (x, y).

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **A mark at the window's edge while it scrolls.** The GUI draws a thin
+  bar at the right of each window's text, placed and sized by where the
+  window is in its buffer, when the window moves, and fades it out a
+  moment after the window stops — so a wheel or a `C-v` says how far there
+  is to go and a page being read has nothing at its edge. Off with
+  `set gui-scroll-indicator=#false`.
+
 - **The cursor breaks the ligature it lands in.** A block over half of
   `≠` said nothing about which character was under it — whether `DEL`
   would take the `!` or the `=`. The cursor's cell is now drawn as its own

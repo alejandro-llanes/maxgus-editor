@@ -170,6 +170,8 @@ struct App {
     /// behind a popup is a blur *of*.
     backdrop: Surface,
     scroll: Scroll,
+    /// The marks at the windows' edges that say how far down they are.
+    bars: crate::scrollbar::Bars,
     /// The block, and where it is on its way to.
     cursor: crate::cursor::Cursor,
     /// What it leaves behind it, when it has been asked to leave anything.
@@ -258,6 +260,7 @@ impl App {
             scratch: Surface::new(Size::new(1, 1)),
             backdrop: Surface::new(Size::new(1, 1)),
             scroll: Scroll::new(),
+            bars: crate::scrollbar::Bars::new(),
             incoming: None,
             cursor: crate::cursor::Cursor::new(),
             vfx: crate::vfx::Vfx::new(),
@@ -539,6 +542,27 @@ impl App {
             (metrics.width, metrics.height),
             &vfx,
         );
+        // The marks at the windows' edges, for as long as they are moving
+        // and a moment after. Placed by where the editor says each window
+        // is, not by what the smooth scroll is showing, so they never lag.
+        if self.editor.settings.gui_scroll_indicator {
+            let positions = maxgus_core::render::scroll_positions(&self.editor);
+            let bars = self.bars.observe(&positions, std::time::Instant::now());
+            let thickness = (metrics.width * 0.35).max(3.0).round();
+            let [r, g, b, _] = palette.foreground;
+            for bar in bars {
+                let (position, size) = crate::scrollbar::geometry(
+                    &bar.position,
+                    (metrics.width, metrics.height),
+                    thickness,
+                );
+                frame.rects.push(crate::quads::Rect {
+                    position,
+                    size,
+                    color: [r, g, b, 0.4 * bar.opacity],
+                });
+            }
+        }
         if fonts.atlas().is_dirty() {
             let atlas = fonts.atlas();
             let (width, height) = (atlas.width(), atlas.height());
@@ -1147,7 +1171,12 @@ impl ApplicationHandler for App {
         }
         // An animation owes a frame whether or not anything was typed;
         // everything else waits to be woken.
-        let animating = moving || cursor_moving || self.editor.beacon.is_some();
+        // A bar on its way out counts: fading is drawing.
+        let fading = self.editor.settings.gui_scroll_indicator && self.bars.is_fading();
+        if fading {
+            self.dirty = true;
+        }
+        let animating = moving || cursor_moving || fading || self.editor.beacon.is_some();
         event_loop.set_control_flow(match (animating, deadline) {
             (true, _) => ControlFlow::Poll,
             (false, Some(at)) => ControlFlow::WaitUntil(at),

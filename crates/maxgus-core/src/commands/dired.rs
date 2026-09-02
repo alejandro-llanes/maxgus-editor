@@ -400,7 +400,7 @@ fn do_shell(editor: &mut Editor, args: &Args) -> Result<()> {
         editor.prompt_for(
             "dired-do-shell-command",
             MinibufferKind::Shell,
-            format!("! on {} file(s): ", paths.len()),
+            format!("! on {}: ", crate::count(paths.len(), "file")),
             "",
             Vec::new(),
         );

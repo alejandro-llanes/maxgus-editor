@@ -142,11 +142,15 @@ impl FileAction {
     /// What to say about it afterwards.
     pub fn describe(&self) -> String {
         match self {
-            FileAction::Delete(paths) => format!("Deleted {} item(s)", paths.len()),
-            FileAction::Copy { from, .. } => format!("Copied {} item(s)", from.len()),
-            FileAction::Rename { from, .. } => format!("Renamed {} item(s)", from.len()),
+            FileAction::Delete(paths) => format!("Deleted {}", crate::count(paths.len(), "item")),
+            FileAction::Copy { from, .. } => format!("Copied {}", crate::count(from.len(), "item")),
+            FileAction::Rename { from, .. } => {
+                format!("Renamed {}", crate::count(from.len(), "item"))
+            }
             FileAction::CreateDirectory(path) => format!("Created {}", path.display()),
-            FileAction::Chmod { paths, .. } => format!("Changed {} item(s)", paths.len()),
+            FileAction::Chmod { paths, .. } => {
+                format!("Changed {}", crate::count(paths.len(), "item"))
+            }
         }
     }
 }
@@ -777,7 +781,8 @@ impl TaskResult {
             TaskResult::Said(said) => Some(said.clone()),
             TaskResult::FileRead { path, .. } => Some(format!("Read {}", path.display())),
             TaskResult::FileWritten { path, bytes, .. } => {
-                Some(format!("Wrote {} ({bytes} bytes)", path.display()))
+                let noun = if *bytes == 1 { "byte" } else { "bytes" };
+                Some(format!("Wrote {} ({bytes} {noun})", path.display()))
             }
             #[cfg(feature = "full")]
             TaskResult::LanguageServerStarted { language, .. } => {

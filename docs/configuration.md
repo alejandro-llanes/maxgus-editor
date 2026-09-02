@@ -47,7 +47,7 @@ keymap "rust-mode" {
 theme "maxgus-dark" {
     face "default"      fg="#c5c8c6" bg="#1d1f21"
     face "font-lock-keyword" fg="#b294bb" bold=#true
-    face "region"       bg="#373b41"
+    face "region"       bg="#3b4a5c"
 }
 
 // Language servers.

@@ -18,8 +18,12 @@ struct Palette {
     fg: Color,
     /// Slightly off the background: the mode line and gutter.
     surface: Color,
-    /// The region and current-line highlight.
+    /// The selected row of a list, the highlighted section, the seam
+    /// between windows: things that should be visible without being loud.
     selection: Color,
+    /// The region. It has to be found at a glance in a screen of text, so
+    /// it is further from the background than `selection` is.
+    region: Color,
     comment: Color,
     red: Color,
     orange: Color,
@@ -50,6 +54,7 @@ const DARK: Palette = Palette {
     fg: rgb(0xc5, 0xc8, 0xc6),
     surface: rgb(0x28, 0x2a, 0x2e),
     selection: rgb(0x37, 0x3b, 0x41),
+    region: rgb(0x3b, 0x4a, 0x5c),
     comment: rgb(0x96, 0x98, 0x96),
     red: rgb(0xcc, 0x66, 0x66),
     orange: rgb(0xde, 0x93, 0x5f),
@@ -69,6 +74,7 @@ const LIGHT: Palette = Palette {
     fg: rgb(0x4d, 0x4d, 0x4c),
     surface: rgb(0xef, 0xef, 0xef),
     selection: rgb(0xd6, 0xd6, 0xd6),
+    region: rgb(0xcf, 0xdd, 0xee),
     comment: rgb(0x8e, 0x90, 0x8c),
     red: rgb(0xc8, 0x28, 0x29),
     orange: rgb(0xf5, 0x87, 0x1f),
@@ -89,6 +95,7 @@ const TERM: Palette = Palette {
     fg: Color::Default,
     surface: idx(0),
     selection: idx(8),
+    region: idx(8),
     comment: idx(8),
     red: idx(1),
     orange: idx(3),
@@ -120,7 +127,7 @@ fn build(name: &str, p: &Palette) -> Theme {
 
     // ---- interface ----
     set("cursor", Face::bg(p.fg).with_fg(p.bg));
-    set("region", Face::bg(p.selection));
+    set("region", Face::bg(p.region));
     set("highlight", Face::bg(p.selection));
     set("shadow", Face::fg(p.comment));
     // No background of their own: they take whatever `default` has. Naming
@@ -172,6 +179,12 @@ fn build(name: &str, p: &Palette) -> Theme {
     set("magit-branch-local", Face::fg(p.aqua).bold());
     set("magit-branch-remote", Face::fg(p.green).bold());
     set("magit-tag", Face::fg(p.yellow).bold());
+    // Dired, with Emacs' names so a theme written for it ports across.
+    set("dired-header", Face::fg(p.blue).bold());
+    set("dired-directory", Face::fg(p.blue).bold());
+    set("dired-symlink", Face::fg(p.aqua));
+    set("dired-marked", Face::fg(p.yellow).bold());
+    set("dired-flagged", Face::fg(p.red).bold());
     set("terminal", Face::fg(p.fg));
     set("terminal-tab", Face::fg(p.comment).with_bg(p.selection));
     set(

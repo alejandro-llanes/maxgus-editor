@@ -18,6 +18,11 @@ pub struct Field {
     /// Where the field is in the expanded text, in characters.
     pub start: usize,
     pub end: usize,
+    /// The blanks a line of nothing but this field had before it. They are
+    /// left out of the text and put back when the field is reached, so a
+    /// line waiting to be typed on is not a line of trailing whitespace
+    /// until then.
+    pub indent: String,
 }
 
 impl Field {
@@ -73,6 +78,7 @@ pub fn parse(body: &str) -> Expansion {
                         number,
                         start,
                         end: length,
+                        indent: String::new(),
                     });
                     i = next;
                 }
@@ -93,6 +99,7 @@ pub fn parse(body: &str) -> Expansion {
                     number,
                     start: length,
                     end: length,
+                    indent: String::new(),
                 });
                 i = j;
             }
@@ -110,7 +117,59 @@ pub fn parse(body: &str) -> Expansion {
         0 => (1, 0),
         n => (0, n),
     });
+    let text = hold_back_indentation(text, &mut fields);
     Expansion { text, fields }
+}
+
+/// Takes the blanks out of every line that is nothing but blanks and an
+/// empty field, giving them to the field to put back when it is reached.
+///
+/// `    $0` on a line of its own is how most snippets say where the body
+/// goes, and inserted as written it is a line of trailing whitespace —
+/// marked as such — until the reader gets there.
+fn hold_back_indentation(text: String, fields: &mut [Field]) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut kept = String::with_capacity(text.len());
+    // Where each old offset lands in the shortened text; one more than the
+    // characters, for a field at the very end.
+    let mut moved: Vec<usize> = Vec::with_capacity(chars.len() + 1);
+    let mut line_start = 0;
+    loop {
+        let line_end = chars[line_start..]
+            .iter()
+            .position(|&c| c == '\n')
+            .map_or(chars.len(), |n| line_start + n);
+        let line = &chars[line_start..line_end];
+        let blank = !line.is_empty() && line.iter().all(|&c| c == ' ' || c == '\t');
+        let field = fields
+            .iter()
+            .position(|f| f.start == line_end && f.end == line_end)
+            .filter(|_| blank);
+        match field {
+            Some(index) => {
+                fields[index].indent = line.iter().collect();
+                // The whole line lands where it began, with nothing in it.
+                moved.extend(std::iter::repeat_n(kept.chars().count(), line.len()));
+            }
+            None => {
+                let at = kept.chars().count();
+                moved.extend(at..at + line.len());
+                kept.extend(line.iter());
+            }
+        }
+        if line_end == chars.len() {
+            moved.push(kept.chars().count());
+            break;
+        }
+        moved.push(kept.chars().count());
+        kept.push('\n');
+        line_start = line_end + 1;
+    }
+    for field in fields.iter_mut() {
+        field.start = moved[field.start];
+        field.end = moved[field.end];
+    }
+    kept
 }
 
 /// Reads `${1:default}` from `chars` at `at`, returning the number, the
@@ -292,6 +351,46 @@ mod tests {
     fn fields_are_counted_in_characters_rather_than_bytes() {
         let expanded = parse("café ${1:x}");
         assert_eq!(expanded.fields[0].start, 5, "it counted bytes");
+    }
+
+    #[test]
+    fn the_blanks_before_a_field_alone_on_a_line_wait_for_it() {
+        let expanded = parse("fn ${1:name}() {\n    $0\n}");
+        assert_eq!(
+            expanded.text, "fn name() {\n\n}",
+            "the blank line kept its blanks"
+        );
+        let last = expanded.fields.last().expect("$0");
+        assert_eq!(last.number, 0);
+        assert_eq!(
+            (last.start, last.end),
+            (12, 12),
+            "it is at the start of its line"
+        );
+        assert_eq!(last.indent, "    ");
+        assert_eq!(
+            expanded.fields[0].indent, "",
+            "a field with text before it has nothing held"
+        );
+    }
+
+    #[test]
+    fn fields_after_a_held_back_line_move_up_with_it() {
+        let expanded = parse("a\n\t$1\nb $2 c\n  $0");
+        assert_eq!(expanded.text, "a\n\nb  c\n");
+        let at: Vec<(u32, usize, usize, &str)> = expanded
+            .fields
+            .iter()
+            .map(|f| (f.number, f.start, f.end, f.indent.as_str()))
+            .collect();
+        assert_eq!(at, vec![(1, 2, 2, "\t"), (2, 5, 5, ""), (0, 8, 8, "  ")]);
+    }
+
+    #[test]
+    fn a_blank_line_with_no_field_on_it_is_left_as_written() {
+        let expanded = parse("a\n    \nb$1");
+        assert_eq!(expanded.text, "a\n    \nb");
+        assert_eq!(expanded.fields[0].start, 8);
     }
 
     // ---- snippet files ---------------------------------------------------

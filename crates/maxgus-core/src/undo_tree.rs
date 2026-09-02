@@ -24,8 +24,8 @@ pub fn lay_out(shape: &[TreeNode], name: &str) -> Vec<Line> {
     let mut lines = vec![Line {
         node: 0,
         text: format!(
-            "Undo history for `{name}` — {} change(s)",
-            shape.len().saturating_sub(1)
+            "Undo history for `{name}` — {}",
+            crate::count(shape.len().saturating_sub(1), "change")
         ),
     }];
     lines.push(Line {
@@ -182,7 +182,7 @@ mod tests {
         let lines = lay_out(&shape(), "main.rs");
         assert!(lines[0].text.contains("main.rs"), "no buffer name");
         assert!(
-            lines[0].text.contains("2 change(s)"),
+            lines[0].text.contains("2 changes"),
             "got `{}`",
             lines[0].text
         );
@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn a_history_with_nothing_in_it_still_draws() {
         let lines = lay_out(&[node(0, None, vec![], 0)], "scratch");
-        assert!(lines[0].text.contains("0 change(s)"));
+        assert!(lines[0].text.contains("0 changes"));
         assert!(lines[2].text.contains("as it was opened"));
     }
 }

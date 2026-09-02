@@ -114,9 +114,14 @@ pub struct Editor {
     /// The snippets that have been loaded, from the configuration directory.
     pub snippets: Vec<crate::snippet::Snippet>,
     /// The fields of the snippet being filled in, as buffer offsets.
-    pub snippet_fields: Vec<(usize, usize)>,
+    pub snippet_fields: Vec<crate::snippet::Field>,
     /// Which of them point is on.
     pub snippet_field: usize,
+    /// The buffer length the fields were last made right for, when a
+    /// snippet command edited the buffer and moved them itself. The
+    /// dispatcher moves them past whatever a command changed, and this
+    /// tells it that part is done.
+    pub snippet_fields_fit: Option<usize>,
     /// Where a restored session wants point in each of its files.
     pub session_points: std::collections::HashMap<PathBuf, (usize, usize)>,
     /// Whether the session being restored had the panel open.
@@ -394,6 +399,7 @@ impl Editor {
             snippets: Vec::new(),
             snippet_fields: Vec::new(),
             snippet_field: 0,
+            snippet_fields_fit: None,
             session_points: std::collections::HashMap::new(),
             session_panel: false,
             editor_configs: std::collections::HashMap::new(),
@@ -966,9 +972,9 @@ impl Editor {
     /// text that is being changed under it, and one that is not moved points
     /// at the wrong characters after the first keystroke.
     pub fn shift_snippet_fields(&mut self, at: usize, delta: isize) {
-        for (start, end) in &mut self.snippet_fields {
-            *start = crate::multi::shift_by_delta(*start, at, delta);
-            *end = crate::multi::shift_by_delta(*end, at, delta);
+        for field in &mut self.snippet_fields {
+            field.start = crate::multi::shift_by_delta(field.start, at, delta);
+            field.end = crate::multi::shift_by_delta(field.end, at, delta);
         }
     }
 
@@ -1044,7 +1050,10 @@ impl Editor {
         }
         self.command_names.sort();
         self.script = Some(script);
-        self.message(format!("{count} command(s) from the script"));
+        self.message(format!(
+            "{} from the script",
+            crate::count(count, "command")
+        ));
     }
 
     // ---- the light beside the cursor -----------------------------------
@@ -1989,7 +1998,7 @@ impl Editor {
             });
         }
         self.session_panel = session.panel_open;
-        self.message(format!("Restoring {count} file(s)"));
+        self.message(format!("Restoring {}", crate::count(count, "file")));
     }
 
     /// Applies the outcome of a [`Task`].
@@ -2060,7 +2069,8 @@ impl Editor {
                     }
                 }
                 let lines = self.current_buffer().len_lines();
-                self.message_unless_error(format!("{} ({lines} lines)", path.display()));
+                let noun = if lines == 1 { "line" } else { "lines" };
+                self.message_unless_error(format!("{} ({lines} {noun})", path.display()));
                 // Where a restored session left the reader in this file.
                 if let Some((point, top_line)) = self.session_points.remove(&path) {
                     let point = point.min(self.buffers.get(id).map_or(0, |b| b.len_chars()));
@@ -2103,7 +2113,8 @@ impl Editor {
                     target.set_disk_time(disk_time);
                 }
                 self.notify_saved(buffer);
-                self.message(format!("Wrote {} ({bytes} bytes)", path.display()));
+                let noun = if bytes == 1 { "byte" } else { "bytes" };
+                self.message(format!("Wrote {} ({bytes} {noun})", path.display()));
                 Ok(())
             }
             TaskResult::WriteRefused {
@@ -2209,8 +2220,9 @@ impl Editor {
                     }
                 }
                 self.message(format!(
-                    "Wrote {} line(s) in {} file(s)",
-                    applied.lines, applied.files
+                    "Wrote {} in {}",
+                    crate::count(applied.lines, "line"),
+                    crate::count(applied.files, "file")
                 ));
                 Ok(())
             }
@@ -2937,13 +2949,18 @@ impl Editor {
             return;
         };
         let keep = self.git_row_at_cursor().cloned();
+        let was_at = self.git_cursor_line();
         let rows = self.git.lay_out();
         let text: String = rows
             .iter()
             .map(|row| format!("{}\n", self.git_row_text(row)))
             .collect();
         self.replace_buffer_contents(id, &text).ok();
-        let line = keep.and_then(|row| self.git.line_of(&row)).unwrap_or(0);
+        // The row point was on, or the nearest still shown; a whole section
+        // gone leaves the line number, which is at least where the eye is.
+        let line = keep
+            .and_then(|row| self.git.line_near(&row))
+            .unwrap_or(was_at);
         self.move_git_cursor_to_line(line);
     }
 
@@ -3453,7 +3470,9 @@ impl Editor {
         // buffers called `mod.rs` are told apart by where they are, and that
         // is exactly what the bare name leaves out.
         name.push_str(&self.project_path(buffer));
-        out.push(ModeLineSegment::new(name, "mode-line-buffer-id"));
+        let mut name = ModeLineSegment::new(name, "mode-line-buffer-id");
+        name.shortens = true;
+        out.push(name);
 
         // The coding system, which is how `set-buffer-file-coding-system`
         // reports itself. Only shown when it is not the ordinary one, so the
@@ -3617,6 +3636,9 @@ pub struct ModeLineSegment {
     /// problems there are — belongs on the right, where it can be glanced at
     /// without reading past it.
     pub right: bool,
+    /// True for a segment that may lose its front to fit a narrow bar,
+    /// rather than being left off it. The buffer's name is the one.
+    pub shortens: bool,
 }
 
 impl ModeLineSegment {
@@ -3625,6 +3647,7 @@ impl ModeLineSegment {
             text: text.into(),
             face,
             right: false,
+            shortens: false,
         }
     }
 
@@ -3633,6 +3656,7 @@ impl ModeLineSegment {
             text: text.into(),
             face,
             right: true,
+            shortens: false,
         }
     }
 }
@@ -3919,9 +3943,10 @@ mod tests {
         e.follow_point();
         let window = e.windows.current();
         let gutter = 2; // one digit and a space
+        let edge = 1; // the column kept for the `$`
         assert_eq!(
             window.left_column,
-            400 + 1 - (window.rect.width as usize - gutter),
+            400 + 1 - (window.rect.width as usize - gutter - edge),
             "point is the rightmost text column, after the gutter"
         );
     }

@@ -166,7 +166,11 @@ pub fn show(editor: &mut Editor, pattern: &str, found: maxgus_grep::Found) -> Re
     }
     editor.show_in_editing_window(id)?;
     editor.move_point_in(id, first);
-    editor.message(format!("{hits} match(es) in {files} file(s)"));
+    editor.message(format!(
+        "{} in {}",
+        crate::count(hits, "match"),
+        crate::count(files, "file")
+    ));
     Ok(())
 }
 
@@ -285,7 +289,7 @@ fn apply(editor: &mut Editor, _: &Args) -> Result<()> {
     }
     let count = replacements.len();
     editor.spawn(Task::ApplyGrep { replacements });
-    editor.message(format!("Writing {count} line(s)…"));
+    editor.message(format!("Writing {}…", crate::count(count, "line")));
     Ok(())
 }
 

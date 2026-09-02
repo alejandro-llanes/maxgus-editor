@@ -78,7 +78,16 @@ fn prompt_for_buffer(editor: &mut Editor, command: &str, verb: &str) {
         Some(name) => format!("{verb} (default {name}): "),
         None => format!("{verb}: "),
     };
-    let candidates = editor.buffers.visible_names();
+    // The list is in most-recent order, which puts the buffer being left at
+    // its head — and at the head is where the popup's highlight sits. Moved
+    // to the end, what the highlight sits on is the default the prompt
+    // names, and `RET` does what the screen says it will.
+    let mut candidates = editor.buffers.visible_names();
+    let leaving = editor.current_buffer().name().to_string();
+    if let Some(at) = candidates.iter().position(|name| *name == leaving) {
+        let name = candidates.remove(at);
+        candidates.push(name);
+    }
     editor.prompt_for(command, MinibufferKind::Buffer, prompt, "", candidates);
 }
 
@@ -424,6 +433,18 @@ mod tests {
             "got `{}`",
             e.minibuffer.prompt()
         );
+
+        // The popup highlights its first entry, so that has to be the
+        // default too, not the buffer being left.
+        assert_eq!(
+            e.completion_candidates.first().map(String::as_str),
+            Some("notes")
+        );
+        assert_eq!(
+            e.completion_candidates.last().map(String::as_str),
+            Some(crate::SCRATCH_NAME)
+        );
+        assert_eq!(e.minibuffer.completion().current(), Some("notes"));
 
         // An empty answer takes the default.
         d.handle_keys(&mut e, "RET");

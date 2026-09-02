@@ -300,8 +300,40 @@ fn select_section(editor: &mut Editor, args: &Args, name: &str, what: &str) -> R
                 .and_then(|w| editor.buffers.get(w.buffer))
                 .is_some_and(|b| b.name() == name)
         })
-        .ok_or_else(|| crate::CoreError::Message(format!("The {what} is not shown")))?;
+        .ok_or_else(|| {
+            let why = why_not_shown(editor, name);
+            crate::CoreError::Message(format!("The {what} is not shown: {why}"))
+        })?;
     editor.select_window(target);
     let _ = args;
     Ok(())
+}
+
+/// Why a section has no window, in the words of the setting to change or
+/// the thing to start. "Not shown" alone sends the reader to the manual.
+fn why_not_shown(editor: &Editor, name: &str) -> String {
+    let (section, setting) = match name {
+        crate::commands::tree::SYMBOLS_BUFFER_NAME => (PanelSection::Symbols, "panel-symbols"),
+        _ => (PanelSection::Buffers, "panel-buffers"),
+    };
+    if !editor.panel.is_enabled(section) {
+        return format!("`{setting}` is off");
+    }
+    if section != PanelSection::Symbols {
+        return "it has no window".into();
+    }
+    if !cfg!(feature = "full") {
+        return "this build has no language server support".into();
+    }
+    if !editor.settings.lsp_enabled {
+        return "`lsp-enabled` is off, and the outline comes from the language server".into();
+    }
+    let language = editor
+        .editing_buffer()
+        .and_then(|id| editor.buffers.get(id))
+        .and_then(|buffer| buffer.language().map(str::to_string));
+    match language {
+        Some(language) => format!("no language server is running for {language}"),
+        None => "the buffer being edited has no language, so no server to ask".into(),
+    }
 }

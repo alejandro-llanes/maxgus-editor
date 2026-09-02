@@ -239,10 +239,10 @@ impl DiredView {
                     self.entries.iter().partition(|entry| entry.is_dir);
                 let bytes: u64 = files.iter().map(|entry| entry.size).sum();
                 format!(
-                    "{}  —  {} file(s), {} director(ies), {}",
+                    "{}  —  {}, {}, {}",
                     self.path.display(),
-                    files.len(),
-                    dirs.len(),
+                    crate::count(files.len(), "file"),
+                    crate::count(dirs.len(), "directory"),
                     human_size(bytes)
                 )
             }
@@ -268,6 +268,42 @@ impl DiredView {
                     entry.permissions,
                     entry.modified
                 )
+            }
+        }
+    }
+
+    /// Where a row's faces go: `(column, length, face)` in characters from
+    /// its start. A marked or flagged row is coloured all the way across,
+    /// so the mark is seen without reading the first column; otherwise a
+    /// directory and a link are told from a file by their names.
+    pub fn row_faces(&self, row: &Row) -> Vec<(usize, usize, &'static str)> {
+        let text = self.row_text(row);
+        let whole = text.chars().count();
+        match row {
+            Row::Title => vec![(0, whole, "dired-header")],
+            Row::Blank | Row::Parent => Vec::new(),
+            Row::Entry(index) => {
+                let Some(entry) = self.entries.get(*index) else {
+                    return Vec::new();
+                };
+                match self.marks.get(*index).copied().unwrap_or(Mark::None) {
+                    Mark::Marked => return vec![(0, whole, "dired-marked")],
+                    Mark::Deleted => return vec![(0, whole, "dired-flagged")],
+                    Mark::None => {}
+                }
+                let face = match (&entry.link, entry.is_dir) {
+                    (Some(_), _) => "dired-symlink",
+                    (None, true) => "dired-directory",
+                    (None, false) => return Vec::new(),
+                };
+                // The name is the last field, so the columns before it are
+                // however many the text has that the name does not.
+                let name = match &entry.link {
+                    Some(target) => format!("{} -> {target}", entry.name),
+                    None => format!("{}/", entry.name),
+                };
+                let length = name.chars().count();
+                vec![(whole - length, length, face)]
             }
         }
     }
@@ -329,10 +365,42 @@ mod tests {
         let text = view().text();
         let lines: Vec<&str> = text.lines().collect();
         assert!(lines[0].contains("/project/src"), "no path: {:?}", lines[0]);
-        assert!(lines[0].contains("2 file(s)"), "no count: {:?}", lines[0]);
+        assert!(lines[0].contains("2 files"), "no count: {:?}", lines[0]);
         assert_eq!(lines[2], "  ..", "no way up");
         assert!(lines[3].contains("nested/"), "got {:?}", lines[3]);
         assert!(lines[4].contains("2.0k"), "no size: {:?}", lines[4]);
+    }
+
+    #[test]
+    fn a_row_says_which_face_goes_where() {
+        let mut view = view();
+        let faces = |view: &DiredView, line: usize| view.row_faces(view.row(line).unwrap());
+        let title = view.row_text(&Row::Title).chars().count();
+        assert_eq!(faces(&view, 0), vec![(0, title, "dired-header")]);
+        assert_eq!(faces(&view, 2), vec![], "`..` is plain");
+        // The directory's name, and only its name.
+        let row = view.row_text(view.row(3).unwrap());
+        let name = row.find("nested/").expect("the directory is on its row");
+        assert_eq!(
+            faces(&view, 3),
+            vec![(name, "nested/".len(), "dired-directory")]
+        );
+        assert_eq!(faces(&view, 4), vec![], "a file is plain");
+        // A mark colours the whole row, over what it was.
+        view.set_mark(3, Mark::Marked);
+        view.set_mark(4, Mark::Deleted);
+        let (marked, flagged) = (
+            view.row_text(view.row(3).unwrap()),
+            view.row_text(view.row(4).unwrap()),
+        );
+        assert_eq!(
+            faces(&view, 3),
+            vec![(0, marked.chars().count(), "dired-marked")]
+        );
+        assert_eq!(
+            faces(&view, 4),
+            vec![(0, flagged.chars().count(), "dired-flagged")]
+        );
     }
 
     #[test]

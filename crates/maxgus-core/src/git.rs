@@ -180,6 +180,67 @@ impl GitView {
         self.rows.iter().position(|candidate| candidate == row)
     }
 
+    /// The line of `row`, or of the nearest thing to it that is still
+    /// shown: the item before it in its section, then the section itself.
+    ///
+    /// Staging the last unstaged file takes its row away, and point has to
+    /// land somewhere. Magit's answer is what was around it, not the top
+    /// of the buffer.
+    pub fn line_near(&self, row: &Row) -> Option<usize> {
+        let mut candidate = row.clone();
+        loop {
+            if let Some(line) = self.line_of(&candidate) {
+                return Some(line);
+            }
+            candidate = match candidate {
+                Row::Line {
+                    section,
+                    file,
+                    hunk,
+                    line,
+                } if line > 0 => Row::Line {
+                    section,
+                    file,
+                    hunk,
+                    line: line - 1,
+                },
+                Row::Line {
+                    section,
+                    file,
+                    hunk,
+                    ..
+                } => Row::Hunk {
+                    section,
+                    file,
+                    hunk,
+                },
+                Row::Hunk {
+                    section,
+                    file,
+                    hunk,
+                } if hunk > 0 => Row::Hunk {
+                    section,
+                    file,
+                    hunk: hunk - 1,
+                },
+                Row::Hunk { section, file, .. } => Row::File { section, file },
+                Row::File { section, file } if file > 0 => Row::File {
+                    section,
+                    file: file - 1,
+                },
+                Row::File { section, .. } => Row::Section(section),
+                Row::Commit { section, commit } if commit > 0 => Row::Commit {
+                    section,
+                    commit: commit - 1,
+                },
+                Row::Commit { section, .. } => Row::Section(section),
+                Row::Stash(n) if n > 0 => Row::Stash(n - 1),
+                Row::Stash(_) => Row::Section(Section::Stashes),
+                _ => return None,
+            };
+        }
+    }
+
     /// The files a section shows.
     pub fn files(&self, section: Section) -> &[FileDiff] {
         match section {

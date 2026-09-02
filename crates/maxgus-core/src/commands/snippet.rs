@@ -9,7 +9,7 @@ use crate::command;
 use crate::command::{Args, Registry};
 use crate::editor::Editor;
 use crate::minibuffer::MinibufferKind;
-use crate::snippet::parse;
+use crate::snippet::{Field, parse};
 use crate::{CoreError, Result};
 
 pub fn register(registry: &mut Registry) {
@@ -136,13 +136,17 @@ fn insert_expansion(editor: &mut Editor, body: &str, at: usize) -> Result<()> {
         b.set_point(at);
         b.insert_at_point(&text)
     })?;
-    let fields: Vec<(usize, usize)> = expansion
+    let end = at + expansion.end();
+    let fields: Vec<Field> = expansion
         .fields
-        .iter()
-        .map(|field| (at + field.start, at + field.end))
+        .into_iter()
+        .map(|field| Field {
+            start: at + field.start,
+            end: at + field.end,
+            ..field
+        })
         .collect();
     if fields.is_empty() {
-        let end = at + expansion.end();
         editor.move_point_to(end);
         return Ok(());
     }
@@ -155,9 +159,36 @@ fn insert_expansion(editor: &mut Editor, body: &str, at: usize) -> Result<()> {
 /// Puts point on the current field, selecting its default so typing replaces
 /// it — which is what a default is for.
 fn go_to_field(editor: &mut Editor) {
-    let Some((start, end)) = editor.snippet_fields.get(editor.snippet_field).copied() else {
+    let Some(field) = editor.snippet_fields.get(editor.snippet_field) else {
         return;
     };
+    let (start, end) = (field.start, field.end);
+    // The blanks held back from a line that was nothing but this field go
+    // in now, so the reader lands indented rather than in column one.
+    let indent = std::mem::take(&mut editor.snippet_fields[editor.snippet_field].indent);
+    if !indent.is_empty() {
+        let inserted = indent.chars().count();
+        let at = start;
+        let placed = editor
+            .with_current_buffer(move |b| -> maxgus_text::Result<()> {
+                b.set_point(at);
+                b.insert_at_point(&indent)
+            })
+            .is_ok();
+        if placed {
+            editor.shift_snippet_fields(at, inserted as isize);
+            // This field went nowhere: it sits after what was put in.
+            let field = &mut editor.snippet_fields[editor.snippet_field];
+            field.start = at + inserted;
+            field.end = at + inserted;
+            editor.snippet_fields_fit = Some(editor.current_buffer().len_chars());
+            editor.move_point_to(at + inserted);
+            editor.with_current_buffer(|b| b.deactivate_mark());
+            let of = editor.snippet_fields.len();
+            editor.message(format!("Field {} of {of}", editor.snippet_field + 1));
+            return;
+        }
+    }
     editor.move_point_to(end);
     if start != end {
         editor.with_current_buffer(move |b| {

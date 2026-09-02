@@ -470,7 +470,7 @@ The tree is for browsing a project. `C-x d` is for working on a directory —
 marking a dozen files and doing something to all of them:
 
 ```
-/home/you/project/src  —  12 file(s), 2 director(ies), 84.2k
+/home/you/project/src  —  12 files, 2 directories, 84.2k
 
   ..
   drwxr-xr-x      - Aug 29 15:03 nested/
@@ -602,7 +602,7 @@ a *branch* beside the one you left.
 beside the buffer:
 
 ```
-Undo history for `main.rs` — 4 change(s)
+Undo history for `main.rs` — 4 changes
 
 o 0   the file as it was opened   (on disk)   [2 branches]
   * 3   1 change   ← here

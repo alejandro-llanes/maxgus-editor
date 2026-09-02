@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+- **A row that wraps says so, and so does a line that is cut.** With
+  `truncate-lines` off, a line that carried on across the rows below read
+  the same as two lines that happened to line up; on, a line the edge cut
+  off read as a line that ended there. The last column of a window is now
+  kept for what a terminal Emacs puts in it — `\` on a row that goes on,
+  `$` on a line the edge cuts — in the `fringe` face, and the text stops
+  one column short of the edge to leave it room. The position after the
+  last character of a line that exactly fills the text columns has that
+  column to itself, rather than being held one short.
+
+- **A narrow window's mode line leaves things off rather than cutting
+  them.** A tree pane or a thin split used to show `*treefile* 18:0 To`
+  with the position cut mid-word. Each piece goes on the bar whole or not
+  at all, the buffer's name keeps its end behind an ellipsis when it is
+  the piece that will not fit — `…/main.rs` says which file, the front of
+  a path does not — and the right-hand group gives way from its inner end,
+  problems first and the language last.
+
+- **After staging in magit, point stays where it was.** Staging the last
+  unstaged file, or a hunk, took its row away and sent point to the top of
+  the buffer, so staging a series of files was a series of trips back
+  down. Point lands on the row before the one that went — the previous
+  file, the previous hunk, the section's heading — and where a whole
+  section went with it, keeps its line.
+
+- **The region can be seen in `maxgus-dark`.** It was two shades off the
+  background. Every built-in theme has a `region` colour of its own now,
+  and it is a slate blue on the dark theme rather than a guess.
+
+- **dired's marks and directories have faces.** A `D` flag, a `*` mark,
+  a directory and a symbolic link used to be the same colour as everything
+  else, so a flagged row was found by reading the first column. `dired-flagged`
+  (red) and `dired-marked` (yellow) colour the whole row, `dired-directory`
+  and `dired-symlink` the name, and `dired-header` the title; all five are
+  in the theme and can be set from the configuration.
+
+- **The outline says why it is not shown.** "The outline is not shown" now
+  ends with the reason: the `panel-symbols` section is off, the build has no
+  language server support, `lsp-enabled` is off, no server is running for
+  the language, or the buffer has no language to ask a server about.
+
+- **`C-x b` highlights its default.** The popup's highlight sat on the
+  buffer being left, while the prompt named another buffer as the default
+  the empty answer would take. The buffer being left is last in the list
+  now, so the highlight and the default agree, and `RET` does what the
+  screen says.
+
+- **Small words.** "1 lines" and "1 bytes" are singular, and "2 file(s)",
+  "3 match(es)" and "1 director(ies)" are counted out — "2 files", "3
+  matches", "1 directory" — in every message that used to hedge. A snippet field
+  alone on an indented blank line — the body of `fn` — used to leave the
+  indentation behind as trailing whitespace; the line is left empty until
+  the field is reached, and indented then.
+
 - **In the window: the clipboard is wired to the kill ring.** `C-w` and
   `M-w` used to keep the text to themselves, and `C-y` never looked outside;
   only a mouse selection reached the system clipboard, and it overwrote it

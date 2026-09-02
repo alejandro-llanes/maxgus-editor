@@ -47,6 +47,15 @@ pub const UI_FACES: &[&str] = &[
     "magit-branch-local",
     "magit-branch-remote",
     "magit-tag",
+    // Dired's rows: the directory's own line, a directory and a link among
+    // the entries, and the rows marked `*` and flagged `D`, which are
+    // coloured all the way across so a mark is seen without reading the
+    // first column.
+    "dired-header",
+    "dired-directory",
+    "dired-symlink",
+    "dired-marked",
+    "dired-flagged",
     "terminal",
     "terminal-tab",
     "terminal-tab-selected",

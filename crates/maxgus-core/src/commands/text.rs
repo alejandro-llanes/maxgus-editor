@@ -418,7 +418,7 @@ fn delete_trailing_whitespace(editor: &mut Editor, _: &Args) -> Result<()> {
     let point = editor.windows.current().point;
     editor.with_current_buffer(move |b| b.replace_all(&cleaned))?;
     editor.move_point_to(point.min(editor.current_buffer().len_chars()));
-    editor.message(format!("Removed {removed} character(s)"));
+    editor.message(format!("Removed {}", crate::count(removed, "character")));
     Ok(())
 }
 

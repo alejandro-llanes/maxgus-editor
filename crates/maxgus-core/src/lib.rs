@@ -115,6 +115,46 @@ pub fn human_duration(elapsed: std::time::Duration) -> String {
     }
 }
 
+/// `n` of `noun`, as a person would write it: "1 file", "2 files",
+/// "3 matches", "4 directories". The echo area is read, and "1 file(s)"
+/// is written by something that could not be bothered to count.
+pub fn count(n: usize, noun: &str) -> String {
+    if n == 1 {
+        return format!("1 {noun}");
+    }
+    let plural = if let Some(stem) = noun.strip_suffix('y')
+        && !stem.ends_with(['a', 'e', 'i', 'o', 'u'])
+    {
+        format!("{stem}ies")
+    } else if noun.ends_with(['s', 'x', 'z']) || noun.ends_with("ch") || noun.ends_with("sh") {
+        format!("{noun}es")
+    } else {
+        format!("{noun}s")
+    };
+    format!("{n} {plural}")
+}
+
+#[cfg(test)]
+mod count_tests {
+    use super::count;
+
+    #[test]
+    fn one_is_singular_and_the_rest_are_not() {
+        assert_eq!(count(1, "file"), "1 file");
+        assert_eq!(count(0, "file"), "0 files");
+        assert_eq!(count(2, "line"), "2 lines");
+    }
+
+    #[test]
+    fn the_irregular_endings_are_spelt_out() {
+        assert_eq!(count(3, "match"), "3 matches");
+        assert_eq!(count(2, "directory"), "2 directories");
+        assert_eq!(count(2, "day"), "2 days");
+        assert_eq!(count(2, "change"), "2 changes");
+        assert_eq!(count(1, "directory"), "1 directory");
+    }
+}
+
 #[cfg(test)]
 mod duration_tests {
     use std::time::Duration;

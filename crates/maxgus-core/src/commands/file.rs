@@ -398,7 +398,7 @@ fn save_some_buffers(editor: &mut Editor, _: &Args) -> Result<()> {
         };
         write(editor, id, path)?;
     }
-    editor.message(format!("Saving {count} buffer(s)"));
+    editor.message(format!("Saving {}", crate::count(count, "buffer")));
     Ok(())
 }
 

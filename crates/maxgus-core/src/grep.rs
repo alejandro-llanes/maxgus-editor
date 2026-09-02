@@ -140,11 +140,11 @@ impl GrepView {
     pub fn row_text(&self, row: &Row) -> String {
         match row {
             Row::Title => {
-                let files = self.files.len();
                 format!(
-                    "{} matches for `{}` in {files} file(s), of {} searched",
-                    self.hits(),
+                    "{} for `{}` in {}, of {} searched",
+                    crate::count(self.hits(), "match"),
                     self.pattern,
+                    crate::count(self.files.len(), "file"),
                     self.files_searched
                 )
             }
@@ -242,7 +242,7 @@ mod tests {
     fn the_buffer_reads_as_a_list_of_files_and_their_lines() {
         let text = view().text();
         let lines: Vec<&str> = text.lines().collect();
-        assert!(lines[0].starts_with("3 matches for `alpha` in 2 file(s)"));
+        assert!(lines[0].starts_with("3 matches for `alpha` in 2 files"));
         assert_eq!(lines[2], "src/a.rs");
         assert_eq!(lines[3], "     1:fn alpha() {}");
         assert_eq!(lines[4], "     5:// alpha");

@@ -289,6 +289,7 @@ impl Dispatcher {
         let outcome = self.registry.execute(editor, name, &args);
 
         if let Some((point, length)) = snippet_before {
+            let length = editor.snippet_fields_fit.take().unwrap_or(length);
             let delta = editor.current_buffer().len_chars() as isize - length as isize;
             if delta != 0 {
                 let at = point.min(editor.windows.current().point);

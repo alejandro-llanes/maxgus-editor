@@ -2803,7 +2803,7 @@ fn dired_lists_a_real_directory_and_acts_on_what_is_marked() {
     session.settle();
     session.send(b"yes\r");
     assert!(
-        wait_for(&mut session, "Deleted 2 item(s)", 100),
+        wait_for(&mut session, "Deleted 2 items", 100),
         "the deletion did not happen:\n{:#?}",
         session.screen()
     );

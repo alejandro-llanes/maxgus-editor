@@ -835,7 +835,7 @@ fn a_narrow_terminal_still_renders_without_panicking() {
     s.editor.switch_to_buffer(id).unwrap();
     let screen = s.screen();
     assert_eq!(screen.len(), 3);
-    assert_eq!(screen[0], "x".repeat(20));
+    assert_eq!(screen[0], format!("{}$", "x".repeat(19)));
 }
 
 #[cfg(feature = "full")]
@@ -3414,6 +3414,12 @@ fn with_git() -> Session {
 
 #[cfg(feature = "full")]
 fn refresh_git(s: &mut Session) {
+    refresh_git_with(s, UNSTAGED_DIFF, STAGED_DIFF);
+}
+
+#[cfg(feature = "full")]
+/// A refresh whose unstaged and staged diffs are the ones given.
+fn refresh_git_with(s: &mut Session, unstaged: &str, staged: &str) {
     let status = maxgus_git::status::parse(
         b"# branch.oid 5958f5e13418d8b5\0\
           # branch.head main\0\
@@ -3426,8 +3432,8 @@ fn refresh_git(s: &mut Session) {
     let snapshot = maxgus_core::task::GitSnapshot {
         root: "/project".into(),
         status,
-        unstaged: maxgus_git::diff::parse(UNSTAGED_DIFF),
-        staged: maxgus_git::diff::parse(STAGED_DIFF),
+        unstaged: maxgus_git::diff::parse(unstaged),
+        staged: maxgus_git::diff::parse(staged),
         stashes: maxgus_git::log::parse_stashes("stash@{0}\u{1f}WIP on main\u{1e}\n"),
         unpushed: maxgus_git::log::parse_log(
             "h1\u{1f}abc1234\u{1f}Someone\u{1f}an hour ago\u{1f}\u{1f}not pushed yet\u{1e}\n",
@@ -3605,6 +3611,57 @@ fn staging_a_file_stages_that_file() {
         }
         other => panic!("expected a stage, got {other:?}"),
     }
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn point_stays_near_a_row_that_staging_took_away() {
+    // Staging a file moves it to another section. Point was on it, so it
+    // has nowhere exact to be; jumping to the top of the buffer would make
+    // staging a series of files a series of trips back down.
+    use maxgus_core::git::{Row, Section};
+    let second = "\
+diff --git a/src/c.rs b/src/c.rs
+index 555..666 100644
+--- a/src/c.rs
++++ b/src/c.rs
+@@ -1,1 +1,1 @@
+-c was
++c is
+";
+    let mut s = with_git();
+    refresh_git_with(&mut s, &format!("{UNSTAGED_DIFF}{second}"), STAGED_DIFF);
+    go_to_git(&mut s, |row| {
+        matches!(
+            row,
+            Row::File {
+                section: Section::Unstaged,
+                file: 1
+            }
+        )
+    });
+    s.keys("s");
+    // The second unstaged file is staged now: the one before it is what is
+    // left to look at.
+    refresh_git_with(&mut s, UNSTAGED_DIFF, &format!("{STAGED_DIFF}{second}"));
+    assert!(
+        matches!(
+            s.editor.git_row_at_cursor(),
+            Some(Row::File {
+                section: Section::Unstaged,
+                file: 0
+            })
+        ),
+        "point went to {:?}",
+        s.editor.git_row_at_cursor()
+    );
+    // And when the last one goes, the section with it, point at least
+    // keeps its line rather than leaping to the top.
+    let line = s.editor.git_cursor_line();
+    s.keys("s");
+    refresh_git_with(&mut s, "", &format!("{STAGED_DIFF}{UNSTAGED_DIFF}{second}"));
+    assert!(line > 1, "the fixture put the file on line {line}");
+    assert_eq!(s.editor.git_cursor_line(), line);
 }
 
 #[cfg(feature = "full")]
@@ -4770,12 +4827,32 @@ fn asking_for_the_outline_with_no_server_says_so() {
     s.keys("C-x t t");
     s.keys("C-x t 2");
     assert!(
-        s.echo().contains("outline is not shown"),
+        s.echo()
+            .contains("outline is not shown: no language server is running for rust"),
         "no explanation: `{}`",
         s.echo()
     );
     // And it left the selection alone rather than dropping it somewhere else.
     assert_eq!(s.editor.current_buffer().name(), "main.rs");
+    // With the server off, that is the reason, and it is said.
+    s.editor.settings.lsp_enabled = false;
+    s.keys("C-x t 2");
+    assert!(
+        s.echo().contains("`lsp-enabled` is off"),
+        "the setting to change is not named: `{}`",
+        s.echo()
+    );
+    // And when the section itself is off, that.
+    s.editor.settings.lsp_enabled = true;
+    s.editor
+        .panel
+        .set_enabled(maxgus_core::panel::PanelSection::Symbols, false);
+    s.keys("C-x t 2");
+    assert!(
+        s.echo().contains("`panel-symbols` is off"),
+        "the setting to change is not named: `{}`",
+        s.echo()
+    );
 }
 
 #[cfg(feature = "full")]
@@ -5837,7 +5914,7 @@ fn the_visualiser_on_a_buffer_with_no_history_still_opens() {
     s.keys("C-x U");
     assert_eq!(s.editor.current_buffer().name(), "*undo-tree*");
     assert!(
-        s.screen().iter().any(|l| l.contains("0 change(s)")),
+        s.screen().iter().any(|l| l.contains("0 changes")),
         "it did not say the history is empty:\n{:#?}",
         s.screen()
     );
@@ -6414,6 +6491,49 @@ fn tab_moves_to_the_next_field_and_backtab_comes_back() {
 }
 
 #[test]
+fn the_body_line_is_empty_until_it_is_reached_and_indented_then() {
+    let mut s = with_snippets();
+    s.type_text("for");
+    s.keys("TAB");
+    assert_eq!(
+        s.editor.current_buffer().text(),
+        "for item in items {\n\n}",
+        "the line waiting for the body is trailing whitespace"
+    );
+    s.keys("TAB"); // items
+    s.keys("TAB"); // the body
+    assert_eq!(
+        s.editor.current_buffer().text(),
+        "for item in items {\n    \n}",
+        "the indentation did not come back"
+    );
+    let point = s.editor.windows.current().point;
+    assert_eq!(
+        point,
+        "for item in items {\n    ".len(),
+        "point is not after the indent"
+    );
+    s.type_text("go();");
+    assert_eq!(
+        s.editor.current_buffer().text(),
+        "for item in items {\n    go();\n}"
+    );
+    // Going back and forward again does not indent twice.
+    s.keys("S-TAB");
+    s.keys("TAB");
+    assert_eq!(
+        s.editor.current_buffer().text(),
+        "for item in items {\n    go();\n}"
+    );
+    let point = s.editor.windows.current().point;
+    assert!(
+        ("for item in items {\n    ".len()..="for item in items {\n    go();".len())
+            .contains(&point),
+        "point left the body line: {point}"
+    );
+}
+
+#[test]
 fn the_last_tab_finishes_the_snippet_and_gives_tab_back() {
     let mut s = with_snippets();
     s.type_text("pr");
@@ -6623,6 +6743,56 @@ fn flagging_and_executing_deletes_what_was_flagged() {
         }
         other => panic!("expected a delete, got {other:?}"),
     }
+}
+
+#[test]
+fn a_directory_a_mark_and_a_flag_each_have_a_face() {
+    let mut s = with_dired();
+    let screen = s.screen();
+    let row_of = |screen: &[String], name: &str| {
+        screen
+            .iter()
+            .position(|line| line.contains(name))
+            .unwrap_or_else(|| panic!("no row for {name}"))
+    };
+    let theme = s.editor.theme.clone();
+    // The directory's name is in its face; the columns before it are not.
+    let y = row_of(&screen, "nested/") as u16;
+    let x = screen[y as usize].find("nested/").unwrap() as u16;
+    assert_eq!(
+        s.face_at(x, y).foreground,
+        theme.resolve("dired-directory").foreground
+    );
+    assert_eq!(
+        s.face_at(2, y).foreground,
+        theme.resolve("default").foreground
+    );
+    // A mark colours its whole row; a flag, its own colour.
+    s.keys("m"); // nested
+    s.keys("d"); // alpha.rs
+    let screen = s.screen();
+    let marked = row_of(&screen, "nested/") as u16;
+    let flagged = row_of(&screen, "alpha.rs") as u16;
+    assert!(
+        screen[marked as usize].starts_with('*'),
+        "{}",
+        screen[marked as usize]
+    );
+    assert!(
+        screen[flagged as usize].starts_with('D'),
+        "{}",
+        screen[flagged as usize]
+    );
+    let marked_face = theme.resolve("dired-marked").foreground;
+    let flagged_face = theme.resolve("dired-flagged").foreground;
+    assert_eq!(s.face_at(0, marked).foreground, marked_face);
+    assert_eq!(
+        s.face_at(x, marked).foreground,
+        marked_face,
+        "the name is part of the row"
+    );
+    assert_eq!(s.face_at(0, flagged).foreground, flagged_face);
+    assert_ne!(marked_face, flagged_face);
 }
 
 #[test]
@@ -8633,9 +8803,11 @@ fn a_long_line_is_wrapped_onto_the_rows_below_it() {
     // the setting said lines would wrap and they were still clipped.
     let mut s = wrapping("the quick brown fox jumps over it\nshort\n", 12, 8);
     let screen = s.screen();
+    // Eleven columns of text and a `\\` in the twelfth on a row that goes
+    // on, as a terminal Emacs draws it.
     assert_eq!(
         &screen[..4],
-        ["the quick br", "own fox jump", "s over it", "short"],
+        ["the quick b\\", "rown fox ju\\", "mps over it", "short"],
         "the line was clipped rather than wrapped: {screen:?}"
     );
 }
@@ -8672,13 +8844,14 @@ bb
 fn the_cursor_lands_on_the_row_the_character_was_drawn_on() {
     // The hardware cursor is placed by arithmetic and the text by the row
     // list. With wrapping the two only agree if they ask the same question.
+    // Eight columns less the one kept for the `\\` is seven of text.
     let mut s = wrapping("abcdefghijklmnop\n", 8, 8);
     s.editor.with_current_buffer(|b| b.set_point(10));
     s.editor.follow_point();
     assert_eq!(
         s.editor.cursor_position(),
-        (2, 1),
-        "the eleventh character is the third of the second row"
+        (3, 1),
+        "the eleventh character is the fourth of the second row"
     );
 }
 
@@ -8692,21 +8865,22 @@ fn point_at_the_end_of_a_wrapped_line_sits_on_its_last_row() {
     s.editor.follow_point();
     assert_eq!(
         s.editor.cursor_position(),
-        (2, 1),
+        (3, 1),
         "point sat off its own line"
     );
 }
 
 #[test]
-fn point_past_the_edge_of_a_full_row_is_held_at_the_edge() {
-    // A line exactly as wide as the window has nowhere on screen to put the
-    // position after its last character. It is held in the last column
-    // rather than drawn outside the window: on the right line, one column
-    // short, which is the least wrong of the places it could go.
-    let mut s = wrapping("abcdefgh\nnext\n", 8, 8);
-    s.editor.with_current_buffer(|b| b.set_point(8));
+fn point_past_the_edge_of_a_full_row_sits_in_the_column_kept_for_it() {
+    // A line exactly as wide as the text columns puts the position after
+    // its last character in the column the edge marks have — which is
+    // free, since a line that ends here has no mark. The line is not
+    // wrapped for it, and point is not held short of it.
+    let mut s = wrapping("abcdefg\nnext\n", 8, 8);
+    s.editor.with_current_buffer(|b| b.set_point(7));
     s.editor.follow_point();
     assert_eq!(s.editor.cursor_position(), (7, 0));
+    assert_eq!(s.screen()[1].trim_end(), "next", "the line took one row");
 }
 
 #[test]
@@ -8742,7 +8916,12 @@ after
     );
     // And what is drawn is the end of the line, not the start of it.
     let screen = s.screen();
-    assert!(screen[0].starts_with("0123456789"), "got {:?}", screen[0]);
+    assert_ne!(screen[0], "012345678\\", "the start of the line is shown");
+    assert!(
+        screen[0].ends_with('\\'),
+        "a row that goes on: {:?}",
+        screen[0]
+    );
     assert_ne!(
         s.editor.windows.current().top_row,
         0,

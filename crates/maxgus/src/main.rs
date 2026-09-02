@@ -184,8 +184,8 @@ async fn main() -> Result<()> {
     // never stop the editor starting.
     if !warnings.is_empty() {
         editor.error(format!(
-            "{} configuration problem(s): {}",
-            warnings.len(),
+            "{}: {}",
+            maxgus_core::count(warnings.len(), "configuration problem"),
             warnings
                 .iter()
                 .map(ToString::to_string)

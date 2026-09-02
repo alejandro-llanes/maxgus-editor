@@ -13,7 +13,7 @@
 use crate::{editor::Editor, window::Window};
 use maxgus_faces::{Face, Theme};
 use maxgus_text::{Buffer, Range};
-use maxgus_tui::{Rect, Surface};
+use maxgus_tui::{Rect, Surface, char_width};
 
 /// The text area of a window, in cells: what it draws its buffer into, which
 /// is its own rectangle without the mode line and without the echo area.
@@ -2117,10 +2117,15 @@ pub(crate) fn wrap_width(editor: &Editor, window: &Window, buffer: &Buffer) -> O
     Some(text_columns(editor, window, buffer))
 }
 
-/// The columns a window has for text once the line numbers have taken theirs.
+/// The columns a window has for text once the line numbers have taken
+/// theirs, and the last column its own: that is where a row says it goes
+/// on (`\`) or that the line does (`$`), as a terminal Emacs does, so the
+/// text stops short of it.
 pub(crate) fn text_columns(editor: &Editor, window: &Window, buffer: &Buffer) -> usize {
     let area = text_area(editor, window.id).unwrap_or(window.rect);
-    area.width.saturating_sub(line_number_width(editor, buffer)) as usize
+    area.width
+        .saturating_sub(line_number_width(editor, buffer))
+        .saturating_sub(1) as usize
 }
 
 /// One screen row's worth of a line.
@@ -2260,6 +2265,7 @@ fn draw_text(editor: &Editor, surface: &mut Surface, window: &Window, buffer: &B
     let last_line = (window.top_line + area.height as usize).min(buffer.len_lines());
     let matches = resolve_search_matches(editor, buffer, first_line, last_line);
     let paren = matching_delimiter(editor, buffer, window);
+    let decorations = resolve_decorations(editor, buffer, first_line, last_line);
 
     // The fill column, marked before the text so the text draws over it.
     if editor.settings.fill_column_indicator {
@@ -2283,6 +2289,7 @@ fn draw_text(editor: &Editor, surface: &mut Surface, window: &Window, buffer: &B
             &LineArea { area, gutter },
             &Overlays {
                 diagnostics: &diagnostics,
+                decorations: &decorations,
                 matches: &matches,
                 paren,
             },
@@ -2440,6 +2447,9 @@ struct LineArea {
 /// What is drawn over the buffer text, resolved once for the whole window.
 struct Overlays<'a> {
     diagnostics: &'a [(Range, &'static str)],
+    /// The faces a mode lays over its own buffer — dired's marks and
+    /// directories — under everything the user does to the text.
+    decorations: &'a [(Range, &'static str)],
     /// Every match of a running search that is on screen.
     matches: &'a [Range],
     /// The delimiter matching the one under point, and the one under point.
@@ -2460,7 +2470,9 @@ fn draw_line(
     let layers = Layers::new(editor, window, buffer, visual.line, overlays);
 
     let left = area.x + gutter;
-    let right = area.right();
+    // The last column is kept for the edge marks, so text stops before it.
+    let edge = area.right().saturating_sub(1);
+    let right = edge.max(left);
     // The display column of the first character on this row, counted from
     // the start of the line so tabs land on their usual stops.
     let mut column = visual.column;
@@ -2503,17 +2515,30 @@ fn draw_line(
         offset += 1;
     }
 
+    let line_end = maxgus_text::Motion::line_end(buffer.rope(), buffer.line_start(visual.line));
     // The region and search highlights extend across the newline, so a
     // selected line reads as selected all the way to the right edge. Only
     // on the row the line actually ends on: a continuation row runs into
     // the next one, and there is no newline under it to extend across.
-    if offset >= maxgus_text::Motion::line_end(buffer.rope(), buffer.line_start(visual.line))
+    if offset >= line_end
         && let Some(face) = layers.eol_face()
     {
         let x = left + (column.saturating_sub(visual.origin) as u16);
-        for at in x..right {
+        for at in x..area.right() {
             surface.set(at, y, cell(' ', face));
         }
+    }
+
+    // What a terminal Emacs puts in the last column: `\` on a row that
+    // wraps on to the next, `$` on a line cut off by the edge. Without it a
+    // line that wraps and two lines that happen to align read the same.
+    if offset < line_end && edge >= left {
+        let mark = if editor.settings.truncate_lines {
+            '$'
+        } else {
+            '\\'
+        };
+        surface.set(edge, y, cell(mark, editor.theme.resolve("fringe")));
     }
 }
 
@@ -2539,6 +2564,8 @@ struct Layers<'a> {
     /// Delimiter positions to mark on this line.
     parens: Vec<usize>,
     diagnostics: Vec<(Range, &'static str)>,
+    /// The mode's own faces on this line.
+    decorations: Vec<(Range, &'static str)>,
     /// Trailing whitespace on this line, when the face is worth showing.
     trailing: Option<Range>,
     /// True when the region or a match runs past the end of this line.
@@ -2609,6 +2636,12 @@ impl<'a> Layers<'a> {
             .filter(|(r, _)| r.overlaps(&line_range))
             .copied()
             .collect();
+        let decorations: Vec<(Range, &'static str)> = overlays
+            .decorations
+            .iter()
+            .filter(|(r, _)| r.overlaps(&line_range))
+            .copied()
+            .collect();
         let trailing = trailing_whitespace(buffer, line_range);
 
         Layers {
@@ -2623,6 +2656,7 @@ impl<'a> Layers<'a> {
             others,
             parens,
             diagnostics,
+            decorations,
             trailing,
             region_spans_eol,
         }
@@ -2644,6 +2678,9 @@ impl<'a> Layers<'a> {
             {
                 face.overlay(&self.theme.resolve_overlay(span.face));
             }
+        }
+        if let Some((_, name)) = self.decorations.iter().find(|(r, _)| r.contains(offset)) {
+            face.overlay(&self.theme.resolve_overlay(name));
         }
         if self.trailing.is_some_and(|r| r.contains(offset)) {
             face.overlay(&self.theme.resolve_overlay("trailing-whitespace"));
@@ -2700,6 +2737,34 @@ fn resolve_diagnostics(editor: &Editor, buffer: &Buffer) -> Vec<(Range, &'static
             let end = crate::position::offset_of_position(buffer, d.range.end, encoding);
             // A zero-width diagnostic still marks the character it sits on.
             (Range::new(start.min(end), end.max(start + 1)), d.face())
+        })
+        .collect()
+}
+
+/// The faces a mode lays over its own buffer, for the lines on screen.
+///
+/// Dired is the one so far: it writes plain text into its buffer, and says
+/// here which of it is a directory, a link, or a row that is marked.
+fn resolve_decorations(
+    editor: &Editor,
+    buffer: &Buffer,
+    first_line: usize,
+    last_line: usize,
+) -> Vec<(Range, &'static str)> {
+    if buffer.name() != crate::commands::dired::DIRED_BUFFER_NAME {
+        return Vec::new();
+    }
+    let Some(view) = editor.dired.as_ref() else {
+        return Vec::new();
+    };
+    (first_line..last_line)
+        .filter_map(|line| Some((buffer.line_start(line), view.row(line)?)))
+        .flat_map(|(start, row)| {
+            view.row_faces(row)
+                .into_iter()
+                .map(move |(column, length, face)| {
+                    (Range::new(start + column, start + column + length), face)
+                })
         })
         .collect()
 }
@@ -2849,38 +2914,63 @@ fn draw_mode_line(
     };
 
     let segments = editor.mode_line_segments(window.id);
-    let (right, left): (Vec<_>, Vec<_>) = segments.into_iter().partition(|s| s.right);
+    let (mut right, left): (Vec<_>, Vec<_>) = segments.into_iter().partition(|s| s.right);
+    let width = |text: &str| -> u16 { text.chars().map(|c| char_width(c) as u16).sum() };
 
+    // A segment is a word: it goes on the bar whole or not at all, since
+    // `18:0 To` cut off mid-word says less than nothing. The buffer's name
+    // is the one exception, kept by losing its front — the end of a path
+    // is the part that tells files apart — because it is what a narrow
+    // window most needs the bar to say.
     let mut x = area.x;
     for segment in &left {
-        if x >= area.right() {
-            break;
+        let room = area.right() - x;
+        if width(&segment.text) <= room {
+            x = surface.set_string(x, area.y, &segment.text, paint(segment.face), room);
+            continue;
         }
-        x = surface.set_string(
-            x,
+        if segment.shortens && room > 1 {
+            let text = shortened_from_the_front(&segment.text, room);
+            x = surface.set_string(x, area.y, &text, paint(segment.face), room);
+        }
+        break;
+    }
+
+    // The right-hand group sits against the edge, and gives way from its
+    // inner end — problems, then the branch, then the language — until
+    // what is left fits beside the left-hand group.
+    while !right.is_empty() && x + right.iter().map(|s| width(&s.text)).sum::<u16>() > area.right()
+    {
+        right.remove(0);
+    }
+    let mut at = area.right() - right.iter().map(|s| width(&s.text)).sum::<u16>();
+    for segment in &right {
+        at = surface.set_string(
+            at,
             area.y,
             &segment.text,
             paint(segment.face),
-            area.right() - x,
+            area.right() - at,
         );
     }
+}
 
-    // The right-hand group is placed from the edge inwards, and dropped
-    // rather than overlapped when the bar is too narrow for both: the file
-    // being edited is what must survive a narrow window.
-    let width: u16 = right.iter().map(|s| s.text.chars().count() as u16).sum();
-    let mut at = area.right().saturating_sub(width);
-    if at > x {
-        for segment in &right {
-            at = surface.set_string(
-                at,
-                area.y,
-                &segment.text,
-                paint(segment.face),
-                area.right() - at,
-            );
+/// The last `room` columns of `text`, behind an ellipsis that says the
+/// front went.
+fn shortened_from_the_front(text: &str, room: u16) -> String {
+    let mut kept = Vec::new();
+    let mut used = 1;
+    for c in text.chars().rev() {
+        let wide = char_width(c) as u16;
+        if used + wide > room {
+            break;
         }
+        used += wide;
+        kept.push(c);
     }
+    std::iter::once('\u{2026}')
+        .chain(kept.into_iter().rev())
+        .collect()
 }
 
 #[cfg(feature = "full")]
@@ -3499,14 +3589,29 @@ mod tests {
         let (mut e, mut s) = setup("abcdefghijklmnop\n", 10, 4);
         e.windows.current_mut().left_column = 4;
         let lines = rendered(&e, &mut s);
-        assert_eq!(lines[0], "efghijklmn");
+        assert_eq!(lines[0], "efghijklm$");
     }
 
     #[test]
     fn a_long_line_is_clipped_at_the_right_edge() {
+        // With a `$` in the last column to say so, as a terminal Emacs
+        // does; a line that just fits has no mark.
         let (e, mut s) = setup(&"x".repeat(100), 10, 4);
         let lines = rendered(&e, &mut s);
-        assert_eq!(lines[0], "xxxxxxxxxx");
+        assert_eq!(lines[0], "xxxxxxxxx$");
+        let (e, mut s) = setup(&"x".repeat(9), 10, 4);
+        let lines = rendered(&e, &mut s);
+        assert_eq!(lines[0], "xxxxxxxxx ");
+    }
+
+    #[test]
+    fn a_row_that_wraps_ends_in_a_backslash() {
+        let (mut e, mut s) = setup("abcdefghijklmnop\nshort\n", 10, 6);
+        e.settings.truncate_lines = false;
+        let lines = rendered(&e, &mut s);
+        assert_eq!(lines[0], "abcdefghi\\");
+        assert_eq!(lines[1], "jklmnop   ");
+        assert_eq!(lines[2], "short     ");
     }
 
     #[test]
@@ -3741,6 +3846,43 @@ mod tests {
             "one warning, got `{}`",
             lines[3]
         );
+    }
+
+    #[test]
+    fn a_narrow_mode_line_leaves_things_off_rather_than_cutting_them() {
+        // Twenty columns: room for the flags and a name, not for the
+        // position. `18:0 To` cut short is worse than no position at all.
+        let plain = Settings {
+            nerd_font_icons: false,
+            ..Settings::default()
+        };
+        let mut editor = Editor::new(
+            plain.clone(),
+            defaults::builtin("maxgus-dark").unwrap(),
+            Rect::new(0, 0, 20, 5),
+        );
+        let id = editor
+            .buffers
+            .visit_file("/project/main.rs", "let x = 1;\n");
+        editor.switch_to_buffer(id).unwrap();
+        let mut s = Surface::new(Size::new(20, 5));
+        let lines = rendered(&editor, &mut s);
+        assert_eq!(lines[3].trim_end(), " -- 11 main.rs");
+
+        // Narrower than the name: the name gives up its front, and its
+        // end, the part that says which file, is what shows.
+        let mut editor = Editor::new(
+            plain,
+            defaults::builtin("maxgus-dark").unwrap(),
+            Rect::new(0, 0, 16, 5),
+        );
+        let id = editor
+            .buffers
+            .visit_file("/project/the-long-way-round.rs", "let x = 1;\n");
+        editor.switch_to_buffer(id).unwrap();
+        let mut s = Surface::new(Size::new(16, 5));
+        let lines = rendered(&editor, &mut s);
+        assert_eq!(lines[3].trim_end(), " -- 11 …round.rs");
     }
 
     #[test]

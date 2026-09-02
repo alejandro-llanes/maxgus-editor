@@ -836,7 +836,10 @@ fn apply_text_edits(editor: &mut Editor, edits: Option<&[serde_json::Value]>) {
     }
     editor.with_current_buffer(|b| b.set_point(point.min(b.point_max())));
     editor.follow_point();
-    editor.message(format!("Applied {} change(s)", resolved.len()));
+    editor.message(format!(
+        "Applied {}",
+        crate::count(resolved.len(), "change")
+    ));
 }
 
 /// Applies a `WorkspaceEdit`, which a rename produces and which a server may
@@ -871,13 +874,14 @@ pub(crate) fn apply_workspace_edit(editor: &mut Editor, result: &serde_json::Val
                 apply_edits_to(editor, uri, edits);
             }
             match skipped.is_empty() {
-                true => editor.message(format!("Applied {total} change(s)")),
+                true => editor.message(format!("Applied {}", crate::count(total, "change"))),
                 // Said as an error so it is not talked over: the edit only
                 // half happened and the user has to know which half.
                 false => editor.error(format!(
-                    "Applied {total} change(s), but not {} file operation(s) the server asked for \
-                     ({}); those files were left alone",
-                    skipped.len(),
+                    "Applied {}, but not {} the server asked for ({}); those files were \
+                     left alone",
+                    crate::count(total, "change"),
+                    crate::count(skipped.len(), "file operation"),
                     skipped.join(", ")
                 )),
             }
@@ -892,7 +896,7 @@ pub(crate) fn apply_workspace_edit(editor: &mut Editor, result: &serde_json::Val
         total += edits.map_or(0, |e| e.len());
         apply_edits_to(editor, uri, edits);
     }
-    editor.message(format!("Applied {total} change(s)"));
+    editor.message(format!("Applied {}", crate::count(total, "change")));
     total
 }
 
@@ -990,7 +994,10 @@ fn list_code_actions(editor: &mut Editor, result: &serde_json::Value) {
     }
     let count = titles.len();
     show_listing(editor, &text, Listing::default());
-    editor.message(format!("{count} code action(s); no edit was offered"));
+    editor.message(format!(
+        "{}; no edit was offered",
+        crate::count(count, "code action")
+    ));
 }
 
 fn list_symbols(editor: &mut Editor, heading: &str, result: &serde_json::Value) {
@@ -1233,7 +1240,7 @@ mod tests {
             "got `{}`",
             e.minibuffer.display()
         );
-        assert_eq!(e.minibuffer.display(), "Applied 1 change(s)");
+        assert_eq!(e.minibuffer.display(), "Applied 1 change");
     }
 
     #[test]

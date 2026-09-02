@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 #
-# Records the short clips the website plays, from the real `gui` build.
+# Takes the screenshots of the `gui` build that the website and the README
+# use.
 #
-#     ./scripts/record-demos.sh                 # all of them
-#     ./scripts/record-demos.sh blur treefile   # only those
-#     ./scripts/record-demos.sh --list
+#     ./scripts/screenshots-gui.sh                 # all of them
+#     ./scripts/screenshots-gui.sh magit tree      # only those
+#     ./scripts/screenshots-gui.sh --list
 #
-# Each clip is the editor itself being typed at — not a mock-up, and not a
-# capture of somebody's desktop with their wallpaper and their notifications
-# in it.
+# Each one is the editor itself, driven by keystrokes and photographed — not
+# a mock-up, and not a capture of somebody's desktop with their wallpaper
+# and their notifications in it.
 #
 # # Where it runs
 #
@@ -18,9 +19,9 @@
 #   - nothing appears on the screen of whoever runs it. There is no window
 #     to cover, to move, or to type into by accident.
 #   - the keystrokes go to that compositor rather than to whatever is
-#     focused, so a take cannot be spoiled by the person at the keyboard and
+#     focused, so a shot cannot be spoiled by the person at the keyboard and
 #     cannot spoil what they were doing.
-#   - the output is exactly 1280x720 every time, so re-recording one clip
+#   - the window is exactly 1280x720 every time, so re-taking one picture
 #     replaces it rather than producing something that has to be cropped to
 #     match the others.
 #
@@ -30,41 +31,59 @@
 #
 # # What it needs
 #
-#     pacman -S cage wf-recorder wtype ffmpeg
+#     pacman -S cage grim wtype
 #
 # and a `gui` build, which `./scripts/build-variants.sh` leaves in
 # `target/variants/maxgus-gui`.
 #
-# The editor is started with `scripts/record-demos.kdl` rather than with your
-# own configuration, so the clips show what ships.
+# The editor is started with `scripts/screenshots-gui.kdl` rather than with
+# your own configuration, so the pictures show what ships.
 #
-# The output is `docs/media/<name>.webm`, `.mp4` and `.jpg` — VP9 for
-# browsers that take it, H.264 for the rest, and a poster frame to show
-# before either has loaded. `site/index.html` plays them and
-# `.github/workflows/pages.yml` ships them.
-#
-# The raw captures are kept in `target/demo-raw`, so the encoding can be
-# changed and everything re-encoded without recording anything again:
-#
-#     ./scripts/record-demos.sh --encode-only
+# The output is `docs/screenshots/gui-<name>.png`, which is where
+# `site/index.html` and the README look for them and what
+# `.github/workflows/pages.yml` publishes.
 #
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-out="$root/docs/media"
-raw_dir="$root/target/demo-raw"
+out="$root/docs/screenshots"
 binary="$root/target/variants/maxgus-gui"
 [ -x "$binary" ] || binary="$root/target/release/maxgus"
 
 WIDTH=1280
 HEIGHT=720
-FPS=30
 
-# The demo project is this one: real code, real git history, real symbols.
-PROJECT="$root"
+# A copy of this project, at a path with nobody's name in it.
+#
+# Every picture shows a path somewhere — the mode line, the echo area, the
+# grep results, the terminal's prompt — and these go on a public page. A
+# copy costs a second and keeps somebody's home directory out of all of
+# them. It is named `maxgus-editor` so the file tree is rooted where a
+# reader would expect.
+PROJECT=""
+
+project_copy() {
+    local dir=/tmp/maxgus-screenshots/maxgus-editor
+    if [ -d "$dir/.git" ]; then
+        printf '%s' "$dir"
+        return
+    fi
+    rm -rf "$dir"
+    mkdir -p "$dir"
+    # What is committed, so a working tree half way through something does
+    # not end up in the pictures.
+    git -C "$root" archive HEAD | tar -x -C "$dir"
+    git -C "$dir" init -q -b main
+    git -C "$dir" add -A
+    git -C "$dir" \
+        -c user.name=maxgus -c user.email=maxgus@example.com \
+        -c commit.gpgsign=false \
+        commit -q -m "A very small Emacs, written in Rust"
+    printf '%s' "$dir"
+}
 
 say() { printf '\033[1m%s\033[0m\n' "$*"; }
-die() { printf 'record-demos: %s\n' "$*" >&2; exit 1; }
+die() { printf 'screenshots-gui: %s\n' "$*" >&2; exit 1; }
 
 # ---- pressing keys -------------------------------------------------------
 #
@@ -80,6 +99,14 @@ alt()      { wtype -M alt -k "$1" -m alt; }
 # gives `M-,`, which is a different command and was quietly being recorded
 # as one.
 meta()     { wtype -M alt -k "$1" -m alt; }
+ctrl_shift() { wtype -M ctrl -M shift -k "$1" -m shift -m ctrl; }
+
+# `grim` writes what the compositor has on its output, which is the editor
+# and nothing else — no bar, no wallpaper, no cursor.
+capture() {
+    grim "$out/gui-$1.png"
+    printf '  %-7s %s\n' "$(du -h "$out/gui-$1.png" | cut -f1)" "docs/screenshots/gui-$1.png"
+}
 text()     { wtype "$1"; }
 
 # The editor draws on a pause. A take with no pauses in it records the
@@ -102,87 +129,146 @@ open_file() {
     pause 1.0
 }
 
-# ---- the clips -----------------------------------------------------------
+# ---- the shots ----------------------------------------------------------
+#
+# One function per picture, each ending in `capture`. The pauses are part of
+# the work rather than padding: the editor draws on a lull, so a shot taken
+# without them is a shot of the editor mid-thought.
 
-clip_scrolling() {
-    open_file "crates/maxgus-core/src/editor.rs"
+shot_editor() {
+    panel_open
     pause 1.0
-    for _ in 1 2 3 4 5; do ctrl v; pause 0.45; done
-    for _ in 1 2 3; do alt v; pause 0.45; done
-    meta greater; pause 1.4          # M-> : the far end of a long file
-    meta less;  pause 1.2          # M-< : and back to the top
+    capture editor
 }
 
-clip_blur() {
-    pause 1.0
-    ctrl x; key b                       # the buffer list, over the code
+shot_which_key() {
+    pause 0.6
+    ctrl c                              # hold a prefix, and read the panel
     pause 1.8
-    ctrl g; pause 0.6
-    alt x                               # M-x, and the same blur under it
-    pause 0.4
-    text "describe"
-    pause 1.8
-    ctrl g; pause 0.8
+    capture which-key
 }
 
-clip_cursor() {
-    pause 1.0
-    meta greater; pause 1.5          # a jump, and the light after it
-    meta less;  pause 1.5
-    ctrl s; text "pub fn"; pause 0.8    # and another, out of a search
-    key Return; pause 1.5
+shot_buffers() {
+    pause 0.6
+    ctrl x; pause 0.3; key b            # the switcher, over blurred code
+    pause 1.6
+    capture buffers
 }
 
-clip_treefile() {
-    pause 1.0
-    # `C-x t t` opens the side panel and `C-x t 1` moves into it — opening
-    # it does not take the cursor there, which is right for editing and
-    # wrong for a clip that then presses Down.
-    ctrl x; pause 0.25; key t; pause 0.25; key t
-    pause 1.8
-    ctrl x; pause 0.25; key t; pause 0.25; key 1
-    pause 1.0
-    for _ in 1 2 3 4 5 6; do key Down; pause 0.3; done
-    key Return; pause 2.2                # open what is under the cursor
+shot_command() {
+    pause 0.6
+    alt x; pause 0.5
+    text "buf"                          # M-x, fuzzy-matching as it is typed
+    pause 1.6
+    capture command
 }
 
-clip_magit() {
-    pause 1.0
-    ctrl x; key g                       # the status view
-    pause 2.2
-    # Down to the modified file rather than to an untracked one: an
-    # untracked file has no diff to open, and a clip of nothing happening
-    # is not a clip of magit.
-    for _ in 1 2 3 4 5 6 7 8; do key Down; pause 0.22; done
-    key Tab; pause 2.2                  # open its diff
-    text "s"; pause 2.2                 # stage it, and watch it move
-}
-
-clip_whichkey() {
-    pause 1.0
-    ctrl c; pause 2.4                   # hold the prefix, read the panel
-    ctrl g; pause 0.5
-    ctrl x; pause 2.4
-    ctrl g; pause 0.8
-}
-
-clip_ligatures() {
-    pause 1.2
-    ctrl s; text "=>"; pause 1.0        # where the operators are
-    key Return; pause 1.0
-    ctrl g; pause 2.6
-}
-
-clip_grammar() {
-    pause 1.0
+shot_grammar() {
+    pause 0.6
     alt x; pause 0.4
-    text "install-grammar"; pause 1.2
-    key Return; pause 3.0               # the menu of every parser there is
-    text "zig"; pause 2.2
-    ctrl g; pause 0.8
+    text "install-grammar"; pause 1.0
+    key Return; pause 3.0               # every parser tree-sitter lists
+    text "zig"; pause 2.0
+    capture grammar
 }
 
-CLIPS="scrolling blur cursor treefile magit whichkey ligatures grammar"
+shot_ligatures() {
+    pause 0.8
+    ctrl s; text "=>"; pause 1.0        # where the operators are
+    key Return; pause 0.6
+    ctrl g; pause 1.2
+    capture ligatures
+}
+
+# There is no shot of the beacon here. The light fades in a few hundred
+# milliseconds and a still of it, caught at the right moment, reads as a
+# smudge beside the cursor rather than as the thing it is.
+# `docs/screenshots/beacon.svg` — drawn by `cargo run --example screenshot`,
+# which composes the frame rather than photographing it — shows it properly.
+
+shot_tree() {
+    panel_open
+    pause 0.8
+    ctrl x; pause 0.25; key t; pause 0.25; key 1
+    pause 0.6
+    for _ in 1 2 3 4 5 6; do key Down; pause 0.2; done
+    pause 1.0
+    capture tree
+}
+
+shot_magit() {
+    pause 0.8
+    ctrl x; pause 0.3; key g            # the status view
+    pause 2.0
+    for _ in 1 2 3 4 5 6 7 8; do key Down; pause 0.2; done
+    key Tab; pause 1.8                  # with one diff opened
+    capture magit
+}
+
+shot_terminal() {
+    pause 0.6
+    ctrl x; pause 0.25; key t; pause 0.25; key v
+    pause 2.5
+    text "cargo --version"; key Return
+    pause 2.0
+    capture terminal
+}
+
+shot_grep() {
+    pause 0.6
+    meta s; pause 0.4; key g            # M-s g: search the project
+    pause 0.8
+    text "impl Highlighter"; key Return
+    pause 3.0
+    capture grep
+}
+
+shot_cursors() {
+    pause 0.8
+    ctrl s; text "score"; pause 0.6     # find a word, then take the next few
+    key Return; pause 0.5
+    ctrl g; pause 0.5
+    for _ in 1 2 3; do ctrl_shift greater; pause 0.5; done
+    pause 1.0
+    capture cursors
+}
+
+shot_dired() {
+    pause 0.6
+    ctrl x; pause 0.3; key d
+    pause 0.8
+    key Return
+    pause 2.0
+    capture dired
+}
+
+shot_undo() {
+    pause 0.6
+    meta greater; pause 0.5             # at the end, where nothing is in the way
+    key Return
+    text "// one way of putting it"; pause 0.5
+    ctrl underscore; pause 0.5          # undone,
+    text "// and another"; pause 0.5    # then a different edit: a branch
+    # By name rather than by `C-x U`: a virtual keyboard cannot produce a
+    # distinct uppercase letter here — shift and `u` arrive as `C-x u`,
+    # which is undo, which is a different picture entirely.
+    alt x; pause 0.4
+    text "undo-tree-visualize"; pause 0.8
+    key Return
+    pause 1.8
+    capture undo
+}
+
+SHOTS="editor which-key buffers command grammar ligatures tree magit \
+       terminal grep cursors dired undo"
+
+# The side panel: the file tree, the outline and the buffer list, which is
+# what most of these pictures should have beside the code.
+panel_open() {
+    pause 0.8
+    ctrl x; pause 0.25; key t; pause 0.25; key t
+    pause 1.4
+}
 
 # ---- a repository to show ------------------------------------------------
 
@@ -285,7 +371,7 @@ start_compositor() {
         WLR_BACKENDS=headless \
         WLR_LIBINPUT_NO_DEVICES=1 \
         cage -- "$binary" --gui \
-            --config "$root/scripts/record-demos.kdl" \
+            --config "$root/scripts/screenshots-gui.kdl" \
             --directory "$workdir" \
             "$workdir/$opens" \
         >"$log_dir/compositor.log" 2>&1 ) &
@@ -315,97 +401,47 @@ start_compositor() {
     key Up;   sleep 0.6
 }
 
-record() {
-    local name=$1 raw
-    say "recording $name"
+take() {
+    local name=$1
+    say "$name"
+    log_dir=$(mktemp -d)
 
-    # Most clips are of this project, which is real code with real symbols
+    # Most shots are of this project, which is real code with real symbols
     # and a real tree. magit is of a repository made for it.
     workdir="$PROJECT"
     opens="crates/maxgus-core/src/fuzzy.rs"
     if [ "$name" = magit ]; then
-        workdir=$(mktemp -d /tmp/maxgus-demo-repo-XXXXXX)
+        workdir=$(mktemp -d /tmp/maxgus-shot-repo-XXXXXX)
         fixture_repo "$workdir"
         opens="src/lib.rs"
     fi
-    log_dir=$(mktemp -d)
-    mkdir -p "$raw_dir"
-    raw="$raw_dir/$name.mkv"
 
     start_compositor
-
-    wf-recorder -f "$raw" -r "$FPS" --codec libx264 -x yuv420p \
-        >"$log_dir/recorder.log" 2>&1 &
-    recorder=$!
-    sleep 1.5
-
-    "clip_$name"
-
-    # SIGINT, not SIGKILL: wf-recorder writes the file's index on its way
-    # out, and a killed recording is one no player will seek in.
-    kill -INT "$recorder" 2>/dev/null || true
-    for _ in $(seq 1 40); do kill -0 "$recorder" 2>/dev/null || break; sleep 0.25; done
-    recorder=
-    cleanup
-    sleep 0.5
-
-    [ -s "$raw" ] || die "$name recorded nothing; see $log_dir/recorder.log"
-    encode "$raw" "$name"
-    rm -rf "$log_dir"
-    case "$workdir" in /tmp/maxgus-demo-repo-*) rm -rf "$workdir" ;; esac
-}
-
-# H.264 and VP9, both silent: there is nothing to hear, and a track a
-# browser considers muted is what lets it play without being asked.
-#
-# H.264 first, and it is what nearly everyone will fetch. That is the reverse
-# of the usual advice, and it is what measuring said: the capture is already
-# H.264, so one transcode of it is smaller at the same quality than anything
-# VP9 or AV1 can do from the same source — 0.88 MB against 1.26 for the
-# worst clip here. The VP9 is kept for a browser built without H.264, which
-# on Linux is a real if uncommon thing.
-encode() {
-    local raw=$1 name=$2
     mkdir -p "$out"
-    ffmpeg -y -loglevel error -i "$raw" \
-        -vf "scale=$WIDTH:$HEIGHT:flags=lanczos" -an \
-        -c:v libx264 -preset slow -crf 26 -pix_fmt yuv420p -movflags +faststart \
-        "$out/$name.mp4"
-    ffmpeg -y -loglevel error -i "$raw" \
-        -vf "scale=$WIDTH:$HEIGHT:flags=lanczos" -an \
-        -c:v libvpx-vp9 -crf 42 -b:v 0 -row-mt 1 -tile-columns 2 \
-        -auto-alt-ref 1 -lag-in-frames 25 -deadline good -cpu-used 1 \
-        "$out/$name.webm"
-    # A frame with something on it rather than the first one, which is the
-    # editor before it has been touched.
-    ffmpeg -y -loglevel error -ss 2.5 -i "$raw" -frames:v 1 \
-        -vf "scale=$WIDTH:$HEIGHT:flags=lanczos" -q:v 5 "$out/$name.jpg"
-    ls -lh "$out/$name.mp4" "$out/$name.webm" "$out/$name.jpg" |
-        awk '{ printf "  %-6s %s\n", $5, $9 }'
+    "shot_${name//-/_}"
+    cleanup
+    sleep 0.3
+
+    [ -s "$out/gui-$name.png" ] || die "$name produced no picture; see $log_dir/compositor.log"
+    rm -rf "$log_dir"
+    case "$workdir" in /tmp/maxgus-shot-repo-*) rm -rf "$workdir" ;; esac
 }
 
 case "${1:-}" in
-    --list) printf '%s\n' $CLIPS; exit 0 ;;
-    --encode-only)
-        shift
-        for name in ${*:-$CLIPS}; do
-            [ -s "$raw_dir/$name.mkv" ] || die "no capture kept for $name"
-            say "encoding $name"
-            encode "$raw_dir/$name.mkv" "$name"
-        done
-        exit 0 ;;
-    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --list) printf '%s\n' $SHOTS; exit 0 ;;
+    -h|--help) sed -n '2,50p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 
-for tool in cage wf-recorder wtype ffmpeg; do
+for tool in cage grim wtype; do
     command -v "$tool" >/dev/null || die "$tool is not installed; see the top of this script"
 done
 [ -x "$binary" ] || die "no build at $binary — ./scripts/build-variants.sh"
 "$binary" --version | grep -q gui || die "$binary is not a gui build"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+PROJECT=$(project_copy)
 
-for name in ${*:-$CLIPS}; do
-    case " $CLIPS " in *" $name "*) ;; *) die "no clip called $name; --list shows them" ;; esac
-    record "$name"
+for name in ${*:-$SHOTS}; do
+    case " $SHOTS " in *" $name "*) ;; *) die "no shot called $name; --list shows them" ;; esac
+    take "$name"
 done
-say "done — docs/media"
+say "done — docs/screenshots"

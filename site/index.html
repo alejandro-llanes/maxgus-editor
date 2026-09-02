@@ -406,54 +406,100 @@ footer .sp { margin-left: auto; }
   <div class="tabs" role="tablist">
     <button role="tab" aria-selected="true" data-shot="s-editor">the editor</button>
     <button role="tab" aria-selected="false" data-shot="s-which">which-key</button>
+    <button role="tab" aria-selected="false" data-shot="s-command">M-x</button>
+    <button role="tab" aria-selected="false" data-shot="s-popups">blurred popups</button>
+    <button role="tab" aria-selected="false" data-shot="s-ligatures">ligatures</button>
     <button role="tab" aria-selected="false" data-shot="s-doc">lsp-ui-doc</button>
     <button role="tab" aria-selected="false" data-shot="s-magit">magit</button>
+    <button role="tab" aria-selected="false" data-shot="s-tree">file tree</button>
+    <button role="tab" aria-selected="false" data-shot="s-grammar">install a grammar</button>
+    <button role="tab" aria-selected="false" data-shot="s-terminal">terminal</button>
+    <button role="tab" aria-selected="false" data-shot="s-grep">project search</button>
+    <button role="tab" aria-selected="false" data-shot="s-cursors">many cursors</button>
+    <button role="tab" aria-selected="false" data-shot="s-undo">undo tree</button>
+    <button role="tab" aria-selected="false" data-shot="s-dired">dired</button>
     <button role="tab" aria-selected="false" data-shot="s-beacon">beacon</button>
-    <button role="tab" aria-selected="false" data-shot="s-popup">M-x</button>
     <button role="tab" aria-selected="false" data-shot="s-themes">themes</button>
   </div>
 
   <figure class="shot" id="s-editor">
-    <img src="screenshots/gui-editor.png" alt="maxgus editing its own source, with the file tree and buffer list down the left" loading="lazy">
-    <figcaption>The window: a file open beside the side panel, which stacks
-      the file tree, the symbols in the buffer and the open buffers.</figcaption>
+    <img src="screenshots/gui-editor.png" alt="maxgus editing its own source, with the file tree and the buffer list down the left" loading="lazy" width="1280" height="720">
+    <figcaption>The window: a file open beside the side panel, which stacks the file tree, the symbols in the buffer and the open buffers.</figcaption>
   </figure>
 
   <figure class="shot" id="s-which" hidden>
-    <img src="screenshots/gui-which-key.png" alt="A panel along the bottom listing what can follow C-c" loading="lazy">
-    <figcaption>Stop in the middle of <kbd>C-c</kbd> and a panel says what the
-      next key can be. Keys that open another map are shown as the group they
-      open. In all three builds.</figcaption>
+    <img src="screenshots/gui-which-key.png" alt="A panel along the bottom listing what can follow C-c" loading="lazy" width="1280" height="720">
+    <figcaption>Stop in the middle of <kbd>C-c</kbd> and a panel says what the next key can be. Keys that open another map are shown as the group they open. In all three builds.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-command" hidden>
+    <img src="screenshots/gui-command.png" alt="The M-x popup, listing commands that match what has been typed with their keys" loading="lazy" width="1280" height="720">
+    <figcaption><kbd>M-x</kbd> fuzzy-matches every command, with its key and a line of documentation beside it.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-popups" hidden>
+    <img src="screenshots/gui-buffers.png" alt="A buffer-switching popup over source code, the code behind it blurred" loading="lazy" width="1280" height="720">
+    <figcaption>What is behind a popup is blurred rather than hidden, so you keep your place while you read the list. While nothing is open it costs nothing. <code>gui</code> only.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-ligatures" hidden>
+    <img src="screenshots/gui-ligatures.png" alt="A line of Rust with its operators drawn as ligatures" loading="lazy" width="1280" height="720">
+    <figcaption>Ligatures where the font has them — <code>-&gt;</code> as one arrow, <code>==</code> as one glyph — without changing a byte of the file. <code>gui</code> only.</figcaption>
   </figure>
 
   <figure class="shot" id="s-doc" hidden>
-    <img src="screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and documentation from clangd" loading="lazy">
-    <figcaption>Rest the cursor on a symbol and the language server's answer
-      appears beside it, not over it — real output from clangd.</figcaption>
+    <img src="screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and documentation from clangd" loading="lazy" width="1280" height="720">
+    <figcaption>Rest the cursor on a symbol and the language server's answer appears beside it, not over it — real output from clangd.</figcaption>
   </figure>
 
   <figure class="shot" id="s-magit" hidden>
-    <img src="screenshots/gui-magit.png" alt="The magit status view, with staged and unstaged sections and recent commits" loading="lazy">
-    <figcaption>magit: stage a hunk, write a commit, read a diff, without
-      leaving the editor.</figcaption>
+    <img src="screenshots/gui-magit.png" alt="The magit status view, with untracked files, unstaged changes and a diff opened" loading="lazy" width="1280" height="720">
+    <figcaption>magit: stage a hunk, write a commit, read a diff, without leaving the editor.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-tree" hidden>
+    <img src="screenshots/gui-tree.png" alt="The file tree in the side panel, with a directory expanded and a file selected" loading="lazy" width="1280" height="720">
+    <figcaption>treemacs' keys, git status in the margin, and a panel that stacks the tree, the outline and the buffer list.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-grammar" hidden>
+    <img src="screenshots/gui-grammar.png" alt="A popup listing tree-sitter parsers matching what has been typed" loading="lazy" width="1280" height="720">
+    <figcaption><kbd>M-x install-grammar</kbd> lists the five hundred parsers tree-sitter's wiki names. Choosing one clones it, builds it and loads it.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-terminal" hidden>
+    <img src="screenshots/gui-terminal.png" alt="A terminal along the bottom of the window, running a command" loading="lazy" width="1280" height="720">
+    <figcaption>A terminal along the bottom, with tabs, in a window of its own — not a buffer pretending to be one.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-grep" hidden>
+    <img src="screenshots/gui-grep.png" alt="Search results grouped by file, each with its line number" loading="lazy" width="1280" height="720">
+    <figcaption>Search the whole project, edit the results, and write the edits back to the files they came from.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-cursors" hidden>
+    <img src="screenshots/gui-cursors.png" alt="The same word marked in several places at once, with a cursor on each" loading="lazy" width="1280" height="720">
+    <figcaption>Take the next occurrence, and the next, and type once into all of them.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-undo" hidden>
+    <img src="screenshots/gui-undo.png" alt="The undo history drawn as a tree, with two branches and the current position marked" loading="lazy" width="1280" height="720">
+    <figcaption>Undo that keeps what you undid: the history is a tree, and both branches are still there.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-dired" hidden>
+    <img src="screenshots/gui-dired.png" alt="A directory listing with permissions, sizes and dates" loading="lazy" width="1280" height="720">
+    <figcaption>A directory as a buffer you can work on, the way dired does it.</figcaption>
   </figure>
 
   <figure class="shot" id="s-beacon" hidden>
-    <img src="screenshots/beacon.svg" alt="A light beside the cursor after it jumped, fading out to the right" loading="lazy">
-    <figcaption>A light where the cursor landed after a jump, so the eye finds
-      it again — beacon, for Emacs.</figcaption>
-  </figure>
-
-  <figure class="shot" id="s-popup" hidden>
-    <img src="screenshots/command-popup.svg" alt="The M-x popup, listing commands with their keys and one line of documentation each" loading="lazy">
-    <figcaption><kbd>M-x</kbd> fuzzy-matches every command, with its key and a
-      line of documentation beside it.</figcaption>
+    <img src="screenshots/beacon.svg" alt="A light beside the cursor after it jumped, fading out to the right" loading="lazy" width="1280" height="720">
+    <figcaption>A light where the cursor landed after a jump, so the eye finds it again — beacon, for Emacs.</figcaption>
   </figure>
 
   <figure class="shot" id="s-themes" hidden>
-    <img src="screenshots/gruvbox.svg" alt="The same editor under the gruvbox theme" loading="lazy">
-    <figcaption>Themes are files you can rewrite. Five ship with it —
-      gruvbox here, plus dracula, nord, solarized-light and the built-in one.</figcaption>
+    <img src="screenshots/gruvbox.svg" alt="The same editor under the gruvbox theme" loading="lazy" width="1280" height="720">
+    <figcaption>Themes are files you can rewrite. Five ship with it — gruvbox here, plus dracula, nord, solarized-light and the built-in one.</figcaption>
   </figure>
 </div></section>
 

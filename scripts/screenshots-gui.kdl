@@ -25,9 +25,20 @@ set backup-files=#false
 
 set which-key=#true
 set beacon=#true
+// The light fades in a few hundred milliseconds and its default is to fire
+// only when the window scrolls, so a still of a jump usually catches
+// nothing. These make it fire on a jump and linger long enough to be
+// photographed; they change when it shows, not what it is.
+set beacon-blink-when-point-moves-vertically=4
+set beacon-blink-duration-ms=1400
+set beacon-blink-delay-ms=500
 
 set ligatures=#true
 set floating-blur=#true
+
+// A plain shell, so the terminal picture has a neutral prompt rather than
+// whatever the person recording has configured, with their hostname in it.
+set shell="/bin/sh"
 
 set panel-tree=#true
 set panel-symbols=#true

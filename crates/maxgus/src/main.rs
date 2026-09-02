@@ -423,7 +423,12 @@ fn load_snippets(config: Option<&std::path::Path>) -> Vec<maxgus_core::snippet::
     };
     for entry in entries.flatten() {
         if entry.path().is_dir() {
-            let mode = entry.file_name().to_string_lossy().to_string();
+            let mut mode = entry.file_name().to_string_lossy().to_string();
+            // yasnippet names the directory `rust-mode`; a directory called
+            // `rust` means the same thing, since the mode is the language.
+            if !mode.ends_with("-mode") {
+                mode.push_str("-mode");
+            }
             read_snippets(&entry.path(), Some(mode), &mut snippets);
         }
     }

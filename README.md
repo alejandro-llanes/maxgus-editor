@@ -79,7 +79,7 @@ path in it, because a launcher does not see your shell's `PATH`.
 | | `minimal` | `full` *(default)* | `gui` |
 |---|:---:|:---:|:---:|
 | **Binary** | **4.8M** | **13M** | **21M** |
-| **Commands** | 314 | 466 | 466 |
+| **Commands** | 320 | 472 | 472 |
 | **Needs from the system** | nothing | nothing | a window system's headers |
 | Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
 | Buffers, windows, `C-x` everything | ● | ● | ● |
@@ -170,7 +170,7 @@ $ ./target/release/maxgus
 ### Emacs keys, and they behave like Emacs
 
 **404 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **466 commands**. Prefix
+the panel, tree, magit and terminal maps, driving **472 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -505,11 +505,11 @@ fori⇥   →   for item in items {
 The first field is selected, so typing replaces it; `TAB` moves to the next,
 `S-TAB` back, `C-g` gives up. `$0` says where to be left at the end.
 
-Snippets live in `snippets/<mode>/` beside the configuration, one file each,
-written the way yasnippet writes them — `# key:`, `# name:`, `# --`, then the
-body with `$1`, `${2:default}` and `$0`. A set copied out of an Emacs
-configuration works unchanged. Files directly in `snippets/` belong to every
-mode. `C-c i s` (`M-x insert-snippet`) picks one by name instead.
+Snippets live in `snippets/<mode>/` beside the configuration — `rust-mode`
+as yasnippet names it, or just `rust` — one file each, written the way
+yasnippet writes them — `# key:`, `# name:`, `# --`, then the body with `$1`,
+`${2:default}` and `$0`. A set copied out of an Emacs configuration works
+unchanged. Files directly in `snippets/` belong to every mode. `C-c i s` (`M-x insert-snippet`) picks one by name instead.
 
 The body syntax is the language-server protocol's as well as yasnippet's,
 which is the same syntax, so a completion that arrives from a server as a
@@ -816,6 +816,8 @@ first.
 | `C-x t v` | Toggle the terminal panel |
 | `C-x g` `C-c v g` | Git status |
 | `M-.` `M-,` | Go to definition, come back |
+| `M-s o` | Occur: every line matching, in a list beside the text |
+| `n` `p` `RET` `o` `q` | In that list, or in `*xref*`: next, previous, visit, visit and stay, close |
 | `C-c c r` | Rename through the language server |
 | `C-c c f` | Format the buffer |
 | `C-h b` | Every binding |
@@ -901,8 +903,11 @@ What the window has that a terminal cannot:
   rather than looked up a character at a time, so which characters join is
   the font's answer and not a list kept here — a font that joins nothing is
   simply unaffected. Runs stop at a space and at a change of style, because
-  a mark half in bold is two fonts pretending to be one glyph.
-  `set ligatures=#false` turns it off.
+  a mark half in bold is two fonts pretending to be one glyph. And they form
+  only in code: `->` in a help page or `--color` on a shell line means the
+  characters it is made of, so windows showing prose, listings and the
+  terminal are drawn a character at a time. `set ligatures=#false` turns it
+  off everywhere.
 
   <img src="docs/screenshots/gui-ligatures.png" alt="A line of Rust with its operators drawn as ligatures: not-equal as a crossed equals, the arrow as a single arrow, less-than-or-equal as one glyph" width="100%">
 

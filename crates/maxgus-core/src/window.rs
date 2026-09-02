@@ -76,11 +76,6 @@ impl Window {
         self.rect.height.saturating_sub(1) as usize
     }
 
-    /// Columns available for buffer text.
-    pub fn text_width(&self) -> usize {
-        self.rect.width as usize
-    }
-
     /// The area the buffer text is drawn into.
     pub fn text_area(&self) -> Rect {
         Rect::new(
@@ -139,9 +134,9 @@ impl Window {
     }
 
     /// Scrolls horizontally so `column` is visible in a window that truncates
-    /// long lines.
-    pub fn scroll_to_column(&mut self, column: usize) -> bool {
-        let width = self.text_width();
+    /// long lines. `width` is the columns the text has — the window's less
+    /// the line-number gutter, which the caller knows and this does not.
+    pub fn scroll_to_column(&mut self, column: usize, width: usize) -> bool {
         if width == 0 {
             return false;
         }
@@ -987,11 +982,17 @@ mod tests {
     #[test]
     fn horizontal_scrolling_follows_the_column() {
         let mut w = window(11);
-        assert!(!w.scroll_to_column(10), "already visible");
-        assert!(w.scroll_to_column(100));
+        assert!(!w.scroll_to_column(10, 80), "already visible");
+        assert!(w.scroll_to_column(100, 80));
         assert_eq!(w.left_column, 21, "column 100 is the rightmost of eighty");
-        assert!(w.scroll_to_column(5));
+        assert!(w.scroll_to_column(5, 80));
         assert_eq!(w.left_column, 5);
+        w.left_column = 0;
+        assert!(
+            w.scroll_to_column(79, 76),
+            "a gutter of four leaves 76 columns"
+        );
+        assert_eq!(w.left_column, 4);
     }
     #[test]
     fn a_bottom_panel_takes_its_height_and_leaves_the_rest_above() {

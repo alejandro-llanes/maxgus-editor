@@ -335,6 +335,7 @@ your `theme` blocks override.
 ### Face names
 
 **Interface** — `cursor`, `region`, `highlight`, `shadow`, `fringe`,
+`vertical-border`,
 `line-number`, `line-number-current-line`, `mode-line`, `mode-line-inactive`,
 `mode-line-buffer-id`, `minibuffer-prompt`, `echo-area`, `isearch`,
 `isearch-fail`, `lazy-highlight`, `match-paren`, `trailing-whitespace`,

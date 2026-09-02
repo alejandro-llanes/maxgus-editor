@@ -112,6 +112,9 @@ pub struct Palette {
     /// colour the cell will have when the block arrives on it, which is what
     /// makes the landing invisible.
     pub cursor: [f32; 4],
+    /// The line between windows side by side: the `vertical-border` face's
+    /// foreground.
+    pub divider: [f32; 4],
 }
 
 impl Palette {
@@ -135,10 +138,24 @@ impl Palette {
         let foreground = plain(default.foreground, linear_rgb(217, 222, 230));
         let background = plain(default.background, linear_rgb(23, 26, 31));
         let cursor = theme.resolve("cursor");
+        // A theme without the face gets the mode line's background, which
+        // is the colour the seam already has on its last row.
+        let divider = theme
+            .resolve("vertical-border")
+            .foreground
+            .or(theme.resolve("mode-line").background);
         Palette {
             foreground,
             background,
             ansi,
+            divider: match divider {
+                Some(Color::Rgb(r, g, b)) => linear_rgb(r, g, b),
+                Some(Color::Indexed(index)) => {
+                    let (r, g, b) = maxgus_faces::xterm_palette_rgb(index);
+                    linear_rgb(r, g, b)
+                }
+                _ => foreground,
+            },
             cursor: match cursor.background {
                 Some(Color::Rgb(r, g, b)) => linear_rgb(r, g, b),
                 Some(Color::Indexed(index)) => {
@@ -232,7 +249,17 @@ pub struct Look<'a> {
     pub cursor: Option<(u16, u16)>,
     /// The block's four corners, when it is not.
     pub smear: Option<[[f32; 2]; 4]>,
-    pub ligatures: bool,
+    /// Where the font may join characters into ligatures: the text of the
+    /// windows showing code. Nowhere when it is empty. `->` in a help page
+    /// or `--color` on a shell line means the two characters it is made
+    /// of, and a ligature there is the font contradicting the text.
+    pub ligatures: &'a [maxgus_tui::Rect],
+    /// The windows with another beside them: a line is drawn down the
+    /// right edge of each, so the two do not run into one another.
+    pub dividers: &'a [maxgus_tui::Rect],
+    /// What floats over the windows. A divider stops where a popup covers
+    /// it, since the popup is over the window, not under it.
+    pub floating: &'a [maxgus_tui::Rect],
     /// Only the cells inside these, or all of them when it is empty. What
     /// the backdrop pass uses: a blur only shows within a hand's breadth of
     /// the popup it is behind, so the rest of the screen need not be drawn
@@ -252,7 +279,9 @@ impl<'a> Look<'a> {
             shift: None,
             cursor: None,
             smear: None,
-            ligatures: false,
+            ligatures: &[],
+            dividers: &[],
+            floating: &[],
             only: &[],
             translucent: &[],
             opacity: 1.0,
@@ -263,10 +292,14 @@ impl<'a> Look<'a> {
 /// Whether any of `areas` holds this cell. An empty list holds everything,
 /// which is what makes `only` optional without being an `Option`.
 fn within(areas: &[maxgus_tui::Rect], x: u16, y: u16) -> bool {
-    areas.is_empty()
-        || areas.iter().any(|area| {
-            x >= area.x && x < area.x + area.width && y >= area.y && y < area.y + area.height
-        })
+    areas.is_empty() || covered(areas, x, y)
+}
+
+/// Whether any of `areas` holds this cell; none of an empty list does.
+fn covered(areas: &[maxgus_tui::Rect], x: u16, y: u16) -> bool {
+    areas.iter().any(|area| {
+        x >= area.x && x < area.x + area.width && y >= area.y && y < area.y + area.height
+    })
 }
 
 /// Builds the frame for a drawn surface.
@@ -277,6 +310,8 @@ pub fn build(surface: &Surface, fonts: &mut Fonts, look: &Look) -> Frame {
         cursor,
         smear,
         ligatures,
+        dividers,
+        floating,
         only,
         translucent,
         opacity,
@@ -314,7 +349,9 @@ pub fn build(surface: &Surface, fonts: &mut Fonts, look: &Look) -> Frame {
         // property of the characters beside each other and not of any one
         // of them.
         let row = y as usize * width;
-        let glyphs = row_glyphs(&surface.cells()[row..row + width], fonts, ligatures);
+        let glyphs = row_glyphs(&surface.cells()[row..row + width], fonts, |x| {
+            covered(ligatures, x as u16, y)
+        });
         for x in 0..size.width {
             let Some(cell) = surface.get(x, y) else {
                 continue;
@@ -333,6 +370,10 @@ pub fn build(surface: &Surface, fonts: &mut Fonts, look: &Look) -> Frame {
                 true => opacity,
                 false => 1.0,
             };
+            let seam = !covered(floating, x, y)
+                && dividers.iter().any(|area| {
+                    x + 1 == area.x + area.width && y >= area.y && y < area.y + area.height
+                });
             push_cell(
                 &mut frame,
                 cell,
@@ -345,6 +386,7 @@ pub fn build(surface: &Surface, fonts: &mut Fonts, look: &Look) -> Frame {
                 band,
                 on_cursor,
                 behind,
+                seam,
             );
         }
     }
@@ -357,7 +399,11 @@ pub fn build(surface: &Surface, fonts: &mut Fonts, look: &Look) -> Frame {
         for (line, cells) in rows.iter().enumerate() {
             let at = shift.area.y as i32 + row + line as i32;
             let top = at as f32 * metrics.height - shift.pixels;
-            let glyphs = row_glyphs(cells, fonts, ligatures);
+            // The row is not in the frame yet, so whether it may have
+            // ligatures is whether the window it is sliding into may.
+            let glyphs = row_glyphs(cells, fonts, |n| {
+                covered(ligatures, shift.area.x + n as u16, shift.area.y)
+            });
             for (n, cell) in cells.iter().enumerate() {
                 if cell.continuation {
                     continue;
@@ -366,6 +412,9 @@ pub fn build(surface: &Surface, fonts: &mut Fonts, look: &Look) -> Frame {
                 if x >= shift.area.x + shift.area.width {
                     break;
                 }
+                let seam = dividers
+                    .iter()
+                    .any(|area| x + 1 == area.x + area.width && shift.area.y >= area.y);
                 push_cell(
                     &mut frame,
                     cell,
@@ -378,6 +427,7 @@ pub fn build(surface: &Surface, fonts: &mut Fonts, look: &Look) -> Frame {
                     Some(band),
                     false,
                     1.0,
+                    seam,
                 );
             }
         }
@@ -391,18 +441,28 @@ pub fn build(surface: &Surface, fonts: &mut Fonts, look: &Look) -> Frame {
 /// second half of a wide character, or a cell whose character was swallowed
 /// by a ligature starting in an earlier one.
 ///
-/// Runs are broken at a space, at a change of style and at anything not one
-/// cell wide. None of those can be inside a ligature, and short runs are
-/// both cheaper to shape and likelier to be asked for again.
-fn row_glyphs(cells: &[maxgus_tui::Cell], fonts: &mut Fonts, ligatures: bool) -> Vec<Option<u16>> {
+/// Runs are broken at a space, at a change of style, at anything not one
+/// cell wide, and at the edge of where `ligate` allows them — the column it
+/// is asked about. None of those can be inside a ligature, and short runs
+/// are both cheaper to shape and likelier to be asked for again.
+fn row_glyphs(
+    cells: &[maxgus_tui::Cell],
+    fonts: &mut Fonts,
+    ligate: impl Fn(usize) -> bool,
+) -> Vec<Option<u16>> {
     let style_of = |cell: &maxgus_tui::Cell| {
         Style::of(
             cell.face.attributes.bold.unwrap_or(false),
             cell.face.attributes.italic.unwrap_or(false),
         )
     };
-    let joinable = |cell: &maxgus_tui::Cell| {
-        !cell.continuation && cell.ch != ' ' && maxgus_tui::char_width(cell.ch) == 1
+    let joinable = |at: usize| {
+        let cell = &cells[at];
+        !cell.continuation
+            && cell.ch != ' '
+            && maxgus_tui::char_width(cell.ch) == 1
+            && !crate::boxes::is_drawn(cell.ch)
+            && ligate(at)
     };
 
     // One glyph per character to begin with, which is the answer whenever
@@ -414,13 +474,10 @@ fn row_glyphs(cells: &[maxgus_tui::Cell], fonts: &mut Fonts, ligatures: bool) ->
             false => Some(fonts.index_of(cell.ch, style_of(cell))),
         })
         .collect();
-    if !ligatures {
-        return out;
-    }
 
     let mut at = 0;
     while at < cells.len() {
-        if !joinable(&cells[at]) {
+        if !joinable(at) {
             at += 1;
             continue;
         }
@@ -429,7 +486,7 @@ fn row_glyphs(cells: &[maxgus_tui::Cell], fonts: &mut Fonts, ligatures: bool) ->
         // Where each character of the run starts, and which cell it is in.
         let mut columns: Vec<(usize, usize)> = Vec::new();
         let mut end = at;
-        while end < cells.len() && joinable(&cells[end]) && style_of(&cells[end]) == style {
+        while end < cells.len() && joinable(end) && style_of(&cells[end]) == style {
             columns.push((text.len(), end));
             text.push(cells[end].ch);
             end += 1;
@@ -498,6 +555,9 @@ fn push_cell(
     // How solid the background is. Below one where something blurred is
     // showing through from underneath.
     behind: f32,
+    // Whether the window this cell is in has another to its right, in
+    // which case a line goes down the cell's right edge.
+    seam: bool,
 ) {
     let face: &Face = &cell.face;
     let reverse = face.attributes.reverse.unwrap_or(false) ^ on_cursor;
@@ -508,7 +568,17 @@ fn push_cell(
     if reverse {
         std::mem::swap(&mut foreground, &mut background);
     }
+    // Dim is the text part of the way to its background: still there, but
+    // not asking to be read.
+    if face.attributes.dim.unwrap_or(false) {
+        for (channel, back) in foreground.iter_mut().zip(background).take(3) {
+            *channel = *channel * 0.6 + back * 0.4;
+        }
+    }
     let left = x as f32 * metrics.width;
+    // A wide character is two cells' worth of background, or the second
+    // half of a CJK character in the region would be drawn plain.
+    let width = metrics.width * maxgus_tui::char_width(cell.ch).max(1) as f32;
 
     // The background, always: a cell that shares the window's colour still
     // has to cover whatever the last frame left there.
@@ -516,12 +586,45 @@ fn push_cell(
         background[3] *= behind;
         frame.rects.push(Rect {
             position: [left, top],
-            size: [metrics.width, height],
+            size: [width, height],
             color: background,
         });
     }
 
-    if let Some(index) = glyph
+    // A rule through the middle of the cell, with a bit more of it below
+    // than above: where the middle of lower-case letters is.
+    let thickness = 1.0_f32.max(metrics.height / 16.0);
+    let mut rule = |at: f32| {
+        if let Some((rule, height, _)) = clipped(at, thickness, band) {
+            frame.rects.push(Rect {
+                position: [left, rule],
+                size: [width, height],
+                color: foreground,
+            });
+        }
+    };
+    if face.attributes.underline.unwrap_or(false) {
+        rule(top + metrics.ascent + 1.0);
+    }
+    if face.attributes.strikethrough.unwrap_or(false) {
+        rule(top + metrics.ascent * 0.65 - thickness / 2.0);
+    }
+
+    // Box-drawing and block characters are shapes, drawn as the shapes
+    // they are so a row of them tiles and a frame of them joins up.
+    if let Some(pieces) = crate::boxes::pieces(cell.ch, width, metrics.height) {
+        for piece in pieces {
+            if let Some((at, height, _)) = clipped(top + piece.y, piece.height, band) {
+                let mut color = foreground;
+                color[3] *= piece.alpha;
+                frame.rects.push(Rect {
+                    position: [left + piece.x, at],
+                    size: [piece.width, height],
+                    color,
+                });
+            }
+        }
+    } else if let Some(index) = glyph
         && let Some(glyph) = fonts.glyph_indexed(
             index,
             Style::of(
@@ -544,17 +647,16 @@ fn push_cell(
         }
     }
 
-    // Underlines are a rectangle under the baseline rather than a glyph.
-    if face.attributes.underline.unwrap_or(false) {
-        let rule = top + metrics.ascent + 1.0;
-        let thickness = 1.0_f32.max(metrics.height / 16.0);
-        if let Some((rule, height, _)) = clipped(rule, thickness, band) {
-            frame.rects.push(Rect {
-                position: [left, rule],
-                size: [metrics.width, height],
-                color: foreground,
-            });
-        }
+    // The divider goes down the last pixel column of the cell, over the
+    // background and whatever ink reached that far: it is the edge of the
+    // window, and the window's text stops at it.
+    if seam && let Some((top, height, _)) = clipped(top, metrics.height, band) {
+        let thickness = 1.0_f32.max(metrics.width / 8.0).round();
+        frame.rects.push(Rect {
+            position: [left + width - thickness, top],
+            size: [thickness, height],
+            color: palette.divider,
+        });
     }
 }
 
@@ -570,6 +672,7 @@ mod tests {
             foreground: [1.0, 1.0, 1.0, 1.0],
             background: [0.0, 0.0, 0.0, 1.0],
             ansi: [[0.5, 0.5, 0.5, 1.0]; 16],
+            divider: [0.3, 0.3, 0.3, 1.0],
         }
     }
 
@@ -718,7 +821,7 @@ mod tests {
                 shift: Some(&shift),
                 cursor: None,
                 smear: None,
-                ligatures: false,
+                ligatures: &[],
                 ..Look::new(&palette())
             },
         );
@@ -774,7 +877,7 @@ mod tests {
                 shift: Some(&shift),
                 cursor: None,
                 smear: None,
-                ligatures: false,
+                ligatures: &[],
                 ..Look::new(&palette())
             },
         );
@@ -813,7 +916,7 @@ mod tests {
                     shift: Some(&shift),
                     cursor: None,
                     smear: None,
-                    ligatures: false,
+                    ligatures: &[],
                     ..Look::new(&palette())
                 },
             );
@@ -869,7 +972,7 @@ mod tests {
                 shift: Some(&shift),
                 cursor: None,
                 smear: None,
-                ligatures: false,
+                ligatures: &[],
                 ..Look::new(&palette())
             },
         );
@@ -912,7 +1015,7 @@ mod tests {
                 shift: Some(&shift),
                 cursor: None,
                 smear: None,
-                ligatures: false,
+                ligatures: &[],
                 ..Look::new(&palette())
             },
         );
@@ -981,8 +1084,8 @@ mod tests {
             return;
         };
         let cells = row("a != b");
-        let joined = row_glyphs(&cells, &mut fonts, true);
-        let apart = row_glyphs(&cells, &mut fonts, false);
+        let joined = row_glyphs(&cells, &mut fonts, |_| true);
+        let apart = row_glyphs(&cells, &mut fonts, |_| false);
         assert_ne!(
             (joined[2], joined[3]),
             (apart[2], apart[3]),
@@ -1004,8 +1107,8 @@ mod tests {
             return;
         };
         let cells = row("! =");
-        let joined = row_glyphs(&cells, &mut fonts, true);
-        let apart = row_glyphs(&cells, &mut fonts, false);
+        let joined = row_glyphs(&cells, &mut fonts, |_| true);
+        let apart = row_glyphs(&cells, &mut fonts, |_| false);
         assert_eq!(joined, apart, "a space was joined across: {joined:?}");
     }
 
@@ -1023,9 +1126,32 @@ mod tests {
             maxgus_tui::Cell::new('!', Face::default()),
             maxgus_tui::Cell::new('=', bold),
         ];
-        let joined = row_glyphs(&cells, &mut fonts, true);
-        let apart = row_glyphs(&cells, &mut fonts, false);
+        let joined = row_glyphs(&cells, &mut fonts, |_| true);
+        let apart = row_glyphs(&cells, &mut fonts, |_| false);
         assert_eq!(joined, apart, "a ligature was formed across two styles");
+    }
+
+    #[test]
+    fn a_ligature_forms_only_where_it_is_allowed() {
+        // The same `!=` twice: in the code window and beside it in a help
+        // page, where it is a `!` and an `=`.
+        let Some(mut fonts) = ligature_font() else {
+            eprintln!("skipping: no font on this machine joins `!=`");
+            return;
+        };
+        let cells = row("!= !=");
+        let glyphs = row_glyphs(&cells, &mut fonts, |x| x < 2);
+        let apart = row_glyphs(&cells, &mut fonts, |_| false);
+        assert_ne!(
+            (glyphs[0], glyphs[1]),
+            (apart[0], apart[1]),
+            "code was not joined"
+        );
+        assert_eq!(
+            (glyphs[3], glyphs[4]),
+            (apart[3], apart[4]),
+            "prose was joined"
+        );
     }
 
     #[test]
@@ -1037,7 +1163,7 @@ mod tests {
             return;
         };
         let cells = row("!=");
-        let apart = row_glyphs(&cells, &mut fonts, false);
+        let apart = row_glyphs(&cells, &mut fonts, |_| false);
         let expected: Vec<Option<u16>> = "!="
             .chars()
             .map(|ch| Some(fonts.index_of(ch, Style::Regular)))
@@ -1062,7 +1188,7 @@ mod tests {
             "     ",
         ] {
             let cells = row(text);
-            let glyphs = row_glyphs(&cells, &mut fonts, true);
+            let glyphs = row_glyphs(&cells, &mut fonts, |_| true);
             assert_eq!(glyphs.len(), cells.len(), "`{text}` lost a cell");
             let ink = text.chars().filter(|c| *c != ' ').count();
             let drawn = glyphs.iter().filter(|g| g.is_some()).count();
@@ -1093,7 +1219,7 @@ mod tests {
                 shift: None,
                 cursor: None,
                 smear: Some(smear),
-                ligatures: false,
+                ligatures: &[],
                 ..Look::new(&palette())
             },
         );
@@ -1125,7 +1251,7 @@ mod tests {
                 shift: None,
                 cursor: Some((1, 0)),
                 smear: None,
-                ligatures: false,
+                ligatures: &[],
                 ..Look::new(&palette())
             },
         );
@@ -1154,7 +1280,7 @@ mod tests {
                 shift: None,
                 cursor: Some((1, 0)),
                 smear: None,
-                ligatures: false,
+                ligatures: &[],
                 ..Look::new(&palette())
             },
         );
@@ -1190,5 +1316,134 @@ mod tests {
             "the rule is above the baseline"
         );
         assert!(rule.size[1] >= 1.0, "a rule with no thickness");
+    }
+
+    #[test]
+    fn a_strikethrough_is_a_rectangle_through_the_letters_and_dim_is_faded() {
+        let Some(mut fonts) = fonts() else {
+            eprintln!("skipping: no monospace font is installed");
+            return;
+        };
+        let face = Face {
+            attributes: Attributes {
+                strikethrough: Some(true),
+                dim: Some(true),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let surface = surface_of("a", face);
+        let palette = palette();
+        let frame = build(&surface, &mut fonts, &Look::new(&palette));
+        assert_eq!(frame.rects.len(), 2, "a background and a rule");
+        let rule = frame.rects[1];
+        let ascent = fonts.metrics().ascent;
+        assert!(
+            rule.position[1] > ascent * 0.4 && rule.position[1] < ascent * 0.8,
+            "the rule is not through the middle of the letters: {}",
+            rule.position[1]
+        );
+        let ink = frame.sprites[0].color;
+        assert!(
+            ink[0] < palette.foreground[0] && ink[0] > palette.background[0],
+            "dim text is neither faded nor legible: {ink:?}"
+        );
+        assert_eq!(rule.color, ink, "the rule is not the text's colour");
+    }
+
+    #[test]
+    fn a_wide_character_gets_a_background_two_cells_wide() {
+        let Some(mut fonts) = fonts() else {
+            eprintln!("skipping: no monospace font is installed");
+            return;
+        };
+        let face = Face {
+            background: Some(Color::Rgb(0, 0, 255)),
+            ..Default::default()
+        };
+        let mut surface = Surface::new(Size::new(3, 1));
+        surface.set(0, 0, Cell::new('日', face));
+        let mut rest = Cell::new(' ', face);
+        rest.continuation = true;
+        surface.set(1, 0, rest);
+        surface.set(2, 0, Cell::new('x', Face::default()));
+        let frame = build(&surface, &mut fonts, &Look::new(&palette()));
+        let metrics = fonts.metrics();
+        let blue: Vec<&Rect> = frame
+            .rects
+            .iter()
+            .filter(|r| r.color == linear_rgb(0, 0, 255))
+            .collect();
+        assert_eq!(blue.len(), 1, "one background for the character");
+        assert_eq!(
+            blue[0].size[0],
+            metrics.width * 2.0,
+            "the background covers one cell rather than both"
+        );
+    }
+
+    #[test]
+    fn a_block_is_drawn_as_a_rectangle_that_fills_its_cell() {
+        let Some(mut fonts) = fonts() else {
+            eprintln!("skipping: no monospace font is installed");
+            return;
+        };
+        let surface = surface_of("█░", Face::default());
+        let palette = palette();
+        let frame = build(&surface, &mut fonts, &Look::new(&palette));
+        let metrics = fonts.metrics();
+        assert!(frame.sprites.is_empty(), "a block came from the font");
+        // Two backgrounds, then the block and the shade.
+        assert_eq!(frame.rects.len(), 4, "{:?}", frame.rects);
+        let block = frame.rects[1];
+        assert_eq!(block.position, [0.0, 0.0]);
+        assert_eq!(block.size, [metrics.width, metrics.height]);
+        assert_eq!(block.color, palette.foreground);
+        let shade = frame.rects[3];
+        assert_eq!(shade.position, [metrics.width, 0.0]);
+        assert_eq!(shade.color[3], 0.25, "a light shade is a quarter solid");
+    }
+
+    #[test]
+    fn a_divider_runs_down_the_edge_of_a_window_with_another_beside_it() {
+        let Some(mut fonts) = fonts() else {
+            eprintln!("skipping: no monospace font is installed");
+            return;
+        };
+        let surface = surface_of("ab", Face::default());
+        let palette = palette();
+        let dividers = [maxgus_tui::Rect::new(0, 0, 1, 1)];
+        let look = Look {
+            dividers: &dividers,
+            ..Look::new(&palette)
+        };
+        let frame = build(&surface, &mut fonts, &look);
+        let metrics = fonts.metrics();
+        let lines: Vec<&Rect> = frame
+            .rects
+            .iter()
+            .filter(|r| r.color == palette.divider)
+            .collect();
+        assert_eq!(lines.len(), 1, "one divider for the one seam");
+        let line = lines[0];
+        assert_eq!(
+            line.position[0] + line.size[0],
+            metrics.width,
+            "at the seam"
+        );
+        assert_eq!(line.size[1], metrics.height, "the height of the row");
+        assert!(line.size[0] < metrics.width / 2.0, "thin");
+
+        // A popup over the seam covers the divider.
+        let floating = [maxgus_tui::Rect::new(0, 0, 2, 1)];
+        let look = Look {
+            floating: &floating,
+            ..look
+        };
+        let frame = build(&surface, &mut fonts, &look);
+        assert!(
+            !frame.rects.iter().any(|r| r.color == palette.divider),
+            "the divider is drawn over the popup"
+        );
     }
 }

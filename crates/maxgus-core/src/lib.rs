@@ -75,7 +75,9 @@ pub use window::{Direction, Window, WindowId, WindowTree};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
-    #[error("text error: {0}")]
+    // Passed through as it is: "Buffer *dired* is read-only" is the whole
+    // of what the echo area should say about it.
+    #[error("{0}")]
     Text(#[from] maxgus_text::TextError),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),

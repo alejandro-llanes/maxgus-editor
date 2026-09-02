@@ -79,16 +79,25 @@ pub fn show_help(editor: &mut Editor, text: &str) -> Result<()> {
         .get_mut(id)
         .expect("just created")
         .set_read_only(true);
-    editor.show_in_editing_window(id)
+    // Beside what was being edited, not over it: help is read and put away
+    // with `q`, and the text it was asked about should still be there.
+    editor.pop_to_buffer(id)?;
+    editor.move_point_in(id, 0);
+    Ok(())
 }
 
 /// `C-h k`: reads a key sequence and reports what it runs.
+///
+/// The keys are read one at a time and kept while they are still a prefix,
+/// so `C-h k C-x C-f` describes `find-file` rather than stopping at `C-x`.
 fn describe_key(editor: &mut Editor, args: &Args) -> Result<()> {
     let Some(key) = args.read_char else {
+        editor.described_keys.clear();
         editor.read_char("describe-key", "Describe key: ");
         return Ok(());
     };
-    let sequence = KeySequence::from(key).canonicalize_escape_prefix();
+    editor.described_keys.push(key);
+    let sequence = editor.described_keys.canonicalize_escape_prefix();
     let lookup = editor.keymaps.lookup(&sequence);
     let text = match lookup {
         maxgus_keys::Lookup::Command(name) => {
@@ -103,15 +112,18 @@ fn describe_key(editor: &mut Editor, args: &Args) -> Result<()> {
                 sequence.notation()
             )
         }
-        // A prefix is answered rather than left hanging, so `C-h k C-x` says
-        // something useful instead of waiting for a key that never comes.
         maxgus_keys::Lookup::Prefix => {
-            format!("{} is a prefix key\n", sequence.notation())
+            editor.read_char(
+                "describe-key",
+                format!("Describe key: {}-", sequence.notation()),
+            );
+            return Ok(());
         }
         maxgus_keys::Lookup::Undefined => {
             format!("{} is undefined\n", sequence.notation())
         }
     };
+    editor.described_keys.clear();
     editor.message(text.lines().next().unwrap_or_default().to_string());
     show_help(editor, &text)
 }
@@ -436,11 +448,20 @@ mod tests {
     }
 
     #[test]
-    fn describe_key_recognises_a_prefix_and_an_unbound_key() {
+    fn describe_key_reads_a_whole_sequence_and_an_unbound_key() {
         let (mut d, mut e) = setup();
         run(&mut d, &mut e, "describe-key");
         d.handle_keys(&mut e, "C-x");
-        assert!(e.current_buffer().text().contains("is a prefix key"));
+        assert!(e.pending_char.is_some(), "a prefix waits for the rest");
+        assert_eq!(e.minibuffer.message(), Some("Describe key: C-x-"));
+        d.handle_keys(&mut e, "C-f");
+        assert!(
+            e.current_buffer()
+                .text()
+                .contains("C-x C-f runs the command `find-file`"),
+            "got `{}`",
+            e.current_buffer().text()
+        );
 
         run(&mut d, &mut e, "describe-key");
         d.handle_keys(&mut e, "<f12>");
@@ -574,6 +595,20 @@ mod tests {
                 "the guide never mentions `{essential}`"
             );
         }
+    }
+
+    #[test]
+    fn help_opens_beside_the_text_and_q_puts_it_away() {
+        let (mut d, mut e) = setup();
+        let id = e.buffers.create_with_text("main.rs", "fn main() {}");
+        e.switch_to_buffer(id).unwrap();
+        run(&mut d, &mut e, "describe-function");
+        answer(&mut d, &mut e, "save-buffer");
+        assert_eq!(e.current_buffer().name(), HELP_BUFFER_NAME);
+        assert_eq!(e.windows.len(), 2, "the text is still on screen");
+        d.handle_keys(&mut e, "q");
+        assert_eq!(e.windows.len(), 1);
+        assert_eq!(e.current_buffer().name(), "main.rs");
     }
 
     #[test]

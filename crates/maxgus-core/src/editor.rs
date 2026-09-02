@@ -20,7 +20,7 @@ use crate::{
 };
 use maxgus_config::{Settings, ThemeSpec};
 use maxgus_faces::Theme;
-use maxgus_keys::KeymapSet;
+use maxgus_keys::{KeySequence, KeymapSet};
 use maxgus_text::{Buffer, BufferId, KillRing, Range, Registers};
 use maxgus_tui::Rect;
 use std::path::{Path, PathBuf};
@@ -153,6 +153,9 @@ pub struct Editor {
     /// A command waiting for one character, with the prefix argument it was
     /// invoked with. The next key goes to it instead of being dispatched.
     pub pending_char: Option<(String, Prefix)>,
+    /// The keys `describe-key` has read so far, while the sequence is still
+    /// a prefix of something.
+    pub described_keys: KeySequence,
     /// The command an open prompt is collecting text for, with the prefix
     /// argument it was invoked with. Accepting the prompt re-enters it.
     pub pending_input: Option<(String, Prefix)>,
@@ -180,6 +183,13 @@ pub struct Editor {
     pub panel: crate::panel::Panel,
     /// The panel's windows, top to bottom. The first is the file tree.
     pub panel_windows: Vec<WindowId>,
+    /// Windows that were split off to show a listing or a help buffer, so
+    /// `q` in one can take the window away again rather than leave a split
+    /// nobody asked for.
+    pub popped_windows: Vec<WindowId>,
+    /// The listings on screen — `*Occur*`, `*xref*` — by buffer name: where
+    /// each row points, and what to highlight in it.
+    pub listings: std::collections::HashMap<String, crate::commands::listing::Listing>,
     /// How tall the outline and the buffer list are, in rows. The tree takes
     /// whatever they leave.
     pub symbols_height: u16,
@@ -400,10 +410,13 @@ impl Editor {
             kill_appending: false,
             tree_window: None,
             pending_char: None,
+            described_keys: KeySequence::empty(),
             pending_input: None,
             completion_candidates: Vec::new(),
             panel,
             panel_windows: Vec::new(),
+            popped_windows: Vec::new(),
+            listings: std::collections::HashMap::new(),
             symbols_height,
             buffers_height,
             #[cfg(feature = "full")]
@@ -1092,6 +1105,77 @@ impl Editor {
         self.switch_to_buffer(buffer)
     }
 
+    /// Shows `buffer` in a window other than the one being edited in, and
+    /// selects it — `pop-to-buffer`.
+    ///
+    /// A listing or a help buffer is looked at alongside the text it is
+    /// about, not instead of it: `*Occur*` replacing the buffer it searched
+    /// left nowhere to go when a line in it was chosen. The buffer goes to
+    /// the window already showing it, else to another editing window, else
+    /// to a window split off below — which is remembered, so quitting the
+    /// buffer can close it again.
+    pub fn pop_to_buffer(&mut self, buffer: BufferId) -> Result<()> {
+        let editing: Vec<WindowId> = self
+            .windows
+            .ids()
+            .into_iter()
+            .filter(|id| !self.panel_windows.contains(id) && Some(*id) != self.terminal_pane())
+            .collect();
+        if let Some(window) = editing
+            .iter()
+            .find(|id| self.windows.get(**id).is_some_and(|w| w.buffer == buffer))
+        {
+            self.select_window(*window);
+            return Ok(());
+        }
+        if !editing.contains(&self.windows.current_id())
+            && let Some(target) = self.editing_window()
+        {
+            self.select_window(target);
+        }
+        let current = self.windows.current_id();
+        match editing.iter().find(|id| **id != current) {
+            Some(other) => {
+                self.select_window(*other);
+            }
+            None => {
+                let window = self.split_window(Direction::Vertical)?;
+                self.select_window(window);
+                self.popped_windows.push(window);
+            }
+        }
+        self.switch_to_buffer(buffer)
+    }
+
+    /// `quit-window`: puts a popped-up buffer away.
+    ///
+    /// The window is deleted when it was split off for the buffer and there
+    /// is another to go to; otherwise the buffer is buried, so the window
+    /// shows whatever it showed before. The buffer is killed either way
+    /// when `kill` is set, which is what a listing that is finished with
+    /// wants.
+    pub fn quit_window(&mut self, kill: bool) {
+        let window = self.windows.current_id();
+        let buffer = self.current_buffer_id();
+        let popped = self.popped_windows.contains(&window);
+        self.popped_windows.retain(|id| *id != window);
+        if popped && self.windows.len() > 1 {
+            self.sync_to_buffer();
+            self.windows.delete(window).ok();
+            self.activate_mode_keymap();
+        } else {
+            self.bury_buffer();
+        }
+        if kill {
+            // Only when nothing else shows it: a listing open in two windows
+            // is still wanted in the other.
+            if self.windows.showing(buffer).is_empty() {
+                self.kill_buffer(buffer).ok();
+            }
+        }
+        self.follow_point();
+    }
+
     /// Selects `window`, saving the outgoing window's point first.
     pub fn select_window(&mut self, window: WindowId) -> bool {
         self.sync_to_buffer();
@@ -1154,12 +1238,14 @@ impl Editor {
         let total = buffer.len_lines();
         let margin = self.settings.scroll_margin;
         let width = crate::render::wrap_width(self, self.windows.current(), buffer);
+        // The columns the text itself has: the window's, less the gutter.
+        let text_columns = crate::render::text_columns(self, self.windows.current(), buffer);
 
         let window = self.windows.current_mut();
         let Some(width) = width else {
             window.top_row = 0;
             window.scroll_to_show(line, total, margin);
-            window.scroll_to_column(column);
+            window.scroll_to_column(column, text_columns);
             return;
         };
         // Wrapping. There is no horizontal scroll — there is nothing off to
@@ -1390,6 +1476,16 @@ impl Editor {
         if buffer.name() == crate::commands::dired::DIRED_BUFFER_NAME {
             return Some(crate::commands::dired::DIRED_MODE.to_string());
         }
+        if buffer.name() == crate::commands::search::OCCUR_NAME {
+            return Some(crate::commands::listing::OCCUR_MODE.to_string());
+        }
+        #[cfg(feature = "full")]
+        if buffer.name() == crate::commands::lsp::XREF_NAME {
+            return Some(crate::commands::listing::XREF_MODE.to_string());
+        }
+        if buffer.name() == crate::commands::help::HELP_BUFFER_NAME {
+            return Some(crate::commands::listing::HELP_MODE.to_string());
+        }
         if buffer.name() == crate::commands::undo_tree::VISUALIZER_BUFFER_NAME {
             return Some(crate::commands::undo_tree::VISUALIZER_MODE.to_string());
         }
@@ -1458,6 +1554,10 @@ impl Editor {
             #[cfg(feature = "full")]
             crate::commands::grep::GREP_EDIT_MODE => crate::keymap::grep_edit_keymap().ok(),
             crate::commands::dired::DIRED_MODE => crate::keymap::dired_keymap().ok(),
+            crate::commands::listing::OCCUR_MODE | crate::commands::listing::XREF_MODE => {
+                crate::keymap::listing_keymap(name).ok()
+            }
+            crate::commands::listing::HELP_MODE => crate::keymap::help_keymap().ok(),
             crate::commands::undo_tree::VISUALIZER_MODE => crate::keymap::undo_tree_keymap().ok(),
             crate::commands::tree::SYMBOLS_MODE => crate::keymap::symbols_keymap().ok(),
             crate::commands::tree::BUFFERS_MODE => crate::keymap::buffers_keymap().ok(),
@@ -1543,14 +1643,17 @@ impl Editor {
     /// Shared with the drawing code so a page moves exactly one screenful:
     /// the two disagreeing would make `PgDn` skip or repeat rows.
     pub fn completion_rows(&self) -> usize {
-        const MOST: usize = 15;
+        // Fifteen rows, or half the frame on one tall enough for that to be
+        // more: a list that scrolls in a box a third of a big window high
+        // is a list being read through a letterbox.
+        let most = ((self.frame.height / 2) as usize).max(15);
         // Leave the frame room for the popup's own two border rows, its
         // prompt line, and something of the buffer behind it.
         let room = (self.frame.height as usize).saturating_sub(6);
         self.minibuffer
             .completion()
             .len()
-            .min(MOST)
+            .min(most)
             .min(room.max(1))
     }
 
@@ -2255,8 +2358,10 @@ impl Editor {
     /// Folds a language server's answer into editor state.
     pub fn apply_lsp_response(&mut self, result: crate::task::TaskResult) {
         match result {
-            crate::task::TaskResult::LspResponse { query, result, .. } => {
-                crate::commands::lsp::apply_response(self, &query, &result);
+            crate::task::TaskResult::LspResponse {
+                query, result, uri, ..
+            } => {
+                crate::commands::lsp::apply_response(self, &uri, &query, &result);
             }
             // `workspace/applyEdit`: the server asked to change the text and
             // is waiting to hear whether it worked. The edit has to be applied
@@ -3670,6 +3775,38 @@ mod tests {
             "the cursor stays inside the window"
         );
         assert_eq!(y as usize, 50 - window.top_line);
+    }
+
+    #[test]
+    fn the_cursor_has_no_gutter_in_a_view_drawn_without_line_numbers() {
+        let mut e = editor_with("line one\nline two");
+        e.settings.line_numbers = true;
+        e.follow_point();
+        assert_eq!(e.cursor_position().0, 2, "a digit and a space");
+
+        let id = e
+            .buffers
+            .create_with_text(crate::commands::tree::TREE_BUFFER_NAME, "root\n  file");
+        e.switch_to_buffer(id).unwrap();
+        e.follow_point();
+        assert_eq!(e.cursor_position().0, 0, "the tree draws no line numbers");
+    }
+
+    #[test]
+    fn horizontal_scrolling_keeps_point_inside_the_text_columns() {
+        let long = "x".repeat(500);
+        let mut e = editor_with(&long);
+        e.settings.truncate_lines = true;
+        e.settings.line_numbers = true;
+        e.with_current_buffer(|b| b.set_point(400));
+        e.follow_point();
+        let window = e.windows.current();
+        let gutter = 2; // one digit and a space
+        assert_eq!(
+            window.left_column,
+            400 + 1 - (window.rect.width as usize - gutter),
+            "point is the rightmost text column, after the gutter"
+        );
     }
 
     #[test]

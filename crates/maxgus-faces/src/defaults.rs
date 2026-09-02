@@ -128,6 +128,8 @@ fn build(name: &str, p: &Palette) -> Theme {
     // changes `default`, and paint a stripe down the side of the text in the
     // colour of the theme that was replaced.
     set("fringe", Face::fg(p.comment));
+    // The line down the seam between windows side by side.
+    set("vertical-border", Face::fg(p.selection));
     set("line-number", Face::fg(p.comment));
     set("line-number-current-line", Face::fg(p.yellow).bold());
     set("mode-line", Face::fg(p.surface_fg).with_bg(p.surface));

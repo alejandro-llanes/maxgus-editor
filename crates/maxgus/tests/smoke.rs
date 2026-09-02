@@ -2694,6 +2694,13 @@ fn a_snippet_file_is_found_and_expanded() {
     .unwrap();
     // One for every mode, directly in `snippets/`.
     std::fs::write(root.join("snippets/note"), "# key: nb\n# --\nNOTE($1): ").unwrap();
+    // A directory named after the language alone means the same mode.
+    std::fs::create_dir_all(root.join("snippets/rust")).unwrap();
+    std::fs::write(
+        root.join("snippets/rust/todo"),
+        "# key: td\n# --\n// TODO: $1",
+    )
+    .unwrap();
     std::fs::write(
         root.join("config.kdl"),
         "set nerd-font-icons=#false\nset line-numbers=#false\n",
@@ -2707,6 +2714,13 @@ fn a_snippet_file_is_found_and_expanded() {
         "no startup"
     );
 
+    session.send(b"td\t");
+    assert!(
+        wait_for(&mut session, "// TODO:", 60),
+        "the snippet in `snippets/rust/` did not expand:\n{:#?}",
+        session.screen()
+    );
+    session.send(b"\x07\x01\x0b"); // C-g, C-a, C-k: a clean line again
     session.send(b"fori\t");
     assert!(
         wait_for(&mut session, "for item in items", 60),
@@ -3107,7 +3121,15 @@ fn describe_grammars_says_what_is_built_in_and_what_is_not() {
         "no report:\n{:#?}",
         session.screen()
     );
-    let screen = session.screen().join("\n");
+    // The report opens beside the file, in half the frame, so the rest of
+    // it is read by paging.
+    let mut screen = session.screen().join("\n");
+    for _ in 0..4 {
+        session.send(b"\x16");
+        session.settle();
+        screen.push('\n');
+        screen.push_str(&session.screen().join("\n"));
+    }
     assert!(
         screen.contains("rust"),
         "the built-in list is missing:\n{screen}"

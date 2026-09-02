@@ -549,10 +549,7 @@ impl Buffer {
 
     fn ensure_writable(&self) -> Result<()> {
         if self.read_only {
-            return Err(TextError::Io(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                format!("buffer `{}` is read-only", self.name),
-            )));
+            return Err(TextError::ReadOnly(self.name.clone()));
         }
         Ok(())
     }
@@ -870,6 +867,31 @@ pub fn language_for_path(path: &Path) -> Option<String> {
     Some(lang.to_string())
 }
 
+/// Whether `language` is prose rather than code: text, notes and
+/// documentation, where `->` is a hyphen and a bracket rather than an arrow.
+///
+/// What a front end that can draw ligatures asks before it does. The
+/// extension mapping calls anything a language, `txt` included, so having
+/// a language is not the same as being code.
+pub fn is_prose(language: &str) -> bool {
+    matches!(
+        language,
+        "txt"
+            | "text"
+            | "markdown"
+            | "org"
+            | "rst"
+            | "tex"
+            | "latex"
+            | "bib"
+            | "adoc"
+            | "asciidoc"
+            | "log"
+            | "csv"
+            | "tsv"
+    )
+}
+
 /// Whether an extension could be a language name.
 ///
 /// Letters and digits only, and short. `.rs` is a language; `.tar` is not
@@ -1015,7 +1037,11 @@ mod tests {
     fn read_only_buffers_reject_every_mutation() {
         let mut b = buf("text");
         b.set_read_only(true);
-        assert!(b.insert_at_point("x").is_err());
+        let error = b.insert_at_point("x").unwrap_err().to_string();
+        assert!(
+            error.ends_with("is read-only"),
+            "readable as it is: `{error}`"
+        );
         assert!(b.delete(Range::new(0, 1)).is_err());
         assert!(b.replace(Range::new(0, 1), "y").is_err());
         assert_eq!(b.text(), "text");

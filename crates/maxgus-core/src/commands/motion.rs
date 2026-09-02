@@ -8,6 +8,7 @@ use crate::{
     Result, command,
     command::{Args, Registry},
     editor::Editor,
+    minibuffer::MinibufferKind,
 };
 use maxgus_text::Motion;
 
@@ -422,28 +423,48 @@ fn end_of_buffer(editor: &mut Editor, _: &Args) -> Result<()> {
 }
 
 fn goto_char(editor: &mut Editor, args: &Args) -> Result<()> {
-    if !args.prefix.is_present() {
-        return Err(crate::CoreError::Message(
-            "goto-char needs a position".into(),
-        ));
-    }
-    let target = args.prefix.count().max(0) as usize;
+    let Some(target) = numeric_argument(editor, args, "goto-char", "Go to char: ")? else {
+        return Ok(());
+    };
     jump_to(editor, |b| b.clamp(target));
     Ok(())
 }
 
 fn goto_line(editor: &mut Editor, args: &Args) -> Result<()> {
-    if !args.prefix.is_present() {
-        return Err(crate::CoreError::Message(
-            "goto-line needs a line number".into(),
-        ));
-    }
+    let Some(line) = numeric_argument(editor, args, "goto-line", "Go to line: ")? else {
+        return Ok(());
+    };
     // Line numbers are one-based everywhere the user sees them.
-    let line = (args.prefix.count().max(1) as usize) - 1;
+    let line = line.max(1) - 1;
     jump_to(editor, |b| {
         b.line_start(line.min(b.len_lines().saturating_sub(1)))
     });
     Ok(())
+}
+
+/// The number a goto command was given, asking for one when it was not.
+///
+/// A prefix argument answers outright, as `C-u 30 M-g g` always has; without
+/// one the command prompts and re-enters itself with the answer in
+/// `Args::input`, returning `None` while the question is still open.
+fn numeric_argument(
+    editor: &mut Editor,
+    args: &Args,
+    command: &str,
+    prompt: &str,
+) -> Result<Option<usize>> {
+    if args.prefix.is_present() {
+        return Ok(Some(args.prefix.count().max(0) as usize));
+    }
+    let Some(input) = args.input.as_deref() else {
+        editor.prompt_for(command, MinibufferKind::Text, prompt, "", Vec::new());
+        return Ok(None);
+    };
+    input
+        .trim()
+        .parse::<usize>()
+        .map(Some)
+        .map_err(|_| crate::CoreError::Message(format!("`{input}` is not a number")))
 }
 
 // ---- scrolling ----------------------------------------------------------
@@ -791,6 +812,7 @@ mod tests {
 
         let mut registry = Registry::new();
         register(&mut registry);
+        super::super::minibuffer::register(&mut registry);
         (Dispatcher::new(registry), editor)
     }
 
@@ -1072,14 +1094,20 @@ mod tests {
     }
 
     #[test]
-    fn goto_commands_need_an_argument() {
-        let (mut d, mut e) = setup("text");
+    fn goto_commands_prompt_without_an_argument() {
+        let (mut d, mut e) = setup("one\ntwo\nthree");
+        d.execute(&mut e, "goto-line", None);
+        assert_eq!(e.minibuffer.prompt(), "Go to line: ");
+        e.minibuffer.insert("3");
+        d.handle_keys(&mut e, "RET");
+        assert_eq!(e.current_buffer().point(), 8, "the answer is the line");
+        assert!(!e.minibuffer.is_active());
+
+        d.execute(&mut e, "goto-char", None);
+        assert_eq!(e.minibuffer.prompt(), "Go to char: ");
+        e.minibuffer.insert("nope");
         assert!(matches!(
-            d.execute(&mut e, "goto-line", None),
-            crate::Dispatch::Failed { .. }
-        ));
-        assert!(matches!(
-            d.execute(&mut e, "goto-char", None),
+            d.handle_keys(&mut e, "RET"),
             crate::Dispatch::Failed { .. }
         ));
     }

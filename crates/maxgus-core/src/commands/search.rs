@@ -607,10 +607,23 @@ fn advance_replace(editor: &mut Editor, _from_current: bool) -> Result<()> {
     }
     editor.with_current_buffer(|b| b.set_point(found.range.start));
     editor.follow_point();
+    // The question says what is being asked, as Emacs's does: which match
+    // is under the cursor is not enough to answer `y` to without knowing
+    // what it is about to become.
+    let prompt = editor
+        .query_replace
+        .as_ref()
+        .map_or_else(String::new, |state| {
+            format!(
+                "Query replacing {} with {}: (y, n, !, q, .) ",
+                state.query.pattern(),
+                state.replacement
+            )
+        });
     editor.prompt_for(
         "query-replace-answer",
         MinibufferKind::Char,
-        "Query replacing (y, n, !, q, .): ",
+        prompt,
         "",
         Vec::new(),
     );
@@ -718,44 +731,60 @@ fn occur(editor: &mut Editor, args: &Args) -> Result<()> {
     )
     .map_err(|e| crate::CoreError::Message(format!("Invalid regexp: {e}")))?;
 
-    let (listing, count) = {
+    let (text, listing, count) = {
         let buffer = editor.current_buffer();
+        let source = buffer.id;
         let matches = query.find_all(buffer.rope());
-        let mut listing = format!(
+        let mut text = format!(
             "{} matches for `{pattern}` in {}:\n",
             matches.len(),
             buffer.name()
         );
+        let mut listing = crate::commands::listing::Listing {
+            rows: vec![None],
+            matches: Vec::new(),
+        };
         // One entry per matching line, not per match, as `occur` reports it.
         let mut last_line = None;
-        let mut lines = 0usize;
+        // Where the current row's text begins in the listing, so each match
+        // on the line can be marked where it falls in the row.
+        let mut row_start = 0;
         for m in &matches {
             let line = buffer.line_of(m.range.start);
-            if last_line == Some(line) {
-                continue;
+            let line_start = buffer.line_start(line);
+            if last_line != Some(line) {
+                last_line = Some(line);
+                let prefix = format!("{:>6}:", line + 1);
+                row_start = text.chars().count() + prefix.chars().count();
+                text.push_str(&prefix);
+                text.push_str(&buffer.line_text(line));
+                text.push('\n');
+                listing.rows.push(Some(crate::commands::listing::Target {
+                    place: crate::commands::listing::Place::Buffer(source),
+                    line,
+                    column: Some(m.range.start - line_start),
+                }));
             }
-            last_line = Some(line);
-            lines += 1;
-            listing.push_str(&format!("{:>6}:{}\n", line + 1, buffer.line_text(line)));
+            let (from, to) = (m.range.start - line_start, m.range.end - line_start);
+            listing
+                .matches
+                .push(Range::new(row_start + from, row_start + to));
         }
-        (listing, lines)
+        let count = listing_rows(&listing);
+        (text, listing, count)
     };
 
-    let id = match editor.buffers.find_by_name(OCCUR_NAME) {
-        Some(id) => {
-            editor.replace_buffer_contents(id, &listing)?;
-            id
-        }
-        None => editor.buffers.create_with_text(OCCUR_NAME, &listing),
-    };
-    editor
-        .buffers
-        .get_mut(id)
-        .expect("just created")
-        .set_read_only(true);
-    editor.switch_to_buffer(id)?;
-    editor.message(format!("{count} matching line(s)"));
+    crate::commands::listing::show(editor, OCCUR_NAME, &text, listing)?;
+    editor.message(match count {
+        1 => "1 matching line".to_string(),
+        n => format!("{n} matching lines"),
+    });
     Ok(())
+}
+
+/// How many rows of a listing point somewhere.
+fn listing_rows(listing: &crate::commands::listing::Listing) -> usize {
+    listing.rows.iter().filter(|r| r.is_some()).count()
 }
 
 #[cfg(test)]
@@ -1057,6 +1086,11 @@ abc",
         let (mut d, mut e) = setup("one two one two one");
         start_replace(&mut d, &mut e, "query-replace", "one", "1");
         assert!(e.minibuffer.is_active(), "it asked about the first match");
+        assert_eq!(
+            e.minibuffer.prompt(),
+            "Query replacing one with 1: (y, n, !, q, .) ",
+            "the question says what for what"
+        );
 
         d.handle_keys(&mut e, "y");
         assert_eq!(e.current_buffer().text(), "1 two one two one");
@@ -1174,6 +1208,32 @@ abc",
         assert!(text.contains("     1:alpha"), "got `{text}`");
         assert!(text.contains("     3:alpha again"), "got `{text}`");
         assert!(!text.contains("beta"), "got `{text}`");
+    }
+
+    #[test]
+    fn occur_opens_beside_the_text_and_knows_where_each_row_leads() {
+        let (mut d, mut e) = setup("alpha\nbeta\nalpha again alpha\n");
+        let source = e.current_buffer_id();
+        d.execute(&mut e, "occur", None);
+        answer(&mut d, &mut e, "alpha");
+
+        assert_eq!(e.windows.len(), 2, "the text is still on screen");
+        assert_eq!(e.current_buffer().line_of(e.windows.current().point), 1);
+        let listing = e.listings.get(OCCUR_NAME).unwrap();
+        let rows: Vec<_> = listing.rows.iter().flatten().map(|t| t.line).collect();
+        assert_eq!(rows, [0, 2]);
+        assert_eq!(
+            listing.rows[1].as_ref().unwrap().place,
+            crate::commands::listing::Place::Buffer(source)
+        );
+        // Every match is marked in the row, where it falls in the text.
+        let text = e.current_buffer().text();
+        let marked: Vec<String> = listing
+            .matches
+            .iter()
+            .map(|m| text.chars().skip(m.start).take(m.end - m.start).collect())
+            .collect();
+        assert_eq!(marked, ["alpha", "alpha", "alpha"]);
     }
 
     #[test]

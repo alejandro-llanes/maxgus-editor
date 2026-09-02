@@ -395,7 +395,11 @@ impl App {
         };
         let shift = self.shift();
         let palette = self.settings.palette;
-        let ligatures = self.editor.settings.ligatures;
+        let ligatures = match self.editor.settings.ligatures {
+            true => maxgus_core::render::code_areas(&self.editor),
+            false => Vec::new(),
+        };
+        let dividers = maxgus_core::render::divided_windows(&self.editor);
         let vfx = vfx_settings(&self.editor.settings);
 
         let (Some(renderer), Some(fonts)) = (self.renderer.as_mut(), self.fonts.as_mut()) else {
@@ -409,7 +413,9 @@ impl App {
             shift: shift.as_ref(),
             cursor: cell,
             smear,
-            ligatures,
+            ligatures: &ligatures,
+            dividers: &dividers,
+            floating: &floating,
             only: &[],
             // Only where there is something blurred underneath to show.
             translucent: match blurring {

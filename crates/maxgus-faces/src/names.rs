@@ -16,6 +16,7 @@ pub const UI_FACES: &[&str] = &[
     "highlight",
     "shadow",
     "fringe",
+    "vertical-border",
     "line-number",
     "line-number-current-line",
     "mode-line",

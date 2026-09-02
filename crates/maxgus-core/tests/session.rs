@@ -4811,7 +4811,7 @@ fn the_readme_quotes_the_right_totals() {
 #[cfg(feature = "full")]
 const README_BINDINGS: usize = 404;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 466;
+const README_COMMANDS: usize = 472;
 
 #[cfg(feature = "full")]
 #[test]
@@ -5855,6 +5855,41 @@ fn c_g_goes_back_to_one_cursor() {
     s.keys("C-g");
     assert!(s.editor.cursors.is_empty(), "the cursors stayed");
     assert!(s.echo().contains("One cursor"), "got `{}`", s.echo());
+}
+
+#[test]
+fn typing_at_a_cursor_off_the_screen_does_not_scroll_the_window_there() {
+    // `alpha` a few lines down, in view, and again below the window; typing
+    // at both should leave the window where it was, not scrolled to show
+    // the far one and then back just far enough to show point.
+    let mut text = String::new();
+    for _ in 0..10 {
+        text.push_str("let other = 2;\n");
+    }
+    text.push_str("let alpha = 1;\n");
+    for _ in 0..80 {
+        text.push_str("let other = 2;\n");
+    }
+    text.push_str("let alpha = 3;\n");
+    let mut s = tall_session("/project/main.rs", &text);
+    let at = text.find("alpha").unwrap() + 5;
+    s.editor.with_current_buffer(|b| b.set_point(at));
+    s.keys("C-c C-<");
+    assert_eq!(s.editor.cursors.len(), 1, "two cursors expected");
+    s.screen();
+    s.type_text("_x");
+    assert_eq!(
+        s.editor.current_buffer().text().matches("alpha_x").count(),
+        2,
+        "not every cursor typed"
+    );
+    assert_eq!(
+        s.editor.windows.current().top_line,
+        0,
+        "the window followed the far cursor"
+    );
+    s.screen();
+    assert_eq!(s.editor.windows.current().top_line, 0);
 }
 
 #[test]
@@ -8420,7 +8455,7 @@ fn the_readme_quotes_the_right_total_for_a_minimal_build() {
 }
 
 #[cfg(not(feature = "full"))]
-const README_MINIMAL_COMMANDS: usize = 314;
+const README_MINIMAL_COMMANDS: usize = 320;
 
 #[test]
 fn the_box_says_what_it_is_asking_and_what_ret_will_do() {

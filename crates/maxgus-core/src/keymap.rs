@@ -776,6 +776,36 @@ pub fn grep_keymap() -> Result<Keymap> {
     Ok(map)
 }
 
+/// A listing's keys — `*Occur*` and `*xref*` share them.
+pub const LISTING_BINDINGS: &[(&str, &str)] = &[
+    ("n", "listing-next"),
+    ("p", "listing-previous"),
+    ("<down>", "listing-next"),
+    ("<up>", "listing-previous"),
+    ("RET", "listing-visit"),
+    ("o", "listing-visit-other-window"),
+    ("q", "listing-quit"),
+];
+
+pub fn listing_keymap(name: &str) -> Result<Keymap> {
+    let mut map = Keymap::new(name);
+    for (keys, command) in LISTING_BINDINGS {
+        map.define_str(keys, *command)?;
+    }
+    Ok(map)
+}
+
+/// The help buffer's keys: it is read, and then put away.
+pub const HELP_BINDINGS: &[(&str, &str)] = &[("q", "quit-window")];
+
+pub fn help_keymap() -> Result<Keymap> {
+    let mut map = Keymap::new(crate::commands::listing::HELP_MODE);
+    for (keys, command) in HELP_BINDINGS {
+        map.define_str(keys, *command)?;
+    }
+    Ok(map)
+}
+
 /// The visualiser: moving in it moves the buffer.
 pub const UNDO_TREE_BINDINGS: &[(&str, &str)] = &[
     ("p", "undo-tree-undo"),

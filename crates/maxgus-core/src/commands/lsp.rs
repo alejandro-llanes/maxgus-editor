@@ -8,6 +8,7 @@
 use crate::{
     MinibufferKind, Result, command,
     command::{Args, Registry},
+    commands::listing::{Listing, Place, Target},
     editor::Editor,
     task::{LspQuery, Task},
 };
@@ -379,11 +380,23 @@ fn previous_error(editor: &mut Editor, _: &Args) -> Result<()> {
 /// The protocol allows several shapes for most replies — a definition may be
 /// one location, a list of them, or a list of links — so each is accepted
 /// rather than insisting on the one a particular server happens to send.
-pub fn apply_response(editor: &mut Editor, query: &LspQuery, result: &serde_json::Value) {
+pub fn apply_response(
+    editor: &mut Editor,
+    uri: &str,
+    query: &LspQuery,
+    result: &serde_json::Value,
+) {
     match query {
         LspQuery::Definition(_) => apply_definition(editor, result),
         LspQuery::References(_) => list_locations(editor, "References", result),
-        LspQuery::Hover(_) => apply_hover(editor, result),
+        LspQuery::Hover(position) => {
+            // An answer about a place the cursor has since left is not an
+            // answer to anything: shown, it would sit beside whatever
+            // buffer is up now, describing a symbol that is not in it.
+            if still_at(editor, uri, *position) {
+                apply_hover(editor, result);
+            }
+        }
         LspQuery::Completion { manual, .. } => apply_completion(editor, result, *manual),
         LspQuery::SignatureHelp(_) => apply_signature_help(editor, result),
         LspQuery::Rename { .. } => {
@@ -494,6 +507,16 @@ fn jump_to(editor: &mut Editor, uri: &str, position: LspPosition) {
             });
         }
     }
+}
+
+/// True when point is still where a request was made: in the document at
+/// `uri`, at `position`.
+fn still_at(editor: &Editor, uri: &str, position: LspPosition) -> bool {
+    let buffer = editor.current_buffer();
+    buffer
+        .path()
+        .is_some_and(|path| maxgus_lsp::client::path_to_uri(path) == uri)
+        && point_position(editor, encoding(editor)) == position
 }
 
 fn apply_hover(editor: &mut Editor, result: &serde_json::Value) {
@@ -907,18 +930,29 @@ fn list_locations(editor: &mut Editor, heading: &str, result: &serde_json::Value
         .clone()
         .unwrap_or_else(|| editor.default_directory());
     let mut text = format!("{heading} ({})\n\n", locations.len());
+    let mut listing = Listing {
+        rows: vec![None, None],
+        matches: Vec::new(),
+    };
     for (uri, position) in &locations {
-        let shown = maxgus_lsp::client::uri_to_path(uri)
-            .map(|path| display_path(&path, &root))
+        let path = maxgus_lsp::client::uri_to_path(uri);
+        let shown = path
+            .as_deref()
+            .map(|path| display_path(path, &root))
             .unwrap_or_else(|| uri.clone());
         text.push_str(&format!(
             "{shown}:{}:{}\n",
             position.line + 1,
             position.character + 1
         ));
+        listing.rows.push(path.map(|path| Target {
+            place: Place::File(path),
+            line: position.line as usize,
+            column: Some(position.character as usize),
+        }));
     }
     let count = locations.len();
-    show_listing(editor, &text);
+    show_listing(editor, &text, listing);
     editor.message(format!("{count} {}", heading.to_lowercase()));
 }
 
@@ -955,7 +989,7 @@ fn list_code_actions(editor: &mut Editor, result: &serde_json::Value) {
         return;
     }
     let count = titles.len();
-    show_listing(editor, &text);
+    show_listing(editor, &text, Listing::default());
     editor.message(format!("{count} code action(s); no edit was offered"));
 }
 
@@ -965,14 +999,32 @@ fn list_symbols(editor: &mut Editor, heading: &str, result: &serde_json::Value) 
         return;
     };
     let mut text = format!("{heading} ({})\n\n", symbols.len());
-    collect_symbols(symbols, 0, &mut text);
+    let mut listing = Listing {
+        rows: vec![None, None],
+        matches: Vec::new(),
+    };
+    // The symbols are the current buffer's, which is where each row leads.
+    let source = editor.current_buffer_id();
+    collect_symbols(symbols, 0, &mut text, &mut |line| {
+        listing.rows.push(line.map(|line| Target {
+            place: Place::Buffer(source),
+            line,
+            column: None,
+        }));
+    });
     let count = symbols.len();
-    show_listing(editor, &text);
+    show_listing(editor, &text, listing);
     editor.message(format!("{count} {}", heading.to_lowercase()));
 }
 
-/// Walks the symbol tree, which may be flat or nested.
-fn collect_symbols(symbols: &[serde_json::Value], depth: usize, out: &mut String) {
+/// Walks the symbol tree, which may be flat or nested, telling `row` the
+/// zero-based line each row it writes is on.
+fn collect_symbols(
+    symbols: &[serde_json::Value],
+    depth: usize,
+    out: &mut String,
+    row: &mut dyn FnMut(Option<usize>),
+) {
     for symbol in symbols {
         let Some(name) = symbol.get("name").and_then(|v| v.as_str()) else {
             continue;
@@ -984,17 +1036,19 @@ fn collect_symbols(symbols: &[serde_json::Value], depth: usize, out: &mut String
             .and_then(|r| r.get("start"))
             .and_then(|s| s.get("line"))
             .and_then(|v| v.as_u64())
-            .map(|l| l + 1);
+            .map(|l| l as usize);
         let indent = "  ".repeat(depth);
         match line {
             Some(line) => out.push_str(&format!(
-                "{indent}{name}  [{}]  line {line}\n",
-                symbol_kind(kind)
+                "{indent}{name}  [{}]  line {}\n",
+                symbol_kind(kind),
+                line + 1
             )),
             None => out.push_str(&format!("{indent}{name}  [{}]\n", symbol_kind(kind))),
         }
+        row(line);
         if let Some(children) = symbol.get("children").and_then(|v| v.as_array()) {
-            collect_symbols(children, depth + 1, out);
+            collect_symbols(children, depth + 1, out, row);
         }
     }
 }
@@ -1026,21 +1080,12 @@ fn symbol_kind(kind: u64) -> &'static str {
     }
 }
 
-/// Shows a listing in the cross-reference buffer.
-fn show_listing(editor: &mut Editor, text: &str) {
-    let id = match editor.buffers.find_by_name(XREF_NAME) {
-        Some(id) => {
-            if editor.replace_buffer_contents(id, text).is_err() {
-                return;
-            }
-            id
-        }
-        None => editor.buffers.create_with_text(XREF_NAME, text),
-    };
-    if let Some(buffer) = editor.buffers.get_mut(id) {
-        buffer.set_read_only(true);
+/// Shows a listing in the cross-reference buffer, beside the buffer it is
+/// about.
+fn show_listing(editor: &mut Editor, text: &str, listing: Listing) {
+    if let Err(error) = crate::commands::listing::show(editor, XREF_NAME, text, listing) {
+        editor.error(error.to_string());
     }
-    editor.show_in_editing_window(id).ok();
 }
 
 #[cfg(test)]
@@ -1582,6 +1627,7 @@ mod tests {
 
         apply_response(
             &mut e,
+            "file:///project/main.rs",
             &LspQuery::Definition(LspPosition::new(3, 4)),
             &location("file:///project/main.rs", 0, 3),
         );
@@ -1616,6 +1662,7 @@ mod tests {
 
         apply_response(
             &mut e,
+            "file:///project/main.rs",
             &LspQuery::Definition(LspPosition::new(3, 4)),
             &location("file:///project/main.rs", 0, 3),
         );
@@ -1632,6 +1679,7 @@ mod tests {
         e.tasks.drain();
         apply_response(
             &mut e,
+            "file:///project/main.rs",
             &LspQuery::Definition(LspPosition::ZERO),
             &location("file:///project/other.rs", 2, 0),
         );
@@ -1651,6 +1699,7 @@ mod tests {
         let (_d, mut e) = setup("fn main() {}\n");
         apply_response(
             &mut e,
+            "file:///project/main.rs",
             &LspQuery::Definition(LspPosition::ZERO),
             &serde_json::json!([
                 location("file:///project/a.rs", 1, 0),
@@ -1670,6 +1719,7 @@ mod tests {
         e.message("Language server: finding definition...");
         apply_response(
             &mut e,
+            "file:///project/main.rs",
             &LspQuery::Definition(LspPosition::ZERO),
             &serde_json::Value::Null,
         );
@@ -1812,7 +1862,7 @@ mod tests {
         for (query, reply) in plausible_replies() {
             let (_d, mut e) = setup("fn main() {}\nfn other() {}\n");
             e.message(format!("Language server: {}...", query.description()));
-            apply_response(&mut e, &query, &reply);
+            apply_response(&mut e, "file:///project/main.rs", &query, &reply);
             let shown = e.minibuffer.display();
             assert!(
                 !shown.starts_with("Language server:"),
@@ -1839,6 +1889,7 @@ mod tests {
         e.message("Language server: finding references...");
         apply_response(
             &mut e,
+            "file:///project/main.rs",
             &LspQuery::References(LspPosition::ZERO),
             &serde_json::json!([
                 location("file:///project/a.rs", 1, 0),
@@ -1859,6 +1910,7 @@ mod tests {
         e.tree_root = Some(std::path::PathBuf::from("/project"));
         apply_response(
             &mut e,
+            "file:///project/main.rs",
             &LspQuery::References(LspPosition::ZERO),
             &serde_json::json!([location("file:///project/src/deep/thing.rs", 41, 7)]),
         );
@@ -1890,6 +1942,7 @@ mod tests {
         e.message("Language server: document symbols...");
         apply_response(
             &mut e,
+            "file:///project/main.rs",
             &LspQuery::DocumentSymbols { for_panel: false },
             &serde_json::json!([
                 {"name": "helper", "kind": 12, "range": {"start": {"line": 2, "character": 0}}},
@@ -1908,6 +1961,7 @@ mod tests {
         // A plain string.
         apply_response(
             &mut e,
+            "file:///project/main.rs",
             &LspQuery::Hover(LspPosition::ZERO),
             &serde_json::json!({"contents": "an integer"}),
         );
@@ -1919,6 +1973,7 @@ mod tests {
         // `MarkupContent`, which is what clangd and rust-analyzer send.
         apply_response(
             &mut e,
+            "file:///project/main.rs",
             &LspQuery::Hover(LspPosition::ZERO),
             &serde_json::json!({"contents": {"kind": "markdown", "value": "variable x\n\nType: int"}}),
         );
@@ -1932,6 +1987,31 @@ mod tests {
     }
 
     #[test]
+    fn a_hover_reply_for_somewhere_point_has_left_is_dropped() {
+        let (_d, mut e) = setup("let x = 1;\nlet y = 2;\n");
+        let answer = serde_json::json!({"contents": "an integer"});
+        // Point moved on before the answer came.
+        e.with_current_buffer(|b| b.set_point(11));
+        apply_response(
+            &mut e,
+            "file:///project/main.rs",
+            &LspQuery::Hover(LspPosition::ZERO),
+            &answer,
+        );
+        assert!(e.doc.is_none(), "the answer is about the wrong place");
+        // Another buffer was selected before the answer came.
+        let other = e.buffers.visit_file("/project/other.rs", "fn f() {}\n");
+        e.switch_to_buffer(other).unwrap();
+        apply_response(
+            &mut e,
+            "file:///project/main.rs",
+            &LspQuery::Hover(LspPosition::ZERO),
+            &answer,
+        );
+        assert!(e.doc.is_none(), "the answer is about the wrong buffer");
+    }
+
+    #[test]
     fn a_hover_with_nothing_in_it_says_so_only_when_it_was_asked_for() {
         let (_d, mut e) = setup("let x = 1;\n");
         // Out loud: `describe_thing` clears the mark that says an idle pause
@@ -1939,6 +2019,7 @@ mod tests {
         e.doc_asked_at = None;
         apply_response(
             &mut e,
+            "file:///project/main.rs",
             &LspQuery::Hover(LspPosition::ZERO),
             &serde_json::json!({}),
         );
@@ -1949,6 +2030,7 @@ mod tests {
         e.doc_asked_at = Some((e.current_buffer_id(), 0));
         apply_response(
             &mut e,
+            "file:///project/main.rs",
             &LspQuery::Hover(LspPosition::ZERO),
             &serde_json::json!({}),
         );

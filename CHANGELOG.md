@@ -1,5 +1,97 @@
 # Changelog
 
+## Unreleased
+
+- **`occur`, the language server's lists and `*Help*` open beside the text
+  rather than over it, and lead somewhere.** All three used to replace the
+  window you were working in with a read-only buffer that answered to
+  nothing: no way to visit a match, no `q` to put it away. They are modes
+  now. A listing opens in the other window — or a new one below, when there
+  is only one — with `n`/`p` to walk its rows, `RET` to visit the row's place
+  in the window you came from, `o` to visit it and stay in the list, and `q`
+  to close it. The matches in an `occur` listing are highlighted, `*xref*`
+  puts the language server's definitions, references and symbols behind the
+  same keys, and `*Help*` has `q` and nothing else, which is all it needed.
+  Mode names for these buffers are still to come.
+
+- **`M-g g` and `M-g c` ask for the line or character.** Without a prefix
+  argument they used to fail and leave the digits you then typed in the
+  buffer. `C-u 42 M-g g` still goes straight there.
+
+- **`C-h k` reads a whole key sequence.** `C-h k C-x C-f` used to answer
+  "`C-x` is a prefix key" and then run `C-f`; now it keeps reading, echoing
+  what it has so far, until the sequence names a command or nothing.
+
+- **The cursor is drawn where point is in magit buffers**, which have no
+  line-number gutter to add the width of. It used to sit several cells to
+  the right of the character it was on.
+
+- **The cursor stays on screen at the end of a long truncated line** with
+  line numbers on. Horizontal scrolling measured the window's full width
+  while the text was drawn after the gutter, so `End` on a long line left
+  point past the edge.
+
+- **A message clears on the next keystroke**, as Emacs' do. "Mark set" and
+  the red text from a failed command used to stay in the echo area for as
+  long as nothing else replaced them.
+
+- **`query-replace` highlights the occurrence it is asking about** and says
+  what it is replacing with what: `Query replacing foo with bar: (y, n, !,
+  q, .)`.
+
+- **A transient menu keeps each group with its heading.** The two-column
+  layout used to cut the list by row count, so "Log" could end up at the
+  bottom of the left column with its items starting the right one. Groups
+  are packed whole into as many columns as fit, and a group is never split.
+
+- **The completion popup shows as much of a candidate as it has room for.**
+  Names were cut at a fixed width whatever the popup's — grammar sources
+  read `github.com/tree-sitter-gramma` — and the list stopped at fifteen
+  rows with the screen half empty. A candidate with no annotation may use
+  the whole width; one with an annotation gets two thirds of it; and the
+  popup grows to half the frame.
+
+- **Typing with several cursors no longer scrolls the window to the last
+  of them.** Each cursor's edit followed its cursor, so the window ended
+  wherever the furthest one was; the view is put back where it started and
+  only moves if the real point has left it.
+
+- **A read-only buffer says "Buffer `*dired*` is read-only"** rather than
+  `text error: io error: buffer is read-only`.
+
+- **A documentation popup goes away with the buffer it was about.** A hover
+  reply that arrived after `M-.` had moved point elsewhere was shown over
+  whatever was on screen; a reply for somewhere point has left is dropped.
+
+- **Snippets are found in `snippets/rust/` as well as `snippets/rust-mode/`.**
+  The README said the former and only the latter worked, so `fn TAB`
+  silently indented instead of expanding.
+
+- **In the window: ligatures only in code.** The font was joining `->` in a
+  help page, `--color` on a shell line and `M--` in the list of bindings,
+  none of which are the arrow, the em dash or the ligature the font had in
+  mind. Ligatures now form in windows showing code — a file whose language
+  is not prose — and nowhere else.
+
+- **In the window: box-drawing and block characters are drawn as shapes.**
+  `█` came from the font with a seam at every cell and a strip of
+  background along the top, and a terminal program's `┌─┐` frames had gaps
+  at the corners. The two blocks (U+2500–U+259F, bar the three diagonals)
+  are drawn as rectangles that fill exactly the cell they are given: light,
+  heavy and double lines with their corners and crossings, dashes, halves,
+  eighths, quadrants and the three shades.
+
+- **In the window: a line between windows side by side.** `C-x 3` used to
+  put two windows' text edge to edge with nothing between them. A thin
+  divider runs down the seam, in the new `vertical-border` face.
+
+- **In the window: `dim` and `strikethrough` faces are drawn.** Both were
+  ignored; `tree-git-ignored` is dim and was not.
+
+- **In the window: a wide character's background covers both its cells.**
+  The region, the mode line and a search match used to colour the first
+  cell of a CJK character or an emoji and leave the second plain.
+
 ## v1.3.1
 
 - **`; inherits: c` in a highlights query is read.** A grammar that extends

@@ -148,6 +148,12 @@ impl Dispatcher {
 
     /// Handles one key.
     pub fn handle_key(&mut self, editor: &mut Editor, key: Key) -> Dispatch {
+        // A message is read once: the next key takes it off the echo area,
+        // as Emacs does, so "Wrote main.rs" is not still there an hour later
+        // looking like news. A prompt is not a message, and stays.
+        if !editor.minibuffer.is_active() {
+            editor.minibuffer.clear_message();
+        }
         // A command waiting on `read-char` takes the next key whole, before
         // any keymap sees it.
         if let Some((command, prefix)) = editor.pending_char.take() {
@@ -200,6 +206,13 @@ impl Dispatcher {
     /// end, shifted by whatever the edits did to the text before it.
     fn run_at_other_cursors(&mut self, editor: &mut Editor, name: &str, args: &Args) {
         let mut point = editor.windows.current().point;
+        // Where the window was looking. Each run follows its cursor, and a
+        // cursor off the bottom of the window scrolled it there and left it:
+        // typing at three places sent the window to the last of them.
+        let (top_line, top_row, left_column) = {
+            let window = editor.windows.current();
+            (window.top_line, window.top_row, window.left_column)
+        };
         // Where each cursor ends up. Everything already in here is further
         // through the buffer than the cursor being run, so each edit moves
         // all of them — and the real point, when the edit is before it.
@@ -231,7 +244,11 @@ impl Dispatcher {
             editor.cursors.add(cursor.min(length), point.min(length));
         }
         let point = point.min(length);
-        editor.windows.current_mut().point = point;
+        let window = editor.windows.current_mut();
+        window.point = point;
+        window.top_line = top_line;
+        window.top_row = top_row;
+        window.left_column = left_column;
         editor.with_current_buffer(move |b| b.set_point(point));
         editor.follow_point();
     }

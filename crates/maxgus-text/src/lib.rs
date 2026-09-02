@@ -10,7 +10,7 @@ pub mod registers;
 pub mod search;
 pub mod undo;
 
-pub use buffer::{Buffer, BufferId, LineEnding};
+pub use buffer::{Buffer, BufferId, LineEnding, is_prose};
 pub use edit::{Edit, EditKind};
 pub use kill_ring::KillRing;
 pub use motion::{CharClass, Motion};
@@ -32,6 +32,8 @@ pub enum TextError {
     NoMark,
     #[error("register `{0}` is empty")]
     EmptyRegister(char),
+    #[error("Buffer {0} is read-only")]
+    ReadOnly(String),
 }
 
 pub type Result<T> = std::result::Result<T, TextError>;

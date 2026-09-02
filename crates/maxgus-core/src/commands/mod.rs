@@ -15,6 +15,7 @@ pub mod grammar;
 #[cfg(feature = "full")]
 pub mod grep;
 pub mod help;
+pub mod listing;
 #[cfg(feature = "full")]
 pub mod lsp;
 pub mod minibuffer;
@@ -68,6 +69,7 @@ pub fn standard_registry() -> Registry {
     undo_tree::register(&mut registry);
     misc::register(&mut registry);
     help::register(&mut registry);
+    listing::register(&mut registry);
     register::register(&mut registry);
     text::register(&mut registry);
     #[cfg(feature = "full")]

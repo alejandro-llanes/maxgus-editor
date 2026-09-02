@@ -27,6 +27,44 @@ pub fn text_area(editor: &Editor, id: crate::window::WindowId) -> Option<Rect> {
     Some(window.rect.intersect(&body)?.split_bottom(1).0)
 }
 
+/// The text areas of the windows showing code: where a front end that can
+/// draw ligatures should.
+///
+/// Code, and not the rest, because a ligature is a claim about what the
+/// characters mean: `->` in Rust is an arrow, and joining it says so. `->`
+/// in a help page, `--color` on a shell line and `C-<left>` in the list of
+/// bindings are the characters they are made of, and a font joining them
+/// there is contradicting the text.
+pub fn code_areas(editor: &Editor) -> Vec<Rect> {
+    editor
+        .windows
+        .iter()
+        .filter(|window| {
+            editor.buffers.get(window.buffer).is_some_and(|buffer| {
+                buffer
+                    .language()
+                    .is_some_and(|language| !maxgus_text::is_prose(language))
+            })
+        })
+        .filter_map(|window| text_area(editor, window.id))
+        .collect()
+}
+
+/// The windows with another to their right: where a divider belongs.
+///
+/// The terminal has no pixel to draw one in — the windows simply abut, and
+/// each one's gutter keeps them apart. A front end that has pixels can do
+/// better, and this is which edges to do it on.
+pub fn divided_windows(editor: &Editor) -> Vec<Rect> {
+    let (body, _) = editor.frame.split_bottom(1);
+    editor
+        .windows
+        .iter()
+        .filter_map(|window| window.rect.intersect(&body))
+        .filter(|rect| rect.x + rect.width < body.x + body.width)
+        .collect()
+}
+
 /// The line just beyond the edge of the current window, drawn as that window
 /// would draw it.
 ///
@@ -2076,9 +2114,13 @@ pub(crate) fn wrap_width(editor: &Editor, window: &Window, buffer: &Buffer) -> O
     if editor.settings.truncate_lines {
         return None;
     }
+    Some(text_columns(editor, window, buffer))
+}
+
+/// The columns a window has for text once the line numbers have taken theirs.
+pub(crate) fn text_columns(editor: &Editor, window: &Window, buffer: &Buffer) -> usize {
     let area = text_area(editor, window.id).unwrap_or(window.rect);
-    let width = area.width.saturating_sub(line_number_width(editor, buffer));
-    Some(width as usize)
+    area.width.saturating_sub(line_number_width(editor, buffer)) as usize
 }
 
 /// One screen row's worth of a line.
@@ -2161,12 +2203,36 @@ fn visual_rows(editor: &Editor, window: &Window, buffer: &Buffer, height: u16) -
 /// the same amount the text is moved over — otherwise it sits in the gutter,
 /// three columns adrift of the character it is on.
 pub(crate) fn line_number_width(editor: &Editor, buffer: &Buffer) -> u16 {
-    if !editor.settings.line_numbers {
+    if !editor.settings.line_numbers || !has_line_numbers(editor, buffer) {
         return 0;
     }
     // Enough digits for the last line, plus a separating space.
     let digits = buffer.len_lines().max(1).to_string().len();
     (digits + 1) as u16
+}
+
+/// Whether a buffer is drawn with a line-number column at all.
+///
+/// The views a subsystem paints itself — the tree and its panels, the git
+/// views — have no gutter, and a cursor placed as though they
+/// had one sits a few columns to the right of the character it is on.
+fn has_line_numbers(editor: &Editor, buffer: &Buffer) -> bool {
+    let name = buffer.name();
+    if name == crate::commands::tree::TREE_BUFFER_NAME
+        || name == crate::commands::tree::SYMBOLS_BUFFER_NAME
+        || name == crate::commands::tree::BUFFERS_BUFFER_NAME
+    {
+        return false;
+    }
+    #[cfg(feature = "full")]
+    if name == crate::commands::git::STATUS_BUFFER_NAME
+        || editor.git_diffs.contains_key(name)
+        || editor.git_lists.contains_key(name)
+    {
+        return false;
+    }
+    let _ = editor;
+    true
 }
 
 /// Paints a window's buffer text.
@@ -2510,11 +2576,18 @@ impl<'a> Layers<'a> {
             .filter(|r| r.overlaps(&line_range) || r.is_empty());
         let region_spans_eol = region.is_some_and(|r| r.start <= end && r.end > end);
 
-        // The match point is on is drawn differently from the others.
+        // The match point is on is drawn differently from the others — the
+        // one a search is at, or the one query-replace is asking about.
         let current = editor
             .isearch
             .as_ref()
             .and_then(|s| s.current)
+            .or_else(|| {
+                editor
+                    .query_replace
+                    .as_ref()
+                    .and_then(|s| s.current.as_ref().map(|m| m.range))
+            })
             .filter(|m| m.overlaps(&line_range));
         let others: Vec<Range> = overlays
             .matches
@@ -2664,19 +2737,36 @@ fn resolve_search_matches(
     first_line: usize,
     last_line: usize,
 ) -> Vec<Range> {
-    let Some(search) = editor.isearch.as_ref() else {
-        return Vec::new();
-    };
-    if search.query.is_empty() || search.failing {
-        return Vec::new();
-    }
-    let Ok(query) =
-        maxgus_text::SearchQuery::new(&search.query, search.kind, editor.settings.case_fold_search)
-    else {
-        return Vec::new();
-    };
     let start = buffer.line_start(first_line);
     let end = buffer.line_start(last_line);
+    // A listing marks the matches it was made from, the way `occur` does.
+    if let Some(listing) = editor.listings.get(buffer.name()) {
+        return listing
+            .matches
+            .iter()
+            .filter(|m| m.start < end && m.end > start)
+            .copied()
+            .collect();
+    }
+    // The query being replaced marks its other matches too, so what `!`
+    // would do to the rest of the screen can be seen before answering it.
+    let query = match (editor.isearch.as_ref(), editor.query_replace.as_ref()) {
+        (Some(search), _) => {
+            if search.query.is_empty() || search.failing {
+                return Vec::new();
+            }
+            let Ok(query) = maxgus_text::SearchQuery::new(
+                &search.query,
+                search.kind,
+                editor.settings.case_fold_search,
+            ) else {
+                return Vec::new();
+            };
+            query
+        }
+        (None, Some(replace)) if replace.current.is_some() => replace.query.clone(),
+        _ => return Vec::new(),
+    };
     if end <= start {
         return Vec::new();
     }
@@ -2813,9 +2903,10 @@ fn draw_transient(
     let transient = active.current()?;
     let theme = &editor.theme;
 
-    let mut lines: Vec<Vec<(String, &'static str)>> = Vec::new();
+    type Line = Vec<(String, &'static str)>;
+    let mut groups: Vec<Vec<Line>> = Vec::new();
     for group in transient.groups {
-        lines.push(vec![(group.title.to_string(), "transient-heading")]);
+        let mut lines: Vec<Line> = vec![vec![(group.title.to_string(), "transient-heading")]];
         for item in group.items {
             let label_face = match item.action {
                 crate::transient::Action::Switch(flag) if active.is_on(flag) => {
@@ -2838,12 +2929,45 @@ fn draw_transient(
                 (mark.to_string(), "transient-switch-on"),
             ]);
         }
+        groups.push(lines);
     }
 
-    // Two columns when there is room, so a long menu does not run off.
-    let column = (frame.width / 2).max(24);
-    let columns = ((frame.width / column).max(1) as usize).min(2);
-    let rows = lines.len().div_ceil(columns);
+    // The groups go side by side when there is room, as magit lays them
+    // out, and a group is never cut in two: its heading and its keys are
+    // read together, and a column break between them left the keys under
+    // the wrong heading.
+    let widest = groups
+        .iter()
+        .flatten()
+        .map(|line| {
+            line.iter()
+                .map(|(text, _)| text.chars().count())
+                .sum::<usize>()
+        })
+        .max()
+        .unwrap_or(0);
+    let column = (widest as u16 + 2).max(24);
+    let columns = (frame.width / column).max(1) as usize;
+    let columns = columns.min(groups.len()).max(1);
+    let total: usize = groups.iter().map(Vec::len).sum::<usize>() + groups.len() - 1;
+    let target = total.div_ceil(columns);
+    // Consecutive groups fill a column until the next one would push it past
+    // its share, then start the next column, while there are columns left.
+    let mut packed: Vec<Vec<Line>> = vec![Vec::new()];
+    for lines in groups {
+        let filled = packed.last().map_or(0, Vec::len);
+        let overflows = filled > 0 && filled + 1 + lines.len() > target;
+        if overflows && packed.len() < columns {
+            packed.push(lines);
+            continue;
+        }
+        let current = packed.last_mut().expect("one column at least");
+        if !current.is_empty() {
+            current.push(Vec::new());
+        }
+        current.extend(lines);
+    }
+    let rows = packed.iter().map(Vec::len).max().unwrap_or(0);
     let height = (rows as u16 + 2).min(frame.height.saturating_sub(2));
     if height < 3 {
         return None;
@@ -2867,22 +2991,26 @@ fn draw_transient(
         area.width,
     );
 
-    let rows = inner.height as usize;
-    for (index, line) in lines.iter().enumerate() {
-        let (row, offset) = (index % rows, (index / rows) as u16 * column);
-        let y = inner.y + row as u16;
-        if y >= inner.bottom() || inner.x + offset >= inner.right() {
-            continue;
+    for (index, lines) in packed.iter().enumerate() {
+        let offset = index as u16 * column;
+        if inner.x + offset >= inner.right() {
+            break;
         }
-        let mut x = inner.x + offset;
-        for (text, name) in line {
-            x = surface.set_string(
-                x,
-                y,
-                text,
-                theme.resolve(name),
-                inner.right().saturating_sub(x),
-            );
+        for (row, line) in lines.iter().enumerate() {
+            let y = inner.y + row as u16;
+            if y >= inner.bottom() {
+                break;
+            }
+            let mut x = inner.x + offset;
+            for (text, name) in line {
+                x = surface.set_string(
+                    x,
+                    y,
+                    text,
+                    theme.resolve(name),
+                    inner.right().saturating_sub(x),
+                );
+            }
         }
     }
     Some(area)
@@ -2981,8 +3109,17 @@ fn draw_completion_popup(editor: &Editor, surface: &mut Surface, area: Rect) {
     let shown = &completion.candidates[top..completion.len().min(top + rows)];
     let annotations: Vec<(String, String)> = shown.iter().map(|c| annotate(editor, c)).collect();
     // The columns are as wide as their widest entry, so a list of short names
-    // does not push its documentation across the screen away from it.
-    let names = column_width(shown.iter().map(String::as_str), inner.width / 2);
+    // does not push its documentation across the screen away from it. A
+    // name is only cut short to make room for what annotates it: a list of
+    // paths with nothing beside them has the whole box to spell them in.
+    let annotated = annotations
+        .iter()
+        .any(|(k, d)| !k.is_empty() || !d.is_empty());
+    let most = match annotated {
+        true => inner.width * 2 / 3,
+        false => inner.width,
+    };
+    let names = column_width(shown.iter().map(String::as_str), most);
     let keys = column_width(annotations.iter().map(|(k, _)| k.as_str()), inner.width / 4);
 
     for (row, candidate) in shown.iter().enumerate() {
@@ -4410,10 +4547,98 @@ mod tests {
     }
 
     #[test]
+    fn query_replace_marks_the_match_it_is_asking_about_and_the_rest() {
+        let (mut e, mut s) = setup("one two one", 40, 5);
+        let query =
+            maxgus_text::SearchQuery::new("one", maxgus_text::SearchKind::Literal, None).unwrap();
+        let current = query.search_forward(e.current_buffer().rope(), 0).unwrap();
+        e.query_replace = Some(crate::commands::search::QueryReplace {
+            query,
+            replacement: "1".into(),
+            current: Some(current),
+            replaced: 0,
+            replace_all: false,
+        });
+        draw(&e, &mut s);
+        let asked = e.theme.resolve("isearch").background;
+        let other = e.theme.resolve("lazy-highlight").background;
+        assert_eq!(face_at(&s, 0, 0).background, asked);
+        assert_eq!(face_at(&s, 8, 0).background, other);
+        assert_ne!(face_at(&s, 4, 0).background, other, "`two` is not a match");
+    }
+
+    #[cfg(feature = "full")]
+    #[test]
+    fn a_menu_puts_its_groups_side_by_side_and_never_splits_one() {
+        let (mut e, mut s) = setup("text", 80, 24);
+        e.transient = Some(crate::transient::Active::new("commit"));
+        let lines = rendered(&e, &mut s);
+        let arguments = lines.iter().position(|l| l.contains("Arguments")).unwrap();
+        let create = lines.iter().position(|l| l.contains("Create")).unwrap();
+        assert_eq!(arguments, create, "the two headings share a row");
+        // Every key of a group sits under its heading, in the same column.
+        let column = lines[create].find("Create").unwrap();
+        assert!(lines[create + 1][column..].trim_start().starts_with('c'));
+        assert!(lines[create + 5][column..].trim_start().starts_with('f'));
+        assert!(
+            lines[arguments + 4]
+                .trim_start_matches(['│', ' '])
+                .starts_with("-n"),
+            "got `{}`",
+            lines[arguments + 4]
+        );
+
+        // Too narrow for two columns: the groups are stacked, one after the
+        // other, with a blank line between them.
+        let (mut e, mut s) = setup("text", 40, 24);
+        e.transient = Some(crate::transient::Active::new("commit"));
+        let lines = rendered(&e, &mut s);
+        let arguments = lines.iter().position(|l| l.contains("Arguments")).unwrap();
+        let create = lines.iter().position(|l| l.contains("Create")).unwrap();
+        assert_eq!(create, arguments + 6);
+        assert!(lines[arguments + 5].trim_matches(['│', ' ']).is_empty());
+    }
+
+    #[test]
     fn an_empty_buffer_draws_a_blank_screen_with_a_mode_line() {
         let (e, mut s) = setup("", 20, 4);
         let lines = rendered(&e, &mut s);
         assert_eq!(lines[0], "                    ");
         assert!(lines[2].contains("test"), "the mode line is still there");
+    }
+
+    #[test]
+    fn ligatures_belong_to_the_code_windows_and_dividers_to_the_left_ones() {
+        let (mut e, _) = setup("fn main() {}", 80, 24);
+        assert!(
+            code_areas(&e).is_empty(),
+            "a buffer with no language is not code"
+        );
+        assert!(divided_windows(&e).is_empty(), "one window has no seam");
+        e.with_current_buffer(|b| b.set_language(Some("txt".into())));
+        assert!(code_areas(&e).is_empty(), "a text file is not code");
+
+        e.with_current_buffer(|b| b.set_language(Some("rust".into())));
+        let right = e
+            .split_window(crate::window::Direction::Horizontal)
+            .unwrap();
+        e.select_window(right);
+        let help = e.buffers.create_with_text("*Help*", "C-x C-f -> find-file");
+        e.switch_to_buffer(help).unwrap();
+
+        let code = code_areas(&e);
+        assert_eq!(code.len(), 1, "only the code window: {code:?}");
+        assert_eq!(
+            code[0],
+            Rect::new(0, 0, 40, 22),
+            "its text, not its mode line"
+        );
+        let seams = divided_windows(&e);
+        assert_eq!(seams.len(), 1, "one seam between two windows: {seams:?}");
+        assert_eq!(
+            seams[0],
+            Rect::new(0, 0, 40, 23),
+            "the left window, mode line and all"
+        );
     }
 }

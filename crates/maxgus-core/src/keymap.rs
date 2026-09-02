@@ -306,6 +306,12 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-c t c", "toggle-fill-column-indicator"),
     ("C-c t I", "toggle-indent-style"),
     ("C-c t w", "toggle-truncate-lines"),
+    // Zoom, in a window: the keys Emacs' `text-scale-adjust` answers to,
+    // with `C-=` beside `C-+` for the keyboards where `+` needs shift.
+    ("C-x C-+", "text-scale-increase"),
+    ("C-x C-=", "text-scale-increase"),
+    ("C-x C--", "text-scale-decrease"),
+    ("C-x C-0", "text-scale-reset"),
     // `C-c v` — versioning.
     #[cfg(feature = "full")]
     ("C-c v g", "magit-status"),

@@ -158,6 +158,11 @@ pub struct Editor {
     pub kill_appending: bool,
     /// Where the file tree window is, when it is open.
     pub tree_window: Option<WindowId>,
+    /// How far the text has been zoomed, in steps of a tenth, or `None`
+    /// where the front end cannot zoom it: a terminal's text is whatever
+    /// size the terminal makes it. A window sets this to `Some(0)` and
+    /// reads it back every frame.
+    pub text_scale: Option<i32>,
     /// A command waiting for one character, with the prefix argument it was
     /// invoked with. The next key goes to it instead of being dispatched.
     pub pending_char: Option<(String, Prefix)>,
@@ -419,6 +424,7 @@ impl Editor {
             quit: false,
             kill_appending: false,
             tree_window: None,
+            text_scale: None,
             pending_char: None,
             described_keys: KeySequence::empty(),
             pending_input: None,
@@ -1433,6 +1439,40 @@ impl Editor {
         };
         let top = self.top_place(buffer, width);
         crate::wrap::forward(buffer, top, window.text_height().saturating_sub(1), width).line
+    }
+
+    /// How many steps of zoom the text can be taken in either direction:
+    /// enough to go from a sixteen-pixel font to forty-one, or down to six.
+    pub const TEXT_SCALE_STEPS: i32 = 10;
+
+    /// What the text is drawn at, relative to the configured size: a
+    /// tenth larger per step, the way Emacs' `text-scale-adjust` goes.
+    pub fn text_scale_factor(&self) -> f32 {
+        1.1_f32.powi(self.text_scale.unwrap_or(0))
+    }
+
+    /// Zooms the text `by` steps — or back to the configured size when
+    /// `by` is zero — and says where it ended up. A front end that cannot
+    /// zoom is told so rather than asked to.
+    pub fn adjust_text_scale(&mut self, by: i32) -> crate::Result<()> {
+        let Some(steps) = self.text_scale else {
+            return Err(crate::CoreError::Message(
+                "The terminal decides how big its text is".into(),
+            ));
+        };
+        let limit = Self::TEXT_SCALE_STEPS;
+        let wanted = match by {
+            0 => 0,
+            _ => (steps + by).clamp(-limit, limit),
+        };
+        self.text_scale = Some(wanted);
+        let percent = (self.text_scale_factor() * 100.0).round() as i32;
+        match wanted {
+            0 => self.message("Text back to its configured size"),
+            _ if wanted == steps => self.message(format!("Text at {percent}%, as far as it goes")),
+            _ => self.message(format!("Text at {percent}%")),
+        }
+        Ok(())
     }
 
     /// Where the hardware cursor belongs on screen: the selected window's

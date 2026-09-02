@@ -37,6 +37,21 @@ pub fn register(registry: &mut Registry) {
             toggle_truncate_lines
         ),
         command!(
+            "text-scale-increase",
+            "Draw the text a step larger, in a window.",
+            text_scale_increase
+        ),
+        command!(
+            "text-scale-decrease",
+            "Draw the text a step smaller, in a window.",
+            text_scale_decrease
+        ),
+        command!(
+            "text-scale-reset",
+            "Draw the text at its configured size again.",
+            text_scale_reset
+        ),
+        command!(
             "universal-argument",
             "Begin a prefix argument.",
             universal_argument,
@@ -886,6 +901,20 @@ fn toggle_truncate_lines(editor: &mut Editor, _: &Args) -> Result<()> {
     Ok(())
 }
 
+/// `C-x C-+`: a tenth larger, `C-u 3 C-x C-+` three tenths. The window
+/// reads the new scale on its next frame and cuts the font again.
+fn text_scale_increase(editor: &mut Editor, args: &Args) -> Result<()> {
+    editor.adjust_text_scale(args.count().max(1) as i32)
+}
+
+fn text_scale_decrease(editor: &mut Editor, args: &Args) -> Result<()> {
+    editor.adjust_text_scale(-(args.count().max(1) as i32))
+}
+
+fn text_scale_reset(editor: &mut Editor, _: &Args) -> Result<()> {
+    editor.adjust_text_scale(0)
+}
+
 fn on_or_off(on: bool) -> &'static str {
     match on {
         true => "on",
@@ -938,6 +967,44 @@ mod tests {
             e.minibuffer.insert_char(c);
         }
         d.handle_keys(e, "RET");
+    }
+
+    #[test]
+    fn the_text_zooms_a_tenth_a_step_and_only_where_it_can() {
+        let (mut d, mut e) = setup("");
+        // A terminal: the size is not the editor's to change, and the
+        // command says so rather than pretending.
+        let refused = fails(&mut d, &mut e, "text-scale-increase");
+        assert!(refused.contains("terminal"), "{refused}");
+        assert_eq!(e.text_scale_factor(), 1.0);
+
+        // A window said it can.
+        e.text_scale = Some(0);
+        run(&mut d, &mut e, "text-scale-increase");
+        assert_eq!(e.text_scale, Some(1));
+        assert!((e.text_scale_factor() - 1.1).abs() < 1e-6);
+        assert_eq!(e.minibuffer.message(), Some("Text at 110%"));
+        d.handle_keys(&mut e, "C-x C-+");
+        d.handle_keys(&mut e, "C-x C-=");
+        assert_eq!(e.text_scale, Some(3), "both keys go up");
+        d.handle_keys(&mut e, "C-x C--");
+        assert_eq!(e.text_scale, Some(2));
+        d.handle_keys(&mut e, "C-x C-0");
+        assert_eq!(e.text_scale, Some(0));
+        assert_eq!(
+            e.minibuffer.message(),
+            Some("Text back to its configured size")
+        );
+
+        // It stops somewhere, and says so.
+        for _ in 0..20 {
+            run(&mut d, &mut e, "text-scale-decrease");
+        }
+        assert_eq!(e.text_scale, Some(-Editor::TEXT_SCALE_STEPS));
+        assert_eq!(
+            e.minibuffer.message(),
+            Some("Text at 39%, as far as it goes")
+        );
     }
 
     #[test]

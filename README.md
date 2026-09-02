@@ -79,7 +79,7 @@ path in it, because a launcher does not see your shell's `PATH`.
 | | `minimal` | `full` *(default)* | `gui` |
 |---|:---:|:---:|:---:|
 | **Binary** | **4.8M** | **13M** | **21M** |
-| **Commands** | 320 | 472 | 472 |
+| **Commands** | 323 | 475 | 475 |
 | **Needs from the system** | nothing | nothing | a window system's headers |
 | Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
 | Buffers, windows, `C-x` everything | ● | ● | ● |
@@ -169,8 +169,8 @@ $ ./target/release/maxgus
 
 ### Emacs keys, and they behave like Emacs
 
-**404 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **472 commands**. Prefix
+**408 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
+the panel, tree, magit and terminal maps, driving **475 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -825,6 +825,7 @@ first.
 | `C-h t` | The tutorial |
 | `C-h v` | A setting's current value |
 | `C-c t l` `C-c t I` | Toggle line numbers, tabs-or-spaces |
+| `C-x C-+` `C-x C--` `C-x C-0` | In a window: text larger, smaller, back to its configured size |
 | `C-c f y` `C-c f Y` | Copy this file's path, its path in the project |
 | `C-c f D` `C-c f m` | Delete this file, rename or move it |
 | `C-c c w` | Delete trailing whitespace |
@@ -1024,6 +1025,13 @@ What the window has that a terminal cannot:
   drawn from a font on the system that has it, fitted to the cell; a colour
   emoji comes out in colour. `set gui-line-spacing` opens the lines up and
   `set gui-padding` keeps the text off the window's edge.
+- **Zoom.** `C-x C-+` and `C-x C--` draw the text a tenth larger or
+  smaller, `C-x C-0` puts it back, and the wheel with control held does
+  the same, the way it does in a browser. The window is laid out again for
+  however many of the new cells fit, and the font is cut again from what
+  is already loaded rather than looked up on the system, so it is as quick
+  as a keypress should be. The configured size is what `C-x C-0` returns
+  to; the setting itself is not changed.
 
 `C-c o b` (`M-x open-externally`) hands the file being edited to whatever the
 desktop opens it with — an image viewer for an image, a reader for a PDF —

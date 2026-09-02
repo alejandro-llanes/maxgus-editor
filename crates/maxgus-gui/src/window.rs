@@ -52,6 +52,9 @@ pub fn run(
 ) -> Result<()> {
     settle_the_beacon(&mut editor.settings);
     editor.clipboard = Some(Box::new(crate::clipboard::System::new()));
+    // A window can draw its text at any size, so `text-scale-increase` and
+    // its friends have something to do here.
+    editor.text_scale = Some(0);
     let geometry_path = editor.state_dir.as_deref().map(crate::geometry::path_for);
     let remembered = geometry_path.as_deref().and_then(crate::geometry::read);
     let event_loop = EventLoop::new()?;
@@ -102,6 +105,8 @@ pub fn run(
         title: None,
         focused: true,
         clicks: None,
+        zoom: 1.0,
+        zoom_wheel: 0.0,
         geometry: remembered.unwrap_or(crate::geometry::Geometry::DEFAULT),
         geometry_path,
     };
@@ -236,6 +241,13 @@ struct App {
     /// The last left click — when and where — so the next one can be told
     /// to be the second or third of a series.
     clicks: Option<(std::time::Instant, (u16, u16), u8)>,
+    /// The factor the font was last cut at, over the configured size, so a
+    /// `text-scale-increase` shows on the next frame as a new font.
+    zoom: f32,
+    /// A touchpad's zoom so far, in pixels: it reports the fingers'
+    /// movement in fractions, and a step is taken each time enough of
+    /// them add up.
+    zoom_wheel: f32,
     /// The window's size in logical pixels, to be remembered on the way out.
     geometry: crate::geometry::Geometry,
     /// Where the size is remembered, when there is somewhere.
@@ -277,7 +289,15 @@ impl App {
     /// found, which it can: a family installed a moment ago is still there.
     fn load_fonts(&mut self) -> anyhow::Result<()> {
         let scale = self.scale();
-        let mut fonts = Fonts::load(&self.settings.font, self.settings.font_size * scale)?;
+        self.zoom = self.editor.text_scale_factor();
+        let size = (self.settings.font_size * self.zoom).clamp(6.0, 96.0) * scale;
+        // The family already loaded is cut again rather than looked up
+        // again: a zoom is a keypress, and reading every font on the
+        // system is not something to do on one.
+        let mut fonts = match self.fonts.as_ref() {
+            Some(fonts) => fonts.resized(size)?,
+            None => Fonts::load(&self.settings.font, size)?,
+        };
         fonts.set_line_spacing(self.editor.settings.gui_line_spacing as f32 * scale);
         if let Some(renderer) = self.renderer.as_ref() {
             fonts.set_atlas_limit(renderer.max_texture_dimension());
@@ -543,6 +563,20 @@ impl App {
         if let Err(error) = renderer.draw_over(&frame, backdrop.as_ref(), &areas, radius) {
             tracing::warn!("frame not drawn: {error}");
         }
+    }
+
+    /// Cuts the font again — the display's scale or the text's changed —
+    /// and lays the editor out for the cells that fit now.
+    fn rescale(&mut self) {
+        if let Err(error) = self.load_fonts() {
+            tracing::warn!("the font would not reload: {error}");
+        }
+        self.cursor.snap();
+        if let Some(window) = self.window.as_ref() {
+            let size = window.inner_size();
+            self.fit(size.width, size.height);
+        }
+        self.dirty = true;
     }
 
     /// Finishes any animation where it stands: the lines it had left to
@@ -849,15 +883,7 @@ impl ApplicationHandler for App {
             WindowEvent::ScaleFactorChanged { .. } => {
                 // Moved to a display with a different scale: the glyphs have
                 // to be cut again at the new size.
-                if let Err(error) = self.load_fonts() {
-                    tracing::warn!("the font would not reload: {error}");
-                }
-                self.cursor.snap();
-                if let Some(window) = self.window.as_ref() {
-                    let size = window.inner_size();
-                    self.fit(size.width, size.height);
-                }
-                self.dirty = true;
+                self.rescale();
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers.state();
@@ -958,6 +984,14 @@ impl ApplicationHandler for App {
                 }
                 _ => {}
             },
+            WindowEvent::MouseWheel { delta, .. } if self.modifiers.control_key() => {
+                // The wheel with control held zooms, the way it does in a
+                // browser. The message it leaves is the command's own.
+                let steps = crate::mouse::zoom_steps(delta, &mut self.zoom_wheel);
+                if steps != 0 && self.editor.adjust_text_scale(steps).is_ok() {
+                    self.dirty = true;
+                }
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 // The window under the pointer, not the one being typed
                 // into: a wheel over the file tree scrolls the file tree.
@@ -1011,6 +1045,11 @@ impl ApplicationHandler for App {
         }
         // Whatever the executor finished while the window was quiet.
         self.pump();
+        // `C-x C-+` asked for the text at another size: cut the font again
+        // and lay the editor out for however many of the new cells fit.
+        if self.editor.text_scale_factor() != self.zoom {
+            self.rescale();
+        }
         // The light beside the cursor, by however long the last frame took.
         let now = std::time::Instant::now();
         let since = frame_time(

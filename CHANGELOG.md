@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **The text zooms, in a window.** `C-x C-+` (or `C-x C-=`) draws it a
+  tenth larger, `C-x C--` a tenth smaller, `C-x C-0` at its configured
+  size again, and the wheel with control held does the same — a notch a
+  step for a mouse, a short swipe a step for a touchpad. `M-x
+  text-scale-increase`, `text-scale-decrease` and `text-scale-reset` are
+  the commands, and a prefix argument is how many steps. The window is
+  laid out again for the cells that fit at the new size, the font is cut
+  again from the family already loaded rather than looked up on the
+  system, and the echo area says where it got to — `Text at 133%`. In a
+  terminal the commands say the terminal decides.
+
 - **Room around the text, in a window.** `set gui-line-spacing` opens
   every line up by that many pixels over what the font asks for, half
   above the glyphs and half below so they stay centred in the taller row;

@@ -46,6 +46,24 @@ pub fn wheel_pixels(
     }
 }
 
+/// How many steps the wheel zooms the text with control held: one a notch
+/// for a mouse, and for a touchpad one each time the fingers have gone
+/// this many pixels, carried in `so_far` between events. Up is larger.
+pub fn zoom_steps(delta: winit::event::MouseScrollDelta, so_far: &mut f32) -> i32 {
+    use winit::event::MouseScrollDelta;
+    /// A touchpad's worth of a notch: a modest swipe, not a twitch.
+    const SWIPE: f32 = 40.0;
+    match delta {
+        MouseScrollDelta::LineDelta(_, lines) => lines.round() as i32,
+        MouseScrollDelta::PixelDelta(position) => {
+            *so_far += position.y as f32;
+            let steps = (*so_far / SWIPE).trunc();
+            *so_far -= steps * SWIPE;
+            steps as i32
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,6 +132,28 @@ mod tests {
         // `mouse-wheel-lines` is how far a notch goes.
         let further = wheel_pixels(MouseScrollDelta::LineDelta(0.0, -1.0), 20.0, 8);
         assert_eq!(further, 160.0, "eight lines a notch is eight lines");
+    }
+
+    #[test]
+    fn a_notch_with_control_held_is_one_step_of_zoom() {
+        let mut carried = 0.0;
+        let up = zoom_steps(MouseScrollDelta::LineDelta(0.0, 1.0), &mut carried);
+        assert_eq!(up, 1, "up is larger");
+        let down = zoom_steps(MouseScrollDelta::LineDelta(0.0, -1.0), &mut carried);
+        assert_eq!(down, -1);
+        assert_eq!(carried, 0.0, "a notch carries nothing over");
+    }
+
+    #[test]
+    fn a_touchpad_zooms_a_step_per_swipe_and_carries_the_rest() {
+        let mut carried = 0.0;
+        let small = MouseScrollDelta::PixelDelta((0.0, 15.0).into());
+        assert_eq!(zoom_steps(small, &mut carried), 0, "a twitch is not a step");
+        assert_eq!(zoom_steps(small, &mut carried), 0);
+        assert_eq!(zoom_steps(small, &mut carried), 1, "three add up to one");
+        assert_eq!(carried, 5.0, "the pixels past the step wait for the next");
+        let back = MouseScrollDelta::PixelDelta((0.0, -85.0).into());
+        assert_eq!(zoom_steps(back, &mut carried), -2, "a long swipe is two");
     }
 
     #[test]

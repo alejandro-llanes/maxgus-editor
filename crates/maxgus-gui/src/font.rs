@@ -299,24 +299,9 @@ impl Fonts {
                 data.push((style, std::sync::Arc::new(bytes)));
             }
         }
-        let regular = &faces[0].1;
-        let line = regular.horizontal_line_metrics(size).ok_or_else(|| {
+        let metrics = measure(&faces, size).ok_or_else(|| {
             anyhow::anyhow!("`{family}` has no horizontal metrics and cannot be laid out")
         })?;
-        // The advance of a character every monospace font has, rather than the
-        // font's own maximum: the maximum counts glyphs no editor will draw
-        // and leaves visible gaps between columns. The widest of the styles,
-        // since a bold face a hair wider than its regular would otherwise
-        // run into the next cell.
-        let width = faces
-            .iter()
-            .map(|(_, font)| font.metrics('M', size).advance_width)
-            .fold(1.0_f32, f32::max);
-        let metrics = CellMetrics {
-            width: width.ceil(),
-            height: (line.ascent - line.descent + line.line_gap).ceil().max(1.0),
-            ascent: line.ascent.ceil(),
-        };
         Ok(Fonts {
             faces,
             data,
@@ -326,6 +311,29 @@ impl Fonts {
             atlas: Atlas::new(1024, 1024),
             atlas_limit: 2048,
             database,
+            stand_ins: Vec::new(),
+            stand_in_for: HashMap::new(),
+            shaped: HashMap::new(),
+        })
+    }
+
+    /// The same family cut at another size, for zooming: the faces are
+    /// outlines and do not care what size they are drawn at, so nothing is
+    /// read from disk again — only the atlas, which held glyphs at the old
+    /// size, and the stand-ins, which were fitted to the old cell, start
+    /// over. Line spacing is the caller's to set again.
+    pub fn resized(&self, size: f32) -> anyhow::Result<Fonts> {
+        let metrics = measure(&self.faces, size)
+            .ok_or_else(|| anyhow::anyhow!("the font has no horizontal metrics at {size}px"))?;
+        Ok(Fonts {
+            faces: self.faces.clone(),
+            data: self.data.clone(),
+            size,
+            natural: metrics,
+            metrics,
+            atlas: Atlas::new(1024, 1024),
+            atlas_limit: self.atlas_limit,
+            database: self.database.clone(),
             stand_ins: Vec::new(),
             stand_in_for: HashMap::new(),
             shaped: HashMap::new(),
@@ -744,6 +752,26 @@ fn family(name: &str) -> fontdb::Family<'_> {
 }
 
 /// Reads one face out of the database.
+/// The cell a family's faces need at `size`, or `None` for a font with no
+/// line metrics, which cannot be laid out at all.
+fn measure(faces: &[(Style, fontdue::Font)], size: f32) -> Option<CellMetrics> {
+    let line = faces.first()?.1.horizontal_line_metrics(size)?;
+    // The advance of a character every monospace font has, rather than the
+    // font's own maximum: the maximum counts glyphs no editor will draw
+    // and leaves visible gaps between columns. The widest of the styles,
+    // since a bold face a hair wider than its regular would otherwise
+    // run into the next cell.
+    let width = faces
+        .iter()
+        .map(|(_, font)| font.metrics('M', size).advance_width)
+        .fold(1.0_f32, f32::max);
+    Some(CellMetrics {
+        width: width.ceil(),
+        height: (line.ascent - line.descent + line.line_gap).ceil().max(1.0),
+        ascent: line.ascent.ceil(),
+    })
+}
+
 fn read_face(database: &fontdb::Database, id: fontdb::ID) -> Option<(fontdue::Font, Vec<u8>)> {
     database.with_face_data(id, |data, index| {
         let font = fontdue::Font::from_bytes(
@@ -1062,6 +1090,28 @@ mod system_tests {
         assert!(
             metrics.ascent > 0.0 && metrics.ascent < metrics.height,
             "the baseline is outside the cell: {metrics:?}"
+        );
+    }
+
+    #[test]
+    fn a_font_cut_again_at_another_size_scales_its_cell_with_it() {
+        let Some(mut fonts) = fonts() else {
+            eprintln!("skipping: no monospace font is installed");
+            return;
+        };
+        fonts.set_atlas_limit(4096);
+        fonts.glyph('W', Style::Regular);
+        let small = fonts.metrics();
+        let fonts = fonts
+            .resized(32.0)
+            .expect("the same font at twice the size");
+        let large = fonts.metrics();
+        assert!(large.height > small.height * 1.8, "{small:?} -> {large:?}");
+        assert!(large.width > small.width * 1.8, "{small:?} -> {large:?}");
+        assert_eq!(fonts.atlas_limit, 4096, "what the GPU said still holds");
+        assert!(
+            fonts.atlas().is_dirty(),
+            "the atlas starts over: the old glyphs were the old size"
         );
     }
 

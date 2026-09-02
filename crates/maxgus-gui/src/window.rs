@@ -254,6 +254,38 @@ impl App {
             })
     }
 
+    /// The display's scale, or one before there is a window.
+    fn scale(&self) -> f32 {
+        self.window
+            .as_ref()
+            .map(|window| window.scale_factor() as f32)
+            .unwrap_or(1.0)
+    }
+
+    /// Where the grid starts: `gui-padding` in from the window's corner.
+    ///
+    /// The sizes in the config are points on a normal display; the window
+    /// is measured in physical pixels, so a display that reports a scale
+    /// gets the padding, like the glyphs, that much larger.
+    fn origin(&self) -> [f32; 2] {
+        let padding = (self.editor.settings.gui_padding as f32 * self.scale()).round();
+        [padding, padding]
+    }
+
+    /// Cuts the font at the size the display wants, with the line spacing
+    /// the config asks for. The old one stays if the new one cannot be
+    /// found, which it can: a family installed a moment ago is still there.
+    fn load_fonts(&mut self) -> anyhow::Result<()> {
+        let scale = self.scale();
+        let mut fonts = Fonts::load(&self.settings.font, self.settings.font_size * scale)?;
+        fonts.set_line_spacing(self.editor.settings.gui_line_spacing as f32 * scale);
+        if let Some(renderer) = self.renderer.as_ref() {
+            fonts.set_atlas_limit(renderer.max_texture_dimension());
+        }
+        self.fonts = Some(fonts);
+        Ok(())
+    }
+
     /// Sends whatever the last commands queued, and folds in whatever the
     /// executor has finished.
     fn pump(&mut self) {
@@ -288,7 +320,8 @@ impl App {
     /// Lays the editor out for a window of this many pixels.
     fn fit(&mut self, width: u32, height: u32) {
         let metrics = self.metrics();
-        let (columns, rows) = metrics.grid(width as f32, height as f32);
+        let [pad_x, pad_y] = self.origin();
+        let (columns, rows) = metrics.grid(width as f32 - 2.0 * pad_x, height as f32 - 2.0 * pad_y);
         let size = Size::new(columns, rows);
         if self.surface.size() != size {
             self.surface.resize(size);
@@ -409,11 +442,12 @@ impl App {
         );
         // The input method's candidate window goes next to the cursor, not
         // in the corner of the screen.
+        let origin = self.origin();
         if let Some(window) = self.window.as_ref() {
             window.set_ime_cursor_area(
                 winit::dpi::PhysicalPosition::new(
-                    at.0 as f32 * metrics.width,
-                    at.1 as f32 * metrics.height,
+                    at.0 as f32 * metrics.width + origin[0],
+                    at.1 as f32 * metrics.height + origin[1],
                 ),
                 winit::dpi::PhysicalSize::new(metrics.width, metrics.height),
             );
@@ -438,6 +472,7 @@ impl App {
             return;
         };
         renderer.background = palette.background;
+        renderer.origin = origin;
         let opacity = self.editor.settings.floating_opacity as f32 / 100.0;
         let blurring = blurring && !floating.is_empty();
         let look = crate::quads::Look {
@@ -491,9 +526,11 @@ impl App {
                 let pixels: Vec<[f32; 4]> = floating
                     .iter()
                     .map(|area| {
+                        // Window pixels, being a scissor, where everything
+                        // else is measured from the grid's corner.
                         [
-                            area.x as f32 * metrics.width,
-                            area.y as f32 * metrics.height,
+                            area.x as f32 * metrics.width + origin[0],
+                            area.y as f32 * metrics.height + origin[1],
                             area.width as f32 * metrics.width,
                             area.height as f32 * metrics.height,
                         ]
@@ -671,6 +708,7 @@ impl App {
         crate::mouse::cell_at(
             self.pointer.0,
             self.pointer.1,
+            self.origin(),
             metrics,
             size.width,
             size.height,
@@ -751,19 +789,6 @@ impl ApplicationHandler for App {
         // Without this, an input method — fcitx, ibus — is never asked, and
         // anyone writing Japanese or Chinese gets the keycaps instead.
         window.set_ime_allowed(true);
-        // The size in the config is points on a normal display; the window
-        // is measured in physical pixels, so a display that reports a scale
-        // wants the glyphs rasterised that much larger or the text comes out
-        // half-size on it.
-        let scale = window.scale_factor() as f32;
-        let mut fonts = match Fonts::load(&self.settings.font, self.settings.font_size * scale) {
-            Ok(fonts) => fonts,
-            Err(error) => {
-                self.failure = Some(error);
-                event_loop.exit();
-                return;
-            }
-        };
         let renderer = pollster::block_on(Renderer::new(
             window.clone(),
             self.settings.palette.background,
@@ -771,10 +796,17 @@ impl ApplicationHandler for App {
         match renderer {
             Ok(renderer) => {
                 let size = window.inner_size();
-                fonts.set_atlas_limit(renderer.max_texture_dimension());
-                self.fonts = Some(fonts);
                 self.renderer = Some(renderer);
                 self.window = Some(window);
+                // The size in the config is points on a normal display;
+                // the window is measured in physical pixels, so a display
+                // that reports a scale wants the glyphs rasterised that
+                // much larger or the text comes out half-size on it.
+                if let Err(error) = self.load_fonts() {
+                    self.failure = Some(error);
+                    event_loop.exit();
+                    return;
+                }
                 self.fit(size.width, size.height);
                 self.pump();
             }
@@ -814,15 +846,11 @@ impl ApplicationHandler for App {
                 // there and should not be drawn as though it had.
                 self.cursor.snap();
             }
-            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+            WindowEvent::ScaleFactorChanged { .. } => {
                 // Moved to a display with a different scale: the glyphs have
                 // to be cut again at the new size.
-                match Fonts::load(
-                    &self.settings.font,
-                    self.settings.font_size * scale_factor as f32,
-                ) {
-                    Ok(fonts) => self.fonts = Some(fonts),
-                    Err(error) => tracing::warn!("the font would not reload: {error}"),
+                if let Err(error) = self.load_fonts() {
+                    tracing::warn!("the font would not reload: {error}");
                 }
                 self.cursor.snap();
                 if let Some(window) = self.window.as_ref() {
@@ -881,6 +909,7 @@ impl ApplicationHandler for App {
                     let (column, row) = crate::mouse::cell_at(
                         self.pointer.0,
                         self.pointer.1,
+                        self.origin(),
                         metrics,
                         size.width,
                         size.height,
@@ -937,6 +966,7 @@ impl ApplicationHandler for App {
                 let (column, row) = crate::mouse::cell_at(
                     self.pointer.0,
                     self.pointer.1,
+                    self.origin(),
                     metrics,
                     size.width,
                     size.height,

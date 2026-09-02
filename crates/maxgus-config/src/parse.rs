@@ -456,6 +456,16 @@ impl<'a> Parser<'a> {
                     self.config.settings.gui_font_size = n.clamp(6, 96);
                 }
             }
+            "gui-line-spacing" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.gui_line_spacing = n.min(32);
+                }
+            }
+            "gui-padding" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.gui_padding = n.min(64);
+                }
+            }
             "autocomplete" => {
                 if let Some(b) = self.bool_value(node, key, value) {
                     self.config.settings.autocomplete = b;

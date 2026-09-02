@@ -104,6 +104,12 @@ pub struct Settings {
     pub gui_font: String,
     /// `gui-font-size`: its size in pixels.
     pub gui_font_size: usize,
+    /// `gui-line-spacing`: pixels added between one line of text and the
+    /// next, over what the font asks for.
+    pub gui_line_spacing: usize,
+    /// `gui-padding`: pixels of margin between the window's edge and the
+    /// text.
+    pub gui_padding: usize,
     /// `mouse-wheel-lines`: how far one notch of the wheel moves the view.
     ///
     /// Three is what most programs do with a notch. A touchpad reports the
@@ -267,6 +273,8 @@ impl Default for Settings {
             session: false,
             gui_font: "JetBrainsMono Nerd Font".into(),
             gui_font_size: 16,
+            gui_line_spacing: 0,
+            gui_padding: 0,
             autocomplete: true,
             autocomplete_min_chars: 2,
             lsp_doc: true,
@@ -349,6 +357,8 @@ pub const SETTING_NAMES: &[&str] = &[
     "session",
     "gui-font",
     "gui-font-size",
+    "gui-line-spacing",
+    "gui-padding",
     "autocomplete",
     "autocomplete-min-chars",
     "lsp-doc",

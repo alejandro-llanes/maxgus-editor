@@ -3,6 +3,8 @@
 
 struct Screen {
     size: vec2<f32>,
+    // Where the grid starts, in pixels from the window's top left.
+    origin: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> screen: Screen;
@@ -25,11 +27,12 @@ fn corner(index: u32) -> vec2<f32> {
     return vec2<f32>(x, y);
 }
 
-// Pixels from the top left into clip space, which has y upwards.
+// Pixels from the grid's top left into clip space, which has y upwards.
 fn to_clip(pixels: vec2<f32>) -> vec4<f32> {
+    let at = pixels + screen.origin;
     let ndc = vec2<f32>(
-        pixels.x / screen.size.x * 2.0 - 1.0,
-        1.0 - pixels.y / screen.size.y * 2.0,
+        at.x / screen.size.x * 2.0 - 1.0,
+        1.0 - at.y / screen.size.y * 2.0,
     );
     return vec4<f32>(ndc, 0.0, 1.0);
 }

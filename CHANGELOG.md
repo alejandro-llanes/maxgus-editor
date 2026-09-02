@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Room around the text, in a window.** `set gui-line-spacing` opens
+  every line up by that many pixels over what the font asks for, half
+  above the glyphs and half below so they stay centred in the taller row;
+  `set gui-padding` keeps that much margin between the window's edge and
+  the text, where the first column used to sit hard against it. Both are
+  scaled with the font on a display that reports a scale, and the mouse,
+  the input method's candidate window and the blur behind a popup all know
+  where the grid moved to.
+
 - **A row that wraps says so, and so does a line that is cut.** With
   `truncate-lines` off, a line that carried on across the rows below read
   the same as two lines that happened to line up; on, a line the edge cut

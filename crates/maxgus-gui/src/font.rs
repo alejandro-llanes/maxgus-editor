@@ -254,6 +254,8 @@ pub struct Fonts {
     /// font's own tables and `fontdue` does not hand them back out.
     data: Vec<(Style, std::sync::Arc<Vec<u8>>)>,
     size: f32,
+    /// The cell as the font's own metrics make it, before any line spacing.
+    natural: CellMetrics,
     metrics: CellMetrics,
     atlas: Atlas,
     /// The atlas may double until it is this big, which is what the GPU
@@ -319,6 +321,7 @@ impl Fonts {
             faces,
             data,
             size,
+            natural: metrics,
             metrics,
             atlas: Atlas::new(1024, 1024),
             atlas_limit: 2048,
@@ -336,6 +339,20 @@ impl Fonts {
 
     pub fn metrics(&self) -> CellMetrics {
         self.metrics
+    }
+
+    /// Opens every line up by `extra` pixels over what the font asks for,
+    /// half above the glyphs and half below, so the text stays centred in
+    /// its taller cell. Zero is the font's own spacing. Meant for right
+    /// after loading: a picture already fitted to the cell keeps the old
+    /// cell's size.
+    pub fn set_line_spacing(&mut self, extra: f32) {
+        let extra = extra.max(0.0).round();
+        self.metrics = CellMetrics {
+            width: self.natural.width,
+            height: self.natural.height + extra,
+            ascent: self.natural.ascent + (extra / 2.0).floor(),
+        };
     }
 
     pub fn atlas(&self) -> &Atlas {
@@ -1046,6 +1063,34 @@ mod system_tests {
             metrics.ascent > 0.0 && metrics.ascent < metrics.height,
             "the baseline is outside the cell: {metrics:?}"
         );
+    }
+
+    #[test]
+    fn line_spacing_makes_the_cell_taller_and_keeps_the_text_centred() {
+        let Some(mut fonts) = fonts() else {
+            eprintln!("skipping: no monospace font is installed");
+            return;
+        };
+        let natural = fonts.metrics();
+        fonts.set_line_spacing(6.0);
+        let spaced = fonts.metrics();
+        assert_eq!(
+            spaced.width, natural.width,
+            "spacing is between lines, not columns"
+        );
+        assert_eq!(spaced.height, natural.height + 6.0);
+        assert_eq!(spaced.ascent, natural.ascent + 3.0, "half above the glyphs");
+        // The same cells fit across; fewer fit down.
+        let (columns, rows) = natural.grid(800.0, 600.0);
+        let (still, fewer) = spaced.grid(800.0, 600.0);
+        assert_eq!(still, columns);
+        assert!(fewer < rows);
+        // Back to the font's own, and an odd number leaves the extra pixel below.
+        fonts.set_line_spacing(0.0);
+        assert_eq!(fonts.metrics(), natural);
+        fonts.set_line_spacing(5.0);
+        assert_eq!(fonts.metrics().ascent, natural.ascent + 2.0);
+        assert_eq!(fonts.metrics().height, natural.height + 5.0);
     }
 
     #[test]

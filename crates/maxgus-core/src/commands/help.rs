@@ -238,6 +238,8 @@ fn setting_value(editor: &Editor, name: &str) -> Option<String> {
         "session" => s.session.to_string(),
         "gui-font" => s.gui_font.clone(),
         "gui-font-size" => s.gui_font_size.to_string(),
+        "gui-line-spacing" => s.gui_line_spacing.to_string(),
+        "gui-padding" => s.gui_padding.to_string(),
         "autocomplete" => s.autocomplete.to_string(),
         "autocomplete-min-chars" => s.autocomplete_min_chars.to_string(),
         "lsp-doc" => s.lsp_doc.to_string(),

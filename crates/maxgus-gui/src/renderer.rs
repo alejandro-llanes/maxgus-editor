@@ -39,6 +39,10 @@ pub struct Renderer {
     circles: Instances,
     /// What the window is cleared to before anything is drawn.
     pub background: [f32; 4],
+    /// Where the grid's top left corner is, in pixels from the window's:
+    /// the padding, when there is any. Everything given to the shaders is
+    /// measured from here.
+    pub origin: [f32; 2],
 }
 
 /// A pair of offscreen targets, ping-ponged between by the two blur passes.
@@ -447,6 +451,7 @@ impl Renderer {
             sprites,
             circles,
             background,
+            origin: [0.0, 0.0],
         })
     }
 
@@ -637,8 +642,8 @@ impl Renderer {
             bytemuck::cast_slice(&[
                 self.config.width as f32,
                 self.config.height as f32,
-                0.0,
-                0.0,
+                self.origin[0],
+                self.origin[1],
             ]),
         );
 

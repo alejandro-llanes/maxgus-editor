@@ -1022,7 +1022,8 @@ What the window has that a terminal cannot:
   where it does not, so an emphasised word is never an invisible one. A
   character the family lacks — a CJK ideograph, an emoji, a symbol — is
   drawn from a font on the system that has it, fitted to the cell; a colour
-  emoji comes out in colour.
+  emoji comes out in colour. `set gui-line-spacing` opens the lines up and
+  `set gui-padding` keeps the text off the window's edge.
 
 `C-c o b` (`M-x open-externally`) hands the file being edited to whatever the
 desktop opens it with — an image viewer for an image, a reader for a PDF —

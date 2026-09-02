@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.4.0
 
 - **A wave under an error.** Diagnostics are underlined with the wavy
   line an editor's are, in the severity's colour, rather than the same

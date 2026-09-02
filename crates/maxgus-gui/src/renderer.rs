@@ -6,6 +6,7 @@
 
 use crate::quads::{Circle, Frame, Quad, Rect, Sprite};
 use anyhow::{Context, Result};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 pub struct Renderer {
@@ -37,6 +38,13 @@ pub struct Renderer {
     quads: Instances,
     sprites: Instances,
     circles: Instances,
+    /// The pictures the buffers stand in for, each a texture of its own
+    /// rather than a place in the atlas — it would fill the atlas, and it
+    /// is drawn whole. Keyed by whatever the caller keys them by.
+    pictures: HashMap<u64, AtlasTexture>,
+    /// One sprite per picture drawn this frame, each drawn on its own
+    /// because each samples a different texture.
+    picture_sprites: Instances,
     /// What the window is cleared to before anything is drawn.
     pub background: [f32; 4],
     /// Where the grid's top left corner is, in pixels from the window's:
@@ -427,6 +435,7 @@ impl Renderer {
         let quads = Instances::new(&device, "quads", std::mem::size_of::<Quad>());
         let sprites = Instances::new(&device, "sprites", std::mem::size_of::<Sprite>());
         let circles = Instances::new(&device, "circles", std::mem::size_of::<Circle>());
+        let picture_sprites = Instances::new(&device, "pictures", std::mem::size_of::<Sprite>());
         Ok(Renderer {
             surface,
             device,
@@ -450,6 +459,8 @@ impl Renderer {
             quads,
             sprites,
             circles,
+            pictures: HashMap::new(),
+            picture_sprites,
             background,
             origin: [0.0, 0.0],
         })
@@ -483,52 +494,83 @@ impl Renderer {
             None => true,
         };
         if fresh {
-            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("atlas"),
-                size: wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
-            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("atlas"),
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                ..Default::default()
-            });
-            let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("atlas"),
-                layout: &self.atlas_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                ],
-            });
-            self.atlas = Some(AtlasTexture {
-                group,
-                texture,
-                width,
-                height,
-            });
+            self.atlas = Some(self.texture("atlas", width, height));
         }
         let atlas = self.atlas.as_ref().expect("just made");
-        self.queue.write_texture(
+        Renderer::write_texture(&self.queue, atlas, pixels);
+    }
+
+    /// Whether a picture is held under `key`, at `width` by `height`.
+    pub fn has_picture(&self, key: u64, width: u32, height: u32) -> bool {
+        self.pictures
+            .get(&key)
+            .is_some_and(|held| held.width == width && held.height == height)
+    }
+
+    /// Keeps `pixels` as the picture under `key`, replacing whatever was
+    /// there. A picture is a texture of its own, so the atlas — sized for
+    /// glyphs — is not asked to find room for a photograph.
+    pub fn upload_picture(&mut self, key: u64, width: u32, height: u32, pixels: &[u8]) {
+        let texture = self.texture("picture", width, height);
+        Renderer::write_texture(&self.queue, &texture, pixels);
+        self.pictures.insert(key, texture);
+    }
+
+    /// Lets go of every picture but those `keep` says to.
+    pub fn retain_pictures(&mut self, keep: impl Fn(u64) -> bool) {
+        self.pictures.retain(|key, _| keep(*key));
+    }
+
+    /// An RGBA texture, sampled linearly, bound the way the sprite shader
+    /// wants it.
+    fn texture(&self, label: &str, width: u32, height: u32) -> AtlasTexture {
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some(label),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout: &self.atlas_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        AtlasTexture {
+            group,
+            texture,
+            width,
+            height,
+        }
+    }
+
+    fn write_texture(queue: &wgpu::Queue, target: &AtlasTexture, pixels: &[u8]) {
+        queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &atlas.texture,
+                texture: &target.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -536,15 +578,68 @@ impl Renderer {
             pixels,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(width * 4),
-                rows_per_image: Some(height),
+                bytes_per_row: Some(target.width * 4),
+                rows_per_image: Some(target.height),
             },
             wgpu::Extent3d {
-                width,
-                height,
+                width: target.width,
+                height: target.height,
                 depth_or_array_layers: 1,
             },
         );
+    }
+
+    /// The sprites the frame's pictures are drawn as: each its whole
+    /// texture, in white so the shader leaves its colours alone. Only the
+    /// pictures that are held are drawn; one asked for before it was
+    /// uploaded is skipped rather than drawn as something else.
+    fn picture_sprites(&self, frame: &Frame) -> Vec<(Sprite, u64)> {
+        frame
+            .pictures
+            .iter()
+            .filter_map(|picture| {
+                let held = self.pictures.get(&picture.key)?;
+                Some((
+                    Sprite {
+                        position: picture.position,
+                        size: picture.size,
+                        source: [0.0, 0.0],
+                        source_size: [held.width as f32, held.height as f32],
+                        color: [1.0, 1.0, 1.0, 1.0],
+                    },
+                    picture.key,
+                ))
+            })
+            .collect()
+    }
+
+    /// Draws the pictures written by [`Renderer::write_pictures`], one draw
+    /// each because each binds its own texture.
+    fn draw_pictures<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, keys: &[u64]) {
+        if keys.is_empty() {
+            return;
+        }
+        pass.set_pipeline(&self.sprite_pipeline);
+        pass.set_bind_group(0, &self.screen_group, &[]);
+        pass.set_vertex_buffer(0, self.picture_sprites.buffer.slice(..));
+        for (index, key) in keys.iter().enumerate() {
+            let Some(held) = self.pictures.get(key) else {
+                continue;
+            };
+            pass.set_bind_group(1, &held.group, &[]);
+            let index = index as u32;
+            pass.draw(0..4, index..index + 1);
+        }
+    }
+
+    /// Writes the frame's pictures into their instance buffer, and says
+    /// which textures they are, in order.
+    fn write_pictures(&mut self, frame: &Frame) -> Vec<u64> {
+        let sprites = self.picture_sprites(frame);
+        let (sprites, keys): (Vec<Sprite>, Vec<u64>) = sprites.into_iter().unzip();
+        self.picture_sprites
+            .write(&self.device, &self.queue, "pictures", &sprites);
+        keys
     }
 
     /// Makes the pair of offscreen targets, if they are not already the
@@ -668,6 +763,7 @@ impl Renderer {
             .write(&self.device, &self.queue, "sprites", &frame.sprites);
         self.circles
             .write(&self.device, &self.queue, "circles", &frame.circles);
+        let pictures = self.write_pictures(frame);
 
         use wgpu::CurrentSurfaceTexture as Acquired;
         let target = match self.surface.get_current_texture() {
@@ -734,11 +830,22 @@ impl Renderer {
                 }
                 pass.set_scissor_rect(0, 0, self.config.width, self.config.height);
             }
+            // The windows' backgrounds, then the pictures, then the rest
+            // of the rectangles — a popup's background among them — so a
+            // picture is over the window it is in and under what floats.
+            let under = (frame.under as u32).min(self.rects.count);
             if self.rects.count > 0 {
                 pass.set_pipeline(&self.rect_pipeline);
                 pass.set_bind_group(0, &self.screen_group, &[]);
                 pass.set_vertex_buffer(0, self.rects.buffer.slice(..));
-                pass.draw(0..4, 0..self.rects.count);
+                pass.draw(0..4, 0..under);
+            }
+            self.draw_pictures(&mut pass, &pictures);
+            if self.rects.count > under {
+                pass.set_pipeline(&self.rect_pipeline);
+                pass.set_bind_group(0, &self.screen_group, &[]);
+                pass.set_vertex_buffer(0, self.rects.buffer.slice(..));
+                pass.draw(0..4, under..self.rects.count);
             }
             // Between the two, so the cursor covers the backgrounds and the
             // text is drawn over the cursor rather than under it.
@@ -774,6 +881,10 @@ impl Renderer {
     /// Draws `backdrop` into the first offscreen target and blurs it, in
     /// its own submission.
     fn blur_backdrop(&mut self, backdrop: &Frame, radius: f32) {
+        if self.atlas.is_none() || self.blur.is_none() {
+            return;
+        }
+        let pictures = self.write_pictures(backdrop);
         let Some(atlas) = self.atlas.as_ref() else {
             return;
         };
@@ -817,6 +928,7 @@ impl Renderer {
                 pass.set_vertex_buffer(0, self.rects.buffer.slice(..));
                 pass.draw(0..4, 0..self.rects.count);
             }
+            self.draw_pictures(&mut pass, &pictures);
             if self.sprites.count > 0 {
                 pass.set_pipeline(&self.sprite_pipeline);
                 pass.set_bind_group(0, &self.screen_group, &[]);

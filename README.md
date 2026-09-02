@@ -79,7 +79,7 @@ path in it, because a launcher does not see your shell's `PATH`.
 | | `minimal` | `full` *(default)* | `gui` |
 |---|:---:|:---:|:---:|
 | **Binary** | **4.8M** | **13M** | **21M** |
-| **Commands** | 323 | 475 | 475 |
+| **Commands** | 324 | 476 | 476 |
 | **Needs from the system** | nothing | nothing | a window system's headers |
 | Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
 | Buffers, windows, `C-x` everything | ● | ● | ● |
@@ -169,8 +169,8 @@ $ ./target/release/maxgus
 
 ### Emacs keys, and they behave like Emacs
 
-**408 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **475 commands**. Prefix
+**409 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
+the panel, tree, magit and terminal maps, driving **476 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -831,6 +831,7 @@ first.
 | `C-c c w` | Delete trailing whitespace |
 | `C-c f p` | Edit the configuration file |
 | `C-c o b` | Open this file with the desktop's own viewer |
+| `C-c o i` | Open the picture the line refers to, in another window |
 | `C-c i s` | Insert a snippet by name |
 
 Inside the tree, treemacs' own keys apply: `n` and `p` to move, `u` for the
@@ -1044,6 +1045,15 @@ What the window has that a terminal cannot:
   and fades a moment after it stops, so a page being read has nothing at
   its edge. Each window has its own. `set gui-scroll-indicator=#false`
   turns it off.
+- **Pictures.** Visiting a PNG, JPEG, GIF, WebP or BMP opens it as a
+  picture rather than as the bytes it is made of: the buffer holds a
+  caption — the file's dimensions and size — and the window draws the
+  picture under it, at its own size where there is room and shrunk to fit
+  where there is not. In a document, `C-c o i` (`M-x view-image-at-point`)
+  opens the picture the line refers to — `![alt](path)` in markdown,
+  `<img src>` in HTML, or a bare path — beside it, resolved from the
+  document's own directory. The terminal front end shows the caption and
+  says why there is no picture.
 
 `C-c o b` (`M-x open-externally`) hands the file being edited to whatever the
 desktop opens it with — an image viewer for an image, a reader for a PDF —

@@ -383,6 +383,29 @@ impl Executor {
     ) {
         match tokio::fs::read(&path).await {
             Ok(bytes) => {
+                // A picture is decoded rather than shown as the bytes it is
+                // made of. One that will not decode falls through and is
+                // read as the bytes are, the way any file is.
+                #[cfg(feature = "full")]
+                if maxgus_core::picture::is_picture(&path) {
+                    let decoded = {
+                        let bytes = bytes.clone();
+                        let path = path.clone();
+                        tokio::task::spawn_blocking(move || decode_picture(&bytes, &path))
+                            .await
+                            .ok()
+                            .flatten()
+                    };
+                    if let Some(picture) = decoded {
+                        self.send(TaskResult::PictureRead {
+                            path,
+                            picture: std::sync::Arc::new(picture),
+                            reverting,
+                            other_window,
+                        });
+                        return;
+                    }
+                }
                 // Invalid UTF-8 is shown rather than refused, so a stray byte
                 // in an otherwise readable file does not stop it being read.
                 // What it cannot be is *saved*: the replacement characters
@@ -2120,6 +2143,83 @@ async fn forward_events(
         if results.send(result).is_err() {
             break;
         }
+    }
+}
+
+/// Decodes a picture for the buffer that will stand in for it. The pixels
+/// kept are no more than a window could want: a photograph straight off a
+/// camera is cut down to `LONGEST` on its longer side, which is more than
+/// any window is tall and a fraction of the memory.
+#[cfg(feature = "full")]
+fn decode_picture(bytes: &[u8], path: &std::path::Path) -> Option<maxgus_core::picture::Picture> {
+    const LONGEST: u32 = 2048;
+    let format = image::guess_format(bytes)
+        .ok()
+        .or_else(|| image::ImageFormat::from_path(path).ok())?;
+    let decoded = image::load_from_memory_with_format(bytes, format).ok()?;
+    let (width, height) = (decoded.width(), decoded.height());
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let rgba = match width.max(height) > LONGEST {
+        true => decoded
+            .resize(LONGEST, LONGEST, image::imageops::FilterType::Triangle)
+            .to_rgba8(),
+        false => decoded.to_rgba8(),
+    };
+    let (kept_width, kept_height) = rgba.dimensions();
+    Some(maxgus_core::picture::Picture {
+        width,
+        height,
+        format: match format {
+            image::ImageFormat::Jpeg => "JPEG".to_string(),
+            image::ImageFormat::WebP => "WebP".to_string(),
+            other => other.extensions_str()[0].to_ascii_uppercase(),
+        },
+        bytes: bytes.len() as u64,
+        pixels: maxgus_core::picture::Pixels {
+            width: kept_width,
+            height: kept_height,
+            rgba: std::sync::Arc::from(rgba.into_raw()),
+        },
+    })
+}
+
+#[cfg(all(test, feature = "full"))]
+mod picture_tests {
+    use super::decode_picture;
+    use std::path::Path;
+
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(width, height, image::Rgba([10, 20, 30, 255]))
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        bytes.into_inner()
+    }
+
+    #[test]
+    fn a_png_is_decoded_to_its_pixels_and_described() {
+        let bytes = png(16, 8);
+        let picture = decode_picture(&bytes, Path::new("a.png")).unwrap();
+        assert_eq!((picture.width, picture.height), (16, 8));
+        assert_eq!(picture.format, "PNG");
+        assert_eq!(picture.bytes, bytes.len() as u64);
+        assert_eq!(picture.pixels.rgba.len(), 16 * 8 * 4);
+        assert_eq!(&picture.pixels.rgba[..4], &[10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn a_huge_picture_is_kept_smaller_but_described_at_its_full_size() {
+        let bytes = png(4096, 1024);
+        let picture = decode_picture(&bytes, Path::new("wide.png")).unwrap();
+        assert_eq!((picture.width, picture.height), (4096, 1024));
+        assert_eq!((picture.pixels.width, picture.pixels.height), (2048, 512));
+    }
+
+    #[test]
+    fn bytes_that_are_not_a_picture_are_not_one() {
+        assert!(decode_picture(b"fn main() {}", Path::new("a.png")).is_none());
     }
 }
 

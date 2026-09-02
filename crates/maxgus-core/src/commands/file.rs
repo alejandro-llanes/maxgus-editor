@@ -49,6 +49,11 @@ pub fn register(registry: &mut Registry) {
         ),
         command!("find-file", "Visit a file in this window.", find_file),
         command!(
+            "view-image-at-point",
+            "Open the picture the line refers to, in another window.",
+            view_image_at_point
+        ),
+        command!(
             "find-file-other-window",
             "Visit a file in another window.",
             find_file_other_window
@@ -192,6 +197,30 @@ fn find_file_other_window(editor: &mut Editor, args: &Args) -> Result<()> {
         return Err(crate::CoreError::Message("No file name given".into()));
     }
     let path = expand(editor, &input);
+    visit(editor, path, true)
+}
+
+/// `C-c o i`: the picture the line under point refers to — `![alt](path)`
+/// in markdown, `<img src>` in HTML, or a bare path — in another window.
+/// A relative path is taken from the file's own directory, which is where
+/// the document's readers would resolve it from.
+fn view_image_at_point(editor: &mut Editor, _args: &Args) -> Result<()> {
+    let buffer = editor.current_buffer();
+    let line = buffer.line_of(buffer.point());
+    let column = buffer.point() - buffer.line_start(line);
+    let text = buffer.line_text(line);
+    let Some(target) = crate::picture::reference_at(&text, column) else {
+        return Err(crate::CoreError::Message(
+            "No picture is referred to on this line".into(),
+        ));
+    };
+    let base = buffer
+        .path()
+        .and_then(|path| path.parent())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| editor.default_directory());
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let path = expand_against(&base, home.as_deref(), &target);
     visit(editor, path, true)
 }
 
@@ -908,6 +937,73 @@ mod tests {
         run(&mut d, &mut e, "find-file");
         e.minibuffer.kill_whole();
         let out = d.handle_keys(&mut e, "RET");
+        assert!(matches!(out, Dispatch::Failed { .. }));
+    }
+
+    #[test]
+    fn a_picture_opens_as_a_read_only_caption_with_the_pixels_beside_it() {
+        let (mut d, mut e) = setup();
+        e.with_current_buffer(|b| {
+            b.replace_all("Plan: ![the desk](shots/desk.png) is where it goes\n")
+                .unwrap();
+            b.set_point(10);
+        });
+        e.tasks.drain();
+        run(&mut d, &mut e, "view-image-at-point");
+        let tasks = e.tasks.drain();
+        assert_eq!(
+            tasks,
+            vec![Task::ReadFile {
+                path: PathBuf::from("/project/shots/desk.png"),
+                reverting: None,
+                other_window: true,
+            }],
+            "the path is taken from the document's own directory"
+        );
+        let picture = std::sync::Arc::new(crate::picture::Picture {
+            width: 640,
+            height: 480,
+            format: "PNG".into(),
+            bytes: 2048,
+            pixels: crate::picture::Pixels {
+                width: 640,
+                height: 480,
+                rgba: std::sync::Arc::from(vec![0u8; 4]),
+            },
+        });
+        e.apply_task_result(TaskResult::PictureRead {
+            path: PathBuf::from("/project/shots/desk.png"),
+            picture: picture.clone(),
+            reverting: None,
+            other_window: true,
+        })
+        .unwrap();
+        assert_eq!(e.windows.len(), 2, "shown beside the document");
+        let id = e.current_buffer_id();
+        assert_eq!(e.current_buffer().name(), "desk.png");
+        assert!(e.current_buffer().is_read_only());
+        assert!(
+            e.current_buffer()
+                .text()
+                .starts_with("desk.png: 640×480 PNG, 2.0 KB\n"),
+            "{:?}",
+            e.current_buffer().text()
+        );
+        assert!(
+            e.current_buffer().text().contains("terminal cannot"),
+            "a terminal is told why there is no picture"
+        );
+        assert_eq!(e.pictures.get(&id), Some(&picture));
+        // Killing the buffer lets the pixels go with it.
+        e.kill_buffer(id).unwrap();
+        assert!(e.pictures.is_empty());
+
+        // A line with no picture on it says so.
+        e.with_current_buffer(|b| {
+            b.replace_all("nothing to see\n").unwrap();
+            b.set_point(0);
+        });
+        let out = d.execute(&mut e, "view-image-at-point", None);
         assert!(matches!(out, Dispatch::Failed { .. }));
     }
 

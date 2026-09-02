@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Pictures open as pictures.** Visiting a PNG, JPEG, GIF, WebP or BMP
+  no longer fills a buffer with its bytes: the buffer holds a caption with
+  the file's dimensions and size, and the GUI draws the picture under it,
+  fitted to the window and kept in its proportions. `C-c o i`
+  (`view-image-at-point`) opens the picture a line of markdown or HTML
+  refers to, beside the document. A terminal shows the caption and says
+  why there is no picture. The minimal build, which has no decoder, reads
+  such files as it always did.
+
 - **A mark at the window's edge while it scrolls.** The GUI draws a thin
   bar at the right of each window's text, placed and sized by where the
   window is in its buffer, when the window moves, and fades it out a

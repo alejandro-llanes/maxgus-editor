@@ -163,6 +163,9 @@ pub struct Editor {
     /// size the terminal makes it. A window sets this to `Some(0)` and
     /// reads it back every frame.
     pub text_scale: Option<i32>,
+    /// The pictures behind the buffers that hold a caption in a picture's
+    /// stead, for a front end that can draw them.
+    pub pictures: std::collections::HashMap<BufferId, std::sync::Arc<crate::picture::Picture>>,
     /// A command waiting for one character, with the prefix argument it was
     /// invoked with. The next key goes to it instead of being dispatched.
     pub pending_char: Option<(String, Prefix)>,
@@ -425,6 +428,7 @@ impl Editor {
             kill_appending: false,
             tree_window: None,
             text_scale: None,
+            pictures: Default::default(),
             pending_char: None,
             described_keys: KeySequence::empty(),
             pending_input: None,
@@ -1278,6 +1282,7 @@ impl Editor {
         self.notify_closed(buffer);
         let replacement = self.buffers.kill(buffer)?;
         self.windows.replace_buffer(buffer, replacement);
+        self.pictures.remove(&buffer);
         self.forget_highlights(buffer);
         // The executor is holding a parser and a copy of the text for it.
         self.spawn(Task::ForgetBuffer { buffer });
@@ -2132,6 +2137,46 @@ impl Editor {
                 self.request_highlighting(id);
                 #[cfg(feature = "full")]
                 self.request_language_server(id);
+                Ok(())
+            }
+            TaskResult::PictureRead {
+                path,
+                picture,
+                reverting,
+                other_window,
+            } => {
+                // The buffer holds a caption rather than the bytes, and is
+                // read-only because there is nothing in it to save back.
+                let mut caption = picture.caption(&path);
+                if self.text_scale.is_none() {
+                    caption.push_str("\n\n(A terminal cannot draw a picture; `maxgus --gui` can.)");
+                }
+                caption.push('\n');
+                let id = match reverting {
+                    Some(id) => {
+                        self.replace_buffer_contents(id, &caption)?;
+                        id
+                    }
+                    None => self.buffers.visit_file(path.clone(), &caption),
+                };
+                if let Some(buffer) = self.buffers.get_mut(id) {
+                    buffer.set_read_only(true);
+                }
+                self.pictures.insert(id, picture.clone());
+                if other_window && self.windows.len() < 2 {
+                    self.split_window(Direction::Vertical)?;
+                    self.other_window(1);
+                } else if other_window {
+                    self.other_window(1);
+                }
+                self.switch_to_buffer(id)?;
+                self.message_unless_error(format!(
+                    "{} ({}×{} {})",
+                    path.display(),
+                    picture.width,
+                    picture.height,
+                    picture.format
+                ));
                 Ok(())
             }
             TaskResult::FileWritten {

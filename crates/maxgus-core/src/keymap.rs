@@ -300,6 +300,7 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-c o p", "treefile-toggle"),
     ("C-c o -", "dired"),
     ("C-c o b", "open-externally"),
+    ("C-c o i", "view-image-at-point"),
     // `C-c t` — toggle.
     ("C-c t l", "toggle-line-numbers"),
     ("C-c t r", "read-only-mode"),

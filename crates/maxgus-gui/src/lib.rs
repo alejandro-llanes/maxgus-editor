@@ -12,6 +12,7 @@ pub mod font;
 pub mod geometry;
 pub mod keys;
 pub mod mouse;
+pub mod picture;
 pub mod quads;
 pub mod renderer;
 pub mod scroll;

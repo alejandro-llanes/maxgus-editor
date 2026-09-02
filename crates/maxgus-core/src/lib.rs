@@ -29,6 +29,7 @@ pub mod markup;
 pub mod minibuffer;
 pub mod multi;
 pub mod panel;
+pub mod picture;
 #[cfg(feature = "full")]
 pub mod position;
 pub mod prefix;

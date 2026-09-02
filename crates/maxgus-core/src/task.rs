@@ -574,6 +574,14 @@ pub enum TaskResult {
         /// What the file's `.editorconfig` asks for, if anything does.
         editor_config: EditorConfig,
     },
+    /// A file that was a picture rather than text, decoded. The buffer
+    /// gets a caption; the picture goes beside it for the GUI to draw.
+    PictureRead {
+        path: PathBuf,
+        picture: std::sync::Arc<crate::picture::Picture>,
+        reverting: Option<BufferId>,
+        other_window: bool,
+    },
     FileWritten {
         path: PathBuf,
         buffer: BufferId,
@@ -779,7 +787,9 @@ impl TaskResult {
     pub fn message(&self) -> Option<String> {
         match self {
             TaskResult::Said(said) => Some(said.clone()),
-            TaskResult::FileRead { path, .. } => Some(format!("Read {}", path.display())),
+            TaskResult::FileRead { path, .. } | TaskResult::PictureRead { path, .. } => {
+                Some(format!("Read {}", path.display()))
+            }
             TaskResult::FileWritten { path, bytes, .. } => {
                 let noun = if *bytes == 1 { "byte" } else { "bytes" };
                 Some(format!("Wrote {} ({bytes} {noun})", path.display()))

@@ -63,10 +63,28 @@ pub struct Circle {
     pub color: [f32; 4],
 }
 
+/// A picture drawn whole from a texture of its own, rather than from the
+/// atlas: the one a buffer stands in for, fitted into its window.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Picture {
+    /// Which texture, as the renderer was given it.
+    pub key: u64,
+    pub position: [f32; 2],
+    pub size: [f32; 2],
+}
+
 /// Everything one frame draws.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Frame {
     pub rects: Vec<Rect>,
+    /// How many of `rects`, from the first, are drawn before the pictures:
+    /// the windows' own backgrounds. The rest — a popup's, and whatever is
+    /// pushed after the grid — go over them.
+    pub under: usize,
+    /// Over the windows' backgrounds and under everything else, so a popup,
+    /// the cursor and any text are drawn on top of a picture rather than
+    /// lost behind it.
+    pub pictures: Vec<Picture>,
     /// Drawn over the backgrounds and under the glyphs, so text on top of
     /// the cursor stays text.
     pub quads: Vec<Quad>,
@@ -74,6 +92,25 @@ pub struct Frame {
     /// The cursor's effects, drawn last so they are over the text they are
     /// trailing away from.
     pub circles: Vec<Circle>,
+}
+
+impl Frame {
+    /// Moves the rectangles of the cells within `floating` — the popups'
+    /// backgrounds — after the rest, and marks the divide, so a picture
+    /// can be drawn between the two: over the window it is in, under the
+    /// popup over it. Everything pushed after this goes over the pictures.
+    pub fn float(&mut self, floating: &[maxgus_tui::Rect], metrics: CellMetrics) {
+        let over = |rect: &Rect| {
+            let x = (rect.position[0] / metrics.width).floor().max(0.0) as u16;
+            let y = (rect.position[1] / metrics.height).floor().max(0.0) as u16;
+            floating.iter().any(|area| area.contains(x, y))
+        };
+        let (under, floating): (Vec<Rect>, Vec<Rect>) =
+            self.rects.drain(..).partition(|r| !over(r));
+        self.under = under.len();
+        self.rects = under;
+        self.rects.extend(floating);
+    }
 }
 
 /// One colour component, from what a theme writes to what the GPU wants.
@@ -450,6 +487,9 @@ pub fn build(surface: &Surface, fonts: &mut Fonts, look: &Look) -> Frame {
             }
         }
     }
+    // The grid's backgrounds are all under a picture until `float` says
+    // which of them are a popup's; whatever is pushed after this is over.
+    frame.under = frame.rects.len();
     frame
 }
 
@@ -814,6 +854,28 @@ mod tests {
         let frame = build(&surface, &mut fonts, &Look::new(&palette()));
         assert_eq!(frame.rects.len(), 3, "one background per cell");
         assert_eq!(frame.sprites.len(), 2, "the space has no glyph");
+    }
+
+    #[test]
+    fn a_popups_backgrounds_are_moved_over_the_pictures_and_the_rest_stay_under() {
+        let metrics = CellMetrics {
+            width: 10.0,
+            height: 20.0,
+            ascent: 15.0,
+        };
+        let at = |x: u16, y: u16| Rect {
+            position: [x as f32 * 10.0, y as f32 * 20.0],
+            size: [10.0, 20.0],
+            color: [0.0; 4],
+        };
+        let mut frame = Frame {
+            rects: vec![at(0, 0), at(5, 5), at(1, 0), at(6, 5)],
+            under: 4,
+            ..Frame::default()
+        };
+        frame.float(&[maxgus_tui::Rect::new(5, 5, 2, 1)], metrics);
+        assert_eq!(frame.under, 2);
+        assert_eq!(frame.rects, vec![at(0, 0), at(1, 0), at(5, 5), at(6, 5)]);
     }
 
     #[test]

@@ -536,12 +536,38 @@ impl App {
             hollow: !self.focused,
         };
         let mut frame = crate::quads::build(&self.surface, fonts, &look);
+        frame.float(&floating, metrics);
         self.vfx.draw(
             &mut frame,
             palette.cursor,
             (metrics.width, metrics.height),
             &vfx,
         );
+        // The pictures the buffers stand in for, each fitted under its
+        // caption. The texture is cut to the size it is drawn at, and cut
+        // again only when that changes — a window resized, a font zoomed.
+        let shown =
+            crate::picture::placed(&self.editor, (metrics.width, metrics.height), self.scale);
+        renderer.retain_pictures(|key| {
+            self.editor
+                .pictures
+                .contains_key(&maxgus_text::BufferId(key))
+        });
+        for placed in &shown {
+            let key = placed.buffer.0;
+            let size = (placed.size[0] as u32, placed.size[1] as u32);
+            if !renderer.has_picture(key, size.0, size.1)
+                && let Some(picture) = self.editor.pictures.get(&placed.buffer)
+            {
+                let pixels = crate::picture::resampled(&picture.pixels, size);
+                renderer.upload_picture(key, size.0, size.1, &pixels);
+            }
+            frame.pictures.push(crate::quads::Picture {
+                key,
+                position: placed.position,
+                size: placed.size,
+            });
+        }
         // The marks at the windows' edges, for as long as they are moving
         // and a moment after. Placed by where the editor says each window
         // is, not by what the smooth scroll is showing, so they never lag.
@@ -586,7 +612,8 @@ impl App {
                     smear: None,
                     ..look
                 };
-                let backdrop = crate::quads::build(&self.backdrop, fonts, &look);
+                let mut backdrop = crate::quads::build(&self.backdrop, fonts, &look);
+                backdrop.pictures = frame.pictures.clone();
                 let pixels: Vec<[f32; 4]> = floating
                     .iter()
                     .map(|area| {

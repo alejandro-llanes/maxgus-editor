@@ -2,6 +2,75 @@
 
 ## Unreleased
 
+- **In the window: the clipboard is wired to the kill ring.** `C-w` and
+  `M-w` used to keep the text to themselves, and `C-y` never looked outside;
+  only a mouse selection reached the system clipboard, and it overwrote it
+  on every release of the button. A kill now goes to the clipboard as
+  well, and a yank takes what another program has put there since — into
+  the kill ring, so `M-y` walks back past it, and only once, so yanking the
+  same text twice does not fill the ring with copies. A mouse selection
+  goes to the primary selection instead, where the platform has one, and
+  the middle button pastes from there.
+
+- **In the window: input methods and dead keys.** Composed text — `´` then
+  `e`, a compose sequence, an input method's Japanese — used to be dropped,
+  since only single characters were read as keys. Whatever arrives as text
+  is inserted as text, and the input method's candidate box is placed at
+  the cursor.
+
+- **In the window: a character the font lacks is drawn from one that has
+  it.** CJK, emoji and symbols outside the configured family used to draw
+  as boxes. The system's fonts are searched for one that has the glyph —
+  the Nerd and Noto families first, then any monospace, then anything — and
+  it is scaled to fit one cell, or two for a wide character. A colour emoji
+  font keeps pictures rather than outlines, and those are drawn as the
+  pictures they are, in their own colours.
+
+- **In the window: the glyph atlas grows.** It was one texture of a fixed
+  size, and when a big font or a high-DPI display filled it, every glyph
+  after that was silently dropped and text went missing. It doubles as
+  needed, up to what the GPU allows.
+
+- **In the window: bold and italic come from the configured family.** The
+  fallback for a style the family lacked was the next family's bold — so
+  `gui-font "Noto Sans Mono"` drew comments in DejaVu's italic — and
+  `monospace` was never matched at all. Styles are taken from the family
+  that has a regular face and from nowhere else, `monospace` means the
+  system's monospace, and the cell is wide enough for the widest style.
+
+- **In the window: remembered size, a hollow cursor when unfocused, files
+  dropped on it, more of the mouse.** The window opens at the size it was
+  last closed at, kept in `window.kdl` in the state directory beside the
+  sessions. When another window has the keyboard the cursor is an outline
+  rather than a block, as Emacs' is. A file dropped on the window is
+  opened. A double click selects the word and a triple the line, and the
+  right button stretches the region to where it landed.
+
+- **The grammar offer can be declined from the menu.** The question "install
+  from?" was a completion prompt, so `n` narrowed the list instead of saying
+  no and there was nothing to pick but a source; `C-g` was the only way
+  out. A `skip` row is the last candidate now, and the official
+  `tree-sitter-grammars` source no longer ranks below a fork with a longer
+  name when you type part of one.
+
+- **A grammar with no highlights query borrows Neovim's.** A repository
+  that ships a parser and no `queries/highlights.scm` used to install as a
+  grammar that could not colour, with a warning telling you to write one.
+  The install now fetches the query for the language from nvim-treesitter,
+  and says so in `*Grammar install*`; the warning stays for a language
+  Neovim has no query for either. Two things make a borrowed query usable:
+  a pattern that names a node this version of the grammar does not have is
+  left out rather than failing the whole query — `M-x describe-grammars`
+  says how many went — and a pattern resting on a predicate this editor
+  cannot evaluate, such as Neovim's `#lua-match?`, is switched off rather
+  than matching everything. A query that will not compile at all is
+  reported there too, where it used to fail silently.
+
+- **Special buffers name their mode.** Dired, magit, the terminal, `*Help*`,
+  `*Occur*` and `*xref*` all called themselves `Fundamental` in the mode
+  line, the buffer list and `C-h m`. They say `Dired`, `Magit`, `Terminal`,
+  `Help` and so on; `Fundamental` is kept for a buffer with no mode at all.
+
 - **`occur`, the language server's lists and `*Help*` open beside the text
   rather than over it, and lead somewhere.** All three used to replace the
   window you were working in with a read-only buffer that answered to
@@ -12,7 +81,6 @@
   to close it. The matches in an `occur` listing are highlighted, `*xref*`
   puts the language server's definitions, references and symbols behind the
   same keys, and `*Help*` has `q` and nothing else, which is all it needed.
-  Mode names for these buffers are still to come.
 
 - **`M-g g` and `M-g c` ask for the line or character.** Without a prefix
   argument they used to fail and leave the digits you then typed in the

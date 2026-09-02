@@ -591,8 +591,17 @@ fn a_language_with_several_parsers_is_a_menu_of_them() {
     assert_eq!(s.editor.minibuffer.kind(), Some(MinibufferKind::Pick));
     assert_eq!(
         s.editor.completion_candidates.len(),
-        2,
-        "both are offered rather than one being chosen for the user"
+        3,
+        "both are offered rather than one being chosen for the user, and a way out"
+    );
+    assert!(
+        s.editor
+            .completion_candidates
+            .last()
+            .unwrap()
+            .starts_with("skip"),
+        "the way out is under the parsers: {:?}",
+        s.editor.completion_candidates
     );
     s.editor.tasks.drain();
     s.keys("RET");
@@ -605,6 +614,34 @@ fn a_language_with_several_parsers_is_a_menu_of_them() {
         )),
         "the highlighted row is the one installed: {tasks:?}"
     );
+}
+
+/// The menu's way out, which is a decline and remembered as one.
+#[cfg(feature = "full")]
+#[test]
+fn skipping_from_the_menu_installs_nothing_and_is_not_asked_again() {
+    let mut s = Session::editing("/project/thing.kdl", "node 1\n");
+    let missing = maxgus_core::TaskResult::GrammarMissing {
+        language: "kdl".into(),
+        candidates: vec![
+            a_parser("kdl", "https://github.com/x/tree-sitter-kdl"),
+            a_parser("kdl", "https://github.com/y/tree-sitter-kdl"),
+        ],
+    };
+    s.editor.apply_task_result(missing.clone()).unwrap();
+    s.editor.tasks.drain();
+    s.type_text("skip");
+    s.keys("RET");
+    assert!(
+        !s.editor
+            .tasks
+            .drain()
+            .iter()
+            .any(|t| matches!(t, Task::InstallGrammar { .. })),
+        "skip installed something"
+    );
+    s.editor.apply_task_result(missing).unwrap();
+    assert_eq!(s.editor.minibuffer.kind(), None, "skip was not remembered");
 }
 
 /// The setting turns the question off without taking the feature away.
@@ -5173,6 +5210,56 @@ fn a_drag_selects_what_it_covers() {
 }
 
 #[test]
+fn a_double_click_takes_the_word_and_a_triple_the_line() {
+    let mut s = Session::new(60, 10);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "let alpha = beta;\nnext\n");
+    s.editor.switch_to_buffer(id).unwrap();
+
+    s.editor.point_at_cell(6, 0);
+    assert!(s.editor.select_word_at_point());
+    assert_eq!(s.editor.region_text().as_deref(), Some("alpha"));
+    assert_eq!(
+        s.editor.windows.current().point,
+        9,
+        "point is not after the word"
+    );
+
+    s.editor.select_line_at_point();
+    assert_eq!(
+        s.editor.region_text().as_deref(),
+        Some("let alpha = beta;\n"),
+        "the line came without its newline"
+    );
+
+    // On the `=` there is no word to take, and none is.
+    s.editor.point_at_cell(10, 0);
+    s.editor.with_current_buffer(|b| b.deactivate_mark());
+    assert!(!s.editor.select_word_at_point());
+    assert_eq!(s.editor.region_text(), None);
+}
+
+#[test]
+fn a_right_click_stretches_the_region_to_where_it_landed() {
+    let mut s = Session::new(60, 10);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/project/main.rs", "abcdefgh\n");
+    s.editor.switch_to_buffer(id).unwrap();
+
+    // With no region, from point.
+    s.editor.point_at_cell(2, 0);
+    assert!(s.editor.extend_region_to_cell(5, 0));
+    assert_eq!(s.editor.region_text().as_deref(), Some("cde"));
+    // With one, from the mark.
+    assert!(s.editor.extend_region_to_cell(7, 0));
+    assert_eq!(s.editor.region_text().as_deref(), Some("cdefg"));
+}
+
+#[test]
 fn the_wheel_moves_the_view_and_drags_point_along_when_it_has_to() {
     let text: String = (1..=100).map(|n| format!("line {n}\n")).collect();
     let mut s = Session::new(60, 12);
@@ -6427,6 +6514,32 @@ fn with_dired() -> Session {
         .unwrap();
     s.editor.tasks.drain();
     s
+}
+
+#[test]
+fn a_special_buffer_is_named_for_its_mode_rather_than_fundamental() {
+    let mut s = with_dired();
+    assert!(s.mode_line().contains("Dired"), "{}", s.mode_line());
+    assert!(!s.mode_line().contains("Fundamental"));
+    s.keys("C-x b");
+    s.type_text("plain");
+    s.keys("RET");
+    assert_eq!(s.editor.current_buffer().name(), "plain");
+    assert!(
+        s.mode_line().contains("Fundamental"),
+        "a buffer with no mode of its own still is: {}",
+        s.mode_line()
+    );
+    s.keys("C-x b");
+    s.type_text("main.rs");
+    s.keys("RET");
+    assert!(s.mode_line().contains("rust"), "{}", s.mode_line());
+    assert_eq!(maxgus_core::mode_display_name("magit-mode"), "Magit");
+    assert_eq!(
+        maxgus_core::mode_display_name("terminal-copy-mode"),
+        "Terminal Copy"
+    );
+    assert_eq!(maxgus_core::mode_display_name("help-mode"), "Help");
 }
 
 #[test]

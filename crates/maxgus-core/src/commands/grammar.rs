@@ -82,7 +82,28 @@ fn install_grammar(editor: &mut Editor, args: &Args) -> Result<()> {
         }
         return start(editor, &parser);
     }
+    if answer == SKIP {
+        return decline(editor);
+    }
     install_chosen(editor, &answer)
+}
+
+/// The row at the bottom of the menu that installs nothing, so a menu has
+/// a way out that is not `C-g`.
+const SKIP: &str = "skip  —  install nothing";
+
+/// The offer refused, and remembered as refused.
+fn decline(editor: &mut Editor) -> Result<()> {
+    match editor.grammar_offer.take() {
+        Some(language) => {
+            editor.grammars_declined.insert(language.clone());
+            editor.message(format!(
+                "Nothing installed. M-x install-grammar-for-buffer asks again for {language}."
+            ));
+        }
+        None => editor.message("Nothing installed"),
+    }
+    Ok(())
 }
 
 /// The buffer's own language: the command the offer re-enters, and a useful
@@ -242,7 +263,12 @@ fn choose(
             );
             Ok(())
         }
-        _ => pick_from(editor, candidates, &format!("Install {language} from: ")),
+        _ => pick_from(
+            editor,
+            candidates,
+            &format!("Install {language} from (or skip): "),
+            true,
+        ),
     }
 }
 
@@ -260,7 +286,12 @@ pub fn show_catalog(
     }
     editor.grammar_catalog = parsers;
     let Some(language) = language else {
-        return pick_from(editor, editor.grammar_catalog.clone(), "Install parser: ");
+        return pick_from(
+            editor,
+            editor.grammar_catalog.clone(),
+            "Install parser: ",
+            false,
+        );
     };
     // Already narrowed to that language and ranked best-first by whoever
     // read the list; this only has to ask about it.
@@ -278,13 +309,23 @@ pub fn show_catalog(
     choose(editor, &language, candidates)
 }
 
-/// Opens the menu over `parsers`.
-fn pick_from(editor: &mut Editor, parsers: Vec<maxgus_syntax::Parser>, prompt: &str) -> Result<()> {
+/// Opens the menu over `parsers`. An offer — a menu the editor opened
+/// rather than one asked for — has a row for saying no at the bottom,
+/// under the parsers, which are what the menu is for.
+fn pick_from(
+    editor: &mut Editor,
+    parsers: Vec<maxgus_syntax::Parser>,
+    prompt: &str,
+    offered: bool,
+) -> Result<()> {
     if parsers.is_empty() {
         editor.error("The list of parsers came back empty");
         return Ok(());
     }
-    let labels: Vec<String> = parsers.iter().map(maxgus_syntax::Parser::label).collect();
+    let mut labels: Vec<String> = parsers.iter().map(maxgus_syntax::Parser::label).collect();
+    if offered {
+        labels.push(SKIP.to_string());
+    }
     editor.prompt_for("install-grammar", MinibufferKind::Pick, prompt, "", labels);
     Ok(())
 }

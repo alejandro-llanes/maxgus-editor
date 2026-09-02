@@ -36,6 +36,11 @@ pub const CATALOG_REPOSITORY: &str = "https://github.com/tree-sitter/tree-sitter
 /// The page inside it.
 pub const CATALOG_FILE: &str = "List-of-parsers.md";
 
+/// Where highlight queries come from when a grammar's own repository has
+/// none. Neovim keeps a query for nearly every grammar in the wiki, written
+/// against the same parsers, under `runtime/queries/<language>/`.
+pub const QUERY_REPOSITORY: &str = "https://github.com/nvim-treesitter/nvim-treesitter.git";
+
 /// How old a cached list may be before it is fetched again, in seconds.
 /// A week: the wiki gains a few rows a month, and a fetch is a network round
 /// trip in front of a menu the user is waiting on.
@@ -206,14 +211,42 @@ pub fn install(request: &Request) -> Result<Report, InstallError> {
             Some(path)
         }
         None => {
-            warnings.push(format!(
-                "{} has no queries/highlights.scm, so {} will parse but not colour. \
-                 Put a highlights.scm in {} to fix that.",
-                request.url,
-                request.language,
-                request.into.join(&request.language).display()
-            ));
-            None
+            let _ = writeln!(
+                log,
+                "note: {} has no queries/highlights.scm; looking in {QUERY_REPOSITORY}",
+                request.url
+            );
+            match fetch_queries(&request.language, &request.into, &mut log) {
+                Ok(Some(path)) => {
+                    let _ = writeln!(
+                        log,
+                        "note: {} is coloured by Neovim's query, from {QUERY_REPOSITORY}",
+                        request.language
+                    );
+                    Some(path)
+                }
+                Ok(None) => {
+                    warnings.push(format!(
+                        "neither {} nor {QUERY_REPOSITORY} has a highlights.scm for {}, \
+                         so it will parse but not colour. Put one in {} to fix that.",
+                        request.url,
+                        request.language,
+                        request.into.join(&request.language).display()
+                    ));
+                    None
+                }
+                Err(error) => {
+                    warnings.push(format!(
+                        "{} has no queries/highlights.scm, and fetching Neovim's failed \
+                         ({error}), so {} will parse but not colour. \
+                         Put a highlights.scm in {} to fix that.",
+                        request.url,
+                        request.language,
+                        request.into.join(&request.language).display()
+                    ));
+                    None
+                }
+            }
         }
     };
     Ok(Report {
@@ -366,8 +399,68 @@ fn install_queries(
     else {
         return Ok(None);
     };
-    let to = into.join(language);
-    std::fs::create_dir_all(&to).map_err(|source| InstallError::Io {
+    copy_queries(from, &into.join(language)).map(Some)
+}
+
+/// Fetches Neovim's queries for `language` into `<into>/<language>`, for a
+/// grammar whose own repository ships none.
+///
+/// A sparse clone: [`QUERY_REPOSITORY`] holds queries for some three hundred
+/// languages and a good deal of Lua, and only one directory of it is wanted.
+/// `Ok(None)` when Neovim has no query for the language either.
+///
+/// Neovim's queries are written for Neovim, and use a few predicates of its
+/// own; [`crate::highlight`] leaves out the patterns that need them rather
+/// than take them on trust.
+pub fn fetch_queries(
+    language: &str,
+    into: &Path,
+    log: &mut String,
+) -> Result<Option<PathBuf>, InstallError> {
+    let workspace = TempDir::new(&format!("maxgus-queries-{language}"))?;
+    let checkout = workspace.path().join("queries");
+    log.push_str(&run(
+        "git",
+        &[
+            "clone",
+            "--depth=1",
+            "--filter=blob:none",
+            "--sparse",
+            "--quiet",
+            QUERY_REPOSITORY,
+            &checkout.display().to_string(),
+        ],
+        None,
+        "clone of the queries",
+    )?);
+    // Where they were moved to in 2025, and where they were before.
+    let name = language.replace('-', "_");
+    let candidates = [
+        PathBuf::from("runtime/queries").join(&name),
+        PathBuf::from("queries").join(&name),
+    ];
+    let wanted: Vec<String> = candidates.iter().map(|p| p.display().to_string()).collect();
+    let mut arguments = vec!["sparse-checkout", "set"];
+    arguments.extend(wanted.iter().map(String::as_str));
+    log.push_str(&run(
+        "git",
+        &arguments,
+        Some(&checkout),
+        "checkout of the queries",
+    )?);
+    let Some(from) = candidates
+        .iter()
+        .map(|p| checkout.join(p))
+        .find(|directory| directory.join("highlights.scm").is_file())
+    else {
+        return Ok(None);
+    };
+    copy_queries(&from, &into.join(language)).map(Some)
+}
+
+/// Copies every `.scm` in `from` into `to`, making `to` if need be.
+fn copy_queries(from: &Path, to: &Path) -> Result<PathBuf, InstallError> {
+    std::fs::create_dir_all(to).map_err(|source| InstallError::Io {
         path: to.display().to_string(),
         source,
     })?;
@@ -387,7 +480,7 @@ fn install_queries(
             })?;
         }
     }
-    Ok(Some(to))
+    Ok(to.to_path_buf())
 }
 
 /// The grammar this one is written on top of, as its own `grammar.js` says.
@@ -456,7 +549,7 @@ fn note_inheritance(
     Some(base)
 }
 
-/// Runs one program to completion and returns what it printed./// Runs one program to completion and returns what it printed.
+/// Runs one program to completion and returns what it printed.
 ///
 /// `GIT_TERMINAL_PROMPT=0` is the important part of this: a repository that
 /// has been renamed or made private asks for a username, and there is no
@@ -650,6 +743,23 @@ mod tests {
             install_queries(repository.path(), repository.path(), "zig", into.path()).unwrap(),
             None,
             "the install reports it as a warning instead"
+        );
+    }
+
+    /// Goes to the network, so it runs only when asked:
+    /// `cargo test -p maxgus-syntax -- --ignored neovim`.
+    #[test]
+    #[ignore = "clones from the network"]
+    fn neovim_lends_a_query_to_a_grammar_that_has_none() {
+        let into = TempDir::new("maxgus-test-nvim-into").unwrap();
+        let mut log = String::new();
+        let installed = fetch_queries("perl", into.path(), &mut log).unwrap();
+        assert_eq!(installed, Some(into.path().join("perl")), "{log}");
+        assert!(into.path().join("perl/highlights.scm").is_file());
+        assert_eq!(
+            fetch_queries("no-such-language", into.path(), &mut log).unwrap(),
+            None,
+            "{log}"
         );
     }
 

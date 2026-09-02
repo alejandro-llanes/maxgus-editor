@@ -77,6 +77,11 @@ impl KillRing {
         self.entries.get(self.yank_pointer).map(String::as_str)
     }
 
+    /// The most recent kill, whatever the yank pointer is doing.
+    pub fn newest(&self) -> Option<&str> {
+        self.entries.first().map(String::as_str)
+    }
+
     /// `current-kill`: rotates the yank pointer by `n` and returns the entry it
     /// lands on. Positive `n` moves towards older kills, wrapping around.
     pub fn rotate(&mut self, n: isize) -> Option<&str> {

@@ -553,7 +553,8 @@ Sessions live under the state directory, keyed by the project's path, so
 nothing is written into the project and nobody has to gitignore their editor.
 Window splits are deliberately not restored — `desktop-save-mode` leaves them
 out too, and a layout restored into a differently sized terminal is worse than
-none.
+none. The one thing the window does remember is its own size, in
+`window.kdl` in the same directory.
 
 ### It reads your project's `.editorconfig`
 
@@ -970,11 +971,20 @@ What the window has that a terminal cannot:
   velocity — so a second wheel notch while the first is still arriving adds
   to it rather than starting it over. The cursor is animated by the same
   spring.
-- **The mouse.** Click to put point where you clicked, drag to select, middle
-  button to paste, wheel to scroll. A click in another window selects it; a
-  turn of the wheel over one scrolls it without selecting it, so the wheel
-  over the file tree moves the file tree.
-- **The system clipboard**, rather than a terminal's guess at one.
+- **The mouse.** Click to put point where you clicked, drag to select, twice
+  for the word and three times for the line, right button to stretch the
+  selection to where you clicked, middle button to paste, wheel to scroll. A
+  click in another window selects it; a turn of the wheel over one scrolls
+  it without selecting it, so the wheel over the file tree moves the file
+  tree. A file dropped on the window is opened.
+- **The system clipboard**, rather than a terminal's guess at one. `C-w` and
+  `M-w` put the text there as well as in the kill ring, and `C-y` takes
+  what another program put there since — and keeps it in the ring, so `M-y`
+  can walk back past it. What the mouse selects goes to the primary
+  selection, where there is one, and the middle button pastes from there.
+- **Every key the keyboard can say.** A dead key and its letter, a compose
+  sequence, an input method's Chinese or Japanese: what arrives as text is
+  inserted as text.
 - **Suggestions while you type.** After a couple of letters of a word the
   language server is asked what could follow, and a list appears at the
   cursor with each candidate's kind and type beside it. Typing narrows it,
@@ -1001,14 +1011,18 @@ What the window has that a terminal cannot:
   <img src="docs/screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and its documentation, from clangd" width="100%">
 - **A window that behaves like one.** Its title is the buffer being edited,
   with a `*` while there is unsaved work in it; the close button runs the
-  same command `C-x C-c` does, so it refuses to throw that work away; and it
-  sleeps when nothing is happening rather than redrawing a still screen
-  sixty times a second.
+  same command `C-x C-c` does, so it refuses to throw that work away; it
+  opens at the size it was last closed at; its cursor is an outline while
+  another window has the keyboard; and it sleeps when nothing is happening
+  rather than redrawing a still screen sixty times a second.
 - **Any font on the system**, at any size: `set gui-font` and
   `set gui-font-size`. Sized in physical pixels, so it is the same size on a
-  display that reports a scale as on one that does not. Bold and italic are separate faces where the system has
-  them and fall back to the regular one where it does not, so an emphasised
-  word is never an invisible one.
+  display that reports a scale as on one that does not. Bold and italic are
+  separate faces where the family has them and fall back to its regular one
+  where it does not, so an emphasised word is never an invisible one. A
+  character the family lacks — a CJK ideograph, an emoji, a symbol — is
+  drawn from a font on the system that has it, fitted to the cell; a colour
+  emoji comes out in colour.
 
 `C-c o b` (`M-x open-externally`) hands the file being edited to whatever the
 desktop opens it with — an image viewer for an image, a reader for a PDF —

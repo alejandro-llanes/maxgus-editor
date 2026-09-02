@@ -433,6 +433,9 @@ pub struct Grammars {
     search: Search,
     /// What came of asking for each language, whether it worked or not.
     tried: std::collections::HashMap<String, Result<SyntaxLanguage, String>>,
+    /// What is worth knowing about a grammar that did load — a query with
+    /// patterns left out of it, say.
+    caveats: std::collections::HashMap<String, String>,
 }
 
 impl Grammars {
@@ -440,6 +443,7 @@ impl Grammars {
         Grammars {
             search,
             tried: std::collections::HashMap::new(),
+            caveats: std::collections::HashMap::new(),
         }
     }
 
@@ -477,6 +481,23 @@ impl Grammars {
         );
     }
 
+    /// Records that `language` loaded but could not be used, which is what
+    /// a query that will not compile against its grammar comes to.
+    pub fn remember_failure(&mut self, language: &str, why: String) {
+        self.tried.insert(language.to_string(), Err(why));
+    }
+
+    /// Records something worth knowing about a grammar that did load, for
+    /// the report. One per language: the first stands.
+    pub fn note(&mut self, language: &str, caveat: String) {
+        self.caveats.entry(language.to_string()).or_insert(caveat);
+    }
+
+    /// What was noted about `language`, if anything.
+    pub fn caveat(&self, language: &str) -> Option<&str> {
+        self.caveats.get(language).map(String::as_str)
+    }
+
     /// Forgets what came of asking for `language`, so the next buffer in it
     /// looks again.
     ///
@@ -486,6 +507,7 @@ impl Grammars {
     /// restarted.
     pub fn forget(&mut self, language: &str) {
         self.tried.remove(language);
+        self.caveats.remove(language);
     }
 
     /// Why `language` has no grammar, for the report that says so. `None`
@@ -597,6 +619,33 @@ mod tests {
             "got {error:?}"
         );
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn what_is_remembered_about_a_grammar_goes_when_it_is_forgotten() {
+        let search = Search {
+            libraries: vec![PathBuf::from("/nowhere")],
+            ..Search::default()
+        };
+        let mut grammars = Grammars::new(search);
+        assert!(matches!(grammars.ready("perl"), Ready::MustLoad(_)));
+        grammars.remember_failure("perl", "its query would not compile".to_string());
+        assert!(matches!(grammars.ready("perl"), Ready::Absent));
+        assert_eq!(
+            grammars.failures(),
+            [("perl", "its query would not compile")]
+        );
+        grammars.note("perl", "first".to_string());
+        grammars.note("perl", "second".to_string());
+        assert_eq!(
+            grammars.caveat("perl"),
+            Some("first"),
+            "the first note stands"
+        );
+        grammars.forget("perl");
+        assert!(matches!(grammars.ready("perl"), Ready::MustLoad(_)));
+        assert_eq!(grammars.caveat("perl"), None);
+        assert!(grammars.failures().is_empty());
     }
 
     #[test]

@@ -502,6 +502,7 @@ fn zap_to_char(editor: &mut Editor, args: &Args) -> Result<()> {
 }
 
 fn yank(editor: &mut Editor, args: &Args) -> Result<()> {
+    editor.interprogram_paste();
     // A raw `C-u` rotates the ring before yanking, as `C-u C-y` does.
     if args.prefix.is_raw() {
         editor.kill_ring.rotate(1);
@@ -1463,6 +1464,38 @@ mod tests {
         e.prefix = Prefix::Universal(1);
         d.execute(&mut e, "yank", None);
         assert_eq!(text(&e), "older");
+    }
+
+    #[test]
+    fn a_kill_goes_to_the_clipboard_and_a_yank_takes_what_is_new_there() {
+        use crate::clipboard::Local;
+        let (mut d, mut e) = setup("one two\n");
+        e.clipboard = Some(Box::new(Local::default()));
+        run(&mut d, &mut e, "kill-word");
+        let on_clipboard = e.clipboard.as_mut().unwrap().read();
+        assert_eq!(
+            on_clipboard.as_deref(),
+            Some("one"),
+            "the kill was not copied out"
+        );
+        // A second kill in a row appends, and the clipboard has the whole
+        // entry rather than the piece.
+        run(&mut d, &mut e, "kill-word");
+        let on_clipboard = e.clipboard.as_mut().unwrap().read();
+        assert_eq!(on_clipboard.as_deref(), Some("one two"));
+
+        // Another program puts something there: the yank takes it, and it
+        // is in the ring for `M-y` to walk back from.
+        e.clipboard.as_mut().unwrap().write("from elsewhere");
+        run(&mut d, &mut e, "yank");
+        assert_eq!(text(&e), "from elsewhere\n");
+        assert_eq!(e.kill_ring.len(), 2, "the pasted text was not kept");
+        run(&mut d, &mut e, "yank-pop");
+        assert_eq!(text(&e), "one two\n", "M-y did not reach the earlier kill");
+
+        // The same text again is not another kill.
+        run(&mut d, &mut e, "yank");
+        assert_eq!(e.kill_ring.len(), 2, "our own text came back as new");
     }
 
     // ---- undo ----

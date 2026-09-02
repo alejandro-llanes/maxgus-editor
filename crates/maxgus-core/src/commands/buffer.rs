@@ -172,7 +172,11 @@ fn list_buffers(editor: &mut Editor, _: &Args) -> Result<()> {
     listing.push_str(&"-".repeat(72));
     listing.push('\n');
     let current = editor.current_buffer_id();
-    for buffer in editor.buffers.iter() {
+    for id in editor.buffers.ids().to_vec() {
+        let Some(buffer) = editor.buffers.get(id) else {
+            continue;
+        };
+        let mode = editor.mode_name(id);
         let flags = format!(
             "{}{}{} ",
             if buffer.id == current { '.' } else { ' ' },
@@ -183,7 +187,7 @@ fn list_buffers(editor: &mut Editor, _: &Args) -> Result<()> {
             "{flags}{:<20} {:>5}  {:<12} {}\n",
             buffer.name(),
             buffer.len_chars(),
-            buffer.language().unwrap_or("Fundamental"),
+            mode,
             buffer
                 .path()
                 .map(|p| p.display().to_string())

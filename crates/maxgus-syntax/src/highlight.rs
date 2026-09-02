@@ -16,6 +16,9 @@ pub struct Highlighter {
     /// Face name per capture index, resolved once at construction. `None` for
     /// captures the editor has no face for.
     capture_faces: Vec<Option<&'static str>>,
+    /// Patterns in the query that would not compile against this grammar,
+    /// and were left out so the rest could be used. See [`compile`].
+    left_out: Vec<String>,
 }
 
 impl std::fmt::Debug for Highlighter {
@@ -45,11 +48,12 @@ impl Highlighter {
                 language: language.to_string(),
                 source,
             })?;
-        let query =
-            Query::new(&lang.language, &lang.highlights).map_err(|source| SyntaxError::Query {
+        let (mut query, left_out) =
+            compile(&lang.language, &lang.highlights).map_err(|source| SyntaxError::Query {
                 language: language.to_string(),
                 source: Box::new(source),
             })?;
+        disable_unanswerable_patterns(&mut query);
         let capture_faces = query
             .capture_names()
             .iter()
@@ -61,11 +65,18 @@ impl Highlighter {
             query,
             tree: None,
             capture_faces,
+            left_out,
         })
     }
 
     pub fn language(&self) -> &str {
         &self.language.name
+    }
+
+    /// The patterns of the query that were left out because the grammar
+    /// has no such node — a query written for another version of it.
+    pub fn left_out(&self) -> &[String] {
+        &self.left_out
     }
 
     /// True once the buffer has been parsed at least once.
@@ -197,6 +208,123 @@ impl Highlighter {
 
 /// The row/column of `byte` in `text`, as tree-sitter counts them: row is a
 /// zero-based line index, column is a byte offset within that line.
+/// Compiles a query, leaving out the patterns the grammar cannot answer for.
+///
+/// A query is compiled as a whole, and one node the grammar does not have
+/// fails all of it. That is the right answer for a query shipped with the
+/// grammar it names, and the wrong one for a query that came from somewhere
+/// else — Neovim's, or a grammar's own after the grammar moved on — where
+/// one renamed node would leave the whole file plain. The pattern that
+/// names the missing node is blanked out and the rest tried again, until
+/// the query compiles or an error turns up that leaving a pattern out will
+/// not mend. What was left out comes back with the query, for the log.
+fn compile(
+    language: &tree_sitter::Language,
+    source: &str,
+) -> std::result::Result<(Query, Vec<String>), tree_sitter::QueryError> {
+    use tree_sitter::QueryErrorKind::{Capture, Field, NodeType, Predicate, Structure};
+    let mut source = source.to_string();
+    let mut left_out = Vec::new();
+    loop {
+        let error = match Query::new(language, &source) {
+            Ok(query) => return Ok((query, left_out)),
+            Err(error) => error,
+        };
+        if !matches!(
+            error.kind,
+            NodeType | Field | Capture | Predicate | Structure
+        ) {
+            return Err(error);
+        }
+        let Some(pattern) = pattern_around(&source, error.offset) else {
+            return Err(error);
+        };
+        left_out.push(source[pattern.clone()].trim().to_string());
+        // Blanked rather than cut, so the offsets in the next error still
+        // point into the same text.
+        let blank: String = source[pattern.clone()]
+            .chars()
+            .map(|c| if c == '\n' { '\n' } else { ' ' })
+            .collect();
+        source.replace_range(pattern, &blank);
+    }
+}
+
+/// The top-level pattern of `source` that `offset` falls in.
+///
+/// A query is a sequence of patterns at bracket depth zero: an S-expression,
+/// a `[...]` alternation, a `"string"` or a `_`, each followed by the
+/// captures (`@name`) and quantifiers (`?`, `*`, `+`) that belong to it.
+/// Comments run from `;` to the end of the line.
+fn pattern_around(source: &str, offset: usize) -> Option<std::ops::Range<usize>> {
+    let mut starts = Vec::new();
+    let mut depth = 0usize;
+    let mut chars = source.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        match c {
+            ';' => {
+                while chars.peek().is_some_and(|&(_, c)| c != '\n') {
+                    chars.next();
+                }
+            }
+            '"' => {
+                if depth == 0 {
+                    starts.push(at);
+                }
+                while let Some((_, c)) = chars.next() {
+                    match c {
+                        '\\' => {
+                            chars.next();
+                        }
+                        '"' => break,
+                        _ => {}
+                    }
+                }
+            }
+            '(' | '[' => {
+                if depth == 0 {
+                    starts.push(at);
+                }
+                depth += 1;
+            }
+            ')' | ']' => depth = depth.saturating_sub(1),
+            c if depth > 0 || c.is_whitespace() => {}
+            // What follows a pattern rather than starting one.
+            '@' | '?' | '*' | '+' | '.' | '#' | ':' | '!' => {}
+            _ if starts.last().is_some_and(|&start| {
+                // The identifier a `@` began, or a bare `_`.
+                source[start..at].trim_end().ends_with('@')
+                    || source[start..at]
+                        .chars()
+                        .last()
+                        .is_some_and(|last| !last.is_whitespace())
+            }) => {}
+            _ => starts.push(at),
+        }
+    }
+    let index = starts.iter().rposition(|&start| start <= offset)?;
+    let end = starts.get(index + 1).copied().unwrap_or(source.len());
+    Some(starts[index]..end)
+}
+
+/// Switches off every pattern whose predicates this editor cannot answer.
+///
+/// tree-sitter evaluates `#eq?`, `#match?` and `#any-of?` itself, and
+/// `#set!` only records a property. Anything else — Neovim's `#lua-match?`,
+/// Helix's `#has-ancestor?` — is left for the host to judge, and a host that
+/// does not is answered *yes* every time. A query written for Neovim marks
+/// `SCREAMING_CASE` identifiers as constants with `(#lua-match? @constant
+/// "^%u+$")`; taken unconditionally, that makes every identifier a constant.
+/// A pattern that cannot be judged is better not run.
+fn disable_unanswerable_patterns(query: &mut Query) {
+    let unanswerable: Vec<usize> = (0..query.pattern_count())
+        .filter(|&pattern| !query.general_predicates(pattern).is_empty())
+        .collect();
+    for pattern in unanswerable {
+        query.disable_pattern(pattern);
+    }
+}
+
 fn point_at(text: &str, byte: usize) -> Point {
     let byte = byte.min(text.len());
     let before = &text[..byte];
@@ -539,6 +667,76 @@ mod tests {
             assert!(src.is_char_boundary(s.end), "{} is not a boundary", s.end);
         }
         assert!(face_of(&h, src, "héllo").contains(&"font-lock-comment"));
+    }
+
+    #[test]
+    fn a_pattern_with_a_predicate_nobody_can_answer_is_left_out() {
+        // Neovim's idiom for constants. Without the guard every identifier
+        // would be one, since nothing here evaluates `#lua-match?`.
+        let query = "((identifier) @constant (#lua-match? @constant \"^%u+$\"))
+                     ((identifier) @variable (#eq? @variable \"y\"))
+                     \"let\" @keyword\n";
+        let mut lang = languages::language("rust").unwrap();
+        lang.highlights = query.to_string().into();
+        let mut h = Highlighter::with_grammar("rust", lang).unwrap();
+        let src = "let x = y;";
+        h.parse(src).unwrap();
+        assert!(face_of(&h, src, "x").is_empty(), "`x` is not a constant");
+        assert_eq!(face_of(&h, src, "y"), ["font-lock-variable-name"]);
+        assert_eq!(face_of(&h, src, "let"), ["font-lock-keyword"]);
+    }
+
+    fn with_query(query: &str) -> Result<Highlighter> {
+        let mut lang = languages::language("rust").unwrap();
+        lang.highlights = query.to_string().into();
+        Highlighter::with_grammar("rust", lang)
+    }
+
+    #[test]
+    fn a_pattern_naming_a_node_the_grammar_lacks_is_left_out_and_the_rest_kept() {
+        // Rust has no `class_definition`; a query from another grammar's
+        // version, or another grammar, might name one.
+        let query = "\"let\" @keyword\n\
+                     ; a comment with (parens) and \"quotes\" in it\n\
+                     (class_definition\n  name: (identifier) @type)\n\
+                     ((identifier) @variable (#eq? @variable \"y\"))\n\
+                     (no_such_thing) @constant ; trailing comment\n\
+                     (string_literal) @string\n";
+        let mut h = with_query(query).unwrap();
+        assert_eq!(
+            h.left_out(),
+            [
+                "(class_definition\n  name: (identifier) @type)",
+                "(no_such_thing) @constant ; trailing comment"
+            ]
+        );
+        let src = "let x = y; \"s\"";
+        h.parse(src).unwrap();
+        assert_eq!(face_of(&h, src, "let"), ["font-lock-keyword"]);
+        assert_eq!(face_of(&h, src, "y"), ["font-lock-variable-name"]);
+        assert_eq!(face_of(&h, src, "\"s\""), ["font-lock-string"]);
+    }
+
+    #[test]
+    fn a_query_that_is_not_well_formed_is_still_an_error() {
+        assert!(matches!(
+            with_query("(identifier @variable"),
+            Err(SyntaxError::Query { .. })
+        ));
+        assert!(with_query("").unwrap().left_out().is_empty());
+    }
+
+    #[test]
+    fn a_pattern_is_found_from_any_offset_inside_it() {
+        let source = "\"let\" @keyword\n[\"a\" \"b\"] @k\n_ @any\n(x) @y";
+        let at = |needle: &str| source.find(needle).unwrap();
+        let around = |needle: &str| &source[pattern_around(source, at(needle)).unwrap()];
+        assert_eq!(around("let").trim(), "\"let\" @keyword");
+        assert_eq!(around("keyword").trim(), "\"let\" @keyword");
+        assert_eq!(around("\"b\"").trim(), "[\"a\" \"b\"] @k");
+        assert_eq!(around("any").trim(), "_ @any");
+        assert_eq!(around("(x)").trim(), "(x) @y");
+        assert_eq!(pattern_around("", 0), None);
     }
 
     #[test]

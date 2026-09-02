@@ -1159,7 +1159,14 @@ impl Executor {
                     true => out.push_str("  none yet\n"),
                     false => {
                         for name in loaded {
-                            let _ = writeln!(out, "  {name}");
+                            match self.grammars.caveat(name) {
+                                Some(caveat) => {
+                                    let _ = writeln!(out, "  {name} — {caveat}");
+                                }
+                                None => {
+                                    let _ = writeln!(out, "  {name}");
+                                }
+                            }
                         }
                     }
                 }
@@ -1238,9 +1245,28 @@ impl Executor {
                     self.announce_missing(language).await;
                     return;
                 };
-                let Ok(highlighter) = Highlighter::with_grammar(language, grammar) else {
-                    return;
+                let highlighter = match Highlighter::with_grammar(language, grammar) {
+                    Ok(highlighter) => highlighter,
+                    Err(error) => {
+                        // Remembered so `describe-grammars` can say why the
+                        // file is plain, and so it is not tried again on
+                        // every pause in typing.
+                        self.grammars.remember_failure(language, error.to_string());
+                        return;
+                    }
                 };
+                let left_out = highlighter.left_out();
+                if let Some(first) = left_out.first() {
+                    self.grammars.note(
+                        language,
+                        format!(
+                            "{} of its query's patterns name nodes the grammar does not have \
+                             and were left out, the first being `{}`",
+                            left_out.len(),
+                            first.lines().next().unwrap_or_default()
+                        ),
+                    );
+                }
                 BufferSyntax {
                     language: language.to_string(),
                     highlighter,
@@ -2258,6 +2284,10 @@ mod tests {
         // too is reached only through `spawn_blocking` — held to by the
         // test below.
         "maxgus-syntax/src/install.rs",
+        // The window's remembered size: one small file read before the
+        // window exists and written after it has gone. Neither end has a
+        // runtime to block.
+        "maxgus-gui/src/geometry.rs",
     ];
 
     fn rust_files(dir: &Path, found: &mut Vec<PathBuf>) {

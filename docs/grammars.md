@@ -168,7 +168,15 @@ buffer has the commands and their output. The usual ones:
 | `has no src/parser.c in it` | The repository ships no pre-generated parser. It needs `tree-sitter generate`, which means node; build it by hand as below. |
 | `holds several grammars` | One repository, several languages — `tree-sitter-sfapex` has three. Pick the one you want from `M-x install-grammar`. |
 | `built, but it would not load` | It compiled and then `dlopen` refused it. Almost always the ABI: the grammar is older or newer than this build reads. |
-| `installed, but … has no queries/highlights.scm` | It parses and cannot colour. Put a `highlights.scm` in the language's directory yourself. |
+| `installed, but neither … nor … has a highlights.scm` | The repository ships no query and Neovim has none for the language either, so it parses and cannot colour. Put a `highlights.scm` in the language's directory yourself. |
+
+A repository that ships no query is not the end of it: the install fetches
+Neovim's query for the language from
+[nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter) and
+installs that instead, and the `*Grammar install*` buffer says so. A borrowed
+query may have been written against a newer grammar than the wiki's row
+points at; patterns naming nodes this grammar does not have are left out
+and the rest used, and `M-x describe-grammars` says how many went.
 
 It can also work and look as though it has not. A grammar that extends
 another ships a query covering only what it added, so a `.cpp` file with
@@ -450,6 +458,7 @@ Run `M-x describe-grammars`. It prints the reason, which is one of:
 | `… has no tree_sitter_x in it, so it is not an x grammar` | A real library, but not that grammar. Usually the wrong file, or a grammar whose internal name differs from the file name. |
 | `… was built for tree-sitter ABI N` | Built against a different tree-sitter than this maxgus reads. Rebuild it with a matching CLI. |
 | `no highlights query for x` | The grammar loaded; nothing to colour it with. Add a `queries` directory that has `x/highlights.scm`. |
+| `highlights query for x failed to compile` | The query is not well formed. A query merely written for another version of the grammar does not fail like this: its patterns that name nodes the grammar lacks are left out, and the report says how many. |
 | `… would not load: …` | The operating system refused it — not a shared library, wrong architecture, or a missing dependency of its own. |
 
 Two things that look like failures and are not:

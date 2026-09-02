@@ -5,7 +5,7 @@
 //! one of textured rectangles for the glyphs. Both are plain data, so what
 //! goes to the GPU can be checked without one.
 
-use crate::font::{CellMetrics, Fonts, Style};
+use crate::font::{CellMetrics, Fonts, GlyphRef, Style};
 use maxgus_faces::{Color, Face};
 use maxgus_tui::Surface;
 
@@ -269,6 +269,9 @@ pub struct Look<'a> {
     /// solid, so whatever was blurred underneath shows through them.
     pub translucent: &'a [maxgus_tui::Rect],
     pub opacity: f32,
+    /// The cursor as an outline rather than a block: the window does not
+    /// have the keyboard, and a solid block would say that it did.
+    pub hollow: bool,
 }
 
 impl<'a> Look<'a> {
@@ -285,6 +288,7 @@ impl<'a> Look<'a> {
             only: &[],
             translucent: &[],
             opacity: 1.0,
+            hollow: false,
         }
     }
 }
@@ -315,6 +319,7 @@ pub fn build(surface: &Surface, fonts: &mut Fonts, look: &Look) -> Frame {
         only,
         translucent,
         opacity,
+        hollow,
     } = *look;
     let metrics = fonts.metrics();
     let mut frame = Frame::default();
@@ -362,7 +367,7 @@ pub fn build(surface: &Surface, fonts: &mut Fonts, look: &Look) -> Frame {
             if !within(only, x, y) {
                 continue;
             }
-            let on_cursor = cursor == Some((x, y));
+            let on_cursor = cursor == Some((x, y)) && !hollow;
             let moves = shift.filter(|shift| shift.holds(x, y));
             let top = y as f32 * metrics.height - moves.map(|s| s.pixels).unwrap_or(0.0);
             let band = moves.map(|s| s.band(metrics));
@@ -388,6 +393,15 @@ pub fn build(surface: &Surface, fonts: &mut Fonts, look: &Look) -> Frame {
                 behind,
                 seam,
             );
+            if hollow && cursor == Some((x, y)) {
+                let width = metrics.width * maxgus_tui::char_width(cell.ch).max(1) as f32;
+                outline(
+                    &mut frame,
+                    [x as f32 * metrics.width, top],
+                    [width, metrics.height],
+                    palette.cursor,
+                );
+            }
         }
     }
     // And the lines sliding in, which the editor did not draw because they
@@ -449,7 +463,7 @@ fn row_glyphs(
     cells: &[maxgus_tui::Cell],
     fonts: &mut Fonts,
     ligate: impl Fn(usize) -> bool,
-) -> Vec<Option<u16>> {
+) -> Vec<Option<GlyphRef>> {
     let style_of = |cell: &maxgus_tui::Cell| {
         Style::of(
             cell.face.attributes.bold.unwrap_or(false),
@@ -467,7 +481,7 @@ fn row_glyphs(
 
     // One glyph per character to begin with, which is the answer whenever
     // the font has no opinion and the whole answer when ligatures are off.
-    let mut out: Vec<Option<u16>> = cells
+    let mut out: Vec<Option<GlyphRef>> = cells
         .iter()
         .map(|cell| match cell.continuation || cell.ch == ' ' {
             true => None,
@@ -495,14 +509,18 @@ fn row_glyphs(
         // it is the cost of shaping for an answer already known.
         if end > at + 1 {
             let shaped = fonts.shape(style, &text);
-            let mut assigned: Vec<Option<u16>> = vec![None; columns.len()];
+            let mut assigned: Vec<Option<GlyphRef>> = vec![None; columns.len()];
             let mut usable = true;
             for glyph in shaped.iter() {
                 match columns
                     .iter()
                     .position(|(offset, _)| *offset == glyph.cluster)
                 {
-                    Some(n) => assigned[n] = Some(glyph.glyph),
+                    // The shaper knows only the family: a character it has
+                    // no glyph for comes back as `.notdef`, and the stand-in
+                    // already chosen for that cell is the better answer.
+                    Some(n) if glyph.glyph == 0 => assigned[n] = out[columns[n].1],
+                    Some(n) => assigned[n] = Some(GlyphRef::own(glyph.glyph)),
                     // A cluster that is not the start of any character in
                     // the run means the shaper and this disagree about what
                     // was asked. Drawing the disagreement would drop
@@ -519,6 +537,25 @@ fn row_glyphs(
         at = end;
     }
     out
+}
+
+/// The four sides of a box, a pixel or so thick.
+fn outline(frame: &mut Frame, position: [f32; 2], size: [f32; 2], color: [f32; 4]) {
+    let thickness = 1.0_f32.max(size[1] / 16.0).round();
+    let [x, y] = position;
+    let [width, height] = size;
+    for (position, size) in [
+        ([x, y], [width, thickness]),
+        ([x, y + height - thickness], [width, thickness]),
+        ([x, y], [thickness, height]),
+        ([x + width - thickness, y], [thickness, height]),
+    ] {
+        frame.rects.push(Rect {
+            position,
+            size,
+            color,
+        });
+    }
 }
 
 /// Cuts a rectangle down to a band of pixels, or drops it if it is wholly
@@ -544,7 +581,7 @@ fn push_cell(
     // The glyph this cell draws, which is not always the one its character
     // would pick: a ligature puts one glyph in the first of the cells it
     // covers and nothing in the rest.
-    glyph: Option<u16>,
+    glyph: Option<GlyphRef>,
     x: u16,
     top: f32,
     metrics: CellMetrics,
@@ -637,12 +674,19 @@ fn push_cell(
         // A glyph cut in half reads a shorter part of the atlas, or the half
         // that is left would be squashed into it rather than cropped.
         if let Some((ink, height, cut)) = clipped(ink, glyph.height as f32, band) {
+            // A picture — an emoji — has its own colours, and the face's
+            // would tint it; it keeps only the face's transparency.
+            let color = if glyph.color {
+                [1.0, 1.0, 1.0, foreground[3]]
+            } else {
+                foreground
+            };
             frame.sprites.push(Sprite {
                 position: [left + glyph.left, ink],
                 size: [glyph.width as f32, height],
                 source: [glyph.x as f32, glyph.y as f32 + cut],
                 source_size: [glyph.width as f32, height],
-                color: foreground,
+                color,
             });
         }
     }
@@ -1072,7 +1116,7 @@ mod tests {
         let shaped = fonts.shape(Style::Regular, text);
         let alone: Vec<u16> = text
             .chars()
-            .map(|ch| fonts.index_of(ch, Style::Regular))
+            .map(|ch| fonts.index_of(ch, Style::Regular).glyph)
             .collect();
         shaped.len() != alone.len() || shaped.iter().zip(&alone).any(|(s, a)| s.glyph != *a)
     }
@@ -1164,7 +1208,7 @@ mod tests {
         };
         let cells = row("!=");
         let apart = row_glyphs(&cells, &mut fonts, |_| false);
-        let expected: Vec<Option<u16>> = "!="
+        let expected: Vec<Option<GlyphRef>> = "!="
             .chars()
             .map(|ch| Some(fonts.index_of(ch, Style::Regular)))
             .collect();
@@ -1200,6 +1244,42 @@ mod tests {
                 assert!(drawn > 0, "`{text}` drew nothing at all");
             }
         }
+    }
+
+    #[test]
+    fn an_unfocused_window_draws_its_cursor_as_an_outline() {
+        let Some(mut fonts) = fonts() else {
+            return;
+        };
+        let surface = surface_of("ab", Face::default());
+        let palette = palette();
+        let metrics = fonts.metrics();
+        let frame = build(
+            &surface,
+            &mut fonts,
+            &Look {
+                cursor: Some((1, 0)),
+                hollow: true,
+                ..Look::new(&palette)
+            },
+        );
+        let cursor: Vec<&Rect> = frame
+            .rects
+            .iter()
+            .filter(|rect| rect.color == palette.cursor)
+            .collect();
+        assert_eq!(cursor.len(), 4, "an outline is four sides");
+        assert!(
+            cursor.iter().all(|rect| rect.position[0] >= metrics.width),
+            "the outline is not around the cursor's cell"
+        );
+        // The cell's background is not reversed under it.
+        let cell = frame
+            .rects
+            .iter()
+            .find(|rect| rect.position == [metrics.width, 0.0] && rect.size[1] == metrics.height)
+            .expect("the cell's background");
+        assert_eq!(cell.color, palette.background);
     }
 
     #[test]

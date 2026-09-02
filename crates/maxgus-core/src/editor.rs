@@ -36,6 +36,9 @@ pub struct Editor {
     pub windows: WindowTree,
     pub minibuffer: Minibuffer,
     pub kill_ring: KillRing,
+    /// The system clipboard, when the front end has one to give. A kill
+    /// goes there too, and a yank takes what another program left there.
+    pub clipboard: Option<Box<dyn crate::clipboard::Clipboard>>,
     pub registers: Registers,
     pub settings: Settings,
     pub theme: Theme,
@@ -356,6 +359,7 @@ impl Editor {
             buffers,
             minibuffer: Minibuffer::new(),
             kill_ring,
+            clipboard: None,
             registers: Registers::new(),
             settings,
             theme,
@@ -788,6 +792,56 @@ impl Editor {
     pub fn set_mark_here(&mut self) {
         let point = self.windows.current().point;
         self.with_current_buffer(move |b| b.set_mark(point));
+    }
+
+    /// A double click: the word under point becomes the region, mark at
+    /// its start and point at its end. Nothing happens off a word.
+    pub fn select_word_at_point(&mut self) -> bool {
+        let point = self.windows.current().point;
+        let Some((start, end)) =
+            self.with_current_buffer(|b| maxgus_text::Motion::word_bounds(b.rope(), point))
+        else {
+            return false;
+        };
+        self.select(start, end);
+        true
+    }
+
+    /// A triple click: the line under point becomes the region, newline
+    /// and all, so a yank of it is a line and not a fragment.
+    pub fn select_line_at_point(&mut self) {
+        let point = self.windows.current().point;
+        let (start, end) = self.with_current_buffer(|b| {
+            let line = b.line_of(point);
+            (b.line_start(line), b.line_start(line + 1))
+        });
+        self.select(start, end);
+    }
+
+    /// Makes `start..end` the region, with point at the end of it.
+    fn select(&mut self, start: usize, end: usize) {
+        self.with_current_buffer(move |b| {
+            b.set_mark(start);
+            b.set_point(end);
+        });
+        self.windows.current_mut().point = end;
+        self.follow_point();
+    }
+
+    /// The right button: the region grows to take in the cell under the
+    /// pointer, from wherever the mark is — or from point, when there is
+    /// no region yet, so a click and a right click select what is between.
+    pub fn extend_region_to_cell(&mut self, column: u16, row: u16) -> bool {
+        let Some((window, _)) = self.position_at_cell(column, row) else {
+            return false;
+        };
+        if window != self.windows.current_id() {
+            return false;
+        }
+        if self.current_buffer().region().is_none() {
+            self.set_mark_here();
+        }
+        self.extend_to_cell(column, row)
     }
 
     /// Drags the selection to the cell under the pointer.
@@ -1516,6 +1570,23 @@ impl Editor {
         }
         let language = buffer.language()?;
         Some(format!("{language}-mode"))
+    }
+
+    /// What the mode line calls the buffer's major mode.
+    ///
+    /// A file buffer is named for its language. A special buffer — dired, a
+    /// magit view, the terminal, `*Help*` — has no language, and used to
+    /// show as `Fundamental` for it, which is what Emacs calls a buffer with
+    /// no mode at all; these have one, and it is the keymap they use. Only a
+    /// buffer with neither is Fundamental.
+    pub fn mode_name(&self, buffer: BufferId) -> String {
+        if let Some(language) = self.buffers.get(buffer).and_then(|b| b.language()) {
+            return language.to_string();
+        }
+        match self.mode_keymap_name(buffer) {
+            Some(keymap) => mode_display_name(&keymap),
+            None => "Fundamental".to_string(),
+        }
     }
 
     /// Installs the major-mode keymap for the selected buffer.
@@ -3269,13 +3340,40 @@ impl Editor {
     }
 
     /// Adds `text` to the kill ring, appending when the previous command was
-    /// also a kill.
+    /// also a kill, and puts the result on the system clipboard.
     pub fn kill(&mut self, text: &str, before: bool) {
         if self.kill_appending {
             self.kill_ring.kill_append(text, before);
         } else {
             self.kill_ring.kill_new(text);
         }
+        // The whole entry, not the piece: `C-k C-k` copies both lines.
+        if let Some(clipboard) = self.clipboard.as_mut()
+            && let Some(newest) = self.kill_ring.newest()
+        {
+            clipboard.write(newest);
+        }
+    }
+
+    /// Brings what another program put on the clipboard into the kill ring,
+    /// so a yank takes it first — Emacs' `interprogram-paste-function`.
+    ///
+    /// Only when it is new: the last kill went to the clipboard too, and
+    /// finding it there is not another program's doing. Nothing here
+    /// happens for `M-y`, which is walking the ring, not asking what is
+    /// newest.
+    pub fn interprogram_paste(&mut self) {
+        let Some(text) = self
+            .clipboard
+            .as_mut()
+            .and_then(|clipboard| clipboard.read())
+        else {
+            return;
+        };
+        if text.is_empty() || self.kill_ring.newest() == Some(text.as_str()) {
+            return;
+        }
+        self.kill_ring.kill_new(text);
     }
 
     // ---- the mode line -------------------------------------------------
@@ -3407,13 +3505,13 @@ impl Editor {
             ));
         }
 
-        let language = buffer.language().unwrap_or("Fundamental");
+        let mode = self.mode_name(window.buffer);
         let glyph = match icons && buffer.language().is_some() {
-            true => format!("{} ", crate::icons::for_language(language)),
+            true => format!("{} ", crate::icons::for_language(&mode)),
             false => String::new(),
         };
         out.push(ModeLineSegment::right(
-            format!("  {glyph}{language}  "),
+            format!("  {glyph}{mode}  "),
             "mode-line",
         ));
         out
@@ -3574,6 +3672,25 @@ fn human_size(characters: usize) -> String {
         _ if characters < K * K => format!("{:.1}k", characters as f64 / K as f64),
         _ => format!("{:.1}M", characters as f64 / (K * K) as f64),
     }
+}
+
+/// `dired-mode` as the mode line writes it: `Dired`. Emacs shows a mode
+/// by its name with `-mode` taken off and the words capitalised.
+pub fn mode_display_name(keymap: &str) -> String {
+    keymap
+        .strip_suffix("-mode")
+        .unwrap_or(keymap)
+        .split('-')
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().chain(chars).collect::<String>(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[cfg(test)]

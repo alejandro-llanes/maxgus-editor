@@ -277,11 +277,11 @@ fn describe_bindings(editor: &mut Editor, _: &Args) -> Result<()> {
 }
 
 fn describe_mode(editor: &mut Editor, _: &Args) -> Result<()> {
-    let (name, mode, path, encoding) = {
+    let mode = editor.mode_name(editor.current_buffer_id());
+    let (name, path, encoding) = {
         let buffer = editor.current_buffer();
         (
             buffer.name().to_string(),
-            buffer.language().unwrap_or("Fundamental").to_string(),
             buffer
                 .path()
                 .map(|p| p.display().to_string())

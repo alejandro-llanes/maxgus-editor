@@ -206,8 +206,9 @@ fn sprite_vertex(@builtin(vertex_index) vertex: u32, in: SpriteIn) -> SpriteOut 
 
 @fragment
 fn sprite_fragment(in: SpriteOut) -> @location(0) vec4<f32> {
-    // The atlas holds coverage, not colour: the glyph's shape times the
-    // face's foreground.
-    let coverage = textureSample(atlas, atlas_sampler, in.uv).r;
-    return vec4<f32>(in.color.rgb, in.color.a * coverage);
+    // A shape is stored white with its coverage for alpha, so this is the
+    // face's foreground cut to the glyph; a picture is stored as it is, and
+    // comes with white for a colour, so it is the picture.
+    let texel = textureSample(atlas, atlas_sampler, in.uv);
+    return vec4<f32>(in.color.rgb * texel.rgb, in.color.a * texel.a);
 }

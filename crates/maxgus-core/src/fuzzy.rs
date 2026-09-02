@@ -60,8 +60,13 @@ pub fn score(query: &str, candidate: &str) -> Option<i32> {
     }
 
     // Between two candidates that match equally well, the shorter one is more
-    // likely to be the one meant.
-    score -= (text.len() as i32) / 8;
+    // likely to be the one meant. The shorter *name*: a candidate that goes
+    // on after a space to describe itself — a parser and the repository it
+    // comes from — is not a longer name for having a longer description,
+    // and the caller's order, which knows which is best, decides between
+    // two of those.
+    let name = text.iter().position(|&c| c == ' ').unwrap_or(text.len());
+    score -= (name as i32) / 8;
     Some(score)
 }
 
@@ -144,6 +149,20 @@ mod tests {
             &["save-buffer-and-do-something-else-entirely", "save-buffer"],
         );
         assert_eq!(ranked[0], "save-buffer");
+    }
+
+    #[test]
+    fn what_follows_the_name_does_not_count_against_it() {
+        // Two parsers for the one language, the better one first as the
+        // caller ranked them: a longer repository name does not demote it.
+        let ranked = best(
+            "lua",
+            &[
+                "lua  —  github.com/tree-sitter-grammars/tree-sitter-lua  (abi 14)",
+                "lua  —  github.com/x/lua  (abi 14)",
+            ],
+        );
+        assert!(ranked[0].contains("tree-sitter-grammars"), "{ranked:?}");
     }
 
     #[test]

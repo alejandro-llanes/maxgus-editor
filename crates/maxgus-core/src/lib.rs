@@ -11,6 +11,7 @@ pub mod autocomplete;
 pub mod beacon;
 pub mod browser;
 pub mod buffers;
+pub mod clipboard;
 pub mod command;
 pub mod commands;
 pub mod dired;
@@ -50,7 +51,7 @@ pub use buffers::{BufferList, SCRATCH_NAME};
 pub use command::{Args, Command, Registry};
 pub use commands::standard_registry;
 pub use dispatch::{Dispatch, Dispatcher};
-pub use editor::{Editor, build_theme};
+pub use editor::{Editor, build_theme, mode_display_name};
 pub use keymap::{global_keymap, isearch_keymap, minibuffer_keymap};
 pub use minibuffer::{Completion, Minibuffer, MinibufferKind};
 #[cfg(feature = "full")]

@@ -51,6 +51,9 @@ pub fn run(
     results_in: mpsc::Receiver<TaskResult>,
 ) -> Result<()> {
     settle_the_beacon(&mut editor.settings);
+    editor.clipboard = Some(Box::new(crate::clipboard::System::new()));
+    let geometry_path = editor.state_dir.as_deref().map(crate::geometry::path_for);
+    let remembered = geometry_path.as_deref().and_then(crate::geometry::read);
     let event_loop = EventLoop::new()?;
     // Wait rather than poll. Results arrive from the executor on a channel
     // the window system knows nothing about, so a thread forwards them and
@@ -93,13 +96,22 @@ pub fn run(
         scrolling: None,
         pending: None,
         idle_at: None,
-        clipboard: arboard::Clipboard::new().ok(),
         failure: None,
         last_frame: None,
         dirty: true,
         title: None,
+        focused: true,
+        clicks: None,
+        geometry: remembered.unwrap_or(crate::geometry::Geometry::DEFAULT),
+        geometry_path,
     };
     event_loop.run_app(&mut app)?;
+    // The size on the way out, for the way back in.
+    if let Some(path) = app.geometry_path.as_ref()
+        && let Err(error) = crate::geometry::write(path, app.geometry)
+    {
+        tracing::warn!("the window size could not be remembered: {error}");
+    }
     match app.failure.take() {
         Some(error) => Err(error),
         None => Ok(()),
@@ -205,7 +217,6 @@ struct App {
     /// When the idle work is due, if it is owed. Re-highlighting and telling
     /// the language server what changed both wait for typing to stop.
     idle_at: Option<std::time::Instant>,
-    clipboard: Option<arboard::Clipboard>,
     /// Set when something went wrong badly enough to stop, and reported once
     /// the event loop has given control back.
     failure: Option<anyhow::Error>,
@@ -219,6 +230,16 @@ struct App {
     dirty: bool,
     /// The title the window is wearing, so it is only set when it changes.
     title: Option<String>,
+    /// Whether the window has the keyboard. Without it the cursor is an
+    /// outline, so a glance says which window the typing will go to.
+    focused: bool,
+    /// The last left click — when and where — so the next one can be told
+    /// to be the second or third of a series.
+    clicks: Option<(std::time::Instant, (u16, u16), u8)>,
+    /// The window's size in logical pixels, to be remembered on the way out.
+    geometry: crate::geometry::Geometry,
+    /// Where the size is remembered, when there is somewhere.
+    geometry_path: Option<std::path::PathBuf>,
 }
 
 impl App {
@@ -386,6 +407,17 @@ impl App {
             settings.cursor_short_animation_ms,
             settings.cursor_trail,
         );
+        // The input method's candidate window goes next to the cursor, not
+        // in the corner of the screen.
+        if let Some(window) = self.window.as_ref() {
+            window.set_ime_cursor_area(
+                winit::dpi::PhysicalPosition::new(
+                    at.0 as f32 * metrics.width,
+                    at.1 as f32 * metrics.height,
+                ),
+                winit::dpi::PhysicalSize::new(metrics.width, metrics.height),
+            );
+        }
         // While the block is in transit it *is* the cursor, and the cell it
         // is heading for is drawn like any other. Doing both would be a
         // cursor in two places, one of which is not where point is.
@@ -423,6 +455,7 @@ impl App {
                 false => &[],
             },
             opacity,
+            hollow: !self.focused,
         };
         let mut frame = crate::quads::build(&self.surface, fonts, &look);
         self.vfx.draw(
@@ -528,6 +561,18 @@ impl App {
         self.scroll.catch_up(slid as f32 * self.metrics().height);
     }
 
+    /// Text that arrived whole — from an input method, or a dead key and
+    /// the letter after it — taken one character at a time through the
+    /// keymap, so it lands wherever a typed character would: the buffer, the
+    /// minibuffer, a search, a terminal.
+    fn insert(&mut self, text: String) {
+        for c in text.chars().filter(|c| !c.is_control()) {
+            let key =
+                maxgus_keys::Key::new(maxgus_keys::KeyCode::Char(c), maxgus_keys::Modifiers::NONE);
+            self.on_key(key);
+        }
+    }
+
     /// A key, and everything that has to happen around one.
     fn on_key(&mut self, key: maxgus_keys::Key) {
         // A keyboard motion owns the view: an animation still running would
@@ -613,28 +658,50 @@ impl App {
 
     /// Puts point where the pointer is.
     fn on_click(&mut self) {
+        let (column, row) = self.cell_under_pointer();
+        self.editor.point_at_cell(column, row);
+        self.dirty = true;
+        self.pump();
+    }
+
+    /// The cell the pointer is over.
+    fn cell_under_pointer(&self) -> (u16, u16) {
         let metrics = self.metrics();
         let size = self.surface.size();
-        let (column, row) = crate::mouse::cell_at(
+        crate::mouse::cell_at(
             self.pointer.0,
             self.pointer.1,
             metrics,
             size.width,
             size.height,
             self.scroll.pixels(),
-        );
-        self.editor.point_at_cell(column, row);
-        self.dirty = true;
-        self.pump();
+        )
     }
 
-    /// The clipboard, which a window has and a terminal has to be asked for.
+    /// Which click of a series this one is: the second if it is quick and
+    /// in the same cell as the last, the third if that one was a second,
+    /// and the first otherwise.
+    fn count_click(&mut self) -> u8 {
+        const TOGETHER: std::time::Duration = std::time::Duration::from_millis(400);
+        let now = std::time::Instant::now();
+        let cell = self.cell_under_pointer();
+        let count = match self.clicks {
+            Some((at, last, count)) if last == cell && now.duration_since(at) < TOGETHER => {
+                count % 3 + 1
+            }
+            _ => 1,
+        };
+        self.clicks = Some((now, cell, count));
+        count
+    }
+
+    /// The middle button: the primary selection where there is one, and
+    /// the clipboard where there is not.
     fn paste(&mut self) {
-        let Some(text) = self
-            .clipboard
-            .as_mut()
-            .and_then(|clipboard| clipboard.get_text().ok())
-        else {
+        let Some(clipboard) = self.editor.clipboard.as_mut() else {
+            return;
+        };
+        let Some(text) = clipboard.read_primary().or_else(|| clipboard.read()) else {
             return;
         };
         if self.editor.minibuffer.is_active() {
@@ -650,12 +717,14 @@ impl App {
         self.pump();
     }
 
-    fn copy(&mut self) {
+    /// Offers what the mouse selected as the primary selection, leaving
+    /// the clipboard to `M-w` and `C-w`.
+    fn select(&mut self) {
         let Some(text) = self.editor.region_text() else {
             return;
         };
-        if let Some(clipboard) = self.clipboard.as_mut() {
-            let _ = clipboard.set_text(text);
+        if let Some(clipboard) = self.editor.clipboard.as_mut() {
+            clipboard.write_primary(&text);
         }
     }
 }
@@ -667,7 +736,10 @@ impl ApplicationHandler for App {
         }
         let attributes = Window::default_attributes()
             .with_title(self.settings.title.clone())
-            .with_inner_size(winit::dpi::LogicalSize::new(1100.0, 720.0));
+            .with_inner_size(winit::dpi::LogicalSize::new(
+                self.geometry.width,
+                self.geometry.height,
+            ));
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(error) => {
@@ -676,12 +748,15 @@ impl ApplicationHandler for App {
                 return;
             }
         };
+        // Without this, an input method — fcitx, ibus — is never asked, and
+        // anyone writing Japanese or Chinese gets the keycaps instead.
+        window.set_ime_allowed(true);
         // The size in the config is points on a normal display; the window
         // is measured in physical pixels, so a display that reports a scale
         // wants the glyphs rasterised that much larger or the text comes out
         // half-size on it.
         let scale = window.scale_factor() as f32;
-        let fonts = match Fonts::load(&self.settings.font, self.settings.font_size * scale) {
+        let mut fonts = match Fonts::load(&self.settings.font, self.settings.font_size * scale) {
             Ok(fonts) => fonts,
             Err(error) => {
                 self.failure = Some(error);
@@ -696,6 +771,7 @@ impl ApplicationHandler for App {
         match renderer {
             Ok(renderer) => {
                 let size = window.inner_size();
+                fonts.set_atlas_limit(renderer.max_texture_dimension());
                 self.fonts = Some(fonts);
                 self.renderer = Some(renderer);
                 self.window = Some(window);
@@ -725,6 +801,14 @@ impl ApplicationHandler for App {
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer.resize(size.width, size.height);
                 }
+                if let Some(window) = self.window.as_ref() {
+                    let logical: winit::dpi::LogicalSize<f64> =
+                        size.to_logical(window.scale_factor());
+                    self.geometry = crate::geometry::Geometry {
+                        width: logical.width,
+                        height: logical.height,
+                    };
+                }
                 self.fit(size.width, size.height);
                 // Every cell is somewhere else now. The block did not travel
                 // there and should not be drawn as though it had.
@@ -750,13 +834,45 @@ impl ApplicationHandler for App {
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers.state();
             }
+            WindowEvent::Focused(focused) => {
+                self.focused = focused;
+                // Whatever was held when the window was left has been let
+                // go of by now, and the window would not have been told.
+                if !focused {
+                    self.modifiers = ModifiersState::empty();
+                }
+                self.dirty = true;
+                self.pump();
+            }
+            // A file dropped on the window is a file to visit, the same as
+            // naming it at the prompt.
+            WindowEvent::DroppedFile(path) => {
+                let args = maxgus_core::Args::with_input(
+                    maxgus_core::Prefix::None,
+                    path.to_string_lossy().into_owned(),
+                );
+                self.dispatcher
+                    .execute_with(&mut self.editor, "find-file", args);
+                self.dirty = true;
+                self.pump();
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let Some(key) =
                     crate::keys::translate(event.state, &event.logical_key, self.modifiers)
                 {
                     self.on_key(key);
+                } else if let Some(text) =
+                    crate::keys::composed(event.state, &event.logical_key, self.modifiers)
+                {
+                    self.insert(text.to_string());
                 }
             }
+            // An input method finishing a word: the characters arrive
+            // together, and go in the way typed ones would have. The
+            // composing before that is the input method's own window; what
+            // it shows is not ours to draw.
+            WindowEvent::Ime(winit::event::Ime::Commit(text)) => self.insert(text),
+            WindowEvent::Ime(_) => {}
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer = (position.x, position.y);
                 if self.selecting {
@@ -778,16 +894,39 @@ impl ApplicationHandler for App {
                 (MouseButton::Left, ElementState::Pressed) => {
                     self.selecting = true;
                     self.on_click();
-                    self.editor.set_mark_here();
+                    // A click, then the word, then the line: the second and
+                    // third of a quick series at the same spot take more.
+                    match self.count_click() {
+                        2 => {
+                            if !self.editor.select_word_at_point() {
+                                self.editor.set_mark_here();
+                            }
+                        }
+                        3 => self.editor.select_line_at_point(),
+                        _ => self.editor.set_mark_here(),
+                    }
+                    self.dirty = true;
+                }
+                // The right button stretches the region to where it was
+                // clicked, from the mark or from point.
+                (MouseButton::Right, ElementState::Pressed) => {
+                    let (column, row) = self.cell_under_pointer();
+                    self.editor.extend_region_to_cell(column, row);
+                    self.dirty = true;
+                    self.pump();
                 }
                 (MouseButton::Left, ElementState::Released) => {
                     self.selecting = false;
                     // X11's habit, and a useful one: what was just selected is
                     // there to be pasted with the middle button.
-                    self.copy();
+                    self.select();
                 }
-                // The middle button pastes, as it does everywhere else.
-                (MouseButton::Middle, ElementState::Pressed) => self.paste(),
+                // The middle button pastes where it was clicked, as it does
+                // everywhere else.
+                (MouseButton::Middle, ElementState::Pressed) => {
+                    self.on_click();
+                    self.paste();
+                }
                 _ => {}
             },
             WindowEvent::MouseWheel { delta, .. } => {

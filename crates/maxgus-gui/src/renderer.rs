@@ -466,6 +466,11 @@ impl Renderer {
         self.blur = None;
     }
 
+    /// The largest texture the device will take, in pixels a side.
+    pub fn max_texture_dimension(&self) -> u32 {
+        self.device.limits().max_texture_dimension_2d
+    }
+
     /// Uploads the glyph atlas, growing the texture if it has changed size.
     pub fn upload_atlas(&mut self, width: u32, height: u32, pixels: &[u8]) {
         let fresh = match &self.atlas {
@@ -483,7 +488,7 @@ impl Renderer {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R8Unorm,
+                format: wgpu::TextureFormat::Rgba8Unorm,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
@@ -526,7 +531,7 @@ impl Renderer {
             pixels,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(width),
+                bytes_per_row: Some(width * 4),
                 rows_per_image: Some(height),
             },
             wgpu::Extent3d {

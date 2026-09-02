@@ -60,6 +60,29 @@ pub fn translate(
     Some(Key::new(code, mods))
 }
 
+/// The text a key press produced when it was more than one key's worth —
+/// a dead key resolved with the next letter, a compose sequence — which
+/// `translate` declines and the insertion path takes instead. `None` for
+/// an ordinary press, and for anything chorded with a modifier, which is
+/// a binding rather than text.
+pub fn composed(
+    state: ElementState,
+    logical: &WinitKey,
+    modifiers: ModifiersState,
+) -> Option<&str> {
+    if state != ElementState::Pressed
+        || modifiers.control_key()
+        || modifiers.alt_key()
+        || modifiers.super_key()
+    {
+        return None;
+    }
+    match logical {
+        WinitKey::Character(text) if text.chars().count() > 1 => Some(text.as_str()),
+        _ => None,
+    }
+}
+
 fn named_code(named: NamedKey) -> Option<KeyCode> {
     Some(match named {
         NamedKey::Enter => KeyCode::Enter,
@@ -103,6 +126,34 @@ mod tests {
 
     fn character(c: &str) -> WinitKey {
         WinitKey::Character(c.into())
+    }
+
+    #[test]
+    fn a_dead_key_and_its_letter_are_text_rather_than_a_key() {
+        let empty = ModifiersState::empty();
+        assert_eq!(press(character("´a"), empty), None);
+        assert_eq!(
+            composed(ElementState::Pressed, &character("´a"), empty),
+            Some("´a")
+        );
+        // One character is a key and not text, and text with a modifier
+        // on it is nothing at all.
+        assert_eq!(
+            composed(ElementState::Pressed, &character("a"), empty),
+            None
+        );
+        assert_eq!(
+            composed(
+                ElementState::Pressed,
+                &character("´a"),
+                ModifiersState::CONTROL
+            ),
+            None
+        );
+        assert_eq!(
+            composed(ElementState::Released, &character("´a"), empty),
+            None
+        );
     }
 
     #[test]

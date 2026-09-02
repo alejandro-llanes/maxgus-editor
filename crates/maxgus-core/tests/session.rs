@@ -4823,22 +4823,31 @@ fn asking_for_the_outline_with_no_server_says_so() {
     let mut s = tall_session("/project/main.rs", "fn main() {}\n");
     s.keys("C-x t t");
     s.keys("C-x t 2");
+    // A build with no language server in it has a reason of its own, and it
+    // is the first one true — so it is the one to expect there.
+    let expected = if cfg!(feature = "full") {
+        "outline is not shown: no language server is running for rust"
+    } else {
+        "outline is not shown: this build has no language server support"
+    };
     assert!(
-        s.echo()
-            .contains("outline is not shown: no language server is running for rust"),
+        s.echo().contains(expected),
         "no explanation: `{}`",
         s.echo()
     );
     // And it left the selection alone rather than dropping it somewhere else.
     assert_eq!(s.editor.current_buffer().name(), "main.rs");
-    // With the server off, that is the reason, and it is said.
+    // With the server off, that is the reason, and it is said — where there
+    // is a server to turn off.
     s.editor.settings.lsp_enabled = false;
     s.keys("C-x t 2");
-    assert!(
-        s.echo().contains("`lsp-enabled` is off"),
-        "the setting to change is not named: `{}`",
-        s.echo()
-    );
+    if cfg!(feature = "full") {
+        assert!(
+            s.echo().contains("`lsp-enabled` is off"),
+            "the setting to change is not named: `{}`",
+            s.echo()
+        );
+    }
     // And when the section itself is off, that.
     s.editor.settings.lsp_enabled = true;
     s.editor

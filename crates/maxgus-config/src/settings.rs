@@ -113,6 +113,11 @@ pub struct Settings {
     /// `gui-scroll-indicator`: a thin bar at a window's right edge, while
     /// it scrolls, saying where in the buffer it is.
     pub gui_scroll_indicator: bool,
+    /// `gui-prose-font`: the family the window sets prose in — what a
+    /// language server says about a symbol, which is read rather than
+    /// lined up with anything. `sans-serif` is whatever the system has
+    /// set up as its sans-serif.
+    pub gui_prose_font: String,
     /// `mouse-wheel-lines`: how far one notch of the wheel moves the view.
     ///
     /// Three is what most programs do with a notch. A touchpad reports the
@@ -279,6 +284,7 @@ impl Default for Settings {
             gui_line_spacing: 0,
             gui_padding: 0,
             gui_scroll_indicator: true,
+            gui_prose_font: "sans-serif".into(),
             autocomplete: true,
             autocomplete_min_chars: 2,
             lsp_doc: true,
@@ -364,6 +370,7 @@ pub const SETTING_NAMES: &[&str] = &[
     "gui-line-spacing",
     "gui-padding",
     "gui-scroll-indicator",
+    "gui-prose-font",
     "autocomplete",
     "autocomplete-min-chars",
     "lsp-doc",

@@ -7494,6 +7494,30 @@ fn what_the_language_server_says_is_shown_beside_the_symbol() {
 
 #[cfg(feature = "full")]
 #[test]
+fn a_front_end_that_draws_the_doc_itself_gets_no_box_in_the_grid() {
+    // A window sets the reply in prose on a card of its own; the grid's
+    // box would then be a second copy of it, underneath.
+    let text: String = (1..=60).map(|n| format!("line {n}\n")).collect();
+    let mut s = Session::new(100, 30);
+    let id = s.editor.buffers.visit_file("/project/main.rs", &text);
+    s.editor.switch_to_buffer(id).unwrap();
+    s.editor.rich_doc = true;
+    s.editor.doc = Some(maxgus_core::Doc {
+        text: "### `add`\n\nAdds two numbers together.".into(),
+        line: 3,
+        window: s.editor.windows.current_id(),
+    });
+    let shown = s.screen().join("\n");
+    assert!(
+        !shown.contains("Adds two numbers") && !shown.contains('╭'),
+        "the grid drew the box anyway:\n{shown}"
+    );
+    // The reply is still there to be drawn by whoever said they would.
+    assert!(s.editor.doc.is_some());
+}
+
+#[cfg(feature = "full")]
+#[test]
 fn a_doc_near_the_bottom_of_the_window_goes_above_the_line() {
     // Below it would be off the screen, and a box that is off the screen is
     // a reply nobody reads.

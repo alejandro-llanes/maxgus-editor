@@ -86,6 +86,8 @@ set gui-line-spacing=0
 set gui-padding=0
 // A thin bar at a window's edge while it scrolls, saying where it is.
 set gui-scroll-indicator=#true
+// What the language server says about a symbol is set in a reading face.
+set gui-prose-font="sans-serif"
 
 // The wheel, in a window. A window can draw a fraction of a line, so a
 // notch slides rather than jumping; these are how far it goes and how

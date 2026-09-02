@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **What the language server says is set in prose, on a card.** The
+  GUI no longer draws the `C-c c k` answer in a box of cells: the
+  markdown is set in a proportional face — `set gui-prose-font`, the
+  system's sans-serif by default — wrapped at the pixel, with the code
+  in the editor's font on a chip, under rounded corners and a border,
+  over a blur of the text behind it. It sits under the symbol's line, or
+  over it when there is no room, takes at most three fifths of the
+  window across and half of it down, and says how many lines it left
+  out. The terminal front end draws the box it always has.
+
 - **Pictures open as pictures.** Visiting a PNG, JPEG, GIF, WebP or BMP
   no longer fills a buffer with its bytes: the buffer holds a caption with
   the file's dimensions and size, and the GUI draws the picture under it,

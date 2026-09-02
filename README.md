@@ -1054,6 +1054,16 @@ What the window has that a terminal cannot:
   `<img src>` in HTML, or a bare path — beside it, resolved from the
   document's own directory. The terminal front end shows the caption and
   says why there is no picture.
+- **What the language server says is set in prose.** `C-c c k` asks what
+  the thing at point is, and the answer — a heading, a signature, a
+  paragraph or two — comes on a card beside the line rather than in a box
+  of cells: the prose in a proportional face, wrapped at the pixel, the
+  code in the editor's own font on a chip, the whole under rounded corners
+  and a border, over a blur of what is behind it when the compositor
+  allows. It sits under the symbol's line, or over it when there is no
+  room below, takes three fifths of the window at most and half its
+  height, and says how many lines it left out. `set gui-prose-font`
+  names the face; the default is the system's sans-serif.
 
 `C-c o b` (`M-x open-externally`) hands the file being edited to whatever the
 desktop opens it with — an image viewer for an image, a reader for a PDF —

@@ -88,6 +88,15 @@ impl CellMetrics {
     }
 }
 
+/// The line a face sets prose on, in pixels: how far apart lines are and
+/// how far below the top of one the baseline is. A cell has a width too;
+/// prose has an advance per character instead.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LineMetrics {
+    pub height: f32,
+    pub ascent: f32,
+}
+
 /// One rasterised glyph's place in the atlas.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Glyph {
@@ -274,6 +283,16 @@ pub struct Fonts {
     /// than once a frame. A screen holds a few hundred distinct runs and
     /// redraws them sixty times a second.
     shaped: HashMap<(Style, String), std::sync::Arc<Vec<Shaped>>>,
+    /// The family prose is set in, by name; read on first sight of prose.
+    prose_family: String,
+    /// The proportional faces, once wanted. Empty when the system has no
+    /// such family, in which case prose is set in the family itself —
+    /// which is what a terminal would have done, and a fair fallback.
+    prose: Option<Vec<(Style, fontdue::Font)>>,
+    /// A prose glyph, and its advance, by character: prose is not shaped,
+    /// since a ligature in a sentence is a typographer's nicety and a
+    /// second shaper cache is not.
+    prose_glyphs: HashMap<(Style, char), (Option<Glyph>, f32)>,
 }
 
 impl Fonts {
@@ -314,6 +333,9 @@ impl Fonts {
             stand_ins: Vec::new(),
             stand_in_for: HashMap::new(),
             shaped: HashMap::new(),
+            prose_family: "sans-serif".into(),
+            prose: None,
+            prose_glyphs: HashMap::new(),
         })
     }
 
@@ -337,6 +359,9 @@ impl Fonts {
             stand_ins: Vec::new(),
             stand_in_for: HashMap::new(),
             shaped: HashMap::new(),
+            prose_family: self.prose_family.clone(),
+            prose: self.prose.clone(),
+            prose_glyphs: HashMap::new(),
         })
     }
 
@@ -614,6 +639,131 @@ impl Fonts {
     pub fn has(&self, style: Style) -> bool {
         self.faces.iter().any(|(had, _)| *had == style)
     }
+
+    /// Which family to set prose in. Meant for right after loading: prose
+    /// already set stays in the family it was found in.
+    pub fn set_prose_family(&mut self, family: &str) {
+        if self.prose_family != family {
+            self.prose_family = family.to_string();
+            self.prose = None;
+            self.prose_glyphs.clear();
+        }
+    }
+
+    /// The faces prose is set in, read from the database on first sight.
+    ///
+    /// The family asked for, or the system's sans-serif when it is not
+    /// installed, or — on a system with neither — the family itself.
+    fn prose_faces(&mut self) -> &[(Style, fontdue::Font)] {
+        if self.prose.is_none() {
+            let database = &self.database;
+            let found = [self.prose_family.as_str(), "sans-serif"]
+                .into_iter()
+                .chain(PROSE_FALLBACKS.iter().copied())
+                .find_map(|name| {
+                    load_prose_face(database, name, Style::Regular).map(|(f, _)| (name, f))
+                });
+            let mut faces = Vec::new();
+            if let Some((chosen, regular)) = found {
+                faces.push((Style::Regular, regular));
+                for style in Style::ALL.into_iter().skip(1) {
+                    if let Some((font, _)) = load_prose_face(database, chosen, style) {
+                        faces.push((style, font));
+                    }
+                }
+            }
+            self.prose = Some(faces);
+        }
+        match self.prose.as_deref() {
+            Some(faces) if !faces.is_empty() => faces,
+            _ => &self.faces,
+        }
+    }
+
+    /// The prose face for a style, or its regular one.
+    fn prose_face(&mut self, style: Style) -> &fontdue::Font {
+        let faces = self.prose_faces();
+        faces
+            .iter()
+            .find(|(had, _)| *had == style)
+            .map(|(_, font)| font)
+            .unwrap_or(&faces[0].1)
+    }
+
+    /// The size prose is cut at: the family's, less a little, because a
+    /// sans-serif at the same size as a coding font reads larger — its
+    /// letters are wider and its lowercase taller — and the box is a note
+    /// beside the code, not a heading over it.
+    fn prose_size(&self) -> f32 {
+        (self.size * 0.92).round().max(6.0)
+    }
+
+    /// The line prose is set on, in pixels: the face's own line height,
+    /// opened up a touch, since a paragraph reads better with air between
+    /// its lines than a column of code does.
+    pub fn prose_metrics(&mut self) -> LineMetrics {
+        let size = self.prose_size();
+        let line = self
+            .prose_face(Style::Regular)
+            .horizontal_line_metrics(size);
+        let (ascent, descent, gap) = match line {
+            Some(line) => (line.ascent, line.descent, line.line_gap),
+            // A face with no line metrics — which cannot be the family,
+            // that having been laid out — gets the cell's.
+            None => (
+                self.metrics.ascent,
+                self.metrics.ascent - self.metrics.height,
+                0.0,
+            ),
+        };
+        let height = ((ascent - descent + gap) * 1.15).ceil().max(1.0);
+        let ascent = (ascent + (height - (ascent - descent)) / 2.0).round();
+        LineMetrics { height, ascent }
+    }
+
+    /// The prose glyph for a character, and how far the pen moves past it,
+    /// rasterising it on first sight. A character the prose face lacks is
+    /// drawn as the family would draw it — a Chinese word or a symbol in a
+    /// sentence comes from the same stand-in it would in the code — and
+    /// advances a cell.
+    pub fn prose_glyph(&mut self, character: char, style: Style) -> (Option<Glyph>, f32) {
+        if let Some(known) = self.prose_glyphs.get(&(style, character)) {
+            return *known;
+        }
+        let size = self.prose_size();
+        let font = self.prose_face(style);
+        let index = font.lookup_glyph_index(character);
+        let known = match index != 0 || character.is_whitespace() {
+            true => {
+                let (metrics, coverage) = font.rasterize_indexed(index, size);
+                let advance = metrics.advance_width;
+                let glyph = match metrics.width == 0 || metrics.height == 0 {
+                    true => None,
+                    false => {
+                        let (width, height) = (metrics.width as u32, metrics.height as u32);
+                        self.place(width, height, &white(&coverage))
+                            .map(|(x, y)| Glyph {
+                                x,
+                                y,
+                                width,
+                                height,
+                                left: metrics.xmin as f32,
+                                top: -(metrics.ymin as f32) - metrics.height as f32,
+                                color: false,
+                            })
+                    }
+                };
+                (glyph, advance)
+            }
+            false => (self.glyph(character, style), self.metrics.width),
+        };
+        // A glyph the atlas had no room for is not remembered as having
+        // no shape; the atlas may yet grow.
+        if known.0.is_some() || index == 0 || character.is_whitespace() {
+            self.prose_glyphs.insert((style, character), known);
+        }
+        known
+    }
 }
 
 /// A shape as atlas pixels: white, with the coverage for alpha, so that
@@ -701,6 +851,17 @@ fn fit_picture(png: &[u8], cell: CellMetrics) -> Option<Picture> {
 ///
 /// Every one of them is monospace and common; a proportional fallback would
 /// make a grid of cells look broken rather than merely different.
+/// The families tried for prose when neither the configured one nor the
+/// system's sans-serif is installed.
+const PROSE_FALLBACKS: &[&str] = &[
+    "Noto Sans",
+    "DejaVu Sans",
+    "Liberation Sans",
+    "Cantarell",
+    "Inter",
+    "Roboto",
+];
+
 const FALLBACKS: &[&str] = &[
     "JetBrainsMono Nerd Font",
     "FiraCode Nerd Font",
@@ -743,11 +904,14 @@ const STAND_INS: &[&str] = &[
 
 /// What to ask the database for, given a family name: the generic
 /// `monospace` is fontconfig's word for "whatever is set up as the
-/// monospace font", and is a family only to fontconfig.
+/// monospace font", and is a family only to fontconfig; `sans-serif` and
+/// `serif` likewise.
 fn family(name: &str) -> fontdb::Family<'_> {
-    match name.eq_ignore_ascii_case("monospace") {
-        true => fontdb::Family::Monospace,
-        false => fontdb::Family::Name(name),
+    match name.to_ascii_lowercase().as_str() {
+        "monospace" => fontdb::Family::Monospace,
+        "sans-serif" | "sans serif" | "sans" => fontdb::Family::SansSerif,
+        "serif" => fontdb::Family::Serif,
+        _ => fontdb::Family::Name(name),
     }
 }
 
@@ -799,6 +963,30 @@ fn load_face(
     name: &str,
     style: Style,
 ) -> Option<(fontdue::Font, Vec<u8>)> {
+    load_face_of(database, name, style, true)
+}
+
+/// The face for a style in one family, at its normal width.
+///
+/// The database's nearest match to "the system's sans-serif" can be a
+/// narrow cut of it — the generic family is a list, and a condensed face
+/// may be first in it — and a paragraph in a condensed face reads as
+/// squeezed. The code font is not held to this: a coding family that only
+/// comes narrow is still the family asked for.
+fn load_prose_face(
+    database: &fontdb::Database,
+    name: &str,
+    style: Style,
+) -> Option<(fontdue::Font, Vec<u8>)> {
+    load_face_of(database, name, style, false)
+}
+
+fn load_face_of(
+    database: &fontdb::Database,
+    name: &str,
+    style: Style,
+    any_width: bool,
+) -> Option<(fontdue::Font, Vec<u8>)> {
     let (weight, slant) = style.query();
     let query = fontdb::Query {
         families: &[family(name)],
@@ -816,7 +1004,8 @@ fn load_face(
         false => face.weight < fontdb::Weight::SEMIBOLD,
     };
     let same_slant = (face.style == fontdb::Style::Normal) == (slant == fontdb::Style::Normal);
-    if !same_weight || !same_slant {
+    let same_width = any_width || face.stretch == fontdb::Stretch::Normal;
+    if !same_weight || !same_slant || !same_width {
         return None;
     }
     read_face(database, id)
@@ -1268,5 +1457,39 @@ mod system_tests {
                 "{style:?} produced no glyph, so it would draw nothing"
             );
         }
+    }
+
+    #[test]
+    fn prose_is_set_in_a_face_with_letters_of_different_widths() {
+        let Some(mut fonts) = fonts() else {
+            eprintln!("skipping: no monospace font is installed");
+            return;
+        };
+        fonts.set_prose_family("this-font-does-not-exist-either");
+        let line = fonts.prose_metrics();
+        assert!(line.height > 0.0 && line.ascent > 0.0 && line.ascent < line.height);
+        let (glyph, narrow) = fonts.prose_glyph('i', Style::Regular);
+        assert!(glyph.is_some(), "an `i` with nothing to draw");
+        let (_, wide) = fonts.prose_glyph('m', Style::Regular);
+        let (_, space) = fonts.prose_glyph(' ', Style::Regular);
+        assert!(space > 0.0, "a space with no advance");
+        match fonts.prose.as_ref().is_some_and(|faces| !faces.is_empty()) {
+            // A proportional face, in which an `m` is wider than an `i`.
+            true => assert!(narrow < wide, "i {narrow} m {wide}"),
+            // No sans-serif at all: the family stands in, cell for cell.
+            false => {
+                eprintln!("no sans-serif is installed; prose is in the family");
+                assert_eq!(narrow, wide);
+            }
+        }
+        // Measured once: asking again is a lookup, and the same answer.
+        assert_eq!(fonts.prose_glyph('m', Style::Regular).1, wide);
+        // Cut again at another size, the prose scales with the code.
+        let mut larger = fonts
+            .resized(32.0)
+            .expect("the same fonts at twice the size");
+        larger.set_prose_family("this-font-does-not-exist-either");
+        assert!(larger.prose_metrics().height > line.height * 1.8);
+        assert!(larger.prose_glyph('m', Style::Regular).1 > wide * 1.8);
     }
 }

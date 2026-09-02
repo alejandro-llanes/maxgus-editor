@@ -4,7 +4,7 @@
 //! colour, one sampled from the atlas — so a frame is two draw calls however
 //! much text is on it.
 
-use crate::quads::{Circle, Frame, Quad, Rect, Sprite};
+use crate::quads::{Circle, Frame, Panel, Quad, Rect, Sprite};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -18,6 +18,10 @@ pub struct Renderer {
     quad_pipeline: wgpu::RenderPipeline,
     sprite_pipeline: wgpu::RenderPipeline,
     circle_pipeline: wgpu::RenderPipeline,
+    /// The cards: one that samples the blurred backdrop for what shows
+    /// through them, and one for when nothing was blurred.
+    panel_pipeline: wgpu::RenderPipeline,
+    panel_plain_pipeline: wgpu::RenderPipeline,
     screen: wgpu::Buffer,
     screen_group: wgpu::BindGroup,
     atlas_layout: wgpu::BindGroupLayout,
@@ -45,6 +49,10 @@ pub struct Renderer {
     /// One sprite per picture drawn this frame, each drawn on its own
     /// because each samples a different texture.
     picture_sprites: Instances,
+    /// The cards over everything, and what is written on them.
+    panels: Instances,
+    over: Instances,
+    over_sprites: Instances,
     /// What the window is cleared to before anything is drawn.
     pub background: [f32; 4],
     /// Where the grid's top left corner is, in pixels from the window's:
@@ -241,7 +249,9 @@ impl Renderer {
             label: Some("screen"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
+                // The fragment stage too: a card reads the window's size
+                // to find its own pixels in the blurred backdrop.
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -390,6 +400,32 @@ impl Renderer {
             blend,
         );
 
+        let panel_attributes = wgpu::vertex_attr_array![
+            0 => Float32x2, 1 => Float32x2, 2 => Float32x2, 3 => Float32x4, 4 => Float32x4
+        ];
+        let panel_pipeline = pipeline(
+            &device,
+            &shader,
+            &[Some(&screen_layout), Some(&sample_layout)],
+            "panel_vertex",
+            "panel_fragment",
+            &panel_attributes,
+            std::mem::size_of::<Panel>() as u64,
+            format,
+            blend,
+        );
+        let panel_plain_pipeline = pipeline(
+            &device,
+            &shader,
+            &[Some(&screen_layout)],
+            "panel_vertex",
+            "panel_plain_fragment",
+            &panel_attributes,
+            std::mem::size_of::<Panel>() as u64,
+            format,
+            blend,
+        );
+
         // Both take no vertex buffer: the quad is generated from the vertex
         // index, because a pass over the whole target has nothing to say
         // per instance.
@@ -436,6 +472,9 @@ impl Renderer {
         let sprites = Instances::new(&device, "sprites", std::mem::size_of::<Sprite>());
         let circles = Instances::new(&device, "circles", std::mem::size_of::<Circle>());
         let picture_sprites = Instances::new(&device, "pictures", std::mem::size_of::<Sprite>());
+        let panels = Instances::new(&device, "panels", std::mem::size_of::<Panel>());
+        let over = Instances::new(&device, "over", std::mem::size_of::<Rect>());
+        let over_sprites = Instances::new(&device, "over sprites", std::mem::size_of::<Sprite>());
         Ok(Renderer {
             surface,
             device,
@@ -445,6 +484,8 @@ impl Renderer {
             quad_pipeline,
             sprite_pipeline,
             circle_pipeline,
+            panel_pipeline,
+            panel_plain_pipeline,
             screen,
             screen_group,
             atlas_layout,
@@ -461,6 +502,9 @@ impl Renderer {
             circles,
             pictures: HashMap::new(),
             picture_sprites,
+            panels,
+            over,
+            over_sprites,
             background,
             origin: [0.0, 0.0],
         })
@@ -720,6 +764,9 @@ impl Renderer {
     /// the popups' rectangles before the frame itself goes on top — whose
     /// popup backgrounds are drawn short of solid, so it shows through.
     ///
+    /// A card in the frame reads the blurred backdrop for itself, and so
+    /// asks for the blur without an area to paint it into.
+    ///
     /// With no backdrop this is one pass, exactly as it was.
     pub fn draw_over(
         &mut self,
@@ -746,7 +793,8 @@ impl Renderer {
         // its own submission because both passes read the same instance
         // buffers, and a buffer written twice before either runs would hold
         // the second frame's contents in both of them.
-        let blurred = match backdrop.filter(|_| !areas.is_empty() && radius > 0.0) {
+        let wanted = !areas.is_empty() || !frame.panels.is_empty();
+        let blurred = match backdrop.filter(|_| wanted && radius > 0.0) {
             Some(backdrop) => {
                 self.ready_the_blur();
                 self.blur_backdrop(backdrop, radius);
@@ -764,6 +812,16 @@ impl Renderer {
         self.circles
             .write(&self.device, &self.queue, "circles", &frame.circles);
         let pictures = self.write_pictures(frame);
+        self.panels
+            .write(&self.device, &self.queue, "panels", &frame.panels);
+        self.over
+            .write(&self.device, &self.queue, "over", &frame.over);
+        self.over_sprites.write(
+            &self.device,
+            &self.queue,
+            "over sprites",
+            &frame.over_sprites,
+        );
 
         use wgpu::CurrentSurfaceTexture as Acquired;
         let target = match self.surface.get_current_texture() {
@@ -869,6 +927,37 @@ impl Renderer {
                 pass.set_bind_group(0, &self.screen_group, &[]);
                 pass.set_vertex_buffer(0, self.circles.buffer.slice(..));
                 pass.draw(0..4, 0..self.circles.count);
+            }
+            // The cards, over the lot, and what is written on them over
+            // the cards. A card shows the blur through itself when there
+            // is one, and is solid when there is not.
+            if self.panels.count > 0 {
+                match self.blur.as_ref().filter(|_| blurred) {
+                    Some(blur) => {
+                        pass.set_pipeline(&self.panel_pipeline);
+                        pass.set_bind_group(0, &self.screen_group, &[]);
+                        pass.set_bind_group(1, &blur.targets[0].group, &[]);
+                    }
+                    None => {
+                        pass.set_pipeline(&self.panel_plain_pipeline);
+                        pass.set_bind_group(0, &self.screen_group, &[]);
+                    }
+                }
+                pass.set_vertex_buffer(0, self.panels.buffer.slice(..));
+                pass.draw(0..4, 0..self.panels.count);
+            }
+            if self.over.count > 0 {
+                pass.set_pipeline(&self.rect_pipeline);
+                pass.set_bind_group(0, &self.screen_group, &[]);
+                pass.set_vertex_buffer(0, self.over.buffer.slice(..));
+                pass.draw(0..4, 0..self.over.count);
+            }
+            if self.over_sprites.count > 0 {
+                pass.set_pipeline(&self.sprite_pipeline);
+                pass.set_bind_group(0, &self.screen_group, &[]);
+                pass.set_bind_group(1, &atlas.group, &[]);
+                pass.set_vertex_buffer(0, self.over_sprites.buffer.slice(..));
+                pass.draw(0..4, 0..self.over_sprites.count);
             }
         }
         self.queue.submit(Some(encoder.finish()));

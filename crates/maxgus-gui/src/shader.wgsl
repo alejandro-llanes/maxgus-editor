@@ -215,3 +215,67 @@ fn sprite_fragment(in: SpriteOut) -> @location(0) vec4<f32> {
     let texel = textureSample(atlas, atlas_sampler, in.uv);
     return vec4<f32>(in.color.rgb * texel.rgb, in.color.a * texel.a);
 }
+
+// A card: a rounded rectangle with a border, its fill a tint over whatever
+// the blur pass left behind it. The shape is a signed distance, so the
+// corners are round at any radius and the edge is a pixel of fade rather
+// than a stair.
+struct PanelIn {
+    @location(0) position: vec2<f32>,
+    @location(1) size: vec2<f32>,
+    // The corners' radius, and the border's thickness.
+    @location(2) shape: vec2<f32>,
+    @location(3) fill: vec4<f32>,
+    @location(4) border: vec4<f32>,
+};
+
+struct PanelOut {
+    @builtin(position) clip: vec4<f32>,
+    // Pixels from the card's centre.
+    @location(0) local: vec2<f32>,
+    @location(1) half: vec2<f32>,
+    @location(2) shape: vec2<f32>,
+    @location(3) fill: vec4<f32>,
+    @location(4) border: vec4<f32>,
+};
+
+@vertex
+fn panel_vertex(@builtin(vertex_index) vertex: u32, in: PanelIn) -> PanelOut {
+    var out: PanelOut;
+    let at = corner(vertex);
+    out.clip = to_clip(in.position + at * in.size);
+    out.local = (at - vec2<f32>(0.5, 0.5)) * in.size;
+    out.half = in.size * 0.5;
+    out.shape = in.shape;
+    out.fill = in.fill;
+    out.border = in.border;
+    return out;
+}
+
+// How far outside the rounded rectangle a point is; negative inside.
+fn rounded_distance(local: vec2<f32>, half: vec2<f32>, radius: f32) -> f32 {
+    let q = abs(local) - (half - vec2<f32>(radius, radius));
+    return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
+}
+
+// The card's colour at a point, given what is behind it.
+fn panel_colour(in: PanelOut, fill: vec4<f32>, behind: vec3<f32>) -> vec4<f32> {
+    let distance = rounded_distance(in.local, in.half, in.shape.x);
+    let inside = 1.0 - smoothstep(-0.5, 0.5, distance);
+    let edge = smoothstep(-in.shape.y - 0.5, -in.shape.y + 0.5, distance);
+    let filled = mix(behind, fill.rgb, fill.a);
+    let colour = mix(filled, in.border.rgb, edge * in.border.a);
+    return vec4<f32>(colour, inside);
+}
+
+@fragment
+fn panel_fragment(in: PanelOut) -> @location(0) vec4<f32> {
+    let behind = textureSample(source, source_sampler, in.clip.xy / screen.size);
+    return panel_colour(in, in.fill, behind.rgb);
+}
+
+// The same card when nothing was blurred: the tint is the fill, solid.
+@fragment
+fn panel_plain_fragment(in: PanelOut) -> @location(0) vec4<f32> {
+    return panel_colour(in, vec4<f32>(in.fill.rgb, 1.0), in.fill.rgb);
+}

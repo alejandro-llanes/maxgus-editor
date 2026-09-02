@@ -73,6 +73,23 @@ pub struct Picture {
     pub size: [f32; 2],
 }
 
+/// A card: a rounded rectangle with a border, filled with a tint over
+/// whatever was blurred behind it — or with the tint alone, when nothing
+/// was. What the doc box is drawn on, since a box with corners is not a
+/// thing the grid can hold.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Panel {
+    pub position: [f32; 2],
+    pub size: [f32; 2],
+    /// The corners' radius, and how thick the border is, in pixels.
+    pub shape: [f32; 2],
+    /// The tint, whose alpha is how much of it shows over the blur; over
+    /// nothing, it is solid.
+    pub fill: [f32; 4],
+    pub border: [f32; 4],
+}
+
 /// Everything one frame draws.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Frame {
@@ -92,6 +109,12 @@ pub struct Frame {
     /// The cursor's effects, drawn last so they are over the text they are
     /// trailing away from.
     pub circles: Vec<Circle>,
+    /// The cards over everything, and what is written on them: drawn after
+    /// the grid and its effects, since they are not of the grid and nothing
+    /// in it should show through their text.
+    pub panels: Vec<Panel>,
+    pub over: Vec<Rect>,
+    pub over_sprites: Vec<Sprite>,
 }
 
 impl Frame {

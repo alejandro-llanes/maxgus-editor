@@ -55,6 +55,9 @@ pub fn run(
     // A window can draw its text at any size, so `text-scale-increase` and
     // its friends have something to do here.
     editor.text_scale = Some(0);
+    // And set what a language server says in prose, on a card of its own,
+    // rather than in the grid.
+    editor.rich_doc = true;
     let geometry_path = editor.state_dir.as_deref().map(crate::geometry::path_for);
     let remembered = geometry_path.as_deref().and_then(crate::geometry::read);
     let event_loop = EventLoop::new()?;
@@ -321,6 +324,7 @@ impl App {
             None => Fonts::load(&self.settings.font, size)?,
         };
         fonts.set_line_spacing(self.editor.settings.gui_line_spacing as f32 * scale);
+        fonts.set_prose_family(&self.editor.settings.gui_prose_font);
         if let Some(renderer) = self.renderer.as_ref() {
             fonts.set_atlas_limit(renderer.max_texture_dimension());
         }
@@ -517,7 +521,25 @@ impl App {
         renderer.background = palette.background;
         renderer.origin = origin;
         let opacity = self.editor.settings.floating_opacity as f32 / 100.0;
-        let blurring = blurring && !floating.is_empty();
+        // The doc box, as a card rather than a box of cells — while it is
+        // the only thing floating. With a list or a menu up as well, the
+        // card would be over it, and a list being chosen from matters more
+        // than a description of what was already written: the card steps
+        // aside and comes back when the other thing has gone.
+        let card = match floating.is_empty() {
+            true => crate::card::build(
+                &self.editor,
+                fonts,
+                &palette,
+                crate::card::Look {
+                    scale: self.scale,
+                    opacity,
+                    blurring,
+                },
+            ),
+            false => None,
+        };
+        let blurring = blurring && (!floating.is_empty() || card.is_some());
         let look = crate::quads::Look {
             palette: &palette,
             shift: shift.as_ref(),
@@ -537,6 +559,11 @@ impl App {
         };
         let mut frame = crate::quads::build(&self.surface, fonts, &look);
         frame.float(&floating, metrics);
+        if let Some(card) = card.as_ref() {
+            frame.panels.push(card.panel);
+            frame.over.extend(card.over.iter().copied());
+            frame.over_sprites.extend(card.sprites.iter().copied());
+        }
         self.vfx.draw(
             &mut frame,
             palette.cursor,
@@ -603,7 +630,11 @@ impl App {
         let (backdrop, areas) = match blurring {
             true => {
                 let reach = (radius / metrics.width).ceil() as u16 + 1;
-                let near: Vec<Rect> = floating.iter().map(|area| grow(*area, reach)).collect();
+                let near: Vec<Rect> = floating
+                    .iter()
+                    .chain(card.as_ref().map(|card| &card.cells))
+                    .map(|area| grow(*area, reach))
+                    .collect();
                 let look = crate::quads::Look {
                     only: &near,
                     translucent: &[],

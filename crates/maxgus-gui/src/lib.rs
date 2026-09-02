@@ -6,6 +6,7 @@
 //! is a window, a font, and the arithmetic between pixels and cells.
 
 pub mod boxes;
+pub mod card;
 pub mod clipboard;
 pub mod cursor;
 pub mod font;
@@ -13,6 +14,7 @@ pub mod geometry;
 pub mod keys;
 pub mod mouse;
 pub mod picture;
+pub mod prose;
 pub mod quads;
 pub mod renderer;
 pub mod scroll;

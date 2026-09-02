@@ -321,6 +321,11 @@ pub struct Editor {
     /// pause in the same place does not ask again.
     #[cfg(feature = "full")]
     pub doc_asked_at: Option<(maxgus_text::BufferId, usize)>,
+    /// True when the front end draws the doc box itself — a window can
+    /// set it in a reading face, wrapped to the pixel, with corners — so
+    /// redisplay leaves the box out of the grid rather than drawing it
+    /// twice. A terminal has only the grid, and leaves this unset.
+    pub rich_doc: bool,
     /// The half-typed sequence whose continuations are on show.
     ///
     /// Set by the front end once someone has paused long enough to want
@@ -510,6 +515,7 @@ impl Editor {
             doc: None,
             #[cfg(feature = "full")]
             doc_asked_at: None,
+            rich_doc: false,
             text_cache: None,
             #[cfg(feature = "full")]
             highlights: std::collections::HashMap::new(),

@@ -246,9 +246,10 @@ pub fn draw_floating(editor: &Editor, surface: &mut Surface) -> Vec<Rect> {
         floating.extend(draw_transient(editor, surface, frame, active));
     }
     // What the language server said about the symbol under point, beside it
-    // rather than over it.
+    // rather than over it — unless the front end has said it will draw the
+    // box itself, in which case it is not the grid's to draw.
     #[cfg(feature = "full")]
-    if let Some(doc) = editor.doc.as_ref() {
+    if let Some(doc) = editor.doc.as_ref().filter(|_| !editor.rich_doc) {
         floating.extend(draw_doc(editor, surface, body, doc));
     }
     // And what could follow what is being typed, at the cursor. Drawn after

@@ -85,6 +85,15 @@
   the input method's candidate window and the blur behind a popup all know
   where the grid moved to.
 
+- **The README and the site lead with the window, and with how fast it
+  is.** Both now open on the `gui` build — the install line fetches it,
+  the hero picture is of it — and say what was measured rather than how
+  small the binary is: a file on the screen five milliseconds after the
+  shell hands over. `scripts/screenshots-gui.sh` takes two more pictures,
+  `doc-card` and `undercurl`, of a C program it writes for clangd — one
+  correct, so the card is the only thing on the picture, and one with
+  three mistakes and a warning in it.
+
 - **A row that wraps says so, and so does a line that is cut.** With
   `truncate-lines` off, a line that carried on across the rows below read
   the same as two lines that happened to line up; on, a line the edge cut

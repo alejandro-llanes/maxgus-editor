@@ -2,11 +2,11 @@
 
 <h1>maxgus</h1>
 
-<h3><em>A vibe-written lightweight editor inspired on emacs</em></h3>
+<h3><em>A vibe-written, lightning-fast Emacs in Rust, drawn by the GPU</em></h3>
 
 <p>
-Emacs keys, buffers and windows&nbsp; ·&nbsp; tree-sitter highlighting&nbsp; ·&nbsp; a language-server client<br>
-themes you rewrite in a config file&nbsp; ·&nbsp; a treemacs-style file tree&nbsp; ·&nbsp; async throughout, on tokio
+Ligatures, blur behind every popup, a cursor that travels&nbsp; ·&nbsp; documentation set in prose beside the code<br>
+Emacs keys, tree-sitter, a language-server client, magit&nbsp; ·&nbsp; the same editor in a terminal, over ssh
 </p>
 
 <p>
@@ -23,21 +23,22 @@ themes you rewrite in a config file&nbsp; ·&nbsp; a treemacs-style file tree&nb
 <img alt="" src="https://img.shields.io/badge/windows-333?style=flat-square&logo=windows&logoColor=white">
 <img alt="" src="https://img.shields.io/badge/freebsd-333?style=flat-square&logo=freebsd&logoColor=white">
 <img alt="Unsafe" src="https://img.shields.io/badge/unsafe-forbidden-4c9a2a?style=flat-square">
-<img alt="Tests" src="https://img.shields.io/badge/tests-2036-4c9a2a?style=flat-square">
+<img alt="Tests" src="https://img.shields.io/badge/tests-2359-4c9a2a?style=flat-square">
 </p>
 
-<sub><b>No Lisp interpreter. No plugin runtime.</b> ~56,000 lines · fifteen crates · three builds to pick from.</sub>
+<sub><b>A file is on the screen 5 ms after the shell hands over.</b> No Lisp interpreter, no plugin runtime · fifteen crates · three builds to pick from.</sub>
 
 <br><br>
 
-<img src="docs/screenshots/maxgus-dark.svg" alt="maxgus editing its own source, with the side panel open beside it" width="100%">
+<img src="docs/screenshots/gui-editor.png" alt="maxgus in a window, editing its own source with the side panel open beside it" width="100%">
 
 </div>
 
 <br>
 
 ```console
-$ maxgus src/main.rs
+$ maxgus src/main.rs        # a window
+$ maxgus -nw src/main.rs    # the terminal
 ```
 
 `C-h t` opens a guide, `C-h b` lists every binding, `C-x C-c` leaves.
@@ -47,10 +48,11 @@ $ maxgus src/main.rs
 ## Install
 
 ```console
-$ curl -fsSL https://alejandrollanes.com/maxgus-editor/install.sh | sh
+$ curl -fsSL https://alejandrollanes.com/maxgus-editor/install.sh | sh -s -- --build gui
 ```
 
-That fetches the `full` build for this machine, checks it against the
+That fetches the `gui` build for this machine — the window, and
+`maxgus -nw` for the terminal from the same binary — checks it against the
 checksum published beside it, and puts it in `~/.local/bin` — or
 `/usr/local/bin` where that is writable. Nothing else: no daemon, no package
 manager, no shell profile rewritten behind your back.
@@ -58,9 +60,9 @@ manager, no shell profile rewritten behind your back.
 **Three builds**, and `--build` says which:
 
 ```console
-$ curl -fsSL .../install.sh | sh                          # full, the default
-$ curl -fsSL .../install.sh | sh -s -- --build minimal
-$ curl -fsSL .../install.sh | sh -s -- --build gui
+$ curl -fsSL .../install.sh | sh -s -- --build gui        # the window
+$ curl -fsSL .../install.sh | sh                          # full: a terminal only
+$ curl -fsSL .../install.sh | sh -s -- --build minimal    # nothing to install
 ```
 
 `--prefix DIR` puts it somewhere else, `--version vX.Y.Z` fetches an older
@@ -78,7 +80,7 @@ path in it, because a launcher does not see your shell's `PATH`.
 
 | | `minimal` | `full` *(default)* | `gui` |
 |---|:---:|:---:|:---:|
-| **Binary** | **4.8M** | **13M** | **21M** |
+| **Binary** | **4.9M** | **14M** | **23M** |
 | **Commands** | 325 | 477 | 477 |
 | **Needs from the system** | nothing | nothing | a window system's headers |
 | Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
@@ -108,17 +110,24 @@ path in it, because a launcher does not see your shell's `PATH`.
 | **Project search**, and editing the results | ○ | ● | ● |
 | **Rhai scripting** | ○ | ● | ● |
 | **A window**: the GPU, the mouse, the clipboard | ○ | ○ | ● |
-| **Ligatures**, an animated cursor, smooth scrolling | ○ | ○ | ● |
+| **Ligatures**, a cursor that travels, scrolling on a spring | ○ | ○ | ● |
 | **Cursor effects**, and blur behind the popups | ○ | ○ | ● |
+| **Documentation set in prose**, a wave under an error | ○ | ○ | ● |
+| **Zoom**, pictures, fullscreen, a mark at the edge | ○ | ○ | ● |
+
+`gui` is the whole editor drawn by the GPU, and the one to have where there
+is a display: everything below under [the window](#a-window-as-well-as-a-terminal)
+is in it and nowhere else, and `-nw` gives the terminal front end from the
+same binary. It is the only build that needs anything from the system to
+compile.
+
+`full` is the same editor for a terminal only — over ssh, in tmux, on a
+machine with no display — with everything that talks to something else:
+grammars, language servers, git, a shell.
 
 `minimal` is the editor and the file tree: no grammars, no protocol, no
 subprocess, nothing to install. Everything a text editor does, and none of
-what a development environment does. It starts instantly and builds in a
-fraction of the time.
-
-`full` adds everything that talks to something else. `gui` adds a second
-front end drawn by the GPU, and is the only build that needs anything from
-the system to compile.
+what a development environment does. It builds in a fraction of the time.
 
 <details>
 <summary><b>Or download an archive</b></summary>
@@ -143,8 +152,8 @@ cannot load a window system, and cross-compiling against one needs a sysroot
 the release does not have.
 
 ```console
-$ curl -fsSL https://github.com/alejandro-llanes/maxgus-editor/releases/latest/download/maxgus-full-linux-x86_64.tar.gz | tar xz
-$ ./maxgus-full-linux-x86_64/maxgus
+$ curl -fsSL https://github.com/alejandro-llanes/maxgus-editor/releases/latest/download/maxgus-gui-linux-x86_64.tar.gz | tar xz
+$ ./maxgus-gui-linux-x86_64/maxgus
 ```
 
 </details>
@@ -155,7 +164,7 @@ nothing but a terminal; `gui` needs a window system's headers
 
 ```console
 $ git clone https://github.com/alejandro-llanes/maxgus-editor
-$ cd maxgus-editor && cargo build --release          # full
+$ cd maxgus-editor && cargo build --release --features gui
 $ ./target/release/maxgus
 ```
 
@@ -164,6 +173,242 @@ $ ./target/release/maxgus
 > to suspend into rather than pretending; everything else is the same editor.
 
 ---
+
+## How fast
+
+Measured, not claimed. The numbers are from a laptop, in a terminal, with
+tree-sitter on; `M-x startup-time` gives yours.
+
+- **5 ms from the shell to a file on the screen.** A 5,000-line Rust file,
+  highlighted, from the moment the shell hands over to the first frame on
+  the terminal. The editor's own clock — `M-x startup-time`, the way
+  `emacs-init-time` does it — reads under a millisecond; the rest is the
+  terminal.
+- **Nothing is waited on.** A grammar being downloaded, a language server
+  thinking, a `git status` of a large tree, a grep of a project: every one
+  is a task on tokio, and a command that needs an answer queues the work
+  and returns. A test fails the build if anything on the editor's own thread
+  blocks after startup.
+- **One frame when something changes, none when nothing does.** The window
+  is drawn by wgpu when a keystroke, a reply or an animation asks for it,
+  and sleeps otherwise. An idle editor costs an idle GPU.
+- **Zoom is a keypress.** The font is cut again from what is already in
+  memory rather than looked up on the system, and the window is laid out
+  again for the new cell.
+- **The blur is three passes**, and only while a popup is open: the frame
+  behind, once across, once down, shown inside the popup's rectangle and
+  nowhere else. With nothing open the frame is drawn once.
+- **No interpreter between a key and its command.** No Lisp to load and
+  no plugin runtime to start. A Rhai script, if you write one, adds
+  commands, and is on the path of no key you did not bind to it.
+
+## A window, as well as a terminal
+
+The `gui` build draws the editor into a window by wgpu rather than into a
+terminal by escape sequences. It is the *same* editor — the same commands,
+the same keymaps, the same redisplay — and which front end it opens is
+decided when it starts:
+
+```sh
+maxgus src/main.rs        # a window
+maxgus -nw src/main.rs    # the terminal, spelled the way Emacs spells it
+```
+
+`-nw`, `--no-window-system` and `--tty` are the same flag, and every build
+takes it so the habit works everywhere. With no session to draw into — over
+ssh, say — it starts in the terminal by itself rather than failing; `--gui`
+overrides that and insists on a window.
+
+What the window has that a terminal cannot:
+
+- **What the language server says is set in prose.** `C-c c k` asks what
+  the thing at point is, and the answer — a heading, a signature, a
+  paragraph or two — comes on a card beside the line rather than in a box
+  of cells: the prose in a proportional face, wrapped at the pixel, the
+  code in the editor's own font on a chip, the whole under rounded corners
+  and a border, over a blur of what is behind it when the compositor
+  allows. It sits under the symbol's line, or over it when there is no
+  room below, takes three fifths of the window at most and half its
+  height, and says how many lines it left out. `set gui-prose-font`
+  names the face; the default is the system's sans-serif.
+
+  <img src="docs/screenshots/gui-doc-card.png" alt="A card beside a line of C, set in a proportional face over a blur of the code, saying what printf is and how it is called" width="100%">
+
+- **A wave under an error.** A diagnostic's underline is the wavy one an
+  editor's is, drawn by the GPU in the severity's colour, joined across the
+  cells it runs under and as smooth at any zoom; `undercurl=#true` puts one
+  under any face. The terminal front end asks the terminal for the same
+  where it knows the terminal can — kitty, foot, WezTerm, Alacritty,
+  Ghostty, GNOME's, Konsole, Windows Terminal, and through tmux — and
+  draws a plain underline elsewhere.
+
+  <img src="docs/screenshots/gui-undercurl.png" alt="A C file with wavy underlines in red under three errors and in yellow under a warning, and the mode line counting them" width="100%">
+
+- **Ligatures.** `!=` drawn as the one mark the font's designer drew it as,
+  and `->`, `=>`, `<=`, `>=`, `|>`, `...` with them. The text is *shaped*
+  rather than looked up a character at a time, so which characters join is
+  the font's answer and not a list kept here — a font that joins nothing is
+  simply unaffected. Runs stop at a space and at a change of style, because
+  a mark half in bold is two fonts pretending to be one glyph. And they form
+  only in code: `->` in a help page or `--color` on a shell line means the
+  characters it is made of, so windows showing prose, listings and the
+  terminal are drawn a character at a time. The cursor's own cell is never
+  joined either: a block over half of `≠` says nothing about which
+  character is under it, so `!=` comes apart while the cursor is on it and
+  joins again when it moves on. `set ligatures=#false` turns it off
+  everywhere.
+
+  <img src="docs/screenshots/gui-ligatures.png" alt="A line of Rust with its operators drawn as ligatures: not-equal as a crossed equals, the arrow as a single arrow, less-than-or-equal as one glyph" width="100%">
+
+- **An animated cursor.** The block slides to where point went instead of
+  appearing there, and *smears* on the way: the four corners are animated
+  separately and the ones at the back are given less of the distance, so it
+  stretches out behind itself while it travels and gathers into a cell when
+  it lands. That is what makes the eye follow it across a long jump rather
+  than having to find it again. `cursor-animation-ms` is how long arriving
+  takes and `cursor-trail` is how far the back lags, in percent; `0` for
+  either turns that half off.
+
+  A hop of a cell or two — which is most of typing — is not smeared and gets
+  `cursor-short-animation-ms` instead, because animating a keystroke over the
+  same duration as a jump across the screen makes the cursor look like it is
+  lagging behind the keyboard.
+
+  The window draws this **instead of the beacon**, not as well as it. They
+  answer the same question — where did point go — and the beacon only exists
+  because a terminal cannot show the journey. `set cursor-animation-ms=0`
+  gives the beacon back.
+
+- **And six things for it to leave behind**, off unless asked for.
+  `sonicboom`, `ripple` and `wireframe` mark where it landed with a disc, a
+  ring or a square that swells and fades; `railgun`, `torpedo` and
+  `pixiedust` trail particles along the way it came, each with its own
+  flight and lifetime. `set cursor-vfx="railgun"`, and eight more
+  settings for anyone who wants to tune one.
+
+- **What is behind a popup is blurred.** The completion list, the doc box,
+  the which-key panel: each sits on a blurred copy of what it covers rather
+  than on a hole cut in the text, which is what separates the two layers
+  without a drop shadow having to do it.
+
+  <img src="docs/screenshots/gui-floating-blur.png" alt="A buffer-switching popup over source code, with the code behind it blurred and showing faintly through the popup's background" width="100%">
+
+  It costs the frame being drawn in two halves — what the windows hold, then
+  what floats over them — and three more passes over each popup's own area.
+  While no popup is open it costs nothing at all. `set floating-blur=#false`,
+  `floating-blur-radius` and `floating-opacity`.
+
+- **Smooth scrolling.** A terminal scrolls by whole lines because it cannot
+  draw half of one. The window keeps a pixel offset and eases towards it, so a
+  wheel notch slides three lines instead of jumping them — `mouse-wheel-lines`
+  is how far a notch goes and `smooth-scroll-ms` is how long the slide takes,
+  `0` for none. Only the window being scrolled moves — its mode line, the echo area and the file tree hold
+  still — and the lines arriving are drawn into the rows that
+  open up at the edge, clipped where the window ends.
+
+  **The view a command moves slides too**, not just the one the wheel moves:
+  `C-v`, a search that lands off the screen, `M->`. A long jump is not slid
+  in full — a thousand lines of animation is something to watch rather than
+  a view to read — so the last few are, which is the part that says which
+  way it went. `scroll-animation-far-lines` is how many.
+
+  What moves it is a **critically damped spring**, not an easing curve, and
+  the difference is most of how it feels: an ease is fastest at its very
+  first frame and slower every frame after, which reads as a snap and then a
+  crawl. A spring starts at rest and settles softly, and it carries a
+  velocity — so a second wheel notch while the first is still arriving adds
+  to it rather than starting it over. The cursor is animated by the same
+  spring.
+- **The mouse.** Click to put point where you clicked, drag to select, twice
+  for the word and three times for the line, right button to stretch the
+  selection to where you clicked, middle button to paste, wheel to scroll. A
+  click in another window selects it; a turn of the wheel over one scrolls
+  it without selecting it, so the wheel over the file tree moves the file
+  tree. A file dropped on the window is opened.
+- **The system clipboard**, rather than a terminal's guess at one. `C-w` and
+  `M-w` put the text there as well as in the kill ring, and `C-y` takes
+  what another program put there since — and keeps it in the ring, so `M-y`
+  can walk back past it. What the mouse selects goes to the primary
+  selection, where there is one, and the middle button pastes from there.
+- **Every key the keyboard can say.** A dead key and its letter, a compose
+  sequence, an input method's Chinese or Japanese: what arrives as text is
+  inserted as text.
+- **Suggestions while you type.** After a couple of letters of a word the
+  language server is asked what could follow, and a list appears at the
+  cursor with each candidate's kind and type beside it. Typing narrows it,
+  `C-n`/`C-p` or the arrows move, `RET` or `TAB` takes one, `C-g` puts it
+  away — and every other key goes into the buffer, which is what makes the
+  list something you type through rather than something you escape from. A
+  pause never inserts anything on its own; only `C-M-i` on a single
+  candidate does that. `set autocomplete=#false` turns it off.
+- **A box beside the symbol under the cursor**, once it has rested there,
+  saying what the language server knows about it, the way lsp-ui-doc does.
+  What arrives is markdown — a heading, a rule, the parameters, the prose,
+  the signature in a fenced block — and it is drawn as those things rather
+  than as the punctuation that spells them: headings bold, code on a panel
+  of its own, `---` as a rule across the box, `- ` as a bullet.
+
+  The box is a panel rather than a hole cut in the buffer — its own
+  background, a border in a colour of its own, and `Documentation` written
+  into the top of it, so it reads as something that arrived rather than as a
+  rectangle of the same text with a line around it. Four faces say how:
+  `doc`, `doc-border`, `doc-title` and `doc-code`. `set lsp-doc=#false`
+  turns it off; `C-c c k` asks for it either way. The terminal front end
+  draws the same box:
+
+  <img src="docs/screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and its documentation, from clangd" width="100%">
+- **A window that behaves like one.** Its title says the file, the
+  project and the program — `main.rs — maxgus-editor — maxgus` — with a
+  `•` in front while there is unsaved work, so a taskbar of three of them
+  tells them apart (`set gui-title-format` writes it otherwise, from the
+  buffer's name, the file's path, the project's name or path and the
+  mark); the close button runs the
+  same command `C-x C-c` does, so it refuses to throw that work away; it
+  opens at the size it was last closed at, and over the whole screen if
+  that is how it was left — `<f11>` (`M-x toggle-frame-fullscreen`) fills
+  the screen and gives it back, and the compositor's own key for the same
+  thing is noticed too; its cursor is an outline while
+  another window has the keyboard; and it sleeps when nothing is happening
+  rather than redrawing a still screen sixty times a second.
+- **Any font on the system**, at any size: `set gui-font` and
+  `set gui-font-size`. Sized in logical pixels: on a display that reports a
+  scale the glyphs are cut that much larger, so the text is the same size
+  to the eye there as on one that does not, and dragging the window from
+  one to the other cuts the font again and lays the grid out for however
+  many of the new cells fit. Bold and italic are
+  separate faces where the family has them and fall back to its regular one
+  where it does not, so an emphasised word is never an invisible one. A
+  character the family lacks — a CJK ideograph, an emoji, a symbol — is
+  drawn from a font on the system that has it, fitted to the cell; a colour
+  emoji comes out in colour. `set gui-line-spacing` opens the lines up and
+  `set gui-padding` keeps the text off the window's edge.
+- **Zoom.** `C-x C-+` and `C-x C--` draw the text a tenth larger or
+  smaller, `C-x C-0` puts it back, and the wheel with control held does
+  the same, the way it does in a browser. The window is laid out again for
+  however many of the new cells fit, and the font is cut again from what
+  is already loaded rather than looked up on the system, so it is as quick
+  as a keypress should be. The configured size is what `C-x C-0` returns
+  to; the setting itself is not changed.
+- **A mark at the edge while the window moves.** A thin bar at the right
+  of the text says where the window is in its buffer and how much of it
+  it shows, the way a phone's does: it appears when the window scrolls
+  and fades a moment after it stops, so a page being read has nothing at
+  its edge. Each window has its own. `set gui-scroll-indicator=#false`
+  turns it off.
+- **Pictures.** Visiting a PNG, JPEG, GIF, WebP or BMP opens it as a
+  picture rather than as the bytes it is made of: the buffer holds a
+  caption — the file's dimensions and size — and the window draws the
+  picture under it, at its own size where there is room and shrunk to fit
+  where there is not. In a document, `C-c o i` (`M-x view-image-at-point`)
+  opens the picture the line refers to — `![alt](path)` in markdown,
+  `<img src>` in HTML, or a bare path — beside it, resolved from the
+  document's own directory. The terminal front end shows the caption and
+  says why there is no picture.
+
+`C-c o b` (`M-x open-externally`) hands the file being edited to whatever the
+desktop opens it with — an image viewer for an image, a reader for a PDF —
+using `xdg-open`, `open` or `start` as the platform requires. It works from
+the terminal front end too.
 
 ## What it does
 
@@ -866,9 +1111,9 @@ To try them side by side, `./scripts/build-variants.sh` builds all three into
 
 ```console
 $ ./scripts/build-variants.sh
-minimal  ok    4.8M  maxgus 1.3.1 (minimal)
-full     ok     13M  maxgus 1.3.1 (full)
-gui      ok     21M  maxgus 1.3.1 (gui)
+minimal  ok    4.9M  maxgus 1.3.1 (minimal)
+full     ok     14M  maxgus 1.3.1 (full)
+gui      ok     23M  maxgus 1.3.1 (gui)
 ```
 
 `--debug` builds them faster, `--into DIR` puts them somewhere else. Every
@@ -884,208 +1129,6 @@ C-x g is undefined
 All three are built and tested by the CI, and a test holds every row of the
 comparison: a command family is wholly in a build or wholly out of it, and
 `minimal` growing one would mean it had grown the crate behind it.
-
-## A window, as well as a terminal
-
-`--features gui` adds a second front end. It is the *same* editor — the same
-commands, the same keymaps, the same redisplay — drawn into a window by wgpu
-rather than into a terminal by escape sequences, and which one it opens is
-decided when it starts:
-
-```sh
-maxgus src/main.rs        # a window
-maxgus -nw src/main.rs    # the terminal, spelled the way Emacs spells it
-```
-
-`-nw`, `--no-window-system` and `--tty` are the same flag, and every build
-takes it so the habit works everywhere. With no session to draw into — over
-ssh, say — it starts in the terminal by itself rather than failing; `--gui`
-overrides that and insists on a window.
-
-What the window has that a terminal cannot:
-
-- **A wave under an error.** A diagnostic's underline is the wavy one an
-  editor's is, drawn by the GPU in the severity's colour, joined across the
-  cells it runs under and as smooth at any zoom; `undercurl=#true` puts one
-  under any face. The terminal front end asks the terminal for the same
-  where it knows the terminal can — kitty, foot, WezTerm, Alacritty,
-  Ghostty, GNOME's, Konsole, Windows Terminal, and through tmux — and
-  draws a plain underline elsewhere.
-- **Ligatures.** `!=` drawn as the one mark the font's designer drew it as,
-  and `->`, `=>`, `<=`, `>=`, `|>`, `...` with them. The text is *shaped*
-  rather than looked up a character at a time, so which characters join is
-  the font's answer and not a list kept here — a font that joins nothing is
-  simply unaffected. Runs stop at a space and at a change of style, because
-  a mark half in bold is two fonts pretending to be one glyph. And they form
-  only in code: `->` in a help page or `--color` on a shell line means the
-  characters it is made of, so windows showing prose, listings and the
-  terminal are drawn a character at a time. The cursor's own cell is never
-  joined either: a block over half of `≠` says nothing about which
-  character is under it, so `!=` comes apart while the cursor is on it and
-  joins again when it moves on. `set ligatures=#false` turns it off
-  everywhere.
-
-  <img src="docs/screenshots/gui-ligatures.png" alt="A line of Rust with its operators drawn as ligatures: not-equal as a crossed equals, the arrow as a single arrow, less-than-or-equal as one glyph" width="100%">
-
-- **An animated cursor.** The block slides to where point went instead of
-  appearing there, and *smears* on the way: the four corners are animated
-  separately and the ones at the back are given less of the distance, so it
-  stretches out behind itself while it travels and gathers into a cell when
-  it lands. That is what makes the eye follow it across a long jump rather
-  than having to find it again. `cursor-animation-ms` is how long arriving
-  takes and `cursor-trail` is how far the back lags, in percent; `0` for
-  either turns that half off.
-
-  A hop of a cell or two — which is most of typing — is not smeared and gets
-  `cursor-short-animation-ms` instead, because animating a keystroke over the
-  same duration as a jump across the screen makes the cursor look like it is
-  lagging behind the keyboard.
-
-  The window draws this **instead of the beacon**, not as well as it. They
-  answer the same question — where did point go — and the beacon only exists
-  because a terminal cannot show the journey. `set cursor-animation-ms=0`
-  gives the beacon back.
-
-- **And six things for it to leave behind**, off unless asked for.
-  `sonicboom`, `ripple` and `wireframe` mark where it landed with a disc, a
-  ring or a square that swells and fades; `railgun`, `torpedo` and
-  `pixiedust` trail particles along the way it came, each with its own
-  flight and lifetime. `set cursor-vfx="railgun"`, and eight more
-  settings for anyone who wants to tune one.
-
-- **What is behind a popup is blurred.** The completion list, the doc box,
-  the which-key panel: each sits on a blurred copy of what it covers rather
-  than on a hole cut in the text, which is what separates the two layers
-  without a drop shadow having to do it.
-
-  <img src="docs/screenshots/gui-floating-blur.png" alt="A buffer-switching popup over source code, with the code behind it blurred and showing faintly through the popup's background" width="100%">
-
-  It costs the frame being drawn in two halves — what the windows hold, then
-  what floats over them — and three more passes over each popup's own area.
-  While no popup is open it costs nothing at all. `set floating-blur=#false`,
-  `floating-blur-radius` and `floating-opacity`.
-
-- **Smooth scrolling.** A terminal scrolls by whole lines because it cannot
-  draw half of one. The window keeps a pixel offset and eases towards it, so a
-  wheel notch slides three lines instead of jumping them — `mouse-wheel-lines`
-  is how far a notch goes and `smooth-scroll-ms` is how long the slide takes,
-  `0` for none. Only the window being scrolled moves — its mode line, the echo area and the file tree hold
-  still — and the lines arriving are drawn into the rows that
-  open up at the edge, clipped where the window ends.
-
-  **The view a command moves slides too**, not just the one the wheel moves:
-  `C-v`, a search that lands off the screen, `M->`. A long jump is not slid
-  in full — a thousand lines of animation is something to watch rather than
-  a view to read — so the last few are, which is the part that says which
-  way it went. `scroll-animation-far-lines` is how many.
-
-  What moves it is a **critically damped spring**, not an easing curve, and
-  the difference is most of how it feels: an ease is fastest at its very
-  first frame and slower every frame after, which reads as a snap and then a
-  crawl. A spring starts at rest and settles softly, and it carries a
-  velocity — so a second wheel notch while the first is still arriving adds
-  to it rather than starting it over. The cursor is animated by the same
-  spring.
-- **The mouse.** Click to put point where you clicked, drag to select, twice
-  for the word and three times for the line, right button to stretch the
-  selection to where you clicked, middle button to paste, wheel to scroll. A
-  click in another window selects it; a turn of the wheel over one scrolls
-  it without selecting it, so the wheel over the file tree moves the file
-  tree. A file dropped on the window is opened.
-- **The system clipboard**, rather than a terminal's guess at one. `C-w` and
-  `M-w` put the text there as well as in the kill ring, and `C-y` takes
-  what another program put there since — and keeps it in the ring, so `M-y`
-  can walk back past it. What the mouse selects goes to the primary
-  selection, where there is one, and the middle button pastes from there.
-- **Every key the keyboard can say.** A dead key and its letter, a compose
-  sequence, an input method's Chinese or Japanese: what arrives as text is
-  inserted as text.
-- **Suggestions while you type.** After a couple of letters of a word the
-  language server is asked what could follow, and a list appears at the
-  cursor with each candidate's kind and type beside it. Typing narrows it,
-  `C-n`/`C-p` or the arrows move, `RET` or `TAB` takes one, `C-g` puts it
-  away — and every other key goes into the buffer, which is what makes the
-  list something you type through rather than something you escape from. A
-  pause never inserts anything on its own; only `C-M-i` on a single
-  candidate does that. `set autocomplete=#false` turns it off.
-- **A box beside the symbol under the cursor**, once it has rested there,
-  saying what the language server knows about it, the way lsp-ui-doc does.
-  What arrives is markdown — a heading, a rule, the parameters, the prose,
-  the signature in a fenced block — and it is drawn as those things rather
-  than as the punctuation that spells them: headings bold, code on a panel
-  of its own, `---` as a rule across the box, `- ` as a bullet.
-
-  The box is a panel rather than a hole cut in the buffer — its own
-  background, a border in a colour of its own, and `Documentation` written
-  into the top of it, so it reads as something that arrived rather than as a
-  rectangle of the same text with a line around it. Four faces say how:
-  `doc`, `doc-border`, `doc-title` and `doc-code`. `set lsp-doc=#false`
-  turns it off; `C-c c k` asks for it either way. The terminal front end
-  draws the same box:
-
-  <img src="docs/screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and its documentation, from clangd" width="100%">
-- **A window that behaves like one.** Its title says the file, the
-  project and the program — `main.rs — maxgus-editor — maxgus` — with a
-  `•` in front while there is unsaved work, so a taskbar of three of them
-  tells them apart (`set gui-title-format` writes it otherwise, from the
-  buffer's name, the file's path, the project's name or path and the
-  mark); the close button runs the
-  same command `C-x C-c` does, so it refuses to throw that work away; it
-  opens at the size it was last closed at, and over the whole screen if
-  that is how it was left — `<f11>` (`M-x toggle-frame-fullscreen`) fills
-  the screen and gives it back, and the compositor's own key for the same
-  thing is noticed too; its cursor is an outline while
-  another window has the keyboard; and it sleeps when nothing is happening
-  rather than redrawing a still screen sixty times a second.
-- **Any font on the system**, at any size: `set gui-font` and
-  `set gui-font-size`. Sized in logical pixels: on a display that reports a
-  scale the glyphs are cut that much larger, so the text is the same size
-  to the eye there as on one that does not, and dragging the window from
-  one to the other cuts the font again and lays the grid out for however
-  many of the new cells fit. Bold and italic are
-  separate faces where the family has them and fall back to its regular one
-  where it does not, so an emphasised word is never an invisible one. A
-  character the family lacks — a CJK ideograph, an emoji, a symbol — is
-  drawn from a font on the system that has it, fitted to the cell; a colour
-  emoji comes out in colour. `set gui-line-spacing` opens the lines up and
-  `set gui-padding` keeps the text off the window's edge.
-- **Zoom.** `C-x C-+` and `C-x C--` draw the text a tenth larger or
-  smaller, `C-x C-0` puts it back, and the wheel with control held does
-  the same, the way it does in a browser. The window is laid out again for
-  however many of the new cells fit, and the font is cut again from what
-  is already loaded rather than looked up on the system, so it is as quick
-  as a keypress should be. The configured size is what `C-x C-0` returns
-  to; the setting itself is not changed.
-- **A mark at the edge while the window moves.** A thin bar at the right
-  of the text says where the window is in its buffer and how much of it
-  it shows, the way a phone's does: it appears when the window scrolls
-  and fades a moment after it stops, so a page being read has nothing at
-  its edge. Each window has its own. `set gui-scroll-indicator=#false`
-  turns it off.
-- **Pictures.** Visiting a PNG, JPEG, GIF, WebP or BMP opens it as a
-  picture rather than as the bytes it is made of: the buffer holds a
-  caption — the file's dimensions and size — and the window draws the
-  picture under it, at its own size where there is room and shrunk to fit
-  where there is not. In a document, `C-c o i` (`M-x view-image-at-point`)
-  opens the picture the line refers to — `![alt](path)` in markdown,
-  `<img src>` in HTML, or a bare path — beside it, resolved from the
-  document's own directory. The terminal front end shows the caption and
-  says why there is no picture.
-- **What the language server says is set in prose.** `C-c c k` asks what
-  the thing at point is, and the answer — a heading, a signature, a
-  paragraph or two — comes on a card beside the line rather than in a box
-  of cells: the prose in a proportional face, wrapped at the pixel, the
-  code in the editor's own font on a chip, the whole under rounded corners
-  and a border, over a blur of what is behind it when the compositor
-  allows. It sits under the symbol's line, or over it when there is no
-  room below, takes three fifths of the window at most and half its
-  height, and says how many lines it left out. `set gui-prose-font`
-  names the face; the default is the system's sans-serif.
-
-`C-c o b` (`M-x open-externally`) hands the file being edited to whatever the
-desktop opens it with — an image viewer for an image, a reader for a PDF —
-using `xdg-open`, `open` or `start` as the platform requires. It works from
-the terminal front end too.
 
 ## Configuring it
 

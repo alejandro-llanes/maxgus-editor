@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>maxgus — a very small Emacs</title>
-<meta name="description" content="A lightweight editor inspired by Emacs, written in Rust. Emacs keys, tree-sitter highlighting, a language-server client, magit, a file tree, and a window as well as a terminal.">
-<meta property="og:title" content="maxgus — a very small Emacs">
-<meta property="og:description" content="Emacs keys, tree-sitter highlighting, a language-server client, magit and a file tree. One binary, no Lisp interpreter.">
+<title>maxgus — a lightning-fast Emacs, drawn by the GPU</title>
+<meta name="description" content="A lightning-fast Emacs written in Rust and drawn by the GPU: ligatures, blurred popups, documentation set in prose beside the code, a cursor that travels, tree-sitter, a language-server client, magit — and the same editor in a terminal.">
+<meta property="og:title" content="maxgus — a lightning-fast Emacs, drawn by the GPU">
+<meta property="og:description" content="Emacs keys and a GPU: ligatures, blur behind every popup, documentation set in prose, a cursor that travels. A file is on screen in milliseconds. One binary, no Lisp interpreter.">
 <meta property="og:image" content="screenshots/gui-editor.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%231d1f21'/><text y='72' x='50' text-anchor='middle' font-size='62' font-family='monospace' fill='%238abeb7'>m</text></svg>">
@@ -173,6 +173,20 @@ section > .wrap > h2::before { content: "## "; color: var(--purple); }
 }
 .shot[hidden] { display: none; }
 
+/* ---- how fast ---- */
+.facts { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); }
+.fact {
+  background: var(--surface); border: 1px solid var(--selection);
+  border-radius: var(--radius); padding: 1.3rem 1.4rem;
+}
+.fact .n {
+  font-family: var(--mono); font-size: 2rem; font-weight: 700; color: var(--aqua);
+  letter-spacing: -.03em; line-height: 1.1; margin: 0 0 .3rem;
+}
+.fact .n small { font-size: .55em; color: var(--comment); font-weight: 400; letter-spacing: 0; }
+.fact h3 { font-family: var(--mono); font-size: 1rem; margin: 0 0 .35rem; color: var(--fg); }
+.fact p { margin: 0; color: var(--comment); font-size: .92rem; }
+
 /* ---- features ---- */
 .features { display: grid; gap: 1.6rem 2rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .feature h3 { font-family: var(--mono); font-size: 1rem; margin: 0 0 .3rem; color: var(--fg); }
@@ -180,6 +194,8 @@ section > .wrap > h2::before { content: "## "; color: var(--purple); }
 .feature p { margin: 0; color: var(--comment); font-size: .93rem; }
 .feature .new { color: var(--orange); font-size: .7rem; text-transform: uppercase;
   letter-spacing: .08em; margin-left: .4rem; }
+.feature .where { color: var(--comment); font-size: .7rem; text-transform: uppercase;
+  letter-spacing: .08em; margin-left: .4rem; font-weight: 400; }
 
 /* ---- config ---- */
 .two { display: grid; gap: 1.6rem; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: start; }
@@ -209,30 +225,34 @@ footer .sp { margin-left: auto; }
 <nav><div class="wrap">
   <span class="brand">max<span>gus</span></span>
   <a class="link" href="#install">Install</a>
+  <a class="link" href="#fast">Fast</a>
+  <a class="link" href="#screenshots">Screenshots</a>
+  <a class="link" href="#window">The window</a>
+  <a class="link" href="#features">Features</a>
   <a class="link" href="#builds">Builds</a>
   <a class="link" href="#platforms">Platforms</a>
-  <a class="link" href="#screenshots">Screenshots</a>
-  <a class="link" href="#features">Features</a>
   <a class="link" href="https://github.com/alejandro-llanes/maxgus-editor">GitHub</a>
 </div></nav>
 
 <header><div class="wrap">
   <h1>maxgus<span class="cursor"></span></h1>
   <p class="tagline">
-    A very small Emacs, written in Rust. <b>Emacs keys</b>, tree-sitter
-    highlighting, a language-server client, magit and a file tree —
-    in a terminal, or in a window.
+    <b>Lightning fast, and drawn by the GPU.</b> An Emacs written in Rust:
+    ligatures, blur behind every popup, a cursor that travels rather than
+    appears, documentation set in prose beside your code, tree-sitter, a
+    language server, magit — and the same editor in a terminal, over ssh.
   </p>
 
   <div class="install" id="install">
-    <code id="cmd"><span class="p">$ </span>curl -fsSL https://alejandrollanes.com/maxgus-editor/install.sh | sh</code>
+    <code id="cmd"><span class="p">$ </span>curl -fsSL https://alejandrollanes.com/maxgus-editor/install.sh | sh -s -- --build gui</code>
     <button id="copy" type="button">Copy</button>
   </div>
   <p class="under">
-    Installs the <code>full</code> build. Add <code>-s -- --build gui</code> for the
-    window, <code>--build minimal</code> for the small one. It writes a
-    configuration and the themes the first time, never over your own, and
-    puts the <code>gui</code> build in the application menu.
+    That is the window, and it goes in the application menu. Leave
+    <code>-s -- --build gui</code> off for <code>full</code>, the same editor for
+    a terminal only; <code>--build minimal</code> is the one with nothing to
+    install. Each writes a configuration and the themes the first time, and
+    never over your own.
   </p>
 
   <div class="buttons">
@@ -241,21 +261,114 @@ footer .sp { margin-left: auto; }
   </div>
 </div></header>
 
+<section id="fast"><div class="wrap">
+  <h2>How fast</h2>
+  <p class="lede">
+    Fast is not a slogan here; it is what every part was built to be, and
+    what it says about itself when it starts.
+  </p>
+  <div class="facts">
+
+    <div class="fact">
+      <p class="n">5<small> ms</small></p>
+      <h3>to a file on the screen</h3>
+      <p>From the shell handing over to a 5,000-line Rust file drawn, parsed
+         and coloured by tree-sitter, in a terminal. The editor's own clock —
+         <kbd>M-x startup-time</kbd>, the way <code>emacs-init-time</code>
+         does it — reads under a millisecond.</p>
+    </div>
+
+    <div class="fact">
+      <p class="n">0<small> ms</small></p>
+      <h3>spent waiting on anything</h3>
+      <p>Every file read, directory walk, subprocess and language-server call
+         runs on tokio. A command is a plain function that queues work and
+         returns, so nothing ever holds the keyboard — and a test fails the
+         build on a blocking call anywhere off the startup path.</p>
+    </div>
+
+    <div class="fact">
+      <p class="n">1<small> frame</small></p>
+      <h3>when something changes, none when it does not</h3>
+      <p>The window is wgpu: glyphs, panels and blur in a few passes over the
+         GPU. It sleeps while nothing is happening rather than redrawing a
+         still screen sixty times a second, and a keystroke wakes it.</p>
+    </div>
+
+    <div class="fact">
+      <p class="n">1<small> keypress</small></p>
+      <h3>is what zoom costs</h3>
+      <p><kbd>C-x C-+</kbd> re-cuts the font from what is already in memory
+         and lays the grid out for the cells that now fit. Nothing is looked
+         up on the system and nothing is reloaded; the text is larger before
+         the key is up.</p>
+    </div>
+
+    <div class="fact">
+      <p class="n">3<small> passes</small></p>
+      <h3>for the blur, and only while a popup is open</h3>
+      <p>A popup sits on a blurred copy of what it covers: the frame behind,
+         one pass across, one down, and the result shown only inside the
+         popup's rectangle. With none open the frame is drawn once and the
+         blur costs nothing at all.</p>
+    </div>
+
+    <div class="fact">
+      <p class="n">0<small> interpreters</small></p>
+      <h3>between you and the editor</h3>
+      <p>No Lisp and no plugin runtime. Configuration is a declarative file
+         read once; a Rhai script, if you write one, adds commands and is on
+         the path of no key you did not bind to it. The editor is one binary
+         that is ready when it is on the screen.</p>
+    </div>
+
+  </div>
+</div></section>
+
 <section id="builds"><div class="wrap">
   <h2>Three builds</h2>
   <p class="lede">
     The same editor with different parts left out. Every binary's
     <code>--version</code> says which one it is, and a key a build does not
     have reports itself as undefined rather than doing nothing.
-    <a href="https://github.com/alejandro-llanes/maxgus-editor#building-it-three-sizes">The
+    <a href="https://github.com/alejandro-llanes/maxgus-editor#which-build">The
     whole table</a> lists every feature against every build.
   </p>
   <div class="builds">
 
+    <div class="build pick">
+      <h3>gui <span class="tag">the window</span> <span class="size">23 MB</span></h3>
+      <p>Everything, drawn by the GPU. Ligatures, blur, the travelling
+         cursor, documentation in prose, zoom, pictures — and
+         <code>maxgus -nw</code> is the terminal, from the same binary.</p>
+      <ul>
+        <li>Everything in <code>full</code></li>
+        <li>Ligatures, and a wave under every error</li>
+        <li>Blur behind every popup; the doc card</li>
+        <li>A cursor that travels, scrolling on a spring</li>
+        <li>Mouse, system clipboard, any font, any display</li>
+      </ul>
+      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh \
+    -s -- --build gui</pre>
+    </div>
+
     <div class="build">
-      <h3>minimal <span class="size">4.8 MB</span></h3>
-      <p>The editor and the file tree. Starts instantly, builds in a fraction
-         of the time, and fits anywhere.</p>
+      <h3>full <span class="size">14 MB</span></h3>
+      <p>Everything, for a terminal: over ssh, in tmux, on a machine with no
+         display. What the install line gives you with no <code>--build</code>.</p>
+      <ul>
+        <li>Everything in <code>minimal</code></li>
+        <li>tree-sitter: eleven grammars in it, and it can fetch more</li>
+        <li>A language server: autocomplete, lsp-ui-doc, the lot</li>
+        <li>magit, a terminal panel, project search, scripting</li>
+      </ul>
+      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh</pre>
+    </div>
+
+    <div class="build">
+      <h3>minimal <span class="size">4.9 MB</span></h3>
+      <p>The editor and the file tree, with nothing that talks to anything
+         else. Builds in a fraction of the time and fits anywhere.</p>
       <ul>
         <li>Emacs keys, buffers, windows</li>
         <li>The file tree, dired, macros</li>
@@ -268,34 +381,6 @@ footer .sp { margin-left: auto; }
     -s -- --build minimal</pre>
     </div>
 
-    <div class="build pick">
-      <h3>full <span class="tag">default</span> <span class="size">13 MB</span></h3>
-      <p>Everything, in a terminal. What most people want, and what the
-         install line above gives you.</p>
-      <ul>
-        <li>Everything in <code>minimal</code></li>
-        <li>tree-sitter: eleven grammars in it, and it can fetch more</li>
-        <li>A language server: autocomplete, lsp-ui-doc, the lot</li>
-        <li>magit, a terminal panel, project search, scripting</li>
-      </ul>
-      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh</pre>
-    </div>
-
-    <div class="build">
-      <h3>gui <span class="size">21 MB</span></h3>
-      <p>Everything, and a window drawn by the GPU as well as a terminal.
-         Which one it opens is decided when it starts.</p>
-      <ul>
-        <li>Everything in <code>full</code></li>
-        <li>Smooth, sub-line scrolling</li>
-        <li>Ligatures, and blur behind every popup</li>
-        <li>Mouse, system clipboard, any font</li>
-        <li><code>maxgus -nw</code> for the terminal</li>
-      </ul>
-      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh \
-    -s -- --build gui</pre>
-    </div>
-
   </div>
 </div></section>
 
@@ -304,9 +389,9 @@ footer .sp { margin-left: auto; }
   <p class="lede">
     Every release carries all three builds for Linux, macOS, Windows and
     FreeBSD, each with a <code>.sha256</code> beside it. The install line
-    above works out which one you want; below is the same thing said
-    per platform, and the archives are there if you would rather not pipe
-    anything into a shell.
+    above works out which archive your machine wants; below is the same
+    thing said per platform, and the archives are there if you would rather
+    not pipe anything into a shell.
   </p>
 
   <div class="builds">
@@ -315,10 +400,10 @@ footer .sp { margin-left: auto; }
       <h3>Linux</h3>
       <p>glibc, musl and aarch64. A musl system gets the static build, which
          runs anywhere; the script works that out from <code>ldd</code>.</p>
-      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh
-<span class="c"># or the window build:</span>
-<span class="p">$ </span>curl -fsSL …/install.sh | sh \
-    -s -- --build gui</pre>
+      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh \
+    -s -- --build gui
+<span class="c"># or the terminal-only build:</span>
+<span class="p">$ </span>curl -fsSL …/install.sh | sh</pre>
       <ul>
         <li><code>x86_64</code> — all three builds</li>
         <li><code>x86_64</code> static (musl) — no <code>gui</code></li>
@@ -330,7 +415,8 @@ footer .sp { margin-left: auto; }
       <h3>macOS</h3>
       <p>Intel and Apple Silicon, all three builds. The same line: the script
          reads <code>uname</code> and takes the right archive.</p>
-      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh</pre>
+      <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh \
+    -s -- --build gui</pre>
       <ul>
         <li>Goes to <code>~/.local/bin</code> unless <code>--prefix</code>
             says otherwise</li>
@@ -344,7 +430,7 @@ footer .sp { margin-left: auto; }
       <p>All three builds, as a <code>.zip</code>. There is no shell script
          for it — unzip it and put <code>maxgus.exe</code> somewhere on your
          <code>PATH</code>.</p>
-      <pre><span class="p">&gt; </span>set V=maxgus-full-windows-x86_64
+      <pre><span class="p">&gt; </span>set V=maxgus-gui-windows-x86_64
 <span class="p">&gt; </span>curl.exe -LO …/%V%.zip
 <span class="p">&gt; </span>tar -xf %V%.zip</pre>
       <ul>
@@ -399,17 +485,20 @@ footer .sp { margin-left: auto; }
   <h2>What it looks like</h2>
   <p class="lede">
     Not mock-ups. Every one of these is the editor's own redisplay — the
-    terminal pictures are drawn by the same <code>draw</code> a session runs,
-    and the window pictures are photographs of it running.
+    window pictures are photographs of it running on a GPU, and the two
+    terminal pictures at the end are drawn by the same <code>draw</code> a
+    session runs.
   </p>
 
   <div class="tabs" role="tablist">
-    <button role="tab" aria-selected="true" data-shot="s-editor">the editor</button>
-    <button role="tab" aria-selected="false" data-shot="s-which">which-key</button>
-    <button role="tab" aria-selected="false" data-shot="s-command">M-x</button>
+    <button role="tab" aria-selected="true" data-shot="s-editor">the window</button>
+    <button role="tab" aria-selected="false" data-shot="s-card">the doc card</button>
     <button role="tab" aria-selected="false" data-shot="s-popups">blurred popups</button>
     <button role="tab" aria-selected="false" data-shot="s-ligatures">ligatures</button>
+    <button role="tab" aria-selected="false" data-shot="s-undercurl">a wave under an error</button>
     <button role="tab" aria-selected="false" data-shot="s-doc">lsp-ui-doc</button>
+    <button role="tab" aria-selected="false" data-shot="s-which">which-key</button>
+    <button role="tab" aria-selected="false" data-shot="s-command">M-x</button>
     <button role="tab" aria-selected="false" data-shot="s-magit">magit</button>
     <button role="tab" aria-selected="false" data-shot="s-tree">file tree</button>
     <button role="tab" aria-selected="false" data-shot="s-grammar">install a grammar</button>
@@ -424,7 +513,12 @@ footer .sp { margin-left: auto; }
 
   <figure class="shot" id="s-editor">
     <img src="screenshots/gui-editor.png" alt="maxgus editing its own source, with the file tree and the buffer list down the left" loading="lazy" width="1280" height="720">
-    <figcaption>The window: a file open beside the side panel, which stacks the file tree, the symbols in the buffer and the open buffers.</figcaption>
+    <figcaption>The window: a file open beside the side panel, which stacks the file tree, the symbols in the buffer and the open buffers. Drawn by wgpu, in whatever font the system has.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-card" hidden>
+    <img src="screenshots/gui-doc-card.png" alt="A rounded card beside a line of C, setting what clangd knows about printf in a proportional face with the code parts in the editor's font" loading="lazy" width="1280" height="720">
+    <figcaption><kbd>C-c c k</kbd> asks the language server what the thing at point is, and the answer arrives on a card: the prose in a proportional face wrapped at the pixel, the code in the editor's own font on a chip, over a blur of what is behind it. Real output from clangd. <code>gui</code> only.</figcaption>
   </figure>
 
   <figure class="shot" id="s-which" hidden>
@@ -439,17 +533,22 @@ footer .sp { margin-left: auto; }
 
   <figure class="shot" id="s-popups" hidden>
     <img src="screenshots/gui-buffers.png" alt="A buffer-switching popup over source code, the code behind it blurred" loading="lazy" width="1280" height="720">
-    <figcaption>What is behind a popup is blurred rather than hidden, so you keep your place while you read the list. While nothing is open it costs nothing. <code>gui</code> only.</figcaption>
+    <figcaption>What is behind a popup is blurred rather than hidden, so you keep your place while you read the list. Three passes while a popup is open, and none at all while nothing is. <code>gui</code> only.</figcaption>
   </figure>
 
   <figure class="shot" id="s-ligatures" hidden>
     <img src="screenshots/gui-ligatures.png" alt="A line of Rust with its operators drawn as ligatures" loading="lazy" width="1280" height="720">
-    <figcaption>Ligatures where the font has them — <code>-&gt;</code> as one arrow, <code>==</code> as one glyph — without changing a byte of the file. <code>gui</code> only.</figcaption>
+    <figcaption>Ligatures where the font has them — <code>-&gt;</code> as one arrow, <code>!=</code> as one glyph — without changing a byte of the file. The text is shaped, not looked up a character at a time, and the cursor's own cell is never joined, so a block over half of <code>≠</code> can never hide which character is under it. <code>gui</code> only.</figcaption>
+  </figure>
+
+  <figure class="shot" id="s-undercurl" hidden>
+    <img src="screenshots/gui-undercurl.png" alt="A C file with wavy lines under its mistakes, and a wavy count of them in the mode line" loading="lazy" width="1280" height="720">
+    <figcaption>A diagnostic's underline is the wavy one, drawn by the GPU in the severity's colour, joined across the cells it runs under and as smooth at any zoom. The terminal front end asks kitty, foot, WezTerm, Ghostty and their kind for the same.</figcaption>
   </figure>
 
   <figure class="shot" id="s-doc" hidden>
     <img src="screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and documentation from clangd" loading="lazy" width="1280" height="720">
-    <figcaption>Rest the cursor on a symbol and the language server's answer appears beside it, not over it — real output from clangd.</figcaption>
+    <figcaption>Rest the cursor on a symbol and what the language server knows appears in a box beside it, not over it, the way lsp-ui-doc does. In both front ends.</figcaption>
   </figure>
 
   <figure class="shot" id="s-magit" hidden>
@@ -494,7 +593,7 @@ footer .sp { margin-left: auto; }
 
   <figure class="shot" id="s-beacon" hidden>
     <img src="screenshots/beacon.svg" alt="A light beside the cursor after it jumped, fading out to the right" loading="lazy" width="1280" height="720">
-    <figcaption>A light where the cursor landed after a jump, so the eye finds it again — beacon, for Emacs.</figcaption>
+    <figcaption>A light where the cursor landed after a jump, so the eye finds it again — beacon, for Emacs. This is the terminal's answer; the window animates the cursor across instead.</figcaption>
   </figure>
 
   <figure class="shot" id="s-themes" hidden>
@@ -503,27 +602,124 @@ footer .sp { margin-left: auto; }
   </figure>
 </div></section>
 
+<section id="window"><div class="wrap">
+  <h2>In the window</h2>
+  <p class="lede">
+    The <code>gui</code> build is the same editor — the same commands, the
+    same keys, the same redisplay — drawn into a window by wgpu rather than
+    into a terminal by escape sequences. This is what the GPU buys.
+  </p>
+  <div class="features">
+    <div class="feature">
+      <h3>Documentation set in prose <span class="new">new</span></h3>
+      <p><kbd>C-c c k</kbd> asks what the thing at point is, and the answer
+         comes on a card beside the line rather than in a box of cells: the
+         prose in a proportional face, wrapped at the pixel; the code in the
+         editor's own font on a chip; rounded corners, a border, and a blur of
+         what is behind it.</p>
+    </div>
+    <div class="feature">
+      <h3>Blur behind every popup</h3>
+      <p>The completion list, the doc box, the which-key panel: each sits on a
+         blurred copy of what it covers rather than on a hole cut in the text.
+         While no popup is open it costs nothing at all.</p>
+    </div>
+    <div class="feature">
+      <h3>Ligatures, and a cursor that respects them</h3>
+      <p><code>!=</code> drawn as the one mark its font's designer drew, and
+         <code>-&gt;</code>, <code>=&gt;</code>, <code>&lt;=</code> with it. The
+         text is shaped, so which characters join is the font's answer; they
+         form only in code, and the cursor's own cell comes apart so a block
+         over half of <code>≠</code> never hides what is under it.</p>
+    </div>
+    <div class="feature">
+      <h3>A cursor that travels</h3>
+      <p>The block slides to where point went and smears on the way — the
+         corners at the back are given less of the distance — so the eye
+         follows it across a jump rather than hunting for it. A hop of a cell
+         gets its own, shorter timing. Six effects for it to leave behind,
+         off unless asked: <code>sonicboom</code>, <code>ripple</code>,
+         <code>wireframe</code>, <code>railgun</code>, <code>torpedo</code>,
+         <code>pixiedust</code>.</p>
+    </div>
+    <div class="feature">
+      <h3>Scrolling on a spring</h3>
+      <p>Sub-line, driven by a critically damped spring rather than an easing
+         curve, so a second wheel notch adds to the first instead of restarting
+         it. Only the window being scrolled moves; the view a command moves —
+         <kbd>C-v</kbd>, a search — slides too.</p>
+    </div>
+    <div class="feature">
+      <h3>A wave under an error <span class="new">new</span></h3>
+      <p>A diagnostic's underline is the wavy one, drawn by the GPU in the
+         severity's colour, joined across the cells it runs under and as
+         smooth at any zoom. <code>undercurl=#true</code> puts one under any
+         face.</p>
+    </div>
+    <div class="feature">
+      <h3>Zoom <span class="new">new</span></h3>
+      <p><kbd>C-x C-+</kbd> and <kbd>C-x C--</kbd> draw the text a tenth
+         larger or smaller, <kbd>C-x C-0</kbd> puts it back, and the wheel
+         with control held does the same. The font is re-cut from what is
+         already loaded, so it is as quick as a keypress should be.</p>
+    </div>
+    <div class="feature">
+      <h3>A mark at the edge while it moves <span class="new">new</span></h3>
+      <p>A thin bar at the right says where the window is in its buffer and
+         how much of it it shows, the way a phone's does. It appears when the
+         window scrolls and fades a moment after it stops, so a page being
+         read has nothing at its edge.</p>
+    </div>
+    <div class="feature">
+      <h3>Pictures <span class="new">new</span></h3>
+      <p>A PNG, JPEG, GIF, WebP or BMP opens as a picture rather than as the
+         bytes it is made of, at its own size where there is room. In a
+         document, <kbd>C-c o i</kbd> opens the image a markdown or HTML line
+         refers to, beside it.</p>
+    </div>
+    <div class="feature">
+      <h3>Any font, sharp on any display</h3>
+      <p><code>set gui-font</code> names any family on the system. Bold and
+         italic are their own faces where the family has them; a character it
+         lacks — an ideograph, an emoji, in colour — comes from a font that
+         has it. A display that reports a scale gets glyphs cut that much
+         larger, and dragging the window to another one cuts them again.</p>
+    </div>
+    <div class="feature">
+      <h3>A window that behaves like one <span class="new">new</span></h3>
+      <p>Its title says the file, the project and a <code>•</code> while there
+         is unsaved work. The close button refuses to throw that work away.
+         It opens at the size it was last closed at, <kbd>F11</kbd> fills the
+         screen and gives it back, and it sleeps when nothing is happening.</p>
+    </div>
+    <div class="feature">
+      <h3>The mouse, and the clipboard</h3>
+      <p>Click to place point, drag to select, twice for the word, three
+         times for the line, middle button to paste, a file dropped on the
+         window to open it. The system clipboard rather than a terminal's
+         guess at one, and the primary selection where there is one.</p>
+    </div>
+  </div>
+</div></section>
+
 <section id="features"><div class="wrap">
-  <h2>What is in it</h2>
+  <h2>And in both</h2>
+  <p class="lede">
+    Everything below is in the window and in the terminal alike: one
+    editor, one command set, one configuration.
+  </p>
   <div class="features">
     <div class="feature">
       <h3>Emacs keys, and Doom's</h3>
       <p>The classic bindings, and Doom's leader scheme under <kbd>C-c</kbd>.
          Prefix arguments, keyboard macros, registers, rectangles, the mark
-         ring.</p>
+         ring — and they behave like Emacs, down to how undo groups a run of
+         typing.</p>
     </div>
     <div class="feature">
-      <h3>which-key <span class="new">new</span></h3>
+      <h3>which-key</h3>
       <p>Pause mid-sequence and a panel says what can follow it, so the
          leader is learned rather than memorised.</p>
-    </div>
-    <div class="feature">
-      <h3>Grammars it installs itself <span class="new">new</span></h3>
-      <p><kbd>M-x install-grammar</kbd> lists the five hundred parsers
-         tree-sitter's wiki names, then clones, builds and loads the one you
-         pick. Open a file in a language it has no grammar for and it offers,
-         naming the repository it would clone. Nothing is fetched or built
-         until you answer.</p>
     </div>
     <div class="feature">
       <h3>tree-sitter highlighting</h3>
@@ -532,20 +728,24 @@ footer .sp { margin-left: auto; }
          one the editor fetches and builds for you.</p>
     </div>
     <div class="feature">
+      <h3>Grammars it installs itself</h3>
+      <p><kbd>M-x install-grammar</kbd> lists the five hundred parsers
+         tree-sitter's wiki names, then clones, builds and loads the one you
+         pick. Open a file in a language it has no grammar for and it offers,
+         naming the repository it would clone. Nothing is fetched or built
+         until you answer.</p>
+    </div>
+    <div class="feature">
       <h3>A language-server client</h3>
       <p>Diagnostics, go to definition, references, rename, code actions,
-         formatting, completion — and a doc box beside the cursor.</p>
+         formatting, completion — and a doc box beside the cursor, the way
+         lsp-ui-doc does it.</p>
     </div>
     <div class="feature">
-      <h3>Autocomplete <span class="new">new</span></h3>
+      <h3>Autocomplete</h3>
       <p>After a couple of letters, a list at the cursor of what the language
          server says could follow. Typing narrows it; <kbd>RET</kbd> takes
-         one.</p>
-    </div>
-    <div class="feature">
-      <h3>lsp-ui-doc <span class="new">new</span></h3>
-      <p>Rest on a symbol and what the server knows appears beside the line
-         it is about, rather than in a window over the code.</p>
+         one; every other key goes into the buffer.</p>
     </div>
     <div class="feature">
       <h3>magit</h3>
@@ -558,23 +758,6 @@ footer .sp { margin-left: auto; }
          stacks the tree, the symbol outline and the buffer list.</p>
     </div>
     <div class="feature">
-      <h3>Lines that wrap, when you ask <span class="new">new</span></h3>
-      <p><code>truncate-lines</code> off wraps a long line across the rows
-         below it rather than clipping it at the edge, and everything that
-         counts lines — the cursor, the region, the beacon, a page of
-         scrolling — counts rows with it.</p>
-    </div>
-    <div class="feature">
-      <h3>A window, as well as a terminal <span class="new">new</span></h3>
-      <p>The same editor drawn by the GPU: smooth sub-line scrolling, the
-         mouse, the system clipboard, and any font on the system.</p>
-    </div>
-    <div class="feature">
-      <h3>beacon <span class="new">new</span></h3>
-      <p>A light where the cursor lands after a jump. Off by default;
-         <code>set beacon=#true</code> turns it on.</p>
-    </div>
-    <div class="feature">
       <h3>A terminal panel</h3>
       <p>A real pseudo-terminal along the bottom, in tabs, running whatever
          <code>$SHELL</code> says.</p>
@@ -583,6 +766,23 @@ footer .sp { margin-left: auto; }
       <h3>Project search, and editing the results</h3>
       <p>grep the project, then edit the matches in place and write them all
          back — wgrep.</p>
+    </div>
+    <div class="feature">
+      <h3>Many cursors, and an undo tree</h3>
+      <p>Take the next occurrence, and the next, and type once into all of
+         them. Undo keeps what you undid: the history is a tree, with a
+         visualiser.</p>
+    </div>
+    <div class="feature">
+      <h3>Lines that wrap, when you ask</h3>
+      <p><code>truncate-lines</code> off wraps a long line across the rows
+         below it rather than clipping it at the edge, and everything that
+         counts lines counts rows with it.</p>
+    </div>
+    <div class="feature">
+      <h3>beacon <span class="where">terminal</span></h3>
+      <p>A light where the cursor lands after a jump — the terminal's answer
+         to the question the window answers by moving the cursor there.</p>
     </div>
     <div class="feature">
       <h3>No Lisp interpreter</h3>
@@ -640,10 +840,10 @@ footer .sp { margin-left: auto; }
          <a href="https://github.com/alejandro-llanes/maxgus-editor/blob/main/docs/configuration-reference.md">the reference</a>
          lists every setting, face and key.</p>
     </div>
-    <pre class="block"><span class="p">$</span> maxgus src/main.rs         <span class="c"># a terminal</span>
-<span class="p">$</span> maxgus -nw src/main.rs     <span class="c"># a terminal, from a gui build</span>
+    <pre class="block"><span class="p">$</span> maxgus src/main.rs         <span class="c"># a window</span>
+<span class="p">$</span> maxgus -nw src/main.rs     <span class="c"># the terminal, spelled the way Emacs spells it</span>
 <span class="p">$</span> maxgus --version
-maxgus 1.3.1 (full)
+maxgus 1.3.1 (gui)
 
 <span class="c"># Install somewhere else, or an older release:</span>
 <span class="p">$</span> curl -fsSL …/install.sh | sh -s -- \
@@ -657,7 +857,7 @@ maxgus 1.3.1 (full)
   <a href="https://github.com/alejandro-llanes/maxgus-editor/issues">Issues</a>
   <a href="install.sh">install.sh</a>
   <a href="https://github.com/alejandro-llanes/maxgus-editor/blob/main/CHANGELOG.md">Changelog</a>
-  <span class="sp">Written in Rust, edition 2024. No unsafe code.</span>
+  <span class="sp">Written in Rust, edition 2024. No unsafe code. Drawn by wgpu.</span>
 </div></footer>
 
 <script>

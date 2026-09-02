@@ -34,7 +34,8 @@
 #     pacman -S cage grim wtype
 #
 # and a `gui` build, which `./scripts/build-variants.sh` leaves in
-# `target/variants/maxgus-gui`.
+# `target/variants/maxgus-gui`. The two pictures that ask a language
+# server something — `doc-card` and `undercurl` — need `clangd` as well.
 #
 # The editor is started with `scripts/screenshots-gui.kdl` rather than with
 # your own configuration, so the pictures show what ships.
@@ -78,7 +79,7 @@ project_copy() {
     git -C "$dir" \
         -c user.name=maxgus -c user.email=maxgus@example.com \
         -c commit.gpgsign=false \
-        commit -q -m "A very small Emacs, written in Rust"
+        commit -q -m "A lightning-fast Emacs, written in Rust"
     printf '%s' "$dir"
 }
 
@@ -259,8 +260,29 @@ shot_undo() {
     capture undo
 }
 
+# The two that ask a language server something. clangd, because it is the
+# one most likely to be on the machine taking the pictures, and a C file
+# written for it: `fixture_c` below.
+
+shot_doc_card() {
+    pause 3.0                           # clangd indexes
+    meta g; key g; pause 0.4
+    text "27"; key Return; pause 0.5    # the printf that sums it up
+    ctrl a; for _ in 1 2 3 4; do key Right; done
+    pause 0.4
+    ctrl c; key c; key k                # C-c c k: what is this?
+    pause 3.0
+    capture doc-card
+}
+
+shot_undercurl() {
+    meta greater                        # off the include, or its box appears
+    pause 6.0                           # the diagnostics have to arrive
+    capture undercurl
+}
+
 SHOTS="editor which-key buffers command grammar ligatures tree magit \
-       terminal grep cursors dired undo"
+       terminal grep cursors dired undo doc-card undercurl"
 
 # The side panel: the file tree, the outline and the buffer list, which is
 # what most of these pictures should have beside the code.
@@ -333,6 +355,77 @@ EOF
         > "$dir/NOTES.md"
 }
 
+# What the language-server pictures are of. Real C that clangd has something
+# to say about: a program that is right, for the card, and one that is wrong
+# four ways, for the waves under the mistakes.
+fixture_c() {
+    local dir=$1
+    rm -rf "$dir"
+    mkdir -p "$dir"
+    printf '%s\n' -Wall -Wextra > "$dir/compile_flags.txt"
+    cat > "$dir/ledger.c" <<'EOF'
+#include <stdio.h>
+#include <stdlib.h>
+
+/* A tally of what was spent, one line each. */
+struct entry {
+    double amount;
+    char what[64];
+};
+
+static double total(const struct entry *entries, size_t count)
+{
+    double sum = 0;
+    for (size_t i = 0; i < count; i++)
+        sum += entries[i].amount;
+    return sum;
+}
+
+int main(void)
+{
+    struct entry entries[] = {
+        { 3.40, "coffee" },
+        { 12.00, "lunch" },
+    };
+    size_t count = sizeof entries / sizeof entries[0];
+    for (size_t i = 0; i < count; i++)
+        printf("%8.2f  %s\n", entries[i].amount, entries[i].what);
+    printf("%8.2f  total\n", total(entries, count));
+    return 0;
+}
+EOF
+    cat > "$dir/mistakes.c" <<'EOF'
+#include <stdio.h>
+
+struct point { int x; int y; };
+
+static int add(int a, int b) { return a + b; }
+
+int main(void)
+{
+    struct point p = { 1, 2 };
+    int total = add(p.x, p.z);
+    int unused = 3;
+    printf("%d\n", totl);
+    return "no";
+}
+EOF
+}
+
+# The configuration the language-server pictures are taken under: the same
+# one, with the server turned back on and clangd named for C.
+lsp_config() {
+    local file=$1
+    sed 's/^set lsp-enabled=#false/set lsp-enabled=#true/' \
+        "$root/scripts/screenshots-gui.kdl" > "$file"
+    cat >> "$file" <<'EOF'
+
+lsp "c" command="clangd" {
+    root-markers "compile_flags.txt"
+}
+EOF
+}
+
 # ---- the compositor -----------------------------------------------------
 
 # Everything started for one take, so a failure half way through takes its
@@ -371,7 +464,7 @@ start_compositor() {
         WLR_BACKENDS=headless \
         WLR_LIBINPUT_NO_DEVICES=1 \
         cage -- "$binary" --gui \
-            --config "$root/scripts/screenshots-gui.kdl" \
+            --config "$config" \
             --directory "$workdir" \
             "$workdir/$opens" \
         >"$log_dir/compositor.log" 2>&1 ) &
@@ -407,14 +500,30 @@ take() {
     log_dir=$(mktemp -d)
 
     # Most shots are of this project, which is real code with real symbols
-    # and a real tree. magit is of a repository made for it.
+    # and a real tree. magit is of a repository made for it, and the two
+    # that ask a language server are of a C program written for clangd.
     workdir="$PROJECT"
     opens="crates/maxgus-core/src/fuzzy.rs"
-    if [ "$name" = magit ]; then
-        workdir=$(mktemp -d /tmp/maxgus-shot-repo-XXXXXX)
-        fixture_repo "$workdir"
-        opens="src/lib.rs"
-    fi
+    config="$root/scripts/screenshots-gui.kdl"
+    # A fixture goes in a directory with a name worth reading, under a
+    # scratch one, because the project's name is in the mode line.
+    scratch=
+    case "$name" in
+        magit)
+            scratch=$(mktemp -d /tmp/maxgus-shot-repo-XXXXXX)
+            workdir=$scratch/ledger
+            fixture_repo "$workdir"
+            opens="src/lib.rs" ;;
+        doc-card|undercurl)
+            command -v clangd >/dev/null || die "$name needs clangd on the PATH"
+            scratch=$(mktemp -d /tmp/maxgus-shot-repo-XXXXXX)
+            workdir=$scratch/ledger
+            fixture_c "$workdir"
+            config="$log_dir/config.kdl"
+            lsp_config "$config"
+            opens="ledger.c"
+            [ "$name" = undercurl ] && opens="mistakes.c" ;;
+    esac
 
     start_compositor
     mkdir -p "$out"
@@ -424,7 +533,8 @@ take() {
 
     [ -s "$out/gui-$name.png" ] || die "$name produced no picture; see $log_dir/compositor.log"
     rm -rf "$log_dir"
-    case "$workdir" in /tmp/maxgus-shot-repo-*) rm -rf "$workdir" ;; esac
+    [ -n "$scratch" ] && rm -rf "$scratch"
+    return 0
 }
 
 case "${1:-}" in

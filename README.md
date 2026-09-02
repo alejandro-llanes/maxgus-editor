@@ -79,7 +79,7 @@ path in it, because a launcher does not see your shell's `PATH`.
 | | `minimal` | `full` *(default)* | `gui` |
 |---|:---:|:---:|:---:|
 | **Binary** | **4.8M** | **13M** | **21M** |
-| **Commands** | 324 | 476 | 476 |
+| **Commands** | 325 | 477 | 477 |
 | **Needs from the system** | nothing | nothing | a window system's headers |
 | Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
 | Buffers, windows, `C-x` everything | ● | ● | ● |
@@ -169,8 +169,8 @@ $ ./target/release/maxgus
 
 ### Emacs keys, and they behave like Emacs
 
-**409 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **476 commands**. Prefix
+**410 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
+the panel, tree, magit and terminal maps, driving **477 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -826,6 +826,7 @@ first.
 | `C-h v` | A setting's current value |
 | `C-c t l` `C-c t I` | Toggle line numbers, tabs-or-spaces |
 | `C-x C-+` `C-x C--` `C-x C-0` | In a window: text larger, smaller, back to its configured size |
+| `<f11>` | In a window: fill the screen with it, or give the screen back |
 | `C-c f y` `C-c f Y` | Copy this file's path, its path in the project |
 | `C-c f D` `C-c f m` | Delete this file, rename or move it |
 | `C-c c w` | Delete trailing whitespace |
@@ -1021,7 +1022,10 @@ What the window has that a terminal cannot:
   buffer's name, the file's path, the project's name or path and the
   mark); the close button runs the
   same command `C-x C-c` does, so it refuses to throw that work away; it
-  opens at the size it was last closed at; its cursor is an outline while
+  opens at the size it was last closed at, and over the whole screen if
+  that is how it was left — `<f11>` (`M-x toggle-frame-fullscreen`) fills
+  the screen and gives it back, and the compositor's own key for the same
+  thing is noticed too; its cursor is an outline while
   another window has the keyboard; and it sleeps when nothing is happening
   rather than redrawing a still screen sixty times a second.
 - **Any font on the system**, at any size: `set gui-font` and

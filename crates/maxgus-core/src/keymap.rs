@@ -347,6 +347,7 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-h s", "describe-syntax-at-point"),
     ("C-h t", "help-with-tutorial"),
     ("<f1>", "describe-key"),
+    ("<f11>", "toggle-frame-fullscreen"),
     // ---- shell ----
     ("M-!", "shell-command"),
     ("M-|", "shell-command-on-region"),

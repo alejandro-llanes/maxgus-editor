@@ -238,11 +238,14 @@ struct App {
     geometry: crate::geometry::Geometry,
     /// Where the size is remembered, when there is somewhere.
     geometry_path: Option<std::path::PathBuf>,
+    /// Whether the window has been asked to fill the screen: what the
+    /// editor last said, so a change in what it says is noticed.
+    fullscreen: bool,
 }
 
 impl App {
     fn new(
-        editor: Editor,
+        mut editor: Editor,
         dispatcher: Dispatcher,
         settings: Settings,
         tasks: std::sync::mpsc::Sender<Task>,
@@ -250,6 +253,8 @@ impl App {
         remembered: Option<crate::geometry::Geometry>,
         geometry_path: Option<std::path::PathBuf>,
     ) -> App {
+        // A window can fill the screen, and does again if it did last time.
+        editor.fullscreen = Some(remembered.is_some_and(|g| g.fullscreen));
         App {
             editor,
             dispatcher,
@@ -283,9 +288,29 @@ impl App {
             zoom_wheel: 0.0,
             scale: 1.0,
             size: (1, 1),
+            fullscreen: remembered.is_some_and(|g| g.fullscreen),
             geometry: remembered.unwrap_or(crate::geometry::Geometry::DEFAULT),
             geometry_path,
         }
+    }
+
+    /// What `toggle-frame-fullscreen` asked for since the last frame, if
+    /// anything: the window is asked, and remembers having been.
+    fn fullscreen_change(&mut self) -> Option<bool> {
+        let wanted = self.editor.fullscreen?;
+        if wanted == self.fullscreen {
+            return None;
+        }
+        self.fullscreen = wanted;
+        Some(wanted)
+    }
+
+    /// The window's word on whether it fills the screen, which is the
+    /// compositor's: its own key may have filled it, or given it back.
+    fn adopt_fullscreen(&mut self, filled: bool) {
+        self.fullscreen = filled;
+        self.editor.fullscreen = Some(filled);
+        self.geometry.fullscreen = filled;
     }
 
     fn metrics(&self) -> CellMetrics {
@@ -919,7 +944,11 @@ impl ApplicationHandler for App {
             .with_inner_size(winit::dpi::LogicalSize::new(
                 self.geometry.width,
                 self.geometry.height,
-            ));
+            ))
+            .with_fullscreen(
+                self.fullscreen
+                    .then_some(winit::window::Fullscreen::Borderless(None)),
+            );
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(error) => {
@@ -976,13 +1005,20 @@ impl ApplicationHandler for App {
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer.resize(size.width, size.height);
                 }
-                if let Some(window) = self.window.as_ref() {
-                    let logical: winit::dpi::LogicalSize<f64> =
-                        size.to_logical(window.scale_factor());
-                    self.geometry = crate::geometry::Geometry {
-                        width: logical.width,
-                        height: logical.height,
-                    };
+                if let Some(window) = self.window.clone() {
+                    // The compositor's word on whether the window fills the
+                    // screen, which its own key may have changed; and the
+                    // screen's size is not the window's to remember.
+                    let filled = window.fullscreen().is_some();
+                    if filled != self.fullscreen {
+                        self.adopt_fullscreen(filled);
+                    }
+                    if !filled {
+                        let logical: winit::dpi::LogicalSize<f64> =
+                            size.to_logical(window.scale_factor());
+                        self.geometry.width = logical.width;
+                        self.geometry.height = logical.height;
+                    }
                 }
                 self.fit(size.width, size.height);
                 // Every cell is somewhere else now. The block did not travel
@@ -1162,6 +1198,14 @@ impl ApplicationHandler for App {
         if self.editor.text_scale_factor() != self.zoom {
             self.rescale();
         }
+        // `<f11>` asked for the screen, or for the window back.
+        if let Some(filled) = self.fullscreen_change() {
+            self.geometry.fullscreen = filled;
+            if let Some(window) = self.window.as_ref() {
+                window
+                    .set_fullscreen(filled.then_some(winit::window::Fullscreen::Borderless(None)));
+            }
+        }
         // The light beside the cursor, by however long the last frame took.
         let now = std::time::Instant::now();
         let since = frame_time(
@@ -1276,6 +1320,24 @@ mod tests {
             palette: Palette::of(&theme),
         };
         App::new(editor, dispatcher, settings, tasks, results, None, None)
+    }
+
+    #[test]
+    fn the_screen_is_asked_for_once_and_the_compositors_word_is_taken() {
+        let mut app = app(maxgus_config::Settings::default());
+        assert_eq!(app.editor.fullscreen, Some(false), "a window can");
+        assert_eq!(app.fullscreen_change(), None, "nothing asked yet");
+        app.editor.toggle_fullscreen().expect("a window can");
+        assert_eq!(app.fullscreen_change(), Some(true));
+        assert_eq!(app.fullscreen_change(), None, "asked once, not every frame");
+        // The compositor gave the window back on its own key: the editor
+        // is told, and the next `<f11>` fills the screen rather than
+        // asking for a window it already has.
+        app.adopt_fullscreen(false);
+        assert_eq!(app.editor.fullscreen, Some(false));
+        assert!(!app.geometry.fullscreen);
+        app.editor.toggle_fullscreen().unwrap();
+        assert_eq!(app.fullscreen_change(), Some(true));
     }
 
     #[test]

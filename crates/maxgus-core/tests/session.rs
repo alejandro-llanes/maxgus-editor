@@ -4923,9 +4923,9 @@ fn the_readme_quotes_the_right_totals() {
 }
 
 #[cfg(feature = "full")]
-const README_BINDINGS: usize = 409;
+const README_BINDINGS: usize = 410;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 476;
+const README_COMMANDS: usize = 477;
 
 #[cfg(feature = "full")]
 #[test]
@@ -8762,7 +8762,7 @@ fn the_readme_quotes_the_right_total_for_a_minimal_build() {
 }
 
 #[cfg(not(feature = "full"))]
-const README_MINIMAL_COMMANDS: usize = 324;
+const README_MINIMAL_COMMANDS: usize = 325;
 
 #[test]
 fn the_box_says_what_it_is_asking_and_what_ret_will_do() {

@@ -52,6 +52,11 @@ pub fn register(registry: &mut Registry) {
             text_scale_reset
         ),
         command!(
+            "toggle-frame-fullscreen",
+            "Fill the screen with the window, or give it back.",
+            toggle_frame_fullscreen
+        ),
+        command!(
             "universal-argument",
             "Begin a prefix argument.",
             universal_argument,
@@ -915,6 +920,12 @@ fn text_scale_reset(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.adjust_text_scale(0)
 }
 
+/// `<f11>`: the window over the whole screen, or back in its frame. The
+/// window reads the answer on its next frame and asks the compositor.
+fn toggle_frame_fullscreen(editor: &mut Editor, _: &Args) -> Result<()> {
+    editor.toggle_fullscreen()
+}
+
 fn on_or_off(on: bool) -> &'static str {
     match on {
         true => "on",
@@ -967,6 +978,25 @@ mod tests {
             e.minibuffer.insert_char(c);
         }
         d.handle_keys(e, "RET");
+    }
+
+    #[test]
+    fn the_window_fills_the_screen_and_gives_it_back_where_there_is_one() {
+        let (mut d, mut e) = setup("");
+        let refused = fails(&mut d, &mut e, "toggle-frame-fullscreen");
+        assert!(refused.contains("terminal"), "{refused}");
+        assert_eq!(e.fullscreen, None);
+
+        e.fullscreen = Some(false);
+        d.handle_keys(&mut e, "<f11>");
+        assert_eq!(e.fullscreen, Some(true));
+        assert!(
+            e.minibuffer.message().is_some_and(|m| m.contains("<f11>")),
+            "the way back is said, since the window's own buttons are gone"
+        );
+        run(&mut d, &mut e, "toggle-frame-fullscreen");
+        assert_eq!(e.fullscreen, Some(false));
+        assert_eq!(e.minibuffer.message(), Some("Back in a window"));
     }
 
     #[test]

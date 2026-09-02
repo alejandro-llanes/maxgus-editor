@@ -163,6 +163,11 @@ pub struct Editor {
     /// size the terminal makes it. A window sets this to `Some(0)` and
     /// reads it back every frame.
     pub text_scale: Option<i32>,
+    /// Whether the window fills the screen, or `None` where there is no
+    /// window to fill it: a terminal's size is the terminal's. A window
+    /// sets this to what it is and reads it back every frame, so
+    /// `toggle-frame-fullscreen` has only to flip it.
+    pub fullscreen: Option<bool>,
     /// The pictures behind the buffers that hold a caption in a picture's
     /// stead, for a front end that can draw them.
     pub pictures: std::collections::HashMap<BufferId, std::sync::Arc<crate::picture::Picture>>,
@@ -433,6 +438,7 @@ impl Editor {
             kill_appending: false,
             tree_window: None,
             text_scale: None,
+            fullscreen: None,
             pictures: Default::default(),
             pending_char: None,
             described_keys: KeySequence::empty(),
@@ -1482,6 +1488,22 @@ impl Editor {
             0 => self.message("Text back to its configured size"),
             _ if wanted == steps => self.message(format!("Text at {percent}%, as far as it goes")),
             _ => self.message(format!("Text at {percent}%")),
+        }
+        Ok(())
+    }
+
+    /// Fills the screen with the window, or gives the screen back, and
+    /// says which. A terminal is told it has no window to fill it with.
+    pub fn toggle_fullscreen(&mut self) -> crate::Result<()> {
+        let Some(now) = self.fullscreen else {
+            return Err(crate::CoreError::Message(
+                "The terminal decides how big its window is".into(),
+            ));
+        };
+        self.fullscreen = Some(!now);
+        match now {
+            true => self.message("Back in a window"),
+            false => self.message("Fullscreen; <f11> brings the window back"),
         }
         Ok(())
     }

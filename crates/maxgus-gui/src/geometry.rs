@@ -3,7 +3,8 @@
 //! A window that opens at the same size every time is a window that has to
 //! be dragged out every time. The size the window was closed at is kept
 //! under the state directory, beside the sessions, and is where the next
-//! one opens; nothing else about the window is — position is the
+//! one opens, and whether it filled the screen, which is where the next one
+//! goes too; nothing else about the window is — position is the
 //! compositor's to decide, and most will not take a request for it.
 
 use std::path::{Path, PathBuf};
@@ -13,6 +14,9 @@ use std::path::{Path, PathBuf};
 pub struct Geometry {
     pub width: f64,
     pub height: f64,
+    /// Whether the window filled the screen. The size is the one it had
+    /// as a window, which is what it comes back to.
+    pub fullscreen: bool,
 }
 
 impl Geometry {
@@ -20,10 +24,12 @@ impl Geometry {
     pub const DEFAULT: Geometry = Geometry {
         width: 1100.0,
         height: 720.0,
+        fullscreen: false,
     };
 
     /// Reads a size back out of what `serialize` wrote. Anything that is
-    /// not two sensible numbers is treated as nothing remembered.
+    /// not two sensible numbers is treated as nothing remembered; the word
+    /// `fullscreen` after them is what it says.
     pub fn parse(text: &str) -> Option<Geometry> {
         let mut fields = text.split_whitespace();
         if fields.next()? != "window" {
@@ -32,14 +38,23 @@ impl Geometry {
         let width: f64 = fields.next()?.parse().ok()?;
         let height: f64 = fields.next()?.parse().ok()?;
         let sensible = |n: f64| n.is_finite() && (100.0..=65535.0).contains(&n);
+        let fullscreen = fields.next() == Some("fullscreen");
         match sensible(width) && sensible(height) {
-            true => Some(Geometry { width, height }),
+            true => Some(Geometry {
+                width,
+                height,
+                fullscreen,
+            }),
             false => None,
         }
     }
 
     pub fn serialize(&self) -> String {
-        format!("window {:.0} {:.0}\n", self.width, self.height)
+        let fullscreen = match self.fullscreen {
+            true => " fullscreen",
+            false => "",
+        };
+        format!("window {:.0} {:.0}{fullscreen}\n", self.width, self.height)
     }
 }
 
@@ -69,8 +84,17 @@ mod tests {
         let geometry = Geometry {
             width: 1280.0,
             height: 800.0,
+            fullscreen: false,
         };
         assert_eq!(Geometry::parse(&geometry.serialize()), Some(geometry));
+        let filled = Geometry {
+            fullscreen: true,
+            ..geometry
+        };
+        assert_eq!(filled.serialize(), "window 1280 800 fullscreen\n");
+        assert_eq!(Geometry::parse(&filled.serialize()), Some(filled));
+        // What an older maxgus wrote is a window, as it was then.
+        assert_eq!(Geometry::parse("window 1280 800\n"), Some(geometry));
     }
 
     #[test]
@@ -94,6 +118,7 @@ mod tests {
         let geometry = Geometry {
             width: 900.0,
             height: 600.0,
+            fullscreen: true,
         };
         write(&path, geometry).expect("written");
         assert_eq!(read(&path), Some(geometry));

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **`<f11>` fills the screen with the window.** `M-x
+  toggle-frame-fullscreen` does the same, the compositor's own fullscreen
+  key is noticed so the two agree, the size the window had is what it
+  comes back to, and a window closed over the whole screen opens that
+  way next time. The terminal says its window is not the editor's.
+
 - **The window's title names the project.** `• main.rs — maxgus-editor —
   maxgus` rather than `* main.rs — maxgus`, so three windows on three
   projects can be told apart from the taskbar. `set gui-title-format`

@@ -1017,8 +1017,11 @@ What the window has that a terminal cannot:
   another window has the keyboard; and it sleeps when nothing is happening
   rather than redrawing a still screen sixty times a second.
 - **Any font on the system**, at any size: `set gui-font` and
-  `set gui-font-size`. Sized in physical pixels, so it is the same size on a
-  display that reports a scale as on one that does not. Bold and italic are
+  `set gui-font-size`. Sized in logical pixels: on a display that reports a
+  scale the glyphs are cut that much larger, so the text is the same size
+  to the eye there as on one that does not, and dragging the window from
+  one to the other cuts the font again and lays the grid out for however
+  many of the new cells fit. Bold and italic are
   separate faces where the family has them and fall back to its regular one
   where it does not, so an emphasised word is never an invisible one. A
   character the family lacks — a CJK ideograph, an emoji, a symbol — is

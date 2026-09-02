@@ -77,39 +77,15 @@ pub fn run(
             }
         }
     });
-    let mut app = App {
+    let mut app = App::new(
         editor,
         dispatcher,
         settings,
         tasks,
         results,
-        window: None,
-        renderer: None,
-        fonts: None,
-        surface: Surface::new(Size::new(1, 1)),
-        scratch: Surface::new(Size::new(1, 1)),
-        backdrop: Surface::new(Size::new(1, 1)),
-        scroll: Scroll::new(),
-        incoming: None,
-        cursor: crate::cursor::Cursor::new(),
-        vfx: crate::vfx::Vfx::new(),
-        modifiers: ModifiersState::empty(),
-        pointer: (0.0, 0.0),
-        selecting: false,
-        scrolling: None,
-        pending: None,
-        idle_at: None,
-        failure: None,
-        last_frame: None,
-        dirty: true,
-        title: None,
-        focused: true,
-        clicks: None,
-        zoom: 1.0,
-        zoom_wheel: 0.0,
-        geometry: remembered.unwrap_or(crate::geometry::Geometry::DEFAULT),
+        remembered,
         geometry_path,
-    };
+    );
     event_loop.run_app(&mut app)?;
     // The size on the way out, for the way back in.
     if let Some(path) = app.geometry_path.as_ref()
@@ -248,6 +224,11 @@ struct App {
     /// movement in fractions, and a step is taken each time enough of
     /// them add up.
     zoom_wheel: f32,
+    /// The display's scale, as the window last reported it: what a logical
+    /// pixel in the config is in the physical ones everything is drawn in.
+    scale: f32,
+    /// The window's size in physical pixels, as it was last laid out for.
+    size: (u32, u32),
     /// The window's size in logical pixels, to be remembered on the way out.
     geometry: crate::geometry::Geometry,
     /// Where the size is remembered, when there is somewhere.
@@ -255,6 +236,52 @@ struct App {
 }
 
 impl App {
+    fn new(
+        editor: Editor,
+        dispatcher: Dispatcher,
+        settings: Settings,
+        tasks: std::sync::mpsc::Sender<Task>,
+        results: mpsc::Receiver<TaskResult>,
+        remembered: Option<crate::geometry::Geometry>,
+        geometry_path: Option<std::path::PathBuf>,
+    ) -> App {
+        App {
+            editor,
+            dispatcher,
+            settings,
+            tasks,
+            results,
+            window: None,
+            renderer: None,
+            fonts: None,
+            surface: Surface::new(Size::new(1, 1)),
+            scratch: Surface::new(Size::new(1, 1)),
+            backdrop: Surface::new(Size::new(1, 1)),
+            scroll: Scroll::new(),
+            incoming: None,
+            cursor: crate::cursor::Cursor::new(),
+            vfx: crate::vfx::Vfx::new(),
+            modifiers: ModifiersState::empty(),
+            pointer: (0.0, 0.0),
+            selecting: false,
+            scrolling: None,
+            pending: None,
+            idle_at: None,
+            failure: None,
+            last_frame: None,
+            dirty: true,
+            title: None,
+            focused: true,
+            clicks: None,
+            zoom: 1.0,
+            zoom_wheel: 0.0,
+            scale: 1.0,
+            size: (1, 1),
+            geometry: remembered.unwrap_or(crate::geometry::Geometry::DEFAULT),
+            geometry_path,
+        }
+    }
+
     fn metrics(&self) -> CellMetrics {
         self.fonts
             .as_ref()
@@ -266,21 +293,13 @@ impl App {
             })
     }
 
-    /// The display's scale, or one before there is a window.
-    fn scale(&self) -> f32 {
-        self.window
-            .as_ref()
-            .map(|window| window.scale_factor() as f32)
-            .unwrap_or(1.0)
-    }
-
     /// Where the grid starts: `gui-padding` in from the window's corner.
     ///
     /// The sizes in the config are points on a normal display; the window
     /// is measured in physical pixels, so a display that reports a scale
     /// gets the padding, like the glyphs, that much larger.
     fn origin(&self) -> [f32; 2] {
-        let padding = (self.editor.settings.gui_padding as f32 * self.scale()).round();
+        let padding = (self.editor.settings.gui_padding as f32 * self.scale).round();
         [padding, padding]
     }
 
@@ -288,7 +307,7 @@ impl App {
     /// the config asks for. The old one stays if the new one cannot be
     /// found, which it can: a family installed a moment ago is still there.
     fn load_fonts(&mut self) -> anyhow::Result<()> {
-        let scale = self.scale();
+        let scale = self.scale;
         self.zoom = self.editor.text_scale_factor();
         let size = (self.settings.font_size * self.zoom).clamp(6.0, 96.0) * scale;
         // The family already loaded is cut again rather than looked up
@@ -339,6 +358,7 @@ impl App {
 
     /// Lays the editor out for a window of this many pixels.
     fn fit(&mut self, width: u32, height: u32) {
+        self.size = (width, height);
         let metrics = self.metrics();
         let [pad_x, pad_y] = self.origin();
         let (columns, rows) = metrics.grid(width as f32 - 2.0 * pad_x, height as f32 - 2.0 * pad_y);
@@ -572,10 +592,8 @@ impl App {
             tracing::warn!("the font would not reload: {error}");
         }
         self.cursor.snap();
-        if let Some(window) = self.window.as_ref() {
-            let size = window.inner_size();
-            self.fit(size.width, size.height);
-        }
+        let (width, height) = self.size;
+        self.fit(width, height);
         self.dirty = true;
     }
 
@@ -830,6 +848,7 @@ impl ApplicationHandler for App {
         match renderer {
             Ok(renderer) => {
                 let size = window.inner_size();
+                self.scale = window.scale_factor() as f32;
                 self.renderer = Some(renderer);
                 self.window = Some(window);
                 // The size in the config is points on a normal display;
@@ -880,9 +899,12 @@ impl ApplicationHandler for App {
                 // there and should not be drawn as though it had.
                 self.cursor.snap();
             }
-            WindowEvent::ScaleFactorChanged { .. } => {
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 // Moved to a display with a different scale: the glyphs have
-                // to be cut again at the new size.
+                // to be cut again at the new size, and the grid laid out
+                // for however many of them fit. The window's new physical
+                // size, if it changes too, follows as a `Resized`.
+                self.scale = scale_factor as f32;
                 self.rescale();
             }
             WindowEvent::ModifiersChanged(modifiers) => {
@@ -1143,6 +1165,103 @@ impl ApplicationHandler for App {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    /// An editor in a window that has not opened: enough to lay out.
+    fn app(settings: maxgus_config::Settings) -> App {
+        let theme = maxgus_faces::defaults::builtin("maxgus-dark").expect("the built-in theme");
+        let mut editor = Editor::new(settings, theme.clone(), Rect::new(0, 0, 80, 24));
+        editor.text_scale = Some(0);
+        let dispatcher = Dispatcher::new(maxgus_core::standard_registry());
+        let (tasks, _) = std::sync::mpsc::channel();
+        let (_, results) = mpsc::channel();
+        let settings = Settings {
+            title: "test".into(),
+            font: "this-font-does-not-exist".into(),
+            font_size: 16.0,
+            palette: Palette::of(&theme),
+        };
+        App::new(editor, dispatcher, settings, tasks, results, None, None)
+    }
+
+    #[test]
+    fn moving_to_a_display_with_another_scale_lays_the_grid_out_again() {
+        let mut app = app(maxgus_config::Settings {
+            gui_padding: 6,
+            gui_line_spacing: 2,
+            ..Default::default()
+        });
+        if app.load_fonts().is_err() {
+            eprintln!("skipping: no monospace font is installed");
+            return;
+        }
+        // A 1x display, 1600 by 1000 physical pixels.
+        app.fit(1600, 1000);
+        let one = app.metrics();
+        let grid = app.surface.size();
+        assert_eq!(app.origin(), [6.0, 6.0]);
+        assert_eq!(
+            app.editor.frame,
+            Rect::from_size(grid),
+            "the editor is laid out for the cells the window holds"
+        );
+
+        // Dragged onto a 2x display: the window keeps its logical size, so
+        // it is twice as many physical pixels, then the scale is reported.
+        app.fit(3200, 2000);
+        app.scale = 2.0;
+        app.rescale();
+        let two = app.metrics();
+        assert!(
+            (two.width - one.width * 2.0).abs() <= 1.0
+                && (two.height - one.height * 2.0).abs() <= 2.0,
+            "the cell is twice the size: {one:?} -> {two:?}"
+        );
+        assert_eq!(app.origin(), [12.0, 12.0], "so is the padding");
+        let scaled = app.surface.size();
+        assert!(
+            scaled.width.abs_diff(grid.width) <= 1 && scaled.height.abs_diff(grid.height) <= 1,
+            "the same text fits: {grid:?} at 1x, {scaled:?} at 2x"
+        );
+        assert_eq!(app.editor.frame, Rect::from_size(scaled));
+        // The grid, with its margin, stays inside the window: nothing is
+        // drawn off the edge and no cell is lost under it.
+        let [pad_x, pad_y] = app.origin();
+        assert!(scaled.width as f32 * two.width + 2.0 * pad_x <= 3200.0);
+        assert!(scaled.height as f32 * two.height + 2.0 * pad_y <= 2000.0);
+        assert!(
+            (scaled.width as f32 + 1.0) * two.width + 2.0 * pad_x > 3200.0,
+            "a column is going spare"
+        );
+
+        // And back, at the size it had, the way it was.
+        app.fit(1600, 1000);
+        app.scale = 1.0;
+        app.rescale();
+        assert_eq!(app.metrics(), one);
+        assert_eq!(app.surface.size(), grid);
+        assert_eq!(app.origin(), [6.0, 6.0]);
+    }
+
+    #[test]
+    fn zooming_the_text_is_a_new_font_on_the_next_frame() {
+        let mut app = app(maxgus_config::Settings::default());
+        if app.load_fonts().is_err() {
+            eprintln!("skipping: no monospace font is installed");
+            return;
+        }
+        app.fit(1600, 1000);
+        let before = (app.metrics(), app.surface.size());
+        app.editor.adjust_text_scale(3).expect("a window can zoom");
+        assert_eq!(app.metrics(), before.0, "nothing until the frame");
+        // What `about_to_wait` does with a scale that moved.
+        assert_ne!(app.editor.text_scale_factor(), app.zoom);
+        app.rescale();
+        let after = (app.metrics(), app.surface.size());
+        assert!(after.0.height > before.0.height, "{before:?} -> {after:?}");
+        assert!(after.1.width < before.1.width, "fewer, larger cells");
+        assert_eq!(app.zoom, app.editor.text_scale_factor());
+        assert_eq!(app.editor.frame, Rect::from_size(after.1));
+    }
 
     #[test]
     fn the_animated_cursor_puts_the_beacon_away() {

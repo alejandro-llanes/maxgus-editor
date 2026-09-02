@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **A window dragged between a 1× and a 2× display is laid out again.**
+  The scale the display reports is kept by the window rather than asked
+  for as it goes, the font is cut again at the new size, the padding is
+  scaled with it, and the grid is fitted to the window's physical size —
+  which is now tested without a display, along with a zoom being a new
+  font on the next frame. The documentation said the font size was
+  physical pixels; it has always been logical ones, and now says so.
+
 - **The text zooms, in a window.** `C-x C-+` (or `C-x C-=`) draws it a
   tenth larger, `C-x C--` a tenth smaller, `C-x C-0` at its configured
   size again, and the wheel with control held does the same — a notch a

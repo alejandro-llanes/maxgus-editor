@@ -53,11 +53,15 @@ impl App {
             std::env::var("COLORTERM").ok().as_deref(),
             std::env::var("TERM").ok().as_deref(),
         );
+        let mut renderer = Renderer::new(size, depth);
+        renderer.set_curls(maxgus_faces::terminal_draws_undercurl(|name| {
+            std::env::var(name).ok()
+        }));
         App {
             editor,
             dispatcher,
             terminal,
-            renderer: Renderer::new(size, depth),
+            renderer,
             surface: Surface::new(size),
             tasks,
             results,

@@ -239,10 +239,10 @@ fn build(name: &str, p: &Palette) -> Theme {
     set("font-lock-attribute", Face::fg(p.yellow));
 
     // ---- diagnostics ----
-    set("diagnostic-error", Face::fg(p.red).underline());
-    set("diagnostic-warning", Face::fg(p.orange).underline());
-    set("diagnostic-info", Face::fg(p.blue).underline());
-    set("diagnostic-hint", Face::fg(p.comment).underline());
+    set("diagnostic-error", Face::fg(p.red).undercurl());
+    set("diagnostic-warning", Face::fg(p.orange).undercurl());
+    set("diagnostic-info", Face::fg(p.blue).undercurl());
+    set("diagnostic-hint", Face::fg(p.comment).undercurl());
 
     // ---- file tree ----
     set("tree-root", Face::fg(p.purple).bold());
@@ -407,15 +407,17 @@ mod tests {
     }
 
     #[test]
-    fn diagnostics_are_underlined_in_every_theme() {
+    fn diagnostics_are_undercurled_in_every_theme() {
         for theme in all() {
             for face in names::DIAGNOSTIC_FACES {
+                let attributes = theme.resolve(face).attributes;
                 assert_eq!(
-                    theme.resolve(face).attributes.underline,
+                    attributes.undercurl,
                     Some(true),
                     "theme `{}`, face `{face}`",
                     theme.name()
                 );
+                assert!(attributes.underlined());
             }
         }
     }

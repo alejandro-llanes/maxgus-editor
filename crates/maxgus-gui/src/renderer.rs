@@ -15,6 +15,7 @@ pub struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     rect_pipeline: wgpu::RenderPipeline,
+    wave_pipeline: wgpu::RenderPipeline,
     quad_pipeline: wgpu::RenderPipeline,
     sprite_pipeline: wgpu::RenderPipeline,
     circle_pipeline: wgpu::RenderPipeline,
@@ -39,6 +40,7 @@ pub struct Renderer {
     blur_down: (wgpu::Buffer, wgpu::BindGroup),
     sample_layout: wgpu::BindGroupLayout,
     rects: Instances,
+    waves: Instances,
     quads: Instances,
     sprites: Instances,
     circles: Instances,
@@ -359,6 +361,17 @@ impl Renderer {
             format,
             blend,
         );
+        let wave_pipeline = pipeline(
+            &device,
+            &shader,
+            &[Some(&screen_layout)],
+            "wave_vertex",
+            "wave_fragment",
+            &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4],
+            std::mem::size_of::<Rect>() as u64,
+            format,
+            blend,
+        );
         let quad_pipeline = pipeline(
             &device,
             &shader,
@@ -468,6 +481,7 @@ impl Renderer {
         let blit_pipeline = full_screen("blit_vertex", "blit_fragment", None);
 
         let rects = Instances::new(&device, "rects", std::mem::size_of::<Rect>());
+        let waves = Instances::new(&device, "waves", std::mem::size_of::<Rect>());
         let quads = Instances::new(&device, "quads", std::mem::size_of::<Quad>());
         let sprites = Instances::new(&device, "sprites", std::mem::size_of::<Sprite>());
         let circles = Instances::new(&device, "circles", std::mem::size_of::<Circle>());
@@ -481,6 +495,7 @@ impl Renderer {
             queue,
             config,
             rect_pipeline,
+            wave_pipeline,
             quad_pipeline,
             sprite_pipeline,
             circle_pipeline,
@@ -497,6 +512,7 @@ impl Renderer {
             blur_down,
             sample_layout,
             rects,
+            waves,
             quads,
             sprites,
             circles,
@@ -805,6 +821,8 @@ impl Renderer {
 
         self.rects
             .write(&self.device, &self.queue, "rects", &frame.rects);
+        self.waves
+            .write(&self.device, &self.queue, "waves", &frame.waves);
         self.quads
             .write(&self.device, &self.queue, "quads", &frame.quads);
         self.sprites
@@ -904,6 +922,14 @@ impl Renderer {
                 pass.set_bind_group(0, &self.screen_group, &[]);
                 pass.set_vertex_buffer(0, self.rects.buffer.slice(..));
                 pass.draw(0..4, under..self.rects.count);
+            }
+            // The waves under words, like the rules: over the backgrounds,
+            // under the cursor and the text.
+            if self.waves.count > 0 {
+                pass.set_pipeline(&self.wave_pipeline);
+                pass.set_bind_group(0, &self.screen_group, &[]);
+                pass.set_vertex_buffer(0, self.waves.buffer.slice(..));
+                pass.draw(0..4, 0..self.waves.count);
             }
             // Between the two, so the cursor covers the backgrounds and the
             // text is drawn over the cursor rather than under it.

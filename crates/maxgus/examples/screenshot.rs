@@ -583,7 +583,9 @@ fn render(editor: &Editor) -> String {
             if face.attributes.italic.unwrap_or(false) {
                 style += " font-style=\"italic\"";
             }
-            if face.attributes.underline.unwrap_or(false) {
+            if face.attributes.undercurl.unwrap_or(false) {
+                style += " text-decoration=\"underline wavy\"";
+            } else if face.attributes.underline.unwrap_or(false) {
                 style += " text-decoration=\"underline\"";
             }
             if face.attributes.dim.unwrap_or(false) {

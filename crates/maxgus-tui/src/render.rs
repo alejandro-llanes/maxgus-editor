@@ -74,13 +74,19 @@ pub fn diff(previous: &Surface, next: &Surface) -> Vec<Change> {
     changes
 }
 
-/// Writes `changes` to `out`, degrading colours to what `depth` supports.
-pub fn render_to<W: Write>(out: &mut W, changes: &[Change], depth: ColorDepth) -> Result<()> {
+/// Writes `changes` to `out`, degrading colours to what `depth` supports
+/// and a wavy underline to a plain one unless the terminal `curls`.
+pub fn render_to<W: Write>(
+    out: &mut W,
+    changes: &[Change],
+    depth: ColorDepth,
+    curls: bool,
+) -> Result<()> {
     use crossterm::{QueueableCommand, cursor::MoveTo, style::PrintStyledContent};
 
     for change in changes {
         out.queue(MoveTo(change.x, change.y))?;
-        let style = change.face.to_style(depth);
+        let style = change.face.to_style_with(depth, curls);
         out.queue(PrintStyledContent(style.apply(change.text.as_str())))?;
     }
     out.flush()?;
@@ -103,6 +109,10 @@ pub fn apply(surface: &mut Surface, changes: &[Change]) {
 pub struct Renderer {
     on_screen: Surface,
     depth: ColorDepth,
+    /// Whether the terminal draws a wavy underline when asked. Off until
+    /// told otherwise: a terminal that does not understand the request
+    /// may draw nothing under the text at all.
+    curls: bool,
 }
 
 impl Renderer {
@@ -110,6 +120,7 @@ impl Renderer {
         Renderer {
             on_screen: Surface::new(size),
             depth,
+            curls: false,
         }
     }
 
@@ -121,6 +132,15 @@ impl Renderer {
         self.depth = depth;
     }
 
+    /// Whether a face's undercurl goes out as one, or as a plain underline.
+    pub fn curls(&self) -> bool {
+        self.curls
+    }
+
+    pub fn set_curls(&mut self, curls: bool) {
+        self.curls = curls;
+    }
+
     /// The surface currently displayed.
     pub fn on_screen(&self) -> &Surface {
         &self.on_screen
@@ -130,7 +150,7 @@ impl Renderer {
     /// records the new state. Returns the changes emitted.
     pub fn render<W: Write>(&mut self, out: &mut W, next: &Surface) -> Result<Vec<Change>> {
         let changes = diff(&self.on_screen, next);
-        render_to(out, &changes, self.depth)?;
+        render_to(out, &changes, self.depth, self.curls)?;
         self.on_screen = next.clone();
         Ok(changes)
     }
@@ -321,7 +341,7 @@ mod tests {
         let a = surface(&["ab"]);
         let mut b = a.clone();
         b.set_string(1, 0, "Z", red(), 1);
-        render_to(&mut out, &diff(&a, &b), ColorDepth::Ansi16).unwrap();
+        render_to(&mut out, &diff(&a, &b), ColorDepth::Ansi16, false).unwrap();
         let text = String::from_utf8_lossy(&out);
         assert!(text.contains('\u{1b}'), "escape sequences were emitted");
         assert!(text.contains('Z'));
@@ -330,8 +350,33 @@ mod tests {
     #[test]
     fn rendering_nothing_writes_nothing() {
         let mut out = Vec::new();
-        render_to(&mut out, &[], ColorDepth::TrueColor).unwrap();
+        render_to(&mut out, &[], ColorDepth::TrueColor, false).unwrap();
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn an_undercurl_goes_out_as_a_wave_only_where_the_terminal_draws_one() {
+        let a = surface(&["ab"]);
+        let mut b = a.clone();
+        let wavy = maxgus_faces::Face::fg(maxgus_faces::Color::Indexed(1)).undercurl();
+        b.set_string(0, 0, "Z", wavy, 1);
+        let mut curled = Vec::new();
+        render_to(&mut curled, &diff(&a, &b), ColorDepth::Ansi16, true).unwrap();
+        let curled = String::from_utf8_lossy(&curled).into_owned();
+        assert!(curled.contains("4:3"), "{curled:?}");
+        let mut plain = Vec::new();
+        render_to(&mut plain, &diff(&a, &b), ColorDepth::Ansi16, false).unwrap();
+        let plain = String::from_utf8_lossy(&plain).into_owned();
+        assert!(!plain.contains("4:3"), "{plain:?}");
+        assert!(
+            plain.contains("\u{1b}[4m") || plain.contains(";4m") || plain.contains("[4;"),
+            "{plain:?}"
+        );
+        // The renderer carries the answer, off until told.
+        let mut renderer = Renderer::new(Size::new(1, 1), ColorDepth::Ansi16);
+        assert!(!renderer.curls());
+        renderer.set_curls(true);
+        assert!(renderer.curls());
     }
 
     #[test]

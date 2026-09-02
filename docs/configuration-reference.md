@@ -306,6 +306,7 @@ Four complete examples are in [`themes/`](themes), ready to copy.
 | `bold` | bool | |
 | `italic` | bool | |
 | `underline` | bool | |
+| `undercurl` | bool | A wavy underline, the kind an error gets; needs no `underline` beside it. A terminal that cannot draw the wave draws a plain underline. |
 | `reverse` | bool | Swap foreground and background. |
 | `dim` | bool | |
 | `strikethrough` | bool | |

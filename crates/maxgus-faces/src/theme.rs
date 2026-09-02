@@ -220,6 +220,7 @@ fn face_from_spec(spec: &FaceSpec) -> Result<(Face, Option<String>), ThemeError>
             bold: spec.bold,
             italic: spec.italic,
             underline: spec.underline,
+            undercurl: spec.undercurl,
             reverse: spec.reverse,
             dim: spec.dim,
             strikethrough: spec.strikethrough,

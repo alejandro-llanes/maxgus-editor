@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **A wave under an error.** Diagnostics are underlined with the wavy
+  line an editor's are, in the severity's colour, rather than the same
+  straight line a link gets. `undercurl=#true` is a face attribute of its
+  own, drawn by the GPU in the window and asked of the terminal with
+  `SGR 4:3` where the terminal is known to draw it — kitty, foot,
+  WezTerm, Alacritty, Ghostty, VTE, Konsole, Windows Terminal, tmux — and
+  a plain underline elsewhere. The built-in terminal keeps a program's
+  `4:3` as a wave too. The shipped themes put it on `diagnostic-*`.
+
 - **`<f11>` fills the screen with the window.** `M-x
   toggle-frame-fullscreen` does the same, the compositor's own fullscreen
   key is noticed so the two agree, the size the window had is what it

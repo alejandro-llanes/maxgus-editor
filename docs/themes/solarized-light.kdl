@@ -58,8 +58,8 @@ theme "solarized-light" base="maxgus-light" {
     face "font-lock-label"                fg="#6c71c4"
     face "font-lock-attribute"            fg="#6c71c4" italic=#true
 
-    face "diagnostic-error"               fg="#dc322f" underline=#true
-    face "diagnostic-warning"             fg="#cb4b16" underline=#true
+    face "diagnostic-error"               fg="#dc322f" undercurl=#true
+    face "diagnostic-warning"             fg="#cb4b16" undercurl=#true
     face "diagnostic-info"                fg="#268bd2"
     face "diagnostic-hint"                fg="#2aa198"
 

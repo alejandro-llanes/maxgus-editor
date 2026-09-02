@@ -105,6 +105,9 @@ pub struct Frame {
     /// Drawn over the backgrounds and under the glyphs, so text on top of
     /// the cursor stays text.
     pub quads: Vec<Quad>,
+    /// The waves under misspelt words and errors: bands the wave is drawn
+    /// within, over the backgrounds and under the glyphs like a rule.
+    pub waves: Vec<Rect>,
     pub sprites: Vec<Sprite>,
     /// The cursor's effects, drawn last so they are over the text they are
     /// trailing away from.
@@ -707,7 +710,21 @@ fn push_cell(
             });
         }
     };
-    if face.attributes.underline.unwrap_or(false) {
+    // A wave takes a band a few pixels tall, from where the plain rule
+    // would be to the bottom of the cell or the band's own depth,
+    // whichever comes first; the shader draws the wave within it.
+    if face.attributes.undercurl.unwrap_or(false) {
+        let depth = (thickness * 3.0)
+            .max(3.0)
+            .min(metrics.height - metrics.ascent - 1.0);
+        if let Some((at, height, _)) = clipped(top + metrics.ascent + 1.0, depth, band) {
+            frame.waves.push(Rect {
+                position: [left, at],
+                size: [width, height],
+                color: foreground,
+            });
+        }
+    } else if face.attributes.underline.unwrap_or(false) {
         rule(top + metrics.ascent + 1.0);
     }
     if face.attributes.strikethrough.unwrap_or(false) {
@@ -1550,6 +1567,43 @@ mod tests {
             "the rule is above the baseline"
         );
         assert!(rule.size[1] >= 1.0, "a rule with no thickness");
+    }
+
+    #[test]
+    fn an_undercurl_is_a_band_under_the_baseline_and_no_rule() {
+        let Some(mut fonts) = fonts() else {
+            eprintln!("skipping: no monospace font is installed");
+            return;
+        };
+        let face = Face {
+            foreground: Some(maxgus_faces::Color::Rgb(255, 0, 0)),
+            attributes: Attributes {
+                undercurl: Some(true),
+                // Both asked for: the wave, and not a rule through it.
+                underline: Some(true),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let surface = surface_of("ab", face);
+        let frame = build(&surface, &mut fonts, &Look::new(&palette()));
+        assert_eq!(frame.rects.len(), 2, "the backgrounds, and no rule");
+        assert_eq!(frame.waves.len(), 2, "a band under each cell");
+        let metrics = fonts.metrics();
+        let (first, second) = (frame.waves[0], frame.waves[1]);
+        assert!(first.position[1] > metrics.ascent, "under the baseline");
+        assert!(first.size[1] >= 3.0, "room for a wave");
+        assert!(
+            first.position[1] + first.size[1] <= metrics.height,
+            "within the cell"
+        );
+        assert_eq!(first.size[0], metrics.width);
+        assert_eq!(
+            second.position[0],
+            first.position[0] + first.size[0],
+            "they join"
+        );
+        assert_eq!(first.color, [1.0, 0.0, 0.0, 1.0], "in the face's colour");
     }
 
     #[test]

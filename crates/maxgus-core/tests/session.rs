@@ -732,10 +732,7 @@ fn a_diagnostic_is_underlined_and_counted_in_the_mode_line() {
         .unwrap();
 
     maxgus_core::draw(&s.editor, &mut s.surface);
-    assert_eq!(
-        s.surface.get(4, 0).unwrap().face.attributes.underline,
-        Some(true)
-    );
+    assert!(s.surface.get(4, 0).unwrap().face.attributes.underlined());
     assert!(
         s.mode_line().contains(maxgus_core::icons::WARNING),
         "got `{}`",

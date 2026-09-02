@@ -751,6 +751,7 @@ impl<'a> Parser<'a> {
                 "bold" => face.bold = self.bool_value(node, &key, &value),
                 "italic" => face.italic = self.bool_value(node, &key, &value),
                 "underline" => face.underline = self.bool_value(node, &key, &value),
+                "undercurl" => face.undercurl = self.bool_value(node, &key, &value),
                 "reverse" => face.reverse = self.bool_value(node, &key, &value),
                 "dim" => face.dim = self.bool_value(node, &key, &value),
                 "strikethrough" => face.strikethrough = self.bool_value(node, &key, &value),

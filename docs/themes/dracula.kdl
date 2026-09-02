@@ -56,8 +56,8 @@ theme "dracula" base="maxgus-dark" {
     face "font-lock-label"                fg="#8be9fd"
     face "font-lock-attribute"            fg="#50fa7b" italic=#true
 
-    face "diagnostic-error"               fg="#ff5555" underline=#true
-    face "diagnostic-warning"             fg="#ffb86c" underline=#true
+    face "diagnostic-error"               fg="#ff5555" undercurl=#true
+    face "diagnostic-warning"             fg="#ffb86c" undercurl=#true
     face "diagnostic-info"                fg="#8be9fd"
     face "diagnostic-hint"                fg="#50fa7b"
 

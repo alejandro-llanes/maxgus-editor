@@ -233,7 +233,9 @@ against a real face by a test, so nothing ships silently uncoloured.
 
 Definitions, references, hover, completion, signature help, rename, formatting,
 code actions, document and workspace symbols, and diagnostics in the buffer and
-the mode line. Incremental document sync where the server asks for it. Server
+the mode line — under a wavy line in the severity's colour, so an error is
+told from a link at a glance; a terminal that cannot draw the wave draws a
+plain underline. Incremental document sync where the server asks for it. Server
 requests are answered — including `workspace/applyEdit`, so a server can change
 your text and be told whether it worked.
 
@@ -257,7 +259,7 @@ for terminals without such a font, and everything falls back to plain text.
 ### Themes you can rewrite without recompiling
 
 Three built in (`maxgus-dark`, `maxgus-light`, `maxgus-term`) and **53 named
-faces**, with `inherit`, bold/italic/underline/reverse/dim/strikethrough, and
+faces**, with `inherit`, bold/italic/underline/undercurl/reverse/dim/strikethrough, and
 truecolor degraded to 256 and then 16 colours by what your terminal reports.
 `M-x load-theme` switches at runtime and keeps your overrides.
 
@@ -902,6 +904,13 @@ overrides that and insists on a window.
 
 What the window has that a terminal cannot:
 
+- **A wave under an error.** A diagnostic's underline is the wavy one an
+  editor's is, drawn by the GPU in the severity's colour, joined across the
+  cells it runs under and as smooth at any zoom; `undercurl=#true` puts one
+  under any face. The terminal front end asks the terminal for the same
+  where it knows the terminal can — kitty, foot, WezTerm, Alacritty,
+  Ghostty, GNOME's, Konsole, Windows Terminal, and through tmux — and
+  draws a plain underline elsewhere.
 - **Ligatures.** `!=` drawn as the one mark the font's designer drew it as,
   and `->`, `=>`, `<=`, `>=`, `|>`, `...` with them. The text is *shaped*
   rather than looked up a character at a time, so which characters join is

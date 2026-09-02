@@ -87,6 +87,7 @@ pub struct FaceSpec {
     pub bold: Option<bool>,
     pub italic: Option<bool>,
     pub underline: Option<bool>,
+    pub undercurl: Option<bool>,
     pub reverse: Option<bool>,
     pub dim: Option<bool>,
     pub strikethrough: Option<bool>,
@@ -112,6 +113,7 @@ impl FaceSpec {
             && self.bold.is_none()
             && self.italic.is_none()
             && self.underline.is_none()
+            && self.undercurl.is_none()
             && self.reverse.is_none()
             && self.dim.is_none()
             && self.strikethrough.is_none()
@@ -133,6 +135,7 @@ impl FaceSpec {
             bold,
             italic,
             underline,
+            undercurl,
             reverse,
             dim,
             strikethrough,

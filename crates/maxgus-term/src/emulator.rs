@@ -180,6 +180,14 @@ impl Performer<'_> {
         }
         for group in &groups {
             if group.len() > 1 {
+                // `4:3` is the wavy underline an editor draws under an
+                // error, `4:0` none, and the other styles a plain one.
+                if group[0] == 4 {
+                    let attributes = &mut self.state.pen.attributes;
+                    attributes.undercurl = Some(group[1] == 3);
+                    attributes.underline = Some(group[1] != 0 && group[1] != 3);
+                    continue;
+                }
                 if let Some(colour) = extended_colour(&group[1..]) {
                     match group[0] {
                         38 => self.state.pen.foreground = Some(colour),
@@ -207,7 +215,10 @@ impl Performer<'_> {
                     self.state.pen.attributes.dim = Some(false);
                 }
                 23 => self.state.pen.attributes.italic = Some(false),
-                24 => self.state.pen.attributes.underline = Some(false),
+                24 => {
+                    self.state.pen.attributes.underline = Some(false);
+                    self.state.pen.attributes.undercurl = Some(false);
+                }
                 27 => self.state.pen.attributes.reverse = Some(false),
                 29 => self.state.pen.attributes.strikethrough = Some(false),
                 30..=37 => self.state.pen.foreground = Some(Color::Indexed((value - 30) as u8)),
@@ -619,6 +630,20 @@ mod tests {
 
         let e = run(1, 20, "\x1b[48;5;4mx");
         assert_eq!(face_at(&e, 0, 0).background, Some(Color::Indexed(4)));
+    }
+
+    #[test]
+    fn a_wavy_underline_is_kept_as_one_and_cleared_with_the_rest() {
+        let e = run(1, 20, "\x1b[4:3mx\x1b[24my\x1b[4:1mz");
+        let wavy = face_at(&e, 0, 0).attributes;
+        assert_eq!(wavy.undercurl, Some(true));
+        assert_eq!(wavy.underline, Some(false), "a wave, not a wave and a rule");
+        let cleared = face_at(&e, 0, 1).attributes;
+        assert_eq!(cleared.undercurl, Some(false));
+        assert_eq!(cleared.underline, Some(false));
+        let plain = face_at(&e, 0, 2).attributes;
+        assert_eq!(plain.underline, Some(true));
+        assert_eq!(plain.undercurl, Some(false));
     }
 
     #[test]

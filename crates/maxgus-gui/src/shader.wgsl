@@ -279,3 +279,47 @@ fn panel_fragment(in: PanelOut) -> @location(0) vec4<f32> {
 fn panel_plain_fragment(in: PanelOut) -> @location(0) vec4<f32> {
     return panel_colour(in, vec4<f32>(in.fill.rgb, 1.0), in.fill.rgb);
 }
+
+// A wave under a word: the underline an error gets. The instance is the
+// band the wave runs in — a rectangle, the same shape a plain underline
+// is given — and the wave is drawn within it by distance from a sine,
+// with the phase taken from where the band is on the screen rather than
+// where it begins, so the waves under neighbouring cells join into one.
+struct WaveOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    // Where this pixel is within the band, in pixels, and the band's size.
+    @location(1) local: vec2<f32>,
+    @location(2) size: vec2<f32>,
+    // The pixel's x on the grid, for the phase.
+    @location(3) x: f32,
+};
+
+@vertex
+fn wave_vertex(@builtin(vertex_index) vertex: u32, in: RectIn) -> WaveOut {
+    var out: WaveOut;
+    let local = corner(vertex) * in.size;
+    out.clip = to_clip(in.position + local);
+    out.color = in.color;
+    out.local = local;
+    out.size = in.size;
+    out.x = in.position.x + local.x;
+    return out;
+}
+
+@fragment
+fn wave_fragment(in: WaveOut) -> @location(0) vec4<f32> {
+    // The stroke is a third of the band, the crests reach its edges, and
+    // a wavelength is twice the band's height — a proportion that reads
+    // as a wave at any size, rather than as a thick line or a saw.
+    let thickness = max(1.0, in.size.y / 3.0);
+    let amplitude = (in.size.y - thickness) * 0.5;
+    let period = in.size.y * 2.0;
+    let middle = in.size.y * 0.5 + amplitude * sin(in.x * 6.2831853 / period);
+    // The distance from the curve, corrected for its slope so the stroke
+    // is as thick on a rise as at a crest.
+    let slope = amplitude * 6.2831853 / period * cos(in.x * 6.2831853 / period);
+    let distance = abs(in.local.y - middle) / sqrt(1.0 + slope * slope);
+    let coverage = 1.0 - smoothstep(thickness * 0.5 - 0.5, thickness * 0.5 + 0.5, distance);
+    return vec4<f32>(in.color.rgb, in.color.a * coverage);
+}

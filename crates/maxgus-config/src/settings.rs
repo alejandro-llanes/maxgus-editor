@@ -421,6 +421,7 @@ pub const FACE_ATTRIBUTE_NAMES: &[&str] = &[
     "bold",
     "italic",
     "underline",
+    "undercurl",
     "reverse",
     "dim",
     "strikethrough",

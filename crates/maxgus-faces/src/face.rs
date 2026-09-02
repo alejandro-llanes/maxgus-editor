@@ -11,6 +11,10 @@ pub struct Attributes {
     pub bold: Option<bool>,
     pub italic: Option<bool>,
     pub underline: Option<bool>,
+    /// A wavy underline — what a spell-checker puts under a misspelling
+    /// and an editor under an error — which needs no `underline` to go
+    /// with it. A terminal that cannot draw one draws a plain underline.
+    pub undercurl: Option<bool>,
     pub reverse: Option<bool>,
     pub dim: Option<bool>,
     pub strikethrough: Option<bool>,
@@ -23,6 +27,7 @@ impl Attributes {
             bold: Some(false),
             italic: Some(false),
             underline: Some(false),
+            undercurl: Some(false),
             reverse: Some(false),
             dim: Some(false),
             strikethrough: Some(false),
@@ -38,7 +43,15 @@ impl Attributes {
         macro_rules! fill {
             ($($f:ident),*) => {$( if self.$f.is_none() { self.$f = parent.$f; } )*};
         }
-        fill!(bold, italic, underline, reverse, dim, strikethrough);
+        fill!(
+            bold,
+            italic,
+            underline,
+            undercurl,
+            reverse,
+            dim,
+            strikethrough
+        );
     }
 
     /// Overlays `other`'s set attributes onto this one.
@@ -46,10 +59,25 @@ impl Attributes {
         macro_rules! take {
             ($($f:ident),*) => {$( if other.$f.is_some() { self.$f = other.$f; } )*};
         }
-        take!(bold, italic, underline, reverse, dim, strikethrough);
+        take!(
+            bold,
+            italic,
+            underline,
+            undercurl,
+            reverse,
+            dim,
+            strikethrough
+        );
     }
 
-    fn to_crossterm(self) -> CtAttributes {
+    /// True when there is a line of some kind under the text.
+    pub fn underlined(&self) -> bool {
+        self.underline == Some(true) || self.undercurl == Some(true)
+    }
+
+    /// `curly` says whether the terminal draws a wavy underline; where it
+    /// does not, the wave is a plain underline rather than nothing.
+    fn to_crossterm(self, curly: bool) -> CtAttributes {
         let mut out = CtAttributes::none();
         if self.bold == Some(true) {
             out.set(Attribute::Bold);
@@ -57,8 +85,10 @@ impl Attributes {
         if self.italic == Some(true) {
             out.set(Attribute::Italic);
         }
-        if self.underline == Some(true) {
-            out.set(Attribute::Underlined);
+        match (self.undercurl == Some(true) && curly, self.underlined()) {
+            (true, _) => out.set(Attribute::Undercurled),
+            (false, true) => out.set(Attribute::Underlined),
+            (false, false) => {}
         }
         if self.reverse == Some(true) {
             out.set(Attribute::Reverse);
@@ -127,6 +157,12 @@ impl Face {
         self
     }
 
+    /// A wavy underline, on its own: it needs no `underline` beside it.
+    pub fn undercurl(mut self) -> Face {
+        self.attributes.undercurl = Some(true);
+        self
+    }
+
     pub fn reverse(mut self) -> Face {
         self.attributes.reverse = Some(true);
         self
@@ -187,16 +223,57 @@ impl Face {
         }
     }
 
-    /// The crossterm style used to draw text in this face.
+    /// The crossterm style used to draw text in this face, for a terminal
+    /// that draws no wavy underline.
     pub fn to_style(&self, depth: ColorDepth) -> ContentStyle {
+        self.to_style_with(depth, false)
+    }
+
+    /// The crossterm style used to draw text in this face; `curly` says
+    /// whether the terminal draws a wavy underline, and a face's undercurl
+    /// is a plain underline where it does not.
+    pub fn to_style_with(&self, depth: ColorDepth, curly: bool) -> ContentStyle {
         let face = self.degrade(depth);
         ContentStyle {
             foreground_color: face.foreground.map(Into::into),
             background_color: face.background.map(Into::into),
             underline_color: None,
-            attributes: face.attributes.to_crossterm(),
+            attributes: face.attributes.to_crossterm(curly),
         }
     }
+}
+
+/// Whether the terminal draws a wavy underline when asked for one with
+/// `SGR 4:3`, judged from its environment the way its colours are:
+/// `var` looks a variable up. A terminal that does not understand the
+/// request may show nothing at all under the text, so the answer is yes
+/// only for those known to — and for tmux, which turns it into whatever
+/// the terminal outside it can do.
+pub fn terminal_draws_undercurl(var: impl Fn(&str) -> Option<String>) -> bool {
+    let term = var("TERM").unwrap_or_default();
+    let program = var("TERM_PROGRAM").unwrap_or_default();
+    let curly_terms = [
+        "kitty",
+        "foot",
+        "wezterm",
+        "alacritty",
+        "contour",
+        "ghostty",
+        "tmux",
+    ];
+    if curly_terms.iter().any(|name| term.contains(name)) {
+        return true;
+    }
+    let curly_programs = ["WezTerm", "iTerm.app", "ghostty", "vscode", "Hyper", "rio"];
+    if curly_programs.iter().any(|name| program == *name) {
+        return true;
+    }
+    // VTE (GNOME's, and most of the desktop's) from 0.52; Konsole from
+    // 22.04; Windows Terminal from 1.13, which is any of them still in use.
+    let version = |name: &str| var(name).and_then(|v| v.parse::<u64>().ok());
+    version("VTE_VERSION").is_some_and(|v| v >= 5200)
+        || version("KONSOLE_VERSION").is_some_and(|v| v >= 220400)
+        || var("WT_SESSION").is_some()
 }
 
 #[cfg(test)]
@@ -214,6 +291,74 @@ mod tests {
         assert_eq!(f.attributes.bold, Some(true));
         assert_eq!(f.attributes.underline, Some(true));
         assert_eq!(f.attributes.italic, None, "unset, not off");
+    }
+
+    #[test]
+    fn an_undercurl_is_a_wave_where_the_terminal_draws_one_and_a_line_elsewhere() {
+        let face = Face::fg(Color::Indexed(1)).undercurl();
+        assert!(face.attributes.underlined(), "a wave is an underline");
+        assert_eq!(face.attributes.underline, None, "but not the plain kind");
+        let curly = face.to_style_with(ColorDepth::Ansi16, true).attributes;
+        assert!(curly.has(Attribute::Undercurled));
+        assert!(!curly.has(Attribute::Underlined));
+        let plain = face.to_style(ColorDepth::Ansi16).attributes;
+        assert!(plain.has(Attribute::Underlined));
+        assert!(!plain.has(Attribute::Undercurled));
+        // Both asked for: the wave, where it can be had.
+        let both = Face::new().underline().undercurl();
+        assert!(
+            both.to_style_with(ColorDepth::Ansi16, true)
+                .attributes
+                .has(Attribute::Undercurled)
+        );
+        // Inherited and overlaid like the rest.
+        let mut child = Face::fg(Color::Indexed(2));
+        child.inherit_from(&face);
+        assert_eq!(child.attributes.undercurl, Some(true));
+        let mut off = face;
+        off.overlay(&Face {
+            attributes: Attributes {
+                undercurl: Some(false),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert!(!off.attributes.underlined());
+    }
+
+    #[test]
+    fn the_terminals_that_curl_are_known_by_name_or_version() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| value.to_string())
+            }
+        };
+        assert!(terminal_draws_undercurl(env(&[("TERM", "xterm-kitty")])));
+        assert!(terminal_draws_undercurl(env(&[("TERM", "foot-extra")])));
+        assert!(terminal_draws_undercurl(env(&[("TERM", "tmux-256color")])));
+        assert!(terminal_draws_undercurl(env(&[
+            ("TERM", "xterm-256color"),
+            ("TERM_PROGRAM", "WezTerm")
+        ])));
+        assert!(terminal_draws_undercurl(env(&[
+            ("TERM", "xterm-256color"),
+            ("VTE_VERSION", "7602")
+        ])));
+        assert!(terminal_draws_undercurl(env(&[(
+            "KONSOLE_VERSION",
+            "230800"
+        )])));
+        assert!(terminal_draws_undercurl(env(&[("WT_SESSION", "x")])));
+        assert!(!terminal_draws_undercurl(env(&[(
+            "TERM",
+            "xterm-256color"
+        )])));
+        assert!(!terminal_draws_undercurl(env(&[("TERM", "screen")])));
+        assert!(!terminal_draws_undercurl(env(&[("VTE_VERSION", "4800")])));
+        assert!(!terminal_draws_undercurl(env(&[])));
     }
 
     #[test]

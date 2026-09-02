@@ -179,10 +179,11 @@ theme "maxgus-dark" {
     face "lazy-highlight"     background="#4b3a2f"
 
     // The rest of the attributes a terminal can show. Any the terminal does
-    // not understand it simply ignores.
+    // not understand it simply ignores; an `undercurl` — a wavy underline —
+    // is a plain one where the terminal cannot draw the wave.
     face "font-lock-type"     underline=#true
     face "shadow"             dim=#true
-    face "diagnostic-error"   fg="#e06c75" strikethrough=#false
+    face "diagnostic-error"   fg="#e06c75" undercurl=#true strikethrough=#false
     face "cursor"             reverse=#true
 
     // `inherit` copies whatever the named face sets.

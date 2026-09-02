@@ -3881,8 +3881,9 @@ mod tests {
         );
         let mut s = Surface::new(Size::new(30, 5));
         draw(&editor, &mut s);
-        assert_eq!(face_at(&s, 4, 0).attributes.underline, Some(true));
-        assert_ne!(face_at(&s, 0, 0).attributes.underline, Some(true));
+        assert!(face_at(&s, 4, 0).attributes.underlined());
+        assert_eq!(face_at(&s, 4, 0).attributes.undercurl, Some(true));
+        assert!(!face_at(&s, 0, 0).attributes.underlined());
     }
 
     #[cfg(feature = "full")]

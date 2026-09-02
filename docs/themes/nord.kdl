@@ -56,8 +56,8 @@ theme "nord" base="maxgus-dark" {
     face "font-lock-label"                fg="#81a1c1"
     face "font-lock-attribute"            fg="#b48ead" italic=#true
 
-    face "diagnostic-error"               fg="#bf616a" underline=#true
-    face "diagnostic-warning"             fg="#ebcb8b" underline=#true
+    face "diagnostic-error"               fg="#bf616a" undercurl=#true
+    face "diagnostic-warning"             fg="#ebcb8b" undercurl=#true
     face "diagnostic-info"                fg="#81a1c1"
     face "diagnostic-hint"                fg="#8fbcbb"
 

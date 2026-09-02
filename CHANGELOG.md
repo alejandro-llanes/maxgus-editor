@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The cursor breaks the ligature it lands in.** A block over half of
+  `≠` said nothing about which character was under it — whether `DEL`
+  would take the `!` or the `=`. The cursor's cell is now drawn as its own
+  character, and the characters either side of it are still free to join
+  among themselves, so `===` with the cursor in the middle is three `=`
+  and `!=` joins again the moment the cursor moves on.
+
 - **A window dragged between a 1× and a 2× display is laid out again.**
   The scale the display reports is kept by the window rather than asked
   for as it goes, the font is cut again at the new size, the padding is

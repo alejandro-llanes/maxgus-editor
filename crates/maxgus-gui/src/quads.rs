@@ -354,8 +354,12 @@ pub fn build(surface: &Surface, fonts: &mut Fonts, look: &Look) -> Frame {
         // property of the characters beside each other and not of any one
         // of them.
         let row = y as usize * width;
+        // The cursor's cell is never joined to its neighbours: a block over
+        // half of one mark says nothing about which character is under it,
+        // and the character has to be there to be seen. Whatever is left
+        // either side may still join among itself.
         let glyphs = row_glyphs(&surface.cells()[row..row + width], fonts, |x| {
-            covered(ligatures, x as u16, y)
+            covered(ligatures, x as u16, y) && cursor != Some((x as u16, y))
         });
         for x in 0..size.width {
             let Some(cell) = surface.get(x, y) else {
@@ -1196,6 +1200,71 @@ mod tests {
             (apart[3], apart[4]),
             "prose was joined"
         );
+    }
+
+    #[test]
+    fn the_cursor_breaks_the_ligature_it_is_in() {
+        // `!=` with the block on the `=`: a block over half of one mark says
+        // nothing about which character is under it. Both are drawn as
+        // themselves while the cursor is there, and joined again once it
+        // has gone.
+        let Some(mut fonts) = ligature_font() else {
+            eprintln!("skipping: no font on this machine joins `!=`");
+            return;
+        };
+        let surface = stack("a != b", 1);
+        let everywhere = [maxgus_tui::Rect::new(0, 0, 6, 1)];
+        let at = |fonts: &mut Fonts, cursor: Option<(u16, u16)>| -> Vec<[f32; 2]> {
+            let frame = build(
+                &surface,
+                fonts,
+                &Look {
+                    cursor,
+                    ligatures: &everywhere,
+                    ..Look::new(&palette())
+                },
+            );
+            let mut glyphs: Vec<[f32; 2]> = frame.sprites.iter().map(|s| s.source).collect();
+            glyphs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            glyphs
+        };
+        let away = at(&mut fonts, Some((0, 0)));
+        let inside = at(&mut fonts, Some((3, 0)));
+        let apart = {
+            let cells = row("a != b");
+            let apart = row_glyphs(&cells, &mut fonts, |_| false);
+            let joined = row_glyphs(&cells, &mut fonts, |_| true);
+            assert_ne!(apart, joined, "the font did not join `!=`");
+            apart
+        };
+        assert_ne!(away, inside, "the cursor on the `=` changed nothing");
+        assert_eq!(
+            at(&mut fonts, None),
+            away,
+            "a cursor elsewhere is no cursor at all"
+        );
+        // With the cursor inside, each cell draws what its character says.
+        let frame = build(
+            &surface,
+            &mut fonts,
+            &Look {
+                cursor: Some((2, 0)),
+                ligatures: &everywhere,
+                ..Look::new(&palette())
+            },
+        );
+        let metrics = fonts.metrics();
+        for (x, glyph) in [(2, apart[2]), (3, apart[3])] {
+            let own = fonts
+                .glyph_indexed(glyph.expect("ink"), Style::Regular)
+                .expect("a glyph with ink");
+            let drawn = frame
+                .sprites
+                .iter()
+                .find(|s| (s.position[0] - (x as f32 * metrics.width + own.left)).abs() < 0.5)
+                .unwrap_or_else(|| panic!("nothing drawn in cell {x}"));
+            assert_eq!(drawn.source, [own.x as f32, own.y as f32], "cell {x}");
+        }
     }
 
     #[test]

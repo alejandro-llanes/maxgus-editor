@@ -908,8 +908,11 @@ What the window has that a terminal cannot:
   a mark half in bold is two fonts pretending to be one glyph. And they form
   only in code: `->` in a help page or `--color` on a shell line means the
   characters it is made of, so windows showing prose, listings and the
-  terminal are drawn a character at a time. `set ligatures=#false` turns it
-  off everywhere.
+  terminal are drawn a character at a time. The cursor's own cell is never
+  joined either: a block over half of `≠` says nothing about which
+  character is under it, so `!=` comes apart while the cursor is on it and
+  joins again when it moves on. `set ligatures=#false` turns it off
+  everywhere.
 
   <img src="docs/screenshots/gui-ligatures.png" alt="A line of Rust with its operators drawn as ligatures: not-equal as a crossed equals, the arrow as a single arrow, less-than-or-equal as one glyph" width="100%">
 

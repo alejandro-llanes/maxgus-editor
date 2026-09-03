@@ -1977,7 +1977,43 @@ impl Editor {
             .path()
             .and_then(Path::parent)
             .map(Path::to_path_buf)
+            .or_else(|| self.listed_directory())
+            .or_else(|| self.tree_directory())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+    }
+
+    /// The directory the dired listing is of, when a dired listing is what
+    /// is being looked at.
+    ///
+    /// The view outlives the buffer being looked at — `C-x b` away from it
+    /// and it is still there to come back to — so it stands for where the
+    /// editor is only while it is what is on the screen.
+    pub fn listed_directory(&self) -> Option<PathBuf> {
+        let looking_at_it =
+            self.current_buffer().name() == crate::commands::dired::DIRED_BUFFER_NAME;
+        self.dired
+            .as_ref()
+            .filter(|_| looking_at_it)
+            .map(|view| view.path.clone())
+    }
+
+    /// Points the file tree at `root`, forgetting a repository that no
+    /// longer holds it.
+    ///
+    /// The status view is about whichever repository was resolved last. Sent
+    /// to another project, the tree is the editor saying which project it is
+    /// now in, and a magit that answers about the one before it is a magit
+    /// that will not follow you.
+    pub fn set_tree_root(&mut self, root: PathBuf) {
+        #[cfg(feature = "full")]
+        if self
+            .git_root
+            .as_ref()
+            .is_some_and(|repository| !root.starts_with(repository))
+        {
+            self.git_root = None;
+        }
+        self.tree_root = Some(root);
     }
 
     /// The project's root: what git calls the top of the tree, else the

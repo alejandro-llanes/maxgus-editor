@@ -3081,6 +3081,69 @@ fn the_terminal_opens_along_the_bottom_and_starts_a_shell() {
 
 #[cfg(feature = "full")]
 #[test]
+fn a_shell_starts_in_the_directory_the_editor_is_looking_at() {
+    // No file anywhere: the shell would otherwise start wherever the process
+    // did, which from an application menu is the home directory.
+    let mut s = tree_only_session();
+    s.keys("C-x t v");
+    assert_eq!(
+        terminal_directories(&mut s),
+        vec![std::path::PathBuf::from("/project")],
+        "the shell did not start in the tree's directory"
+    );
+
+    // And in the directory the tree is pointing at, not merely its root: a
+    // second tab is opened from wherever the editor is by then. `C-c t` is
+    // the terminal's own key for it, so from the tree it is `M-x`.
+    s.keys("C-x t 1");
+    s.editor.move_tree_cursor_to_line(1);
+    s.keys("M-x");
+    s.type_text("terminal-new-tab");
+    s.keys("RET");
+    assert_eq!(
+        terminal_directories(&mut s),
+        vec![std::path::PathBuf::from("/project/src")],
+        "the selected directory was not where it started"
+    );
+}
+
+#[cfg(feature = "full")]
+/// Where the shells started since the last drain were started.
+fn terminal_directories(s: &mut Session) -> Vec<std::path::PathBuf> {
+    s.editor
+        .tasks
+        .drain()
+        .into_iter()
+        .filter_map(|task| match task {
+            Task::TerminalOpen { directory, .. } => Some(directory),
+            _ => None,
+        })
+        .collect()
+}
+
+#[cfg(feature = "full")]
+/// A session with nothing open but the tree, rooted at `/project`: what an
+/// editor started from an application menu is looking at.
+fn tree_only_session() -> Session {
+    let mut s = Session::new(90, 30);
+    s.keys("C-x t t");
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::TreeUpdated {
+            nodes: vec![
+                node("/project", "project", true, 0, true),
+                node("/project/src", "src", true, 1, false),
+                node("/project/src/a.rs", "a.rs", false, 2, false),
+            ],
+            select: None,
+            show_hidden: false,
+        })
+        .unwrap();
+    s.editor.tasks.drain();
+    s
+}
+
+#[cfg(feature = "full")]
+#[test]
 fn typing_in_a_terminal_reaches_the_shell_rather_than_the_editor() {
     // This is the whole point of a terminal window: `C-a` is readline's, not
     // `move-beginning-of-line`, and `l` is a keystroke, not `self-insert`.
@@ -3492,6 +3555,66 @@ fn git_tasks(s: &mut Session) -> Vec<maxgus_core::task::GitAction> {
             _ => None,
         })
         .collect()
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn dired_offers_the_directory_the_editor_is_looking_at() {
+    let mut s = tree_only_session();
+    s.keys("C-x d");
+    assert_eq!(
+        s.editor.minibuffer.input(),
+        "/project/",
+        "the prompt did not open on the tree's directory"
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn magit_follows_the_tree_when_it_is_sent_to_another_project() {
+    // The status view is of the repository resolved last. Sent somewhere
+    // else, the tree is the editor saying which project it is in now.
+    let mut s = tree_only_session();
+    s.keys("C-x g");
+    assert_eq!(
+        git_roots(&mut s),
+        vec![std::path::PathBuf::from("/project")]
+    );
+    s.editor.git_root = Some("/project".into());
+
+    send_the_tree_to(&mut s, "/elsewhere");
+    s.keys("C-x g");
+    assert_eq!(
+        git_roots(&mut s),
+        vec![std::path::PathBuf::from("/elsewhere")],
+        "it asked about the project it had been sent away from"
+    );
+
+    // A directory inside the repository is the same repository, so what was
+    // resolved for it stands.
+    s.editor.git_root = Some("/elsewhere".into());
+    send_the_tree_to(&mut s, "/elsewhere/src");
+    s.keys("C-x g");
+    assert_eq!(
+        git_roots(&mut s),
+        vec![std::path::PathBuf::from("/elsewhere")],
+        "it threw away a repository that still holds the tree"
+    );
+}
+
+#[cfg(feature = "full")]
+/// Points the tree at another directory, as `r d` does: the root moves and
+/// the walk comes back with what is under it.
+fn send_the_tree_to(s: &mut Session, root: &str) {
+    s.editor.set_tree_root(root.into());
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::TreeUpdated {
+            nodes: vec![node(root, "root", true, 0, true)],
+            select: None,
+            show_hidden: false,
+        })
+        .unwrap();
+    s.editor.tasks.drain();
 }
 
 #[cfg(feature = "full")]

@@ -12,6 +12,21 @@
   the tree was opened at. Starting the editor in the project worked all
   along, which is why it only showed up in the window.
 
+- **The shell, dired and the file prompts open where the editor is
+  looking.** "Where am I" was answered by the file being edited, and by the
+  directory the process was started in when no buffer had one — so `C-x t v`
+  opened a shell in the home directory, and `C-x d` and `C-x C-f` offered it,
+  while the tree beside them was rooted in a project. A buffer with no file
+  of its own now stands for what it shows: a dired listing for the directory
+  it is of, and the tree for the node under its cursor, the directory holding
+  it when that node is a file, else the root the tree was opened at.
+
+- **Magit follows the tree when it is sent to another project.** The status
+  view was of whichever repository was resolved first, and `r d` or a
+  workspace moving the tree somewhere else left `C-x g` and `g` answering
+  about the project before it. A tree sent outside the repository it was in
+  forgets it, and both keys resolve again from what the editor is looking at.
+
 ## v1.4.0
 
 - **A wave under an error.** Diagnostics are underlined with the wavy

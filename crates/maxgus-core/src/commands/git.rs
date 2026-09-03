@@ -906,32 +906,42 @@ fn status(editor: &mut Editor, _: &Args) -> Result<()> {
     // are looking at while you use it, not a strip beside something else.
     editor.switch_to_buffer(id)?;
     editor.render_git_buffer();
-    // The first refresh starts from what the editor is looking at: the file
-    // being edited, else the directory the file tree is showing — which is
-    // the whole of the answer when the buffer being looked at is the tree,
-    // or `*scratch*`, or anything else with no file. Git resolves the
-    // repository from there and says where it really is.
-    let from = editor
-        .git_root
-        .clone()
-        .or_else(|| {
-            editor
-                .current_buffer()
-                .path()
-                .and_then(Path::parent)
-                .map(Path::to_path_buf)
-        })
-        .or_else(|| editor.tree_directory())
-        .unwrap_or_else(|| editor.default_directory());
     editor.spawn(Task::Git {
-        root: from,
+        root: ask_from(editor),
         action: GitAction::Refresh,
     });
     Ok(())
 }
 
+/// Where to ask git about the repository, before there is an answer.
+///
+/// The most exact place the editor knows, because git resolves the top of
+/// the tree from wherever it is asked: the file being edited or the listing
+/// being looked at, else the repository already found, else what the tree is
+/// showing — which is the whole of the answer when the buffer is the tree, or
+/// `*scratch*`, or anything else with no file of its own.
+fn ask_from(editor: &Editor) -> PathBuf {
+    editor
+        .current_buffer()
+        .path()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .or_else(|| editor.listed_directory())
+        .or_else(|| editor.git_root.clone())
+        .unwrap_or_else(|| editor.default_directory())
+}
+
+/// `g`: reads the repository again.
+///
+/// Resolved the same way the first refresh was, rather than from the root
+/// held from last time: the tree may have been sent to another project since,
+/// and `g` is the key that is pressed when the view looks wrong.
 fn refresh(editor: &mut Editor, _: &Args) -> Result<()> {
-    act(editor, GitAction::Refresh)
+    editor.spawn(Task::Git {
+        root: ask_from(editor),
+        action: GitAction::Refresh,
+    });
+    Ok(())
 }
 
 /// `q`: closes the magit view, killing it.

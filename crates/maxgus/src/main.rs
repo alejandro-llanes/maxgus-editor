@@ -176,7 +176,7 @@ async fn main() -> Result<()> {
         .iter()
         .map(|c| (c.name.to_string(), c.doc.to_string()))
         .collect();
-    editor.tree_root = Some(root.clone());
+    editor.set_tree_root(root.clone());
     editor.tree_width = config.tree.width as u16;
     editor.tree_follow = config.tree.follow;
 

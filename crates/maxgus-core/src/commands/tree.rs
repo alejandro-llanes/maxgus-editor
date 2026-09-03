@@ -350,7 +350,7 @@ fn act(editor: &mut Editor, action: TreeAction) {
 /// scrolls on its own.
 pub fn open(editor: &mut Editor, root: PathBuf) -> Result<()> {
     use crate::panel::PanelSection;
-    editor.tree_root = Some(root.clone());
+    editor.set_tree_root(root.clone());
     // Where `r r` comes back to, whatever `r d` does afterwards.
     editor.tree_home = Some(root.clone());
 
@@ -935,7 +935,7 @@ fn set_root(editor: &mut Editor, from: PathBuf, to: PathBuf) {
     // The first directory is the project, and only it: moving a second one
     // around says nothing about where the project is.
     if editor.tree_root.as_ref() == Some(&from) {
-        editor.tree_root = Some(to.clone());
+        editor.set_tree_root(to.clone());
     }
     act(editor, TreeAction::SetRoot { from, to });
 }

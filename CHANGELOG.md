@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Magit opens on the project the tree is showing.** `C-x g` asked git
+  about the directory the process was started in whenever no buffer had a
+  file of its own — from an application menu that is the home directory,
+  so the status view answered "git: not inside a repository" while the
+  tree beside it was rooted in a repository. It now asks from the file
+  being edited, else from what the tree is showing: the node under its
+  cursor, the directory holding it when that node is a file, else the root
+  the tree was opened at. Starting the editor in the project worked all
+  along, which is why it only showed up in the window.
+
 ## v1.4.0
 
 - **A wave under an error.** Diagnostics are underlined with the wavy

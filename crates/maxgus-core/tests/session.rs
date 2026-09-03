@@ -3496,6 +3496,73 @@ fn git_tasks(s: &mut Session) -> Vec<maxgus_core::task::GitAction> {
 
 #[cfg(feature = "full")]
 #[test]
+fn magit_opens_on_the_project_the_tree_is_showing() {
+    // Started from an application menu, the process's directory is the home
+    // one and no buffer has a file: the tree is the only thing that knows
+    // which project is on screen, and magit has to ask it rather than ask
+    // git about a home directory that is not a repository.
+    let mut s = Session::new(90, 30);
+    s.keys("C-x t t");
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::TreeUpdated {
+            nodes: vec![
+                node("/project", "project", true, 0, true),
+                node("/project/src", "src", true, 1, false),
+                node("/project/src/a.rs", "a.rs", false, 2, false),
+            ],
+            select: None,
+            show_hidden: false,
+        })
+        .unwrap();
+    s.editor.tasks.drain();
+
+    s.keys("C-x g");
+    assert_eq!(
+        git_roots(&mut s),
+        vec![std::path::PathBuf::from("/project")],
+        "the first refresh did not start from the tree"
+    );
+
+    // And from a directory inside it: git resolves the top from wherever it
+    // is asked, so the selected node is the more exact place to ask from.
+    s.editor.git_root = None;
+    s.keys("C-x t 1");
+    s.editor.move_tree_cursor_to_line(1);
+    s.keys("C-x g");
+    assert_eq!(
+        git_roots(&mut s),
+        vec![std::path::PathBuf::from("/project/src")],
+        "the selected directory was not where it asked from"
+    );
+
+    // A file is a place too: the directory holding it.
+    s.editor.git_root = None;
+    s.keys("C-x t 1");
+    s.editor.move_tree_cursor_to_line(2);
+    s.keys("C-x g");
+    assert_eq!(
+        git_roots(&mut s),
+        vec![std::path::PathBuf::from("/project/src")],
+        "a selected file did not stand for its directory"
+    );
+}
+
+#[cfg(feature = "full")]
+/// Where the git tasks queued since the last drain were asked from.
+fn git_roots(s: &mut Session) -> Vec<std::path::PathBuf> {
+    s.editor
+        .tasks
+        .drain()
+        .into_iter()
+        .filter_map(|task| match task {
+            Task::Git { root, .. } => Some(root),
+            _ => None,
+        })
+        .collect()
+}
+
+#[cfg(feature = "full")]
+#[test]
 fn the_status_view_shows_the_whole_state_of_the_repository() {
     let mut s = with_git();
     let screen = s.screen();

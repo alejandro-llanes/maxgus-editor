@@ -17,7 +17,7 @@ use crate::{
     git::{Row, Section},
     task::{GitAction, Task},
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// The buffer the status view is drawn into. Magit's own name, because a
 /// person who knows magit should recognise it.
@@ -906,11 +906,22 @@ fn status(editor: &mut Editor, _: &Args) -> Result<()> {
     // are looking at while you use it, not a strip beside something else.
     editor.switch_to_buffer(id)?;
     editor.render_git_buffer();
-    // The first refresh starts from wherever the editor is; git resolves the
+    // The first refresh starts from what the editor is looking at: the file
+    // being edited, else the directory the file tree is showing — which is
+    // the whole of the answer when the buffer being looked at is the tree,
+    // or `*scratch*`, or anything else with no file. Git resolves the
     // repository from there and says where it really is.
     let from = editor
         .git_root
         .clone()
+        .or_else(|| {
+            editor
+                .current_buffer()
+                .path()
+                .and_then(Path::parent)
+                .map(Path::to_path_buf)
+        })
+        .or_else(|| editor.tree_directory())
         .unwrap_or_else(|| editor.default_directory());
     editor.spawn(Task::Git {
         root: from,

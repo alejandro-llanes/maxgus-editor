@@ -1992,6 +1992,27 @@ impl Editor {
             .unwrap_or_else(|| self.default_directory())
     }
 
+    /// The directory the file tree is showing: the node under its cursor,
+    /// the directory holding it when that node is a file, else the root the
+    /// tree was opened at. `None` when there is no tree.
+    ///
+    /// What a buffer with no file of its own — the tree itself, `*scratch*`,
+    /// a magit view — has instead. The process's directory is wherever the
+    /// editor was started, which from an application menu is the home
+    /// directory and says nothing about the project on the screen.
+    pub fn tree_directory(&self) -> Option<PathBuf> {
+        self.tree_selection()
+            .map(|node| match node.kind.is_directory() {
+                true => node.path.clone(),
+                false => node
+                    .path
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| node.path.clone()),
+            })
+            .or_else(|| self.tree_root.clone())
+    }
+
     /// The word point is in or beside, which is what a search prompt offers.
     pub fn word_at_point(&self) -> Option<String> {
         let buffer = self.current_buffer();

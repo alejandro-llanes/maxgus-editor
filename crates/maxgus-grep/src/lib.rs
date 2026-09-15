@@ -75,11 +75,51 @@ impl Search {
         };
         let fold = self
             .case_fold
-            .unwrap_or_else(|| !self.pattern.chars().any(char::is_uppercase));
+            .unwrap_or_else(|| !has_capital(&self.pattern, self.regexp));
         Ok(regex::RegexBuilder::new(&pattern)
             .case_insensitive(fold)
             .build()?)
     }
+}
+
+/// Whether a pattern has a capital letter in it that it means as a letter.
+///
+/// In a regular expression, `\S`, `\W` and `\D` are classes rather than
+/// capitals, and a pattern of `\S+` was searched case-sensitively as though
+/// its author had typed an upper-case letter.
+fn has_capital(pattern: &str, regexp: bool) -> bool {
+    let mut escaped = false;
+    for c in pattern.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if regexp && c == '\\' {
+            escaped = true;
+            continue;
+        }
+        if c.is_uppercase() {
+            return true;
+        }
+    }
+    false
+}
+
+/// A file's lines, each with the ending it had: `\n`, `\r\n`, or nothing
+/// for a last line that had none.
+///
+/// What a search reports and what a rewrite checks against have to be cut
+/// the same way, or a line read from one would never match the other.
+fn lines_with_endings(text: &str) -> impl Iterator<Item = (&str, &str)> {
+    text.split_inclusive('\n').map(|line| {
+        let Some(bare) = line.strip_suffix('\n') else {
+            return (line, "");
+        };
+        match bare.strip_suffix('\r') {
+            Some(content) => (content, &line[content.len()..]),
+            None => (bare, &line[bare.len()..]),
+        }
+    })
 }
 
 /// What a search found, and whether it stopped early.
@@ -107,6 +147,11 @@ pub fn search(root: &Path, search: &Search) -> Result<Found> {
         // A directory with a `.gitignore` and no `.git` is still a project
         // whose author said what not to look at.
         .require_git(false)
+        // In the order a listing of the tree would show, rather than the
+        // order the filesystem happens to hand entries back in — which on
+        // some is the reverse of the order they were made in, and on others
+        // changes from one search to the next.
+        .sort_by_file_name(|a, b| a.cmp(b))
         .build();
     for entry in walk.flatten() {
         if !entry.file_type().is_some_and(|t| t.is_file()) {
@@ -131,7 +176,7 @@ pub fn search(root: &Path, search: &Search) -> Result<Found> {
             continue;
         };
         found.files_searched += 1;
-        for (number, line) in text.lines().enumerate() {
+        for (number, (line, _)) in lines_with_endings(&text).enumerate() {
             let Some(m) = regex.find(line) else {
                 continue;
             };
@@ -186,33 +231,44 @@ pub struct Applied {
 /// Rewrites `text` with the replacements for one file, checking each against
 /// the line it was made from.
 ///
-/// Separate from the writing so it can be tested without a filesystem, and so
-/// a file the editor already has open can be edited in its buffer instead.
+/// Every line keeps the ending it had. The lines were joined back with `\n`,
+/// so a file with `\r\n` endings came back from a one-word rename with every
+/// line of it changed.
 pub fn rewrite(text: &str, replacements: &[Replacement]) -> Result<String> {
-    let mut lines: Vec<&str> = text.lines().collect();
+    let mut lines: Vec<(&str, &str)> = lines_with_endings(text).collect();
     for replacement in replacements {
-        let Some(line) = lines.get_mut(replacement.line) else {
-            return Err(GrepError::Stale {
-                path: replacement.path.clone(),
-            });
+        let stale = || GrepError::Stale {
+            path: replacement.path.clone(),
         };
-        if *line != replacement.was {
-            return Err(GrepError::Stale {
-                path: replacement.path.clone(),
-            });
+        let line = lines.get_mut(replacement.line).ok_or_else(stale)?;
+        if line.0 != replacement.was {
+            return Err(stale());
         }
-        *line = &replacement.now;
+        line.0 = &replacement.now;
     }
-    let mut out = lines.join("\n");
-    // A file that ended with a newline still does; one that did not, does not.
-    if text.ends_with('\n') {
-        out.push('\n');
-    }
-    Ok(out)
+    Ok(lines
+        .into_iter()
+        .flat_map(|(content, ending)| [content, ending])
+        .collect())
 }
 
-/// Applies replacements to the files on disk, grouped by file.
-pub fn apply(replacements: &[Replacement]) -> Result<Applied> {
+/// A file with its replacements made, ready to be written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rewritten {
+    pub path: PathBuf,
+    pub contents: String,
+    /// How many of its lines were replaced.
+    pub lines: usize,
+}
+
+/// Reads every file the replacements are for and makes them, writing
+/// nothing.
+///
+/// All or none: every file is read and checked before any is written, which
+/// is the caller's to do once this has succeeded. Writing each file as it
+/// was checked left the first of them rewritten when a later one turned out
+/// to have changed, and the error said nothing about the ones already done.
+pub fn prepare(replacements: &[Replacement]) -> Result<Vec<Rewritten>> {
     let mut by_file: BTreeMap<PathBuf, Vec<Replacement>> = BTreeMap::new();
     for replacement in replacements {
         by_file
@@ -220,19 +276,32 @@ pub fn apply(replacements: &[Replacement]) -> Result<Applied> {
             .or_default()
             .push(replacement.clone());
     }
-    let mut applied = Applied::default();
+    let mut rewritten = Vec::with_capacity(by_file.len());
     for (path, replacements) in by_file {
         let text = std::fs::read_to_string(&path).map_err(|source| GrepError::Io {
             path: path.clone(),
             source,
         })?;
-        let rewritten = rewrite(&text, &replacements)?;
-        std::fs::write(&path, &rewritten).map_err(|source| GrepError::Io {
-            path: path.clone(),
+        rewritten.push(Rewritten {
+            contents: rewrite(&text, &replacements)?,
+            lines: replacements.len(),
+            path,
+        });
+    }
+    Ok(rewritten)
+}
+
+/// Applies replacements to the files on disk, checking all of them before
+/// writing any.
+pub fn apply(replacements: &[Replacement]) -> Result<Applied> {
+    let mut applied = Applied::default();
+    for file in prepare(replacements)? {
+        std::fs::write(&file.path, &file.contents).map_err(|source| GrepError::Io {
+            path: file.path.clone(),
             source,
         })?;
         applied.files += 1;
-        applied.lines += replacements.len();
+        applied.lines += file.lines;
     }
     Ok(applied)
 }
@@ -438,6 +507,94 @@ mod tests {
             std::fs::read_to_string(&b)
                 .unwrap()
                 .contains("// renamed again")
+        );
+    }
+
+    #[test]
+    fn a_file_with_carriage_returns_keeps_them() {
+        assert_eq!(
+            rewrite("one\r\ntwo\r\nthree", &[replacement("f", 1, "two", "TWO")]).unwrap(),
+            "one\r\nTWO\r\nthree",
+            "the line endings were changed along with the line"
+        );
+    }
+
+    #[test]
+    fn a_search_reads_lines_the_way_a_rewrite_checks_them() {
+        let root = fixture("endings");
+        std::fs::write(root.join("dos.txt"), "first\r\nalpha here\r\n").unwrap();
+        let found = search(&root, &Search::new("alpha here")).unwrap();
+        let hit = found
+            .hits
+            .iter()
+            .find(|h| h.path.ends_with("dos.txt"))
+            .unwrap();
+        assert_eq!(hit.text, "alpha here", "the carriage return was kept");
+        let applied = apply(&[Replacement {
+            path: hit.path.clone(),
+            line: hit.line,
+            was: hit.text.clone(),
+            now: "beta here".into(),
+        }])
+        .unwrap();
+        assert_eq!(applied.lines, 1);
+        assert_eq!(
+            std::fs::read_to_string(root.join("dos.txt")).unwrap(),
+            "first\r\nbeta here\r\n"
+        );
+    }
+
+    #[test]
+    fn files_are_searched_in_the_order_a_listing_shows_them() {
+        let root = fixture("order");
+        for name in ["c.txt", "a.txt", "b.txt"] {
+            std::fs::write(root.join(name), "needle\n").unwrap();
+        }
+        let found = search(&root, &Search::new("needle")).unwrap();
+        let names: Vec<String> = found
+            .hits
+            .iter()
+            .map(|h| h.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["a.txt", "b.txt", "c.txt"]);
+    }
+
+    #[test]
+    fn an_escape_is_not_a_capital() {
+        assert!(!has_capital(r"\S+alpha", true), r"\S read as a capital");
+        assert!(has_capital(r"\S+Alpha", true));
+        assert!(
+            has_capital(r"\S", false),
+            "taken as written, the S is a letter"
+        );
+    }
+
+    #[test]
+    fn nothing_is_written_when_any_file_is_refused() {
+        let root = fixture("all-or-none");
+        let a = root.join("src/a.rs");
+        let b = root.join("src/b.rs");
+        let before = std::fs::read_to_string(&a).unwrap();
+        let error = apply(&[
+            Replacement {
+                path: a.clone(),
+                line: 0,
+                was: "fn alpha() {}".into(),
+                now: "fn renamed() {}".into(),
+            },
+            Replacement {
+                path: b.clone(),
+                line: 0,
+                was: "not what b says".into(),
+                now: "x".into(),
+            },
+        ])
+        .unwrap_err();
+        assert!(matches!(error, GrepError::Stale { .. }), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(&a).unwrap(),
+            before,
+            "the first file was written before the second was refused"
         );
     }
 

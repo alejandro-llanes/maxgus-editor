@@ -214,10 +214,21 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-x r n", "number-to-register"),
     ("C-x r +", "increment-register"),
     ("C-x r r", "copy-rectangle-to-register"),
+    // ---- rectangles ----
+    ("C-x r k", "kill-rectangle"),
+    ("C-x r d", "delete-rectangle"),
+    ("C-x r M-w", "copy-rectangle-as-kill"),
+    ("C-x r y", "yank-rectangle"),
+    ("C-x r o", "open-rectangle"),
+    ("C-x r c", "clear-rectangle"),
+    ("C-x r t", "string-rectangle"),
+    ("C-x r N", "rectangle-number-lines"),
     // ---- keyboard macros ----
     ("C-x (", "kmacro-start-macro"),
     ("C-x )", "kmacro-end-macro"),
     ("C-x e", "kmacro-end-and-call-macro"),
+    ("<f3>", "kmacro-start-macro-or-insert-counter"),
+    ("<f4>", "kmacro-end-or-call-macro"),
     // ---- the file tree ----
     #[cfg(feature = "full")]
     ("C-x g", "magit-status"),
@@ -233,7 +244,7 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     // ---- language server ----
     #[cfg(feature = "full")]
     ("M-.", "lsp-find-definition"),
-    ("M-,", "pop-mark"),
+    ("M-,", "xref-go-back"),
     #[cfg(feature = "full")]
     ("M-?", "lsp-find-references"),
     #[cfg(feature = "full")]
@@ -343,6 +354,7 @@ pub const GLOBAL_BINDINGS: &[(&str, &str)] = &[
     ("C-h b", "describe-bindings"),
     ("C-h m", "describe-mode"),
     ("C-h w", "where-is"),
+    ("C-h e", "view-echo-area-messages"),
     #[cfg(feature = "full")]
     ("C-h s", "describe-syntax-at-point"),
     ("C-h t", "help-with-tutorial"),
@@ -881,6 +893,68 @@ pub fn buffers_keymap() -> Result<Keymap> {
         map.define_str(keys, *command)?;
     }
     Ok(map)
+}
+
+/// Lays the configuration's `keymap` blocks over the editor's own maps, and
+/// says what could not be done, a sentence each.
+///
+/// `global` changes the global map. Any other block is the map of the mode
+/// it is named for, which is laid over the built-in one when there is one;
+/// an `unbind` in it takes the key out of that built-in map.
+pub fn apply_configured_keymaps(
+    editor: &mut crate::editor::Editor,
+    specs: &[maxgus_config::KeymapSpec],
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    for spec in specs {
+        if spec.name == "global" {
+            problems.extend(spec.apply_to(&mut editor.keymaps.global));
+            continue;
+        }
+        let (map, found) = spec.to_keymap();
+        problems.extend(
+            found
+                .into_iter()
+                .map(|problem| format!("in `{}`, {problem}", spec.name)),
+        );
+        editor.mode_keymaps.push(map);
+        editor.mode_unbound.extend(
+            spec.unbound
+                .iter()
+                .map(|keys| (spec.name.clone(), keys.clone())),
+        );
+    }
+    problems
+}
+
+/// The bindings in `specs` whose command `exists` does not know, as the
+/// key sequence and the name.
+///
+/// They were accepted, and each became a key that said "unknown command"
+/// when pressed, for as long as nobody pressed it.
+pub fn bindings_to_nothing(
+    specs: &[maxgus_config::KeymapSpec],
+    exists: impl Fn(&str) -> bool,
+) -> Vec<(String, String)> {
+    specs
+        .iter()
+        .flat_map(|spec| &spec.bindings)
+        .filter(|(_, command)| !exists(command))
+        .map(|(keys, command)| (keys.notation(), command.clone()))
+        .collect()
+}
+
+/// Says which bindings name no command, once everything that can define a
+/// command has had its chance to.
+pub fn describe_bindings_to_nothing(dead: &[(String, String)]) -> Option<String> {
+    let named: Vec<String> = dead
+        .iter()
+        .map(|(keys, command)| format!("`{keys}` is bound to `{command}`"))
+        .collect();
+    match named.len() {
+        0 => None,
+        _ => Some(format!("{}, which is not a command", named.join(", "))),
+    }
 }
 
 #[cfg(test)]

@@ -156,6 +156,11 @@ fn open(editor: &mut Editor, other_window: bool) -> Result<()> {
         let Place::File(path) = target.place else {
             return Err(CoreError::Message("That buffer is gone".into()));
         };
+        // `o` stays in the list for a file that has to be read first, as it
+        // does for one that is open.
+        if other_window {
+            editor.pending_return = Some((path.clone(), list));
+        }
         editor.pending_line = Some((path.clone(), target.line));
         editor.spawn(Task::ReadFile {
             path,
@@ -172,9 +177,13 @@ fn open(editor: &mut Editor, other_window: bool) -> Result<()> {
         .ids()
         .into_iter()
         .find(|w| *w != list && editor.windows.get(*w).is_some_and(|w| w.buffer == id))
-        .or_else(|| editor.editing_window().filter(|w| *w != list))
+        .or_else(|| editor.other_editing_window(list))
     {
         editor.select_window(window);
+    }
+    // Where this window was, for `M-,` to come back to.
+    if editor.windows.current_id() != list {
+        editor.push_jump();
     }
     editor.switch_to_buffer(id)?;
     editor.go_to_line(target.line);

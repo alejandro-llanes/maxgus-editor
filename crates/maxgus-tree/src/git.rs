@@ -100,6 +100,48 @@ pub fn parse_porcelain(root: &Path, output: &str) -> HashMap<PathBuf, GitStatus>
     map
 }
 
+/// Parses `git status --porcelain -z`, the form [`git_status`] asks for.
+///
+/// Entries end in a NUL rather than a newline, and their paths are the bytes
+/// on disk: never quoted, never escaped. The plain form writes `ñandú.txt` as
+/// `"\303\261and\303\272.txt"`, which names nothing, so a file with an accent
+/// in its name never got its mark.
+pub fn parse_porcelain_z(root: &Path, output: &[u8]) -> HashMap<PathBuf, GitStatus> {
+    let mut map = HashMap::new();
+    let mut entries = output.split(|byte| *byte == 0);
+    while let Some(entry) = entries.next() {
+        if entry.len() < 4 || entry[2] != b' ' {
+            continue;
+        }
+        // A rename or a copy is followed by the path it came from, which is
+        // no longer anything on disk to decorate.
+        if matches!(entry[0], b'R' | b'C') {
+            entries.next();
+        }
+        let Some(status) = GitStatus::from_porcelain(&String::from_utf8_lossy(&entry[..2])) else {
+            continue;
+        };
+        // An untracked or ignored directory is reported whole, with a slash.
+        let path = entry[3..].strip_suffix(b"/").unwrap_or(&entry[3..]);
+        if path.is_empty() {
+            continue;
+        }
+        map.insert(root.join(path_from_bytes(path)), status);
+    }
+    map
+}
+
+#[cfg(unix)]
+fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+}
+
+#[cfg(not(unix))]
+fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+}
+
 /// Runs `git status` in `root` and returns the decorated paths.
 ///
 /// Returns an empty map when `root` is not a repository or git is unavailable:
@@ -111,9 +153,12 @@ pub async fn git_status(root: &Path, include_ignored: bool) -> HashMap<PathBuf, 
         .arg(root)
         .arg("status")
         .arg("--porcelain")
+        .arg("-z")
         .arg("--no-renames")
         .arg("--untracked-files=normal");
     if include_ignored {
+        // `matching` reports an ignored directory once rather than every
+        // file inside it, which is what keeps a `node_modules` affordable.
         command.arg("--ignored=matching");
     }
     // Never let a hung git block the editor's event loop.
@@ -124,14 +169,11 @@ pub async fn git_status(root: &Path, include_ignored: bool) -> HashMap<PathBuf, 
     if !output.status.success() {
         return HashMap::new();
     }
-    let Ok(text) = String::from_utf8(output.stdout) else {
-        return HashMap::new();
-    };
     // Resolve the true repository root so paths line up.
     let repo_root = repository_root(root)
         .await
         .unwrap_or_else(|| root.to_path_buf());
-    parse_porcelain(&repo_root, &text)
+    parse_porcelain_z(&repo_root, &output.stdout)
 }
 
 /// The branch `path` is on, if it is in a repository at all.
@@ -285,6 +327,79 @@ mod tests {
             map.get(Path::new("/repo/with space.txt")),
             Some(&GitStatus::Untracked)
         );
+    }
+
+    #[test]
+    fn nul_separated_output_keeps_names_as_they_are_on_disk() {
+        let out = b" M src/main.rs\0?? \xc3\xb1and\xc3\xba.txt\0?? new dir/\0!! target/\0";
+        let map = parse_porcelain_z(Path::new("/repo"), out);
+        assert_eq!(
+            map.get(Path::new("/repo/src/main.rs")),
+            Some(&GitStatus::Modified)
+        );
+        assert_eq!(
+            map.get(Path::new("/repo/ñandú.txt")),
+            Some(&GitStatus::Untracked),
+            "an accented name is not quoted in this form, so it must be found"
+        );
+        assert_eq!(
+            map.get(Path::new("/repo/new dir")),
+            Some(&GitStatus::Untracked),
+            "a directory's slash is not part of its name"
+        );
+        assert_eq!(
+            map.get(Path::new("/repo/target")),
+            Some(&GitStatus::Ignored)
+        );
+        assert_eq!(map.len(), 4);
+    }
+
+    #[test]
+    fn a_rename_in_the_nul_form_skips_the_path_it_came_from() {
+        let map = parse_porcelain_z(Path::new("/repo"), b"R  new.rs\0old.rs\0 M kept.rs\0");
+        assert_eq!(
+            map.get(Path::new("/repo/new.rs")),
+            Some(&GitStatus::Renamed)
+        );
+        assert!(!map.contains_key(Path::new("/repo/old.rs")));
+        assert_eq!(
+            map.get(Path::new("/repo/kept.rs")),
+            Some(&GitStatus::Modified)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_real_repository_reports_accents_and_ignored_files() {
+        let dir = std::env::temp_dir().join("maxgus-tree-git-real");
+        tokio::fs::remove_dir_all(&dir).await.ok();
+        tokio::fs::create_dir_all(dir.join("build")).await.unwrap();
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(args)
+                .output()
+        };
+        if git(&["init", "-q"]).is_err() {
+            // No git on this machine: nothing to check against.
+            return;
+        }
+        tokio::fs::write(dir.join(".gitignore"), "build/\n")
+            .await
+            .unwrap();
+        tokio::fs::write(dir.join("ñandú.txt"), "hola")
+            .await
+            .unwrap();
+        tokio::fs::write(dir.join("build/out.o"), "").await.unwrap();
+
+        let map = git_status(&dir, true).await;
+        let root = repository_root(&dir).await.unwrap();
+        assert_eq!(
+            map.get(&root.join("ñandú.txt")),
+            Some(&GitStatus::Untracked)
+        );
+        assert_eq!(map.get(&root.join("build")), Some(&GitStatus::Ignored));
+        tokio::fs::remove_dir_all(&dir).await.ok();
     }
 
     #[test]

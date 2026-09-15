@@ -40,6 +40,9 @@ pub struct Settings {
     pub font_size: f32,
     /// The window's own colours, which a terminal would have supplied.
     pub palette: Palette,
+    /// Fill the screen for this run, as `--fullscreen` asks, whatever the
+    /// window did last time — and without remembering it for the next.
+    pub fullscreen: bool,
 }
 
 /// Runs the editor in a window until it is asked to leave.
@@ -254,7 +257,8 @@ impl App {
         geometry_path: Option<std::path::PathBuf>,
     ) -> App {
         // A window can fill the screen, and does again if it did last time.
-        editor.fullscreen = Some(remembered.is_some_and(|g| g.fullscreen));
+        let filled = settings.fullscreen || remembered.is_some_and(|g| g.fullscreen);
+        editor.fullscreen = Some(filled);
         App {
             editor,
             dispatcher,
@@ -288,7 +292,7 @@ impl App {
             zoom_wheel: 0.0,
             scale: 1.0,
             size: (1, 1),
-            fullscreen: remembered.is_some_and(|g| g.fullscreen),
+            fullscreen: filled,
             geometry: remembered.unwrap_or(crate::geometry::Geometry::DEFAULT),
             geometry_path,
         }
@@ -909,15 +913,7 @@ impl App {
         let Some(text) = clipboard.read_primary().or_else(|| clipboard.read()) else {
             return;
         };
-        if self.editor.minibuffer.is_active() {
-            self.editor.minibuffer.insert(&text.replace('\n', " "));
-        } else if let Err(error) = self
-            .editor
-            .with_current_buffer(|b| b.insert_at_point(&text))
-        {
-            self.editor.error(error.to_string());
-        }
-        self.editor.follow_point();
+        maxgus_core::frontend::paste_text(&mut self.editor, &text);
         self.dirty = true;
         self.pump();
     }
@@ -1318,8 +1314,48 @@ mod tests {
             font: "this-font-does-not-exist".into(),
             font_size: 16.0,
             palette: Palette::of(&theme),
+            fullscreen: false,
         };
         App::new(editor, dispatcher, settings, tasks, results, None, None)
+    }
+
+    #[test]
+    fn a_window_asked_to_fill_the_screen_does_without_remembering_it() {
+        let theme = maxgus_faces::defaults::builtin("maxgus-dark").unwrap();
+        let editor = Editor::new(
+            maxgus_config::Settings::default(),
+            theme.clone(),
+            Rect::new(0, 0, 80, 24),
+        );
+        let (tasks, _) = std::sync::mpsc::channel();
+        let (_, results) = mpsc::channel();
+        let settings = Settings {
+            title: "test".into(),
+            font: "this-font-does-not-exist".into(),
+            font_size: 16.0,
+            palette: Palette::of(&theme),
+            fullscreen: true,
+        };
+        let remembered = crate::geometry::Geometry {
+            width: 900.0,
+            height: 600.0,
+            fullscreen: false,
+        };
+        let app = App::new(
+            editor,
+            Dispatcher::new(maxgus_core::standard_registry()),
+            settings,
+            tasks,
+            results,
+            Some(remembered),
+            None,
+        );
+        assert!(app.fullscreen, "it opens as a window");
+        assert_eq!(app.editor.fullscreen, Some(true));
+        assert_eq!(
+            app.geometry, remembered,
+            "the next start would fill the screen too"
+        );
     }
 
     #[test]

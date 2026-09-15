@@ -10,7 +10,7 @@
 # Each binary says which one it is:
 #
 #     target/variants/maxgus-minimal --version
-#     maxgus 0.1.0 (minimal)
+#     maxgus 1.4.0 (minimal)
 #
 set -euo pipefail
 
@@ -22,7 +22,9 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --debug) profile=debug; shift ;;
         --release) profile=release; shift ;;
-        --into) into="$2"; shift 2 ;;
+        --into)
+            [ $# -ge 2 ] || { echo "--into needs a directory" >&2; exit 2; }
+            into="$2"; shift 2 ;;
         -h|--help) sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
@@ -35,18 +37,22 @@ variants=(minimal full gui)
 mkdir -p "$into"
 built=()
 failed=()
+# Where cargo puts what it builds, which is not always `target/`.
+target_dir="${CARGO_TARGET_DIR:-$root/target}"
+# The logs of a failed build, somewhere nobody else can have put a file.
+logs=$(mktemp -d)
 
 for name in "${variants[@]}"; do
     printf '%-8s ' "$name"
     flags=(--no-default-features --features "$name")
     [ "$profile" = release ] && flags+=(--release)
-    if cargo build --quiet -p maxgus "${flags[@]}" 2>"/tmp/maxgus-variant-$name.log"; then
-        cp "$root/target/$profile/maxgus" "$into/maxgus-$name"
+    if cargo build --quiet -p maxgus "${flags[@]}" 2>"$logs/$name.log"; then
+        cp "$target_dir/$profile/maxgus" "$into/maxgus-$name"
         size=$(du -h "$into/maxgus-$name" | cut -f1)
         printf 'ok  %6s  %s\n' "$size" "$("$into/maxgus-$name" --version)"
         built+=("$name")
     else
-        printf 'FAILED — see /tmp/maxgus-variant-%s.log\n' "$name"
+        printf 'FAILED — see %s/%s.log\n' "$logs" "$name"
         failed+=("$name")
     fi
 done

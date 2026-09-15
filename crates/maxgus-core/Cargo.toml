@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "The editor: buffers, windows, the minibuffer, commands and redisplay."
 
 [lints]
 workspace = true

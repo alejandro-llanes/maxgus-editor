@@ -193,9 +193,18 @@ impl Palette {
             Some(Color::Rgb(r, g, b)) => linear_rgb(r, g, b),
             _ => fallback,
         };
+        // The theme's sixteen, where it names them; xterm's where it does
+        // not, which is what a theme that leaves them to the terminal means.
         let mut ansi = [[0.0, 0.0, 0.0, 1.0]; 16];
         for (index, slot) in ansi.iter_mut().enumerate() {
-            let (r, g, b) = maxgus_faces::xterm_palette_rgb(index as u8);
+            let named = maxgus_faces::names::ANSI_FACES
+                .get(index)
+                .and_then(|name| theme.resolve(name).foreground);
+            let (r, g, b) = match named {
+                Some(Color::Rgb(r, g, b)) => (r, g, b),
+                Some(Color::Indexed(i)) => maxgus_faces::xterm_palette_rgb(i),
+                _ => maxgus_faces::xterm_palette_rgb(index as u8),
+            };
             *slot = linear_rgb(r, g, b);
         }
         let foreground = plain(default.foreground, linear_rgb(217, 222, 230));
@@ -793,6 +802,20 @@ mod tests {
     use super::*;
     use maxgus_faces::Attributes;
     use maxgus_tui::{Cell, Size};
+
+    #[test]
+    fn a_terminal_in_a_window_is_drawn_in_the_themes_colours() {
+        // xterm's blue, which `ls` puts every directory in, is 0,0,238: on a
+        // dark background it cannot be read.
+        let dark = maxgus_faces::defaults::builtin("maxgus-dark").unwrap();
+        let palette = Palette::of(&dark);
+        assert_eq!(palette.ansi[4], linear_rgb(0x81, 0xa2, 0xbe));
+        // A theme that names the terminal's own colours gets xterm's, which
+        // is the nearest thing a window has to a terminal's.
+        let term = maxgus_faces::defaults::builtin("maxgus-term").unwrap();
+        let (r, g, b) = maxgus_faces::xterm_palette_rgb(4);
+        assert_eq!(Palette::of(&term).ansi[4], linear_rgb(r, g, b));
+    }
 
     fn palette() -> Palette {
         Palette {

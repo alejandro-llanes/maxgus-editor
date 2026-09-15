@@ -1273,7 +1273,8 @@ fn hunk_line(
 
 // ---- staging ------------------------------------------------------------
 
-/// What `s`, `u` and `k` act on: a whole section, a file, or one hunk.
+/// What `s`, `u` and `k` act on: a whole section, a file, one hunk, or the
+/// lines of a hunk the region covers.
 enum Target {
     Section(Section),
     Paths(Section, Vec<PathBuf>),
@@ -1282,9 +1283,83 @@ enum Target {
         patch: String,
         path: String,
     },
+    /// Some lines of one hunk: the patch for applying them forwards and the
+    /// one for applying them in reverse, which leave out different lines.
+    Lines {
+        section: Section,
+        forward: String,
+        reverse: String,
+        path: String,
+        count: usize,
+    },
+}
+
+/// The lines of one hunk the region covers, when it covers lines of just
+/// one — magit's partial staging.
+fn region_lines(editor: &Editor) -> Option<Target> {
+    let id = editor.buffers.find_by_name(STATUS_BUFFER_NAME)?;
+    let buffer = editor.buffers.get(id)?;
+    if editor.current_buffer_id() != id || !buffer.is_mark_active() {
+        return None;
+    }
+    // The window's point, which is the one that is current; the buffer's
+    // copy is only brought up to date when something needs it.
+    let point = editor.windows.current().point;
+    let mark = buffer.mark()?;
+    let (start, end) = (point.min(mark), point.max(mark));
+    if start == end {
+        return None;
+    }
+    let from = buffer.line_of(start);
+    // A region ending at the very start of a line does not take that line.
+    let to = match buffer.line_start(buffer.line_of(end)) == end {
+        true => buffer.line_of(end).saturating_sub(1).max(from),
+        false => buffer.line_of(end),
+    };
+    let mut chosen: Option<(Section, usize, usize, usize, usize)> = None;
+    for line in from..=to {
+        match editor.git.row(line)? {
+            Row::Line {
+                section,
+                file,
+                hunk,
+                line,
+            } => match &mut chosen {
+                None => chosen = Some((*section, *file, *hunk, *line, *line)),
+                Some((s, f, h, first, last)) if (*s, *f, *h) == (*section, *file, *hunk) => {
+                    *first = (*first).min(*line);
+                    *last = (*last).max(*line);
+                }
+                // Lines of two hunks is not one patch to make.
+                Some(_) => return None,
+            },
+            // The hunk's own heading, inside the region, takes nothing away.
+            Row::Hunk { .. } => {}
+            _ => return None,
+        }
+    }
+    let (section, file, hunk, first, last) = chosen?;
+    let diff = editor.git.files(section).get(file)?;
+    let piece = diff.hunks.get(hunk)?;
+    let forward = maxgus_git::diff::lines_patch(diff, piece, first..last + 1, false)?;
+    let reverse = maxgus_git::diff::lines_patch(diff, piece, first..last + 1, true)?;
+    let count = piece.lines[first..=last]
+        .iter()
+        .filter(|l| l.kind != maxgus_git::diff::LineKind::Context)
+        .count();
+    Some(Target::Lines {
+        section,
+        forward,
+        reverse,
+        path: diff.path.clone(),
+        count,
+    })
 }
 
 fn target(editor: &Editor) -> Result<Target> {
+    if let Some(lines) = region_lines(editor) {
+        return Ok(lines);
+    }
     let here = row(editor)?;
     let section = here
         .section()
@@ -1343,16 +1418,62 @@ fn stage(editor: &mut Editor, _: &Args) -> Result<()> {
                 describe: format!("Stage a hunk of {path}"),
             },
         ),
+        Target::Lines {
+            section: Section::Staged,
+            ..
+        } => Err(crate::CoreError::Message("Already staged".into())),
+        Target::Lines {
+            forward,
+            path,
+            count,
+            ..
+        } => {
+            deactivate(editor);
+            act(
+                editor,
+                GitAction::ApplyPatch {
+                    patch: forward,
+                    arguments: vec!["--cached".into()],
+                    describe: format!("Stage {} of {path}", crate::count(count, "line")),
+                },
+            )
+        }
     }
 }
 
-fn unstage(editor: &mut Editor, _: &Args) -> Result<()> {
+/// Takes the region away once it has been acted on, as magit does.
+fn deactivate(editor: &mut Editor) {
+    editor.with_current_buffer(|buffer| buffer.deactivate_mark());
+}
+
+fn unstage(editor: &mut Editor, args: &Args) -> Result<()> {
     match target(editor)? {
+        // Everything at once is asked about, as magit asks: the heading is
+        // where point lands when the last unstaged file has just been
+        // staged, so a `u` meant for that file arrives here.
         Target::Section(Section::Staged) => {
-            let paths = paths_of(editor, Section::Staged);
+            let Some(answer) = args.input.clone() else {
+                editor.prompt_for(
+                    "magit-unstage",
+                    MinibufferKind::YesNo,
+                    "Unstage all changes? (yes or no) ",
+                    "",
+                    Vec::new(),
+                );
+                return Ok(());
+            };
+            if !answer.trim().eq_ignore_ascii_case("yes")
+                && !answer.trim().eq_ignore_ascii_case("y")
+            {
+                editor.message("Nothing unstaged".to_string());
+                return Ok(());
+            }
+            act(editor, GitAction::UnstageAll)
+        }
+        Target::Paths(Section::Staged, paths) => {
+            let paths = with_originals(editor, paths);
             act(editor, GitAction::Unstage(paths))
         }
-        Target::Paths(Section::Staged, paths) => act(editor, GitAction::Unstage(paths)),
         Target::Hunk {
             section: Section::Staged,
             patch,
@@ -1367,6 +1488,23 @@ fn unstage(editor: &mut Editor, _: &Args) -> Result<()> {
                 describe: format!("Unstage a hunk of {path}"),
             },
         ),
+        Target::Lines {
+            section: Section::Staged,
+            reverse,
+            path,
+            count,
+            ..
+        } => {
+            deactivate(editor);
+            act(
+                editor,
+                GitAction::ApplyPatch {
+                    patch: reverse,
+                    arguments: vec!["--cached".into(), "--reverse".into()],
+                    describe: format!("Unstage {} of {path}", crate::count(count, "line")),
+                },
+            )
+        }
         _ => Err(crate::CoreError::Message("That is not staged".into())),
     }
 }
@@ -1405,11 +1543,46 @@ fn discard(editor: &mut Editor, args: &Args) -> Result<()> {
             };
             act(editor, GitAction::DeleteUntracked(paths))
         }
+        // Staged: back to the last commit, index and working tree both.
+        // `git checkout -- path` — what this did — restores the working tree
+        // *from the index*, which is where the staged change is: it said
+        // "Discard done" and discarded nothing.
+        Target::Section(Section::Staged) => {
+            no_head_to_go_back_to(editor)?;
+            let paths = with_originals(editor, paths_of(editor, Section::Staged));
+            act(editor, GitAction::DiscardStaged(paths))
+        }
+        Target::Paths(Section::Staged, paths) => {
+            no_head_to_go_back_to(editor)?;
+            let paths = with_originals(editor, paths);
+            act(editor, GitAction::DiscardStaged(paths))
+        }
         Target::Section(section) => {
             let paths = paths_of(editor, section);
             act(editor, GitAction::Discard(paths))
         }
         Target::Paths(_, paths) => act(editor, GitAction::Discard(paths)),
+        Target::Lines {
+            section,
+            reverse,
+            path,
+            count,
+            ..
+        } => {
+            let arguments = match section {
+                Section::Staged => vec!["--index".into(), "--reverse".into()],
+                _ => vec!["--reverse".into()],
+            };
+            deactivate(editor);
+            act(
+                editor,
+                GitAction::ApplyPatch {
+                    patch: reverse,
+                    arguments,
+                    describe: format!("Discard {} of {path}", crate::count(count, "line")),
+                },
+            )
+        }
         Target::Hunk {
             section,
             patch,
@@ -1433,18 +1606,81 @@ fn discard(editor: &mut Editor, args: &Args) -> Result<()> {
     }
 }
 
+/// Refuses to go back to a commit there is not yet.
+fn no_head_to_go_back_to(editor: &Editor) -> Result<()> {
+    match editor.git.status.head {
+        Some(_) => Ok(()),
+        None => Err(crate::CoreError::Message(
+            "There is no commit to go back to yet; u unstages it and leaves the file".into(),
+        )),
+    }
+}
+
 /// What `discard` is about to lose, in words, for the question it asks.
 fn describe_target(editor: &Editor) -> Result<String> {
     Ok(match target(editor)? {
+        Target::Section(Section::Staged) => {
+            "every staged change, and what the working tree has on top of it".to_string()
+        }
         Target::Section(section) => {
             format!("every change in {}", section.title().to_lowercase())
         }
+        Target::Paths(Section::Staged, paths) => {
+            let added = paths.iter().any(|path| {
+                editor.git.status.entries.iter().any(|entry| {
+                    entry.path == *path
+                        && matches!(
+                            entry.index,
+                            maxgus_git::status::Change::Added | maxgus_git::status::Change::Renamed
+                        )
+                })
+            });
+            match (paths.len(), added) {
+                (1, true) => format!(
+                    "{}, which the last commit does not have, so the file is deleted",
+                    paths[0].display()
+                ),
+                (1, false) => format!("the staged and unstaged changes to {}", paths[0].display()),
+                (n, _) => format!("the staged and unstaged changes to {n} files"),
+            }
+        }
+        Target::Paths(Section::Untracked, paths) => match paths.len() {
+            1 => format!("{} (it is deleted)", paths[0].display()),
+            n => format!("{n} untracked files (they are deleted)"),
+        },
         Target::Paths(_, paths) => match paths.len() {
             1 => format!("changes to {}", paths[0].display()),
             n => format!("changes to {n} files"),
         },
         Target::Hunk { path, .. } => format!("a hunk of {path}"),
+        Target::Lines { path, count, .. } => {
+            format!("{} of {path}", crate::count(count, "changed line"))
+        }
     })
+}
+
+/// `paths`, with the names they had before a rename.
+///
+/// A staged rename is two changes to the index — the old name gone, the new
+/// one added — and git's status lists it under the new name alone. Unstaged
+/// or discarded by that name, only half of it went: the new file came out of
+/// the index and the old one stayed deleted in it.
+fn with_originals(editor: &Editor, paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut out = paths.clone();
+    for path in &paths {
+        if let Some(original) = editor
+            .git
+            .status
+            .entries
+            .iter()
+            .find(|entry| entry.path == *path)
+            .and_then(|entry| entry.original.clone())
+            && !out.contains(&original)
+        {
+            out.push(original);
+        }
+    }
+    out
 }
 
 fn paths_of(editor: &Editor, section: Section) -> Vec<PathBuf> {

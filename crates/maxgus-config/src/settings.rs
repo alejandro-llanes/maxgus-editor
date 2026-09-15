@@ -34,6 +34,11 @@ pub struct Settings {
     pub backup_files: bool,
     /// Enable tree-sitter highlighting when a grammar is available.
     pub syntax_highlighting: bool,
+    /// The largest file, in megabytes, that is parsed for highlighting. A
+    /// syntax tree takes tens of times the memory of the text it describes,
+    /// and a twenty-megabyte generated file took a gigabyte; past this, a
+    /// file is shown plain, as Emacs' `treesit-max-buffer-size` has it.
+    pub syntax_highlighting_limit_mb: usize,
     /// `grammar-auto-install`: when a file's language has no grammar, offer
     /// to fetch and build one for it.
     ///
@@ -64,10 +69,10 @@ pub struct Settings {
     pub panel_tree: bool,
     pub panel_symbols: bool,
     pub panel_buffers: bool,
-    /// How tall the outline and buffer-list windows are, in rows. The file
-    /// tree takes whatever they leave.
     /// Open the side panel as soon as the editor starts.
     pub panel_at_startup: bool,
+    /// How tall the outline and buffer-list windows are, in rows. The file
+    /// tree takes whatever they leave.
     pub panel_symbols_height: usize,
     pub panel_buffers_height: usize,
     /// The program a terminal tab starts. Unset means whatever `$SHELL` says,
@@ -261,6 +266,7 @@ impl Default for Settings {
             delete_trailing_whitespace: false,
             backup_files: false,
             syntax_highlighting: true,
+            syntax_highlighting_limit_mb: 16,
             grammar_auto_install: true,
             lsp_enabled: true,
             idle_delay_ms: 150,
@@ -274,9 +280,6 @@ impl Default for Settings {
             panel_at_startup: false,
             panel_symbols_height: 12,
             panel_buffers_height: 8,
-            // A Nerd Font by default because the tree and the mode line draw
-            // glyphs from one; the loader falls through to whatever monospace
-            // font is installed when it is not there.
             beacon: false,
             beacon_size: 40,
             beacon_blink_delay_ms: 300,
@@ -287,6 +290,9 @@ impl Default for Settings {
             beacon_blink_when_window_changes: true,
             beacon_blink_when_point_moves_vertically: 0,
             session: false,
+            // A Nerd Font by default because the tree and the mode line draw
+            // glyphs from one; the loader falls through to whatever monospace
+            // font is installed when it is not there.
             gui_font: "JetBrainsMono Nerd Font".into(),
             gui_font_size: 16,
             gui_line_spacing: 0,
@@ -322,8 +328,6 @@ impl Default for Settings {
     }
 }
 
-/// The settings a config file may name, used for the "did you mean" hint on a
-/// misspelled key.
 /// The cursor effects that can be named, which the window's `vfx` module
 /// implements. Here as well so a configuration can be checked without a
 /// window, which is where every other setting is checked too.
@@ -336,6 +340,8 @@ pub const CURSOR_VFX_NAMES: &[&str] = &[
     "pixiedust",
 ];
 
+/// The settings a config file may name, used for the "did you mean" hint on a
+/// misspelled key.
 pub const SETTING_NAMES: &[&str] = &[
     "tab-width",
     "indent-with-tabs",
@@ -350,6 +356,7 @@ pub const SETTING_NAMES: &[&str] = &[
     "delete-trailing-whitespace",
     "backup-files",
     "syntax-highlighting",
+    "syntax-highlighting-limit-mb",
     "grammar-auto-install",
     "lsp-enabled",
     "idle-delay-ms",

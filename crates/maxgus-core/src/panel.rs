@@ -38,6 +38,16 @@ impl PanelSection {
         }
     }
 
+    /// What the section is called in a sentence: "File tree hidden" rather
+    /// than the heading's "FILES hidden".
+    pub fn describe(self) -> &'static str {
+        match self {
+            PanelSection::Tree => "File tree",
+            PanelSection::Symbols => "Symbol outline",
+            PanelSection::Buffers => "Buffer list",
+        }
+    }
+
     /// The name the `panel` configuration block uses.
     pub fn key(self) -> &'static str {
         match self {
@@ -201,9 +211,9 @@ impl Panel {
 
     /// Replaces the outline with one the server sent for `buffer`.
     pub fn set_symbols(&mut self, buffer: BufferId, symbols: Vec<Symbol>) {
-        // Folding is worth keeping across a reparse: the outline is rebuilt
-        // on every save, and losing the shape each time would make the
-        // section unusable on a large file.
+        // Folding is worth keeping across a reparse: the outline is asked for
+        // again after every save, and losing the shape each time would make
+        // the section unusable on a large file.
         let folded: Vec<(String, usize)> = self
             .symbols
             .iter()

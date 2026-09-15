@@ -170,6 +170,13 @@ fn inline(text: &str) -> Vec<Span> {
 
     while i < chars.len() {
         match chars[i] {
+            // `\_`: the character itself. clangd escapes every underscore in
+            // the prose of a comment, and each came out with a backslash in
+            // front of it — `destination\_buffer`.
+            '\\' if chars.get(i + 1).is_some_and(char::is_ascii_punctuation) => {
+                plain.push(chars[i + 1]);
+                i += 2;
+            }
             // `code`
             '`' => match closing(&chars, i + 1, '`', 1) {
                 Some(end) => {
@@ -246,6 +253,12 @@ fn inline(text: &str) -> Vec<Span> {
 fn closing(chars: &[char], from: usize, marker: char, count: usize) -> Option<usize> {
     let mut i = from;
     while i + count <= chars.len() {
+        // An escaped marker closes nothing — outside code, where a backslash
+        // is only a backslash.
+        if marker != '`' && chars[i] == '\\' {
+            i += 2;
+            continue;
+        }
         if chars[i..i + count].iter().all(|c| *c == marker) {
             // An empty `` or **** is not emphasis.
             return (i > from).then_some(i);
@@ -514,6 +527,33 @@ mod tests {
         for line in &lines {
             assert!(line.width() <= 10, "`{}` is too wide", text(line));
         }
+    }
+
+    #[test]
+    fn an_escaped_character_is_the_character_without_its_backslash() {
+        let lines = render(
+            r"@param destination\_buffer\_name, and \*not emphasis\*",
+            80,
+        );
+        assert_eq!(
+            text(&lines[0]),
+            "@param destination_buffer_name, and *not emphasis*"
+        );
+        let Line::Text(spans) = &lines[0] else {
+            panic!("not text")
+        };
+        assert!(
+            spans
+                .iter()
+                .all(|span| span.face == "default" && !span.italic && !span.bold),
+            "an escape started something: {spans:?}"
+        );
+        let code = render(r"`a\_b` stays", 80);
+        assert_eq!(
+            text(&code[0]),
+            r"a\_b stays",
+            "a backslash in code is a backslash"
+        );
     }
 
     #[test]

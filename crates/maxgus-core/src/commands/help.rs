@@ -9,6 +9,8 @@ use maxgus_keys::KeySequence;
 
 /// The buffer help is written into.
 pub const HELP_BUFFER_NAME: &str = "*Help*";
+/// Where `C-h e` lists what the echo area has said.
+pub const MESSAGES_BUFFER_NAME: &str = "*Messages*";
 
 /// Registers the help commands.
 pub fn register(registry: &mut Registry) {
@@ -46,6 +48,11 @@ pub fn register(registry: &mut Registry) {
         ),
         command!("where-is", "Say which keys run a command.", where_is),
         command!(
+            "view-echo-area-messages",
+            "List the messages the echo area has shown.",
+            view_messages
+        ),
+        command!(
             "help-with-tutorial",
             "Show a short guide to the editor.",
             tutorial
@@ -66,6 +73,31 @@ fn describe_grammars(editor: &mut Editor, _: &Args) -> Result<()> {
     Ok(())
 }
 
+/// `C-h e`: every message so far, newest at the bottom where point is.
+fn view_messages(editor: &mut Editor, _: &Args) -> Result<()> {
+    let mut text = editor.minibuffer.messages().join("\n");
+    text.push('\n');
+    let id = match editor.buffers.find_by_name(MESSAGES_BUFFER_NAME) {
+        Some(id) => {
+            editor.replace_buffer_contents(id, &text)?;
+            id
+        }
+        None => editor.buffers.create_with_text(MESSAGES_BUFFER_NAME, &text),
+    };
+    if let Some(buffer) = editor.buffers.get_mut(id) {
+        buffer.set_read_only(true);
+    }
+    editor.pop_to_buffer(id)?;
+    let last = editor
+        .buffers
+        .get(id)
+        .map(|b| b.len_lines().saturating_sub(2))
+        .unwrap_or_default();
+    editor.move_point_in(id, last);
+    Ok(())
+}
+
+/// Puts `text` in `*Help*`, in a window beside the one being edited.
 pub fn show_help(editor: &mut Editor, text: &str) -> Result<()> {
     let id = match editor.buffers.find_by_name(HELP_BUFFER_NAME) {
         Some(id) => {
@@ -211,6 +243,7 @@ fn setting_value(editor: &Editor, name: &str) -> Option<String> {
         "delete-trailing-whitespace" => s.delete_trailing_whitespace.to_string(),
         "backup-files" => s.backup_files.to_string(),
         "syntax-highlighting" => s.syntax_highlighting.to_string(),
+        "syntax-highlighting-limit-mb" => s.syntax_highlighting_limit_mb.to_string(),
         "grammar-auto-install" => s.grammar_auto_install.to_string(),
         "lsp-enabled" => s.lsp_enabled.to_string(),
         "idle-delay-ms" => s.idle_delay_ms.to_string(),
@@ -364,7 +397,8 @@ Moving
   C-v  M-v       forward and back one screenful
 
 Editing
-  DEL  C-d       delete backwards and forwards
+  DEL  <delete>  delete backwards and forwards
+  C-d            duplicate the line, or the region
   C-k            kill to the end of the line
   C-SPC          set the mark; move, then C-w cuts or M-w copies
   C-y            yank back what was killed; M-y cycles through earlier kills
@@ -391,6 +425,7 @@ The file tree
 Finding out more
   C-h k          say what a key does
   C-h b          list every binding
+  C-h e          what the echo area has said, for a message gone too soon
   M-x            run any command by name
 ";
 
@@ -401,6 +436,79 @@ mod tests {
     use maxgus_config::Settings;
     use maxgus_faces::defaults;
     use maxgus_tui::Rect;
+
+    /// Every key the guide teaches runs the command it says it does.
+    ///
+    /// The guide said `C-d` deleted forwards when it had been rebound to
+    /// duplicate the line, and it is the page the installer sends a new user
+    /// to first.
+    #[test]
+    fn the_guide_teaches_the_keys_as_they_are_bound() {
+        let taught: &[(&str, &str)] = &[
+            ("C-g", "keyboard-quit"),
+            ("C-x C-c", "save-buffers-kill-terminal"),
+            ("C-f", "forward-char"),
+            ("C-b", "backward-char"),
+            ("C-n", "next-line"),
+            ("C-p", "previous-line"),
+            ("M-f", "forward-word"),
+            ("M-b", "backward-word"),
+            ("C-a", "move-beginning-of-line"),
+            ("C-e", "move-end-of-line"),
+            ("M-<", "beginning-of-buffer"),
+            ("M->", "end-of-buffer"),
+            ("C-v", "scroll-up-command"),
+            ("M-v", "scroll-down-command"),
+            ("DEL", "delete-backward-char"),
+            ("<delete>", "delete-char"),
+            ("C-d", "duplicate-line-or-region"),
+            ("C-k", "kill-line"),
+            ("C-SPC", "set-mark-command"),
+            ("C-w", "kill-region"),
+            ("M-w", "kill-ring-save"),
+            ("C-y", "yank"),
+            ("M-y", "yank-pop"),
+            ("C-/", "undo"),
+            ("C-x C-f", "find-file"),
+            ("C-x C-s", "save-buffer"),
+            ("C-x b", "switch-to-buffer"),
+            ("C-x k", "kill-buffer"),
+            ("C-x 2", "split-window-below"),
+            ("C-x 3", "split-window-right"),
+            ("C-x o", "other-window"),
+            ("C-x 0", "delete-window"),
+            ("C-x 1", "delete-other-windows"),
+            ("C-s", "isearch-forward"),
+            ("C-r", "isearch-backward"),
+            ("M-%", "query-replace"),
+            ("C-x t t", "treefile-toggle"),
+            ("C-h k", "describe-key"),
+            ("C-h b", "describe-bindings"),
+            ("C-h e", "view-echo-area-messages"),
+            ("M-x", "execute-extended-command"),
+        ];
+        let map = crate::keymap::global_keymap().unwrap();
+        for (keys, command) in taught {
+            // Named in the guide as a whole sequence, in the key column or
+            // the sentence beside it.
+            let named = TUTORIAL.match_indices(keys).any(|(at, _)| {
+                let before = TUTORIAL[..at].chars().next_back();
+                let after = TUTORIAL[at + keys.len()..].chars().next();
+                before.is_none_or(char::is_whitespace)
+                    && after.is_none_or(|c| c.is_whitespace() || c == ';' || c == ',')
+            });
+            assert!(
+                named,
+                "the guide no longer teaches `{keys}`; take it out of this list too"
+            );
+            let sequence = maxgus_keys::KeySequence::parse(keys).unwrap();
+            assert_eq!(
+                map.lookup(&sequence).command(),
+                Some(*command),
+                "the guide teaches `{keys}` as `{command}`"
+            );
+        }
+    }
 
     fn setup() -> (Dispatcher, Editor) {
         let mut editor = Editor::new(

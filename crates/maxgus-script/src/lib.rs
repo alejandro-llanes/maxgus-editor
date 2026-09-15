@@ -12,7 +12,8 @@
 //! middle, and nothing here needs to reach into editor state across a
 //! foreign-language boundary.
 
-use rhai::{AST, Dynamic, Engine, FnPtr, Map, Scope};
+use rhai::{AST, Dynamic, Engine, EvalAltResult, FnPtr, Map, Scope};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, thiserror::Error)]
@@ -63,6 +64,10 @@ pub struct Context {
     pub mode: Option<String>,
     /// The selected text, when there is a region.
     pub region: Option<String>,
+    /// Where the region starts and ends, as character offsets like `point`:
+    /// what a command that replaces the region has to `goto_char` and `delete`.
+    pub region_start: Option<usize>,
+    pub region_end: Option<usize>,
 }
 
 impl Context {
@@ -94,6 +99,18 @@ impl Context {
                 None => Dynamic::UNIT,
             },
         );
+        for (key, offset) in [
+            ("region_start", self.region_start),
+            ("region_end", self.region_end),
+        ] {
+            map.insert(
+                key.into(),
+                match offset {
+                    Some(offset) => (offset as i64).into(),
+                    None => Dynamic::UNIT,
+                },
+            );
+        }
         map
     }
 }
@@ -128,9 +145,23 @@ impl std::fmt::Debug for Script {
 impl Script {
     /// Loads a script, running its top level so it can define its commands.
     pub fn load(source: &str) -> Result<Script> {
+        Script::load_in(source, None)
+    }
+
+    /// Loads a script that lives in `directory`, which is where its
+    /// `import`s are looked for.
+    ///
+    /// Not where the editor happens to have been started: that is whichever
+    /// project is open, and an `import "helpers"` would have run a
+    /// `helpers.rhai` the project had brought with it.
+    pub fn load_in(source: &str, directory: Option<&Path>) -> Result<Script> {
         let actions: Arc<Mutex<Vec<Action>>> = Arc::new(Mutex::new(Vec::new()));
         let defined: Arc<Mutex<Vec<ScriptCommand>>> = Arc::new(Mutex::new(Vec::new()));
         let mut engine = Engine::new();
+        engine.set_module_resolver(match directory {
+            Some(directory) => rhai::module_resolvers::FileModuleResolver::new_with_path(directory),
+            None => rhai::module_resolvers::FileModuleResolver::new(),
+        });
 
         // A script is code the user wrote, not code from the network, but a
         // runaway loop in one should still not take the editor with it.
@@ -140,7 +171,11 @@ impl Script {
 
         let register = defined.clone();
         engine.register_fn("define", move |name: &str, doc: &str, function: FnPtr| {
-            register.lock().expect("not poisoned").push(ScriptCommand {
+            let mut defined = register.lock().expect("not poisoned");
+            // Defined again, the later definition is the one that stands, as
+            // a function defined twice in a file is.
+            defined.retain(|command| command.name != name);
+            defined.push(ScriptCommand {
                 name: name.to_string(),
                 doc: doc.to_string(),
                 function: function.fn_name().to_string(),
@@ -160,8 +195,11 @@ impl Script {
         engine.register_fn("delete", move |count: i64| {
             push(Action::Delete(count.max(0) as usize))
         });
+        // `goto_char`, as Emacs spells it, because `goto` is one of the
+        // words Rhai keeps for itself: registered as `goto`, it was a name no
+        // script could call, and one that tried would not load at all.
         let push = record(actions.clone());
-        engine.register_fn("goto", move |offset: i64| {
+        engine.register_fn("goto_char", move |offset: i64| {
             push(Action::Goto(offset.max(0) as usize))
         });
         let push = record(actions.clone());
@@ -172,8 +210,24 @@ impl Script {
         engine.register_fn("message", move |text: &str| {
             push(Action::Message(text.into()))
         });
+        // `fail` stops the script where it is. It only recorded the failure,
+        // so a script went on to the next line — and a check such as
+        // `if ctx.region == () { fail(..) }` was followed by code that used
+        // the region it had just found was not there.
         let push = record(actions.clone());
-        engine.register_fn("fail", move |text: &str| push(Action::Fail(text.into())));
+        engine.register_fn(
+            "fail",
+            move |text: &str| -> std::result::Result<(), Box<EvalAltResult>> {
+                push(Action::Fail(text.into()));
+                Err(text.into())
+            },
+        );
+        // Rhai prints to standard output, which under a terminal front end
+        // is the screen the editor is drawing, written over.
+        let push = record(actions.clone());
+        engine.on_print(move |text| push(Action::Message(text.into())));
+        let push = record(actions.clone());
+        engine.on_debug(move |text, _, _| push(Action::Message(text.into())));
 
         let ast = engine
             .compile(source)
@@ -181,7 +235,7 @@ impl Script {
         // The top level runs once, which is where `define` is called from.
         engine
             .run_ast(&ast)
-            .map_err(|error| ScriptError::Run(error.to_string()))?;
+            .map_err(|error| ScriptError::Run(describe(&error)))?;
         // Anything the top level asked the editor to do is not a command and
         // has nowhere to be applied.
         actions.lock().expect("not poisoned").clear();
@@ -223,9 +277,25 @@ impl Script {
         match outcome {
             Ok(_) => Ok(recorded),
             // What it did before it failed is dropped: a script that stopped
-            // half way should not leave half an edit behind.
-            Err(error) => Err(ScriptError::Run(error.to_string())),
+            // half way should not leave half an edit behind. A `fail` is the
+            // script's own reason, said as it was written rather than as the
+            // runtime error it was carried out by.
+            Err(error) => match recorded.into_iter().find(|a| matches!(a, Action::Fail(_))) {
+                Some(failure) => Ok(vec![failure]),
+                None => Err(ScriptError::Run(describe(&error))),
+            },
         }
+    }
+}
+
+/// What went wrong, in words for the echo area.
+fn describe(error: &EvalAltResult) -> String {
+    match error {
+        // Rhai's "Too many operations" is true and says nothing about why.
+        EvalAltResult::ErrorTooManyOperations(position) => {
+            format!("stopped for running too long, as a loop that never ends does ({position})")
+        }
+        other => other.to_string(),
     }
 }
 
@@ -243,6 +313,8 @@ mod tests {
             path: Some("/project/main.rs".into()),
             mode: Some("rust-mode".into()),
             region: None,
+            region_start: None,
+            region_end: None,
         }
     }
 
@@ -392,10 +464,8 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert!(
-            script.call("forever", &context()).is_err(),
-            "it ran to completion, which it cannot have done"
-        );
+        let error = script.call("forever", &context()).unwrap_err();
+        assert!(error.to_string().contains("running too long"), "{error}");
     }
 
     #[test]
@@ -411,6 +481,116 @@ mod tests {
         )
         .unwrap();
         assert!(script.call("nothing", &context()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn every_action_can_be_called_by_its_name() {
+        // A name Rhai reserves cannot be called, and a script calling it
+        // does not load, so each one is called here rather than assumed.
+        let script = Script::load(
+            r#"
+            fn everything(ctx) {
+                insert("a");
+                delete(1);
+                goto_char(3);
+                run("save-buffer");
+                message("said");
+            }
+            define("everything", "…", everything);
+            "#,
+        )
+        .expect("every action's name is one a script can use");
+        assert_eq!(
+            script.call("everything", &context()).unwrap(),
+            vec![
+                Action::Insert("a".into()),
+                Action::Delete(1),
+                Action::Goto(3),
+                Action::Run("save-buffer".into()),
+                Action::Message("said".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn fail_stops_the_script_and_says_only_why() {
+        let script = Script::load(
+            r#"
+            fn wrap(ctx) {
+                if ctx.region == () { fail("Select something first"); }
+                insert(ctx.region.len().to_string());
+            }
+            define("wrap", "…", wrap);
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            script.call("wrap", &context()).unwrap(),
+            vec![Action::Fail("Select something first".into())],
+            "it carried on past the `fail`"
+        );
+    }
+
+    #[test]
+    fn print_is_a_message_rather_than_writing_over_the_screen() {
+        let script = Script::load(
+            r#"
+            fn say(ctx) { print("hello"); debug("there"); }
+            define("say", "…", say);
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            script.call("say", &context()).unwrap(),
+            vec![
+                Action::Message("hello".into()),
+                Action::Message("\"there\"".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn a_command_defined_twice_is_the_later_one() {
+        let script = Script::load(
+            r#"
+            fn one(ctx) { insert("1"); }
+            fn two(ctx) { insert("2"); }
+            define("number", "The first.", one);
+            define("number", "The second.", two);
+            "#,
+        )
+        .unwrap();
+        assert_eq!(script.commands().len(), 1);
+        assert_eq!(script.commands()[0].doc, "The second.");
+        assert_eq!(
+            script.call("number", &context()).unwrap(),
+            vec![Action::Insert("2".into())]
+        );
+    }
+
+    #[test]
+    fn imports_are_looked_for_beside_the_script() {
+        let directory = std::env::temp_dir().join(format!("maxgus-script-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("helpers.rhai"), "fn twice(s) { s + s }").unwrap();
+        // Inside the function: the top level ran once, at load, and what it
+        // imported went with it.
+        let script = Script::load_in(
+            r#"
+            fn double(ctx) {
+                import "helpers" as helpers;
+                insert(helpers::twice("ab"));
+            }
+            define("double", "…", double);
+            "#,
+            Some(&directory),
+        )
+        .unwrap();
+        assert_eq!(
+            script.call("double", &context()).unwrap(),
+            vec![Action::Insert("abab".into())]
+        );
+        let _ = std::fs::remove_dir_all(&directory);
     }
 
     #[test]
@@ -431,6 +611,8 @@ mod tests {
         );
         let selected = Context {
             region: Some("world".into()),
+            region_start: Some(6),
+            region_end: Some(11),
             ..context()
         };
         assert_eq!(

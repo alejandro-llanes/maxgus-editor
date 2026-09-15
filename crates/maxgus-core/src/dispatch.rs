@@ -165,7 +165,34 @@ impl Dispatcher {
         if !editor.replaying_macro
             && let Some(keys) = editor.recording_macro.as_mut()
         {
+            // Where a new command begins: no prefix half typed, no prompt
+            // collecting its argument, no character being waited for.
+            if self.pending.is_empty() && !editor.minibuffer.is_active() {
+                editor.macro_command_start = keys.len();
+            }
             keys.push(key);
+        }
+        // After `C-u` or a digit argument, a plain digit goes on building the
+        // number and a `-` straight after `C-u` makes it negative — Emacs'
+        // `universal-argument-map`. Looked up in the ordinary maps, `C-u 0`
+        // typed four zeros.
+        if self.pending.is_empty()
+            && editor.prefix.is_present()
+            && editor
+                .last_command
+                .as_deref()
+                .is_some_and(|last| PREFIX_COMMANDS.contains(&last))
+            && key.modifiers.is_empty()
+        {
+            match key.code {
+                maxgus_keys::KeyCode::Char(c) if c.is_ascii_digit() => {
+                    return self.execute(editor, "digit-argument", Some(key));
+                }
+                maxgus_keys::KeyCode::Char('-') if editor.prefix.is_raw() => {
+                    return self.execute(editor, "negative-argument", Some(key));
+                }
+                _ => {}
+            }
         }
         self.pending.push(key);
         // A terminal that cannot send Meta sends ESC first; fold it back so
@@ -424,12 +451,12 @@ fn narrow_the_suggestions(editor: &mut Editor) {
     let point = editor.windows.current().point;
     // Behind where the word began, or off the end of a word that has since
     // been broken by a space.
-    let text = editor.current_buffer().text();
-    if point < start || crate::autocomplete::word_start(&text, point) != start {
+    let buffer = editor.current_buffer();
+    if point < start || crate::autocomplete::word_start_in(buffer, point) != start {
         editor.close_autocomplete();
         return;
     }
-    let prefix: String = text.chars().skip(start).take(point - start).collect();
+    let prefix = buffer.slice(maxgus_text::Range::new(start, point));
     if let Some(list) = editor.autocomplete.as_mut() {
         list.narrow(&prefix);
     }

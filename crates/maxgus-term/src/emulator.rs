@@ -53,6 +53,8 @@ struct State {
     /// Set when the alternate screen is entered or left, so the caller can
     /// swap the grids — `Perform` cannot, since it does not own them.
     switch_screen: Option<bool>,
+    /// The foreground and background a program is told about when it asks.
+    colors: ((u8, u8, u8), (u8, u8, u8)),
 }
 
 impl Emulator {
@@ -72,6 +74,7 @@ impl Emulator {
                 replies: Vec::new(),
                 bell: false,
                 switch_screen: None,
+                colors: ((0xc5, 0xc8, 0xc6), (0x1d, 0x1f, 0x21)),
             },
         }
     }
@@ -86,6 +89,13 @@ impl Emulator {
 
     pub fn title(&self) -> Option<&str> {
         self.state.title.as_deref()
+    }
+
+    /// Sets the colours a program is told the terminal has when it asks —
+    /// the ones it is actually drawn in, so a program choosing between a
+    /// light and a dark palette chooses the right one.
+    pub fn set_colors(&mut self, foreground: (u8, u8, u8), background: (u8, u8, u8)) {
+        self.state.colors = (foreground, background);
     }
 
     /// Bytes the program asked for, taken away as they are sent.
@@ -479,7 +489,7 @@ impl vte::Perform for Performer<'_> {
         }
     }
 
-    fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
+    fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
         // `0` sets icon and title, `2` sets the title. Both are what a shell
         // uses to say what it is running, which is what the tab shows.
         let Some(kind) = params.first() else { return };
@@ -487,6 +497,30 @@ impl vte::Perform for Performer<'_> {
             && let Some(text) = params.get(1)
         {
             self.state.title = Some(String::from_utf8_lossy(text).into_owned());
+        }
+        // `10;?`, `11;?`, `12;?`: what the foreground, the background and the
+        // cursor are. Neovim and many prompts ask before they draw, to pick a
+        // palette that reads on it — and unanswered, neovim complained that
+        // the terminal "did not respond" every time it started.
+        if params.get(1) == Some(&&b"?"[..]) {
+            let (foreground, background) = self.state.colors;
+            let color = match *kind {
+                b"10" | b"12" => Some(foreground),
+                b"11" => Some(background),
+                _ => None,
+            };
+            if let Some((r, g, b)) = color {
+                let terminator: &[u8] = match bell_terminated {
+                    true => b"\x07",
+                    false => b"\x1b\\",
+                };
+                let answer = format!(
+                    "\x1b]{};rgb:{r:02x}{r:02x}/{g:02x}{g:02x}/{b:02x}{b:02x}",
+                    String::from_utf8_lossy(kind)
+                );
+                self.state.replies.extend_from_slice(answer.as_bytes());
+                self.state.replies.extend_from_slice(terminator);
+            }
         }
     }
 }
@@ -533,6 +567,23 @@ mod tests {
             .and_then(|l| l.cells.get(column))
             .map(|c| c.face)
             .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_program_asking_for_the_colours_is_told_them() {
+        let mut e = run(3, 20, "");
+        e.set_colors((0xff, 0xee, 0xdd), (0x00, 0x11, 0x22));
+        e.advance(b"\x1b]11;?\x1b\\");
+        assert_eq!(
+            String::from_utf8(e.take_replies()).unwrap(),
+            "\x1b]11;rgb:0000/1111/2222\x1b\\"
+        );
+        e.advance(b"\x1b]10;?\x07");
+        assert_eq!(
+            String::from_utf8(e.take_replies()).unwrap(),
+            "\x1b]10;rgb:ffff/eeee/dddd\x07",
+            "answered with the terminator it was asked with"
+        );
     }
 
     #[test]

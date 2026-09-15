@@ -25,7 +25,19 @@ use maxgus_text::{Buffer, BufferId, KillRing, Range, Registers};
 use maxgus_tui::Rect;
 use std::path::{Path, PathBuf};
 
-/// Everything the editor knows.
+/// One place a jump left from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Jump {
+    pub buffer: BufferId,
+    /// The file, so a place in a buffer killed since can still be gone back
+    /// to.
+    pub path: Option<PathBuf>,
+    pub point: usize,
+}
+
+/// How far back `M-,` remembers.
+pub const MAX_JUMPS: usize = 64;
+
 /// How many screenfuls either side of the window are highlighted, so ordinary
 /// scrolling does not outrun the last query.
 pub const HIGHLIGHT_MARGIN_SCREENS: usize = 3;
@@ -40,6 +52,8 @@ pub struct Editor {
     /// goes there too, and a yank takes what another program left there.
     pub clipboard: Option<Box<dyn crate::clipboard::Clipboard>>,
     pub registers: Registers,
+    /// The rectangle `C-x r k` or `C-x r M-w` last kept, for `C-x r y`.
+    pub killed_rectangle: Vec<String>,
     pub settings: Settings,
     pub theme: Theme,
     /// The `theme "name" { … }` blocks from the configuration file, kept so a
@@ -47,7 +61,14 @@ pub struct Editor {
     pub theme_specs: Vec<ThemeSpec>,
     /// The buffer whose save was refused because its file had changed, which
     /// is the only one `save-buffer-anyway` will write.
-    pub pending_overwrite: Option<BufferId>,
+    pub pending_overwrite: Option<(BufferId, PathBuf)>,
+    /// Buffers read from files that are not valid UTF-8. What they hold is
+    /// not what is on disk — the bytes that would not decode are replacement
+    /// characters — so they are never saved unless asked twice.
+    pub lossy_buffers: std::collections::HashSet<BufferId>,
+    /// Buffers visiting a file that did not exist when it was visited. Their
+    /// first save must not write over one somebody has made since.
+    pub new_files: std::collections::HashSet<BufferId>,
     /// The branch the project is on, for the mode line. `None` until the
     /// executor has been able to ask git, and when it is not a repository.
     #[cfg(feature = "full")]
@@ -99,6 +120,10 @@ pub struct Editor {
     pub config_says_theme: Option<String>,
     /// A file being read, and the line point should land on when it arrives.
     pub pending_line: Option<(PathBuf, usize)>,
+    /// A file being opened beside a list without leaving it — `o` in the
+    /// results of a search — and the list's window, to select again once
+    /// the file is on screen.
+    pub pending_return: Option<(PathBuf, WindowId)>,
     /// The light beside the cursor, while one is showing.
     pub beacon: Option<crate::beacon::Beacon>,
     /// The loaded script, and where it came from.
@@ -106,6 +131,15 @@ pub struct Editor {
     pub script: Option<maxgus_script::Script>,
     #[cfg(feature = "full")]
     pub script_path: Option<PathBuf>,
+    /// Buffers too large to be parsed for colour, which have been told so.
+    #[cfg(feature = "full")]
+    pub shown_plain: std::collections::HashSet<BufferId>,
+    /// How many script commands are running, one inside another.
+    #[cfg(feature = "full")]
+    pub script_depth: usize,
+    /// The names the script added to what `M-x` offers.
+    #[cfg(feature = "full")]
+    pub script_names: Vec<String>,
     /// The directory listing, when one is open.
     pub dired: Option<crate::dired::DiredView>,
     /// The file browser, when it is up: a box over the frame that narrows
@@ -124,8 +158,6 @@ pub struct Editor {
     pub snippet_fields_fit: Option<usize>,
     /// Where a restored session wants point in each of its files.
     pub session_points: std::collections::HashMap<PathBuf, (usize, usize)>,
-    /// Whether the session being restored had the panel open.
-    pub session_panel: bool,
     /// What each buffer's `.editorconfig` asked for.
     pub editor_configs: std::collections::HashMap<BufferId, crate::task::EditorConfig>,
     /// Cursors besides the window's own, which every editing command is run
@@ -182,6 +214,9 @@ pub struct Editor {
     pub pending_input: Option<(String, Prefix)>,
     /// Candidates the open prompt completes against.
     pub completion_candidates: Vec<String>,
+    /// The directory a file prompt's candidates were last listed from, so a
+    /// path typed into another directory asks for that one.
+    pub completion_directory: Option<PathBuf>,
     /// A command to run as soon as the current one finishes. Accepting a
     /// prompt uses this to re-enter the command that opened it.
     pub deferred: Option<(String, crate::command::Args)>,
@@ -208,6 +243,16 @@ pub struct Editor {
     /// `q` in one can take the window away again rather than leave a split
     /// nobody asked for.
     pub popped_windows: Vec<WindowId>,
+    /// The editing window selected last: not the panel, not the terminal.
+    ///
+    /// Where a file chosen in the tree or the buffer list is shown, the way
+    /// treemacs shows it in the most recently used window. The first window
+    /// in layout order — what was used before — is the top-left one, which
+    /// with two files side by side is the wrong one half the time.
+    pub last_editing_window: Option<WindowId>,
+    /// Where jumps to another place came from, most recent last, for `M-,`
+    /// to go back along — across buffers, which the mark ring cannot.
+    pub jumps: Vec<Jump>,
     /// The listings on screen — `*Occur*`, `*xref*` — by buffer name: where
     /// each row points, and what to highlight in it.
     pub listings: std::collections::HashMap<String, crate::commands::listing::Listing>,
@@ -265,6 +310,13 @@ pub struct Editor {
     pub tree_shows_hidden: bool,
     /// The directory the tree is rooted at.
     pub tree_root: Option<PathBuf>,
+    /// The project: what a language server is told about, what a project
+    /// search walks and what a session is filed under.
+    ///
+    /// Kept apart from the tree's root on purpose. `r d` draws the tree from
+    /// a subdirectory, and looking into one is not working in a different
+    /// project — which is what the two being one field made it.
+    pub project_dir: Option<PathBuf>,
     /// Where it was rooted when it opened, which is what
     /// `treefile-root-reset` comes back to after walking into a
     /// subdirectory. Kept separately so root-down cannot lose it.
@@ -275,12 +327,26 @@ pub struct Editor {
     pub tree_width_locked: bool,
     /// True while the tree follows the selected buffer.
     pub tree_follow: bool,
+    /// The file follow mode last asked the tree to reveal, while it has
+    /// still not appeared.
+    ///
+    /// A file the tree cannot show — outside every root, hidden, ignored —
+    /// never appears, and asking again after every answer was a loop that
+    /// kept a core busy for as long as that file was open.
+    pub tree_follow_asked: Option<PathBuf>,
     /// The keyboard macro being recorded, if any.
     pub recording_macro: Option<Vec<maxgus_keys::Key>>,
     /// The last macro recorded, which `C-x e` replays.
     pub last_macro: Vec<maxgus_keys::Key>,
     /// True while a macro is replaying, so recording does not capture itself.
     pub replaying_macro: bool,
+    /// How long the recording was when the command now running began to be
+    /// typed — so ending a recording drops exactly the keys that ended it,
+    /// whether that was `C-x )`, `<f4>` or `M-x kmacro-end-macro RET`.
+    pub macro_command_start: usize,
+    /// What `<f3>` inserts while a macro is being recorded or replayed, and
+    /// then steps on.
+    pub macro_counter: i64,
     /// How many times the loop should replay the last macro. Cleared once it
     /// has done so.
     pub macro_repeats: usize,
@@ -297,12 +363,23 @@ pub struct Editor {
     /// change notification is sent exactly when the document has moved on.
     #[cfg(feature = "full")]
     pub lsp_versions: std::collections::HashMap<BufferId, u64>,
+    /// A language server's edits to files that were not open, waiting for
+    /// them to be read into buffers, with the encoding their positions are in.
+    #[cfg(feature = "full")]
+    pub pending_edits:
+        std::collections::HashMap<PathBuf, (maxgus_lsp::PositionEncoding, Vec<serde_json::Value>)>,
     /// A jump waiting on a file to be read, applied once it arrives.
     #[cfg(feature = "full")]
     pub pending_jump: Option<(PathBuf, maxgus_lsp::LspPosition)>,
     /// Keymaps defined for a major mode by the configuration, activated when
     /// a buffer of that mode is selected.
     pub mode_keymaps: Vec<maxgus_keys::Keymap>,
+    /// Keys a configuration's mode block unbinds, by mode: taken out of the
+    /// built-in map of that mode when it is made.
+    pub mode_unbound: Vec<(String, maxgus_keys::KeySequence)>,
+    /// Configured bindings naming a command the editor does not have, held
+    /// until the script has loaded, since it may define them.
+    pub unchecked_bindings: Vec<(String, String)>,
     /// The whole terminal, including the echo area's row. The window tree only
     /// covers everything above it.
     pub frame: Rect,
@@ -384,10 +461,13 @@ impl Editor {
             kill_ring,
             clipboard: None,
             registers: Registers::new(),
+            killed_rectangle: Vec::new(),
             settings,
             theme,
             theme_specs: Vec::new(),
             pending_overwrite: None,
+            lossy_buffers: std::collections::HashSet::new(),
+            new_files: std::collections::HashSet::new(),
             #[cfg(feature = "full")]
             git_branch: None,
             #[cfg(feature = "full")]
@@ -407,11 +487,18 @@ impl Editor {
             pending_workspace: None,
             config_says_theme: None,
             pending_line: None,
+            pending_return: None,
             beacon: None,
             #[cfg(feature = "full")]
             script: None,
             #[cfg(feature = "full")]
             script_path: None,
+            #[cfg(feature = "full")]
+            shown_plain: std::collections::HashSet::new(),
+            #[cfg(feature = "full")]
+            script_depth: 0,
+            #[cfg(feature = "full")]
+            script_names: Vec::new(),
             dired: None,
             browser: None,
             snippets: Vec::new(),
@@ -419,7 +506,6 @@ impl Editor {
             snippet_field: 0,
             snippet_fields_fit: None,
             session_points: std::collections::HashMap::new(),
-            session_panel: false,
             editor_configs: std::collections::HashMap::new(),
             cursors: crate::multi::Cursors::new(),
             undo_tree_subject: None,
@@ -444,9 +530,12 @@ impl Editor {
             described_keys: KeySequence::empty(),
             pending_input: None,
             completion_candidates: Vec::new(),
+            completion_directory: None,
             panel,
             panel_windows: Vec::new(),
             popped_windows: Vec::new(),
+            last_editing_window: None,
+            jumps: Vec::new(),
             listings: std::collections::HashMap::new(),
             symbols_height,
             buffers_height,
@@ -491,13 +580,17 @@ impl Editor {
             tree: Vec::new(),
             tree_shows_hidden: false,
             tree_root: None,
+            project_dir: None,
             tree_home: None,
             tree_width: 32,
             tree_width_locked: false,
             tree_follow: true,
+            tree_follow_asked: None,
             recording_macro: None,
             last_macro: Vec::new(),
             replaying_macro: false,
+            macro_command_start: 0,
+            macro_counter: 0,
             macro_repeats: 0,
             suspend: false,
             command_names: Vec::new(),
@@ -507,8 +600,12 @@ impl Editor {
             #[cfg(feature = "full")]
             lsp_versions: std::collections::HashMap::new(),
             #[cfg(feature = "full")]
+            pending_edits: std::collections::HashMap::new(),
+            #[cfg(feature = "full")]
             pending_jump: None,
             mode_keymaps: Vec::new(),
+            mode_unbound: Vec::new(),
+            unchecked_bindings: Vec::new(),
             frame,
             pending_keys: None,
             which_key: None,
@@ -728,6 +825,17 @@ impl Editor {
     pub fn switch_to_buffer(&mut self, buffer: BufferId) -> Result<()> {
         if self.buffers.get(buffer).is_none() {
             return Err(crate::CoreError::NoSuchBuffer);
+        }
+        // The panel's windows and the terminal's show their own buffers, the
+        // way a dedicated window does in Emacs. A file opened from inside
+        // one — `C-x C-f` in the tree, `C-x b` in the terminal — goes to the
+        // window being edited in rather than taking the column over.
+        let here = self.windows.current_id();
+        if self.is_dedicated_window(here)
+            && !self.is_dedicated_buffer(buffer)
+            && let Some(target) = self.editing_window()
+        {
+            self.select_window(target);
         }
         self.sync_to_buffer();
         let point = self.buffers.get(buffer).expect("checked above").point();
@@ -1051,31 +1159,48 @@ impl Editor {
     #[cfg(feature = "full")]
     pub fn set_script(&mut self, script: maxgus_script::Script) {
         // Whatever the last script offered is no longer on offer.
-        if let Some(previous) = self.script.take() {
-            let gone: Vec<&str> = previous
-                .commands()
-                .iter()
-                .map(|c| c.name.as_str())
-                .collect();
-            self.command_names
-                .retain(|name| !gone.contains(&name.as_str()));
-            self.command_docs
-                .retain(|(name, _)| !gone.contains(&name.as_str()));
-        }
-        let count = script.commands().len();
-        for command in script.commands() {
-            if !self.command_names.contains(&command.name) {
-                self.command_names.push(command.name.clone());
-            }
+        self.unset_script();
+        // A name the editor already has stays the editor's, and the script's
+        // command of that name can never run. It was offered all the same,
+        // with the script's documentation beside the built-in's, and when
+        // the script was reloaded the built-in's went with it.
+        let (taken, offered): (Vec<_>, Vec<_>) = script
+            .commands()
+            .iter()
+            .partition(|command| self.command_names.contains(&command.name));
+        for command in &offered {
+            self.command_names.push(command.name.clone());
             self.command_docs
                 .push((command.name.clone(), command.doc.clone()));
+            self.script_names.push(command.name.clone());
         }
         self.command_names.sort();
+        let count = offered.len();
+        let taken: Vec<String> = taken.iter().map(|c| format!("`{}`", c.name)).collect();
         self.script = Some(script);
-        self.message(format!(
-            "{} from the script",
-            crate::count(count, "command")
-        ));
+        match taken.is_empty() {
+            true => self.message(format!(
+                "{} from the script",
+                crate::count(count, "command")
+            )),
+            false => self.error(format!(
+                "{} from the script; {} already the editor's, and not replaced",
+                crate::count(count, "command"),
+                match taken.len() {
+                    1 => format!("{} is", taken[0]),
+                    _ => format!("{} are", taken.join(", ")),
+                }
+            )),
+        }
+    }
+
+    /// Puts away the loaded script and the commands it offered.
+    #[cfg(feature = "full")]
+    pub fn unset_script(&mut self) {
+        self.script = None;
+        let gone = std::mem::take(&mut self.script_names);
+        self.command_names.retain(|name| !gone.contains(name));
+        self.command_docs.retain(|(name, _)| !gone.contains(name));
     }
 
     // ---- the light beside the cursor -----------------------------------
@@ -1232,6 +1357,20 @@ impl Editor {
         self.switch_to_buffer(buffer)
     }
 
+    /// Shows `buffer` in a window other than the selected one, and leaves the
+    /// selection where it was — Emacs' `display-buffer`.
+    ///
+    /// Output that arrives by itself, the way `*Shell Command Output*` does,
+    /// is something to glance at beside the text rather than a place to be
+    /// moved to.
+    pub fn display_buffer(&mut self, buffer: BufferId) -> Result<()> {
+        let selected = self.windows.current_id();
+        self.pop_to_buffer(buffer)?;
+        self.select_window(selected);
+        self.activate_mode_keymap();
+        Ok(())
+    }
+
     /// `quit-window`: puts a popped-up buffer away.
     ///
     /// The window is deleted when it was split off for the buffer and there
@@ -1267,6 +1406,9 @@ impl Editor {
         if !self.windows.select(window) {
             return false;
         }
+        if !self.is_dedicated_window(window) {
+            self.last_editing_window = Some(window);
+        }
         let buffer = self.windows.current().buffer;
         self.buffers.touch(buffer);
         // A different window may be showing a different language.
@@ -1289,12 +1431,25 @@ impl Editor {
 
     /// Kills `buffer`, pointing any window showing it at the replacement.
     pub fn kill_buffer(&mut self, buffer: BufferId) -> Result<BufferId> {
+        // One of the panel's own buffers takes the panel with it: the column
+        // would otherwise go on showing some other buffer in the tree's
+        // place, and the next `C-x t t` would draw the tree twice.
+        let panel_buffer = self
+            .buffers
+            .get(buffer)
+            .is_some_and(|b| crate::commands::tree::PANEL_BUFFERS.contains(&b.name()));
+        if panel_buffer && !self.panel_windows.is_empty() {
+            crate::commands::tree::close(self);
+        }
         // The server and the highlighter are told before the buffer goes, so
         // they can still be asked what it was.
         self.notify_closed(buffer);
-        let replacement = self.buffers.kill(buffer)?;
+        let fallback = self.buffers.kill(buffer)?;
+        let replacement = self.replacement_buffer().unwrap_or(fallback);
         self.windows.replace_buffer(buffer, replacement);
         self.pictures.remove(&buffer);
+        self.lossy_buffers.remove(&buffer);
+        self.new_files.remove(&buffer);
         self.forget_highlights(buffer);
         // The executor is holding a parser and a copy of the text for it.
         self.spawn(Task::ForgetBuffer { buffer });
@@ -1307,6 +1462,205 @@ impl Editor {
         self.activate_mode_keymap();
         self.follow_point();
         Ok(replacement)
+    }
+
+    /// What is left of a `revert-buffer` once the text has been replaced.
+    ///
+    /// A revert is not a visit: it changed the text under whatever windows
+    /// show the buffer, and moves nobody to it. It went through the visiting
+    /// path — so every buffer re-read after a project-wide replace was
+    /// switched to in turn, and the server was told the document had been
+    /// opened a second time.
+    fn finish_revert(
+        &mut self,
+        id: BufferId,
+        path: &Path,
+        lossy: bool,
+        editor_config: crate::task::EditorConfig,
+    ) -> Result<()> {
+        self.set_editor_config(id, editor_config);
+        self.request_highlighting(id);
+        #[cfg(feature = "full")]
+        match self.lsp_versions.contains_key(&id) {
+            true => {
+                self.sync_language_server(id);
+            }
+            false => self.request_language_server(id),
+        }
+        let name = self.buffers.get(id).map(|b| b.name().to_string());
+        if lossy {
+            self.error(format!(
+                "{} holds bytes that are not text; re-read read-only",
+                path.display()
+            ));
+        } else if let Some(name) = name {
+            self.message_unless_error(format!("Reverted {name}"));
+        }
+        Ok(())
+    }
+
+    /// Makes `id` visit `path`, as though it had been opened there: its name,
+    /// its language and what the language server knows it by.
+    pub fn visit_under(&mut self, id: BufferId, path: &Path) {
+        // The server knew the document by the name it had.
+        self.notify_closed(id);
+        if let Some(buffer) = self.buffers.get_mut(id) {
+            buffer.set_path(path.to_path_buf());
+        }
+        if let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) {
+            let _ = self.buffers.rename(id, &name);
+        }
+        self.forget_highlights(id);
+        self.request_highlighting(id);
+        #[cfg(feature = "full")]
+        self.request_language_server(id);
+        self.render_buffers_buffer();
+    }
+
+    /// Runs `f` on any buffer, moving the windows showing it across what it
+    /// changed — [`Editor::with_current_buffer`] for a buffer that need not
+    /// be the current one. `None` when there is no such buffer.
+    pub fn with_buffer<T>(&mut self, id: BufferId, f: impl FnOnce(&mut Buffer) -> T) -> Option<T> {
+        if id == self.current_buffer_id() {
+            return Some(self.with_current_buffer(f));
+        }
+        let (out, adjustments) = {
+            let buffer = self.buffers.get_mut(id)?;
+            let out = f(buffer);
+            (out, buffer.take_adjustments())
+        };
+        self.follow_edits(id, &adjustments);
+        Some(out)
+    }
+
+    /// What a window shows once its buffer is killed: the most recently used
+    /// buffer that is not the panel's or the terminal's own, and one no
+    /// window is already showing where there is such a buffer, as Emacs'
+    /// `other-buffer` chooses. Choosing the panel's buffer list put a copy
+    /// of the panel where the file had been.
+    fn replacement_buffer(&self) -> Option<BufferId> {
+        let candidates: Vec<BufferId> = self
+            .buffers
+            .ids()
+            .iter()
+            .copied()
+            .filter(|id| !self.is_dedicated_buffer(*id))
+            .filter(|id| {
+                self.buffers
+                    .get(*id)
+                    .is_some_and(|b| !b.name().starts_with(' '))
+            })
+            .collect();
+        candidates
+            .iter()
+            .copied()
+            .find(|id| self.windows.showing(*id).is_empty())
+            .or_else(|| candidates.first().copied())
+    }
+
+    /// True for a window that shows its own buffer and nothing else: one of
+    /// the panel's, or the terminal's.
+    pub fn is_dedicated_window(&self, window: WindowId) -> bool {
+        self.panel_windows.contains(&window) || Some(window) == self.terminal_pane()
+    }
+
+    /// True for the buffers those windows show.
+    pub fn is_dedicated_buffer(&self, buffer: BufferId) -> bool {
+        self.buffers.get(buffer).is_some_and(|b| {
+            crate::commands::tree::PANEL_BUFFERS.contains(&b.name()) || b.name() == "*terminal*"
+        })
+    }
+
+    /// Reads the tree again, when there is one on the screen to be wrong.
+    ///
+    /// For the things that change the disk behind the tree's back: a save
+    /// that made a new file, a shell command, a dired operation, a checkout.
+    pub fn refresh_tree_soon(&mut self) {
+        if self.tree_window.is_some() {
+            self.spawn(Task::Tree(crate::task::TreeAction::Refresh));
+        }
+    }
+
+    /// Forgets windows that no longer exist.
+    ///
+    /// The panel's and the terminal's windows are remembered by id, and a
+    /// window can be deleted from under them — `C-x 0` in one of them, a
+    /// layout rebuilt. A stale id made `C-x t 1` report "No such window"
+    /// and `C-x t t` need pressing twice.
+    pub fn forget_dead_windows(&mut self) {
+        let alive: Vec<WindowId> = self.windows.ids();
+        let dead = |id: &WindowId| !alive.contains(id);
+        if self.panel_windows.iter().any(dead) {
+            self.panel_windows.retain(|id| alive.contains(id));
+            if self.panel_windows.is_empty() {
+                self.tree_window = None;
+            }
+        }
+        if self.tree_window.as_ref().is_some_and(dead) {
+            self.tree_window = None;
+        }
+        #[cfg(feature = "full")]
+        if self.terminal_window.as_ref().is_some_and(dead) {
+            self.terminal_window = None;
+        }
+        self.popped_windows.retain(|id| alive.contains(id));
+        if self.last_editing_window.as_ref().is_some_and(dead) {
+            self.last_editing_window = None;
+        }
+    }
+
+    /// Points every buffer visiting `from`, or anything inside it, at where
+    /// it went.
+    ///
+    /// A buffer left visiting the old name wrote the old file back into
+    /// existence on its next save — a rename in the tree undone by `C-x C-s`.
+    pub fn follow_moved_path(&mut self, from: &Path, to: &Path) {
+        let moved: Vec<(BufferId, PathBuf)> = self
+            .buffers
+            .iter()
+            .filter_map(|buffer| {
+                let inside = buffer.path()?.strip_prefix(from).ok()?;
+                let path = match inside.as_os_str().is_empty() {
+                    true => to.to_path_buf(),
+                    false => to.join(inside),
+                };
+                Some((buffer.id, path))
+            })
+            .collect();
+        for (id, path) in moved {
+            self.visit_under(id, &path);
+        }
+    }
+
+    /// Closes the buffers visiting `path`, or anything inside it, now that it
+    /// has been deleted — the ones with nothing unsaved in them.
+    ///
+    /// A buffer over a deleted file wrote it back on the next save, which for
+    /// a deleted directory meant the directory too. One holding unsaved work
+    /// is the only copy of that work, so it stays, and is named.
+    pub fn follow_deleted_path(&mut self, path: &Path) {
+        let visiting: Vec<(BufferId, bool, String)> = self
+            .buffers
+            .iter()
+            .filter(|buffer| buffer.path().is_some_and(|p| p.starts_with(path)))
+            .map(|buffer| (buffer.id, buffer.is_modified(), buffer.name().to_string()))
+            .collect();
+        let mut kept = Vec::new();
+        for (id, modified, name) in visiting {
+            match modified {
+                true => kept.push(name),
+                false => {
+                    let _ = self.kill_buffer(id);
+                }
+            }
+        }
+        if !kept.is_empty() {
+            self.error(format!(
+                "Still open, with changes that were never saved: {}",
+                kept.join(", ")
+            ));
+        }
+        self.render_buffers_buffer();
     }
 
     // ---- scrolling -----------------------------------------------------
@@ -1518,11 +1872,23 @@ impl Editor {
             if let Some(popup) = crate::render::completion_popup(self, frame) {
                 let inner = popup.inset(1);
                 let lead = crate::render::completion_count(self).chars().count();
-                let x = inner.x + (lead + self.minibuffer.cursor_column()) as u16;
+                let (_, _, column) = crate::render::fit_prompt_line(
+                    self.minibuffer.prompt(),
+                    self.minibuffer.input(),
+                    self.minibuffer.point(),
+                    (inner.width as usize).saturating_sub(lead),
+                );
+                let x = inner.x + (lead + column) as u16;
                 return (x.min(inner.right().saturating_sub(1)), inner.y);
             }
             let y = frame.y + frame.height.saturating_sub(1);
-            let x = (self.minibuffer.cursor_column() as u16).min(frame.width.saturating_sub(1));
+            let (_, _, column) = crate::render::fit_prompt_line(
+                self.minibuffer.prompt(),
+                self.minibuffer.input(),
+                self.minibuffer.point(),
+                frame.width as usize,
+            );
+            let x = (column as u16).min(frame.width.saturating_sub(1));
             return (x, y);
         }
         let window = self.windows.current();
@@ -1619,7 +1985,12 @@ impl Editor {
         if buffer.name() == crate::commands::lsp::XREF_NAME {
             return Some(crate::commands::listing::XREF_MODE.to_string());
         }
-        if buffer.name() == crate::commands::help::HELP_BUFFER_NAME {
+        if [
+            crate::commands::help::HELP_BUFFER_NAME,
+            crate::commands::help::MESSAGES_BUFFER_NAME,
+        ]
+        .contains(&buffer.name())
+        {
             return Some(crate::commands::listing::HELP_MODE.to_string());
         }
         if buffer.name() == crate::commands::undo_tree::VISUALIZER_BUFFER_NAME {
@@ -1693,7 +2064,7 @@ impl Editor {
 
     /// The keymap for a named mode: the built-in one where there is one, with
     /// whatever the configuration defined for that mode laid over it.
-    fn mode_keymap(&self, name: &str) -> Option<maxgus_keys::Keymap> {
+    pub fn mode_keymap(&self, name: &str) -> Option<maxgus_keys::Keymap> {
         let configured = self.mode_keymaps.iter().find(|m| m.name() == name);
         // The built-in maps, which configuration adds to rather than replaces
         // — rebinding one key should not cost every other binding in the mode.
@@ -1722,23 +2093,41 @@ impl Editor {
             }
             _ => None,
         };
-        if let Some(mut map) = built_in {
-            if let Some(configured) = configured {
-                map.merge(configured);
-            }
-            return Some(map);
-        }
-        if name != crate::commands::tree::TREE_MODE {
+        // The tree's own map is built in too; a `keymap "treefile-mode"`
+        // block in the configuration adds to it rather than replacing it, or
+        // the user would lose every treemacs binding by rebinding one key.
+        let built_in = match (built_in, name == crate::commands::tree::TREE_MODE) {
+            (None, true) => maxgus_tree::treemacs_keymap().ok(),
+            (built_in, _) => built_in,
+        };
+        let Some(mut map) = built_in else {
             return configured.cloned();
+        };
+        // What the configuration takes out of the built-in map, before what
+        // it puts in.
+        for (mode, keys) in &self.mode_unbound {
+            if mode == name {
+                map.remove(keys);
+            }
         }
-        // The tree's own map is built in; a `keymap "treefile-mode"` block in
-        // the configuration adds to it rather than replacing it, or the user
-        // would lose every treemacs binding by rebinding one key.
-        let mut map = maxgus_tree::treemacs_keymap().ok()?;
         if let Some(configured) = configured {
             map.merge(configured);
         }
         Some(map)
+    }
+
+    /// Says which configured bindings name no command, now that the script
+    /// has loaded or been found not to exist.
+    #[cfg(feature = "full")]
+    fn report_bindings_to_nothing(&mut self) {
+        let unchecked = std::mem::take(&mut self.unchecked_bindings);
+        let dead: Vec<(String, String)> = unchecked
+            .into_iter()
+            .filter(|(_, command)| !self.has_script_command(command))
+            .collect();
+        if let Some(said) = crate::keymap::describe_bindings_to_nothing(&dead) {
+            self.error(said);
+        }
     }
 
     /// Opens a minibuffer prompt, giving the minibuffer keymap priority.
@@ -1761,6 +2150,9 @@ impl Editor {
     ) {
         self.pending_input = Some((command.to_string(), self.prefix));
         self.completion_candidates = candidates;
+        // A new prompt lists afresh; the directory the last one was in says
+        // nothing about this one.
+        self.completion_directory = None;
         self.prompt_with(kind, prompt, initial);
         // Shown straight away rather than waiting for TAB: `M-x` and `C-x b`
         // are far more useful when they say what is on offer.
@@ -1834,11 +2226,42 @@ impl Editor {
     /// Called after anything that changes the input, so the list on screen is
     /// always the list the input actually matches.
     pub fn refresh_completions(&mut self) {
+        self.follow_file_prompt();
         let candidates = std::mem::take(&mut self.completion_candidates);
         self.minibuffer.filter_completions(&candidates);
         self.completion_candidates = candidates;
         self.follow_completion_selection();
         self.preview_theme();
+    }
+
+    /// Keeps a file prompt's candidates the files of the directory its input
+    /// is in, as it is typed.
+    fn follow_file_prompt(&mut self) {
+        if self.minibuffer.kind() != Some(crate::MinibufferKind::File) {
+            return;
+        }
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        if let Some(substituted) =
+            crate::commands::file::substitute_input(self.minibuffer.input(), home.as_deref())
+        {
+            self.minibuffer.set_input(substituted);
+        }
+        let input = self.minibuffer.input().to_string();
+        if !input.starts_with('/') {
+            return;
+        }
+        let path = PathBuf::from(&input);
+        let directory = match input.ends_with('/') {
+            true => path,
+            false => match path.parent() {
+                Some(parent) => parent.to_path_buf(),
+                None => return,
+            },
+        };
+        if self.completion_directory.as_ref() != Some(&directory) {
+            self.completion_directory = Some(directory.clone());
+            self.spawn(Task::ListDirectory { path: directory });
+        }
     }
 
     /// While `consult-theme` is prompting, shows whatever the input now names.
@@ -2023,9 +2446,18 @@ impl Editor {
         if let Some(root) = self.git_root.clone() {
             return root;
         }
-        self.tree_root
-            .clone()
+        self.known_project_root()
             .unwrap_or_else(|| self.default_directory())
+    }
+
+    /// The project, when something has said where it is — git, the command
+    /// line, the tree — rather than guessed from the file being edited.
+    pub fn known_project_root(&self) -> Option<PathBuf> {
+        #[cfg(feature = "full")]
+        if let Some(root) = self.git_root.clone() {
+            return Some(root);
+        }
+        self.project_dir.clone().or_else(|| self.tree_root.clone())
     }
 
     /// The directory the file tree is showing: the node under its cursor,
@@ -2093,7 +2525,7 @@ impl Editor {
             });
         }
         crate::session::Session {
-            root: self.tree_root.clone(),
+            root: Some(self.project_root()),
             files,
             current,
             panel_open: !self.panel_windows.is_empty(),
@@ -2112,22 +2544,23 @@ impl Editor {
         for file in &session.files {
             self.session_points
                 .insert(file.path.clone(), (file.point, file.top_line));
-            self.spawn(crate::task::Task::ReadFile {
+            self.spawn(crate::task::Task::RestoreFile {
                 path: file.path.clone(),
-                reverting: None,
-                other_window: false,
             });
         }
         // Read last so it is the buffer left showing: files arrive in the
         // order they were asked for.
         if let Some(current) = session.current {
-            self.spawn(crate::task::Task::ReadFile {
-                path: current,
-                reverting: None,
-                other_window: false,
-            });
+            self.spawn(crate::task::Task::RestoreFile { path: current });
         }
-        self.session_panel = session.panel_open;
+        // The panel as it was left. Opened now rather than when the files
+        // arrive, so they lay out beside it rather than being pushed over.
+        if session.panel_open && self.panel_windows.is_empty() {
+            let root = session.root.clone().unwrap_or_else(|| self.project_root());
+            if let Err(error) = crate::commands::tree::open(self, root) {
+                self.error(error.to_string());
+            }
+        }
         self.message(format!("Restoring {}", crate::count(count, "file")));
     }
 
@@ -2160,6 +2593,17 @@ impl Editor {
                     buffer.set_read_only(read_only);
                     buffer.set_disk_time(disk_time);
                 }
+                match lossy {
+                    true => self.lossy_buffers.insert(id),
+                    false => self.lossy_buffers.remove(&id),
+                };
+                match disk_time.is_none() && contents.is_empty() {
+                    true => self.new_files.insert(id),
+                    false => self.new_files.remove(&id),
+                };
+                if let Some(reverted) = reverting {
+                    return self.finish_revert(reverted, &path, lossy, editor_config);
+                }
                 if lossy {
                     // Said as an error, so the "(N lines)" notice that follows
                     // gives way to it rather than talking over it. Saving this
@@ -2172,11 +2616,8 @@ impl Editor {
                         path.display()
                     ));
                 }
-                if other_window && self.windows.len() < 2 {
-                    self.split_window(Direction::Vertical)?;
-                    self.other_window(1);
-                } else if other_window {
-                    self.other_window(1);
+                if other_window {
+                    self.select_other_editing_window()?;
                 }
                 self.switch_to_buffer(id)?;
                 // A jump that was waiting on this file can finish now.
@@ -2184,6 +2625,14 @@ impl Editor {
                     && waiting == path
                 {
                     self.go_to_line(line);
+                }
+                // And a list it was opened from, to look at rather than to
+                // go to, takes the cursor back.
+                if let Some((waiting, list)) = self.pending_return.take()
+                    && waiting == path
+                    && self.windows.get(list).is_some()
+                {
+                    self.select_window(list);
                 }
                 #[cfg(feature = "full")]
                 if let Some((waiting, position)) = self.pending_jump.take() {
@@ -2224,6 +2673,66 @@ impl Editor {
                 self.request_language_server(id);
                 Ok(())
             }
+            #[cfg(feature = "full")]
+            TaskResult::FileReadForEdits {
+                path,
+                contents,
+                read_only,
+                disk_time,
+            } => {
+                let known = self.buffers.find_by_path(&path).is_some();
+                let id = self.buffers.visit_file(path.clone(), &contents);
+                if !known && let Some(buffer) = self.buffers.get_mut(id) {
+                    buffer.set_read_only(read_only);
+                    buffer.set_disk_time(disk_time);
+                }
+                self.request_highlighting(id);
+                self.request_language_server(id);
+                if let Some((encoding, edits)) = self.pending_edits.remove(&path) {
+                    let name = self
+                        .buffers
+                        .get(id)
+                        .map(|b| b.name().to_string())
+                        .unwrap_or_default();
+                    match crate::commands::lsp::apply_text_edits_to(self, id, encoding, &edits) {
+                        // Opened to make the change, and left unsaved for it to be
+                        // looked at: an edit nobody has seen is not written to disk.
+                        Ok(count) => self.message(format!(
+                            "Changed {} in {name}, which was not open; not saved yet (C-x s saves)",
+                            crate::count(count, "place")
+                        )),
+                        Err(error) => self.error(format!("{name}: {error}")),
+                    }
+                }
+                self.render_buffers_buffer();
+                Ok(())
+            }
+            TaskResult::FileInserted {
+                path,
+                buffer,
+                contents,
+            } => {
+                if self.buffers.get(buffer).is_none() {
+                    return Ok(());
+                }
+                let chars = contents.chars().count();
+                // At that buffer's point, in one undo step, and with point
+                // left before the text, as `insert-file` leaves it.
+                self.with_buffer(buffer, |b| -> Result<()> {
+                    let at = b.point();
+                    b.insert(at, &contents.replace("\r\n", "\n"))?;
+                    b.set_point(at);
+                    Ok(())
+                })
+                .transpose()?;
+                self.follow_point();
+                self.message(format!(
+                    "Inserted {} ({})",
+                    path.display(),
+                    crate::count(chars, "character")
+                ));
+                Ok(())
+            }
             TaskResult::PictureRead {
                 path,
                 picture,
@@ -2248,11 +2757,8 @@ impl Editor {
                     buffer.set_read_only(true);
                 }
                 self.pictures.insert(id, picture.clone());
-                if other_window && self.windows.len() < 2 {
-                    self.split_window(Direction::Vertical)?;
-                    self.other_window(1);
-                } else if other_window {
-                    self.other_window(1);
+                if other_window {
+                    self.select_other_editing_window()?;
                 }
                 self.switch_to_buffer(id)?;
                 self.message_unless_error(format!(
@@ -2273,8 +2779,22 @@ impl Editor {
                 // A save is as good a moment as any to notice the branch has
                 // moved — a checkout between edits is the usual way it does.
                 #[cfg(feature = "full")]
-                if let Some(root) = self.tree_root.clone() {
+                {
+                    let root = self.project_root();
                     self.spawn(crate::task::Task::GitBranch { root });
+                }
+                // A new file, or git's opinion of an old one, is worth a
+                // look in the tree beside it.
+                self.refresh_tree_soon();
+                // `C-x C-w`: the buffer takes the new name once the file under
+                // it exists, not when it was asked for — a refused write
+                // left it visiting a file it had never been written to.
+                if self
+                    .buffers
+                    .get(buffer)
+                    .is_some_and(|b| b.path() != Some(path.as_path()))
+                {
+                    self.visit_under(buffer, &path);
                 }
                 if let Some(target) = self.buffers.get_mut(buffer) {
                     target.mark_saved();
@@ -2282,6 +2802,8 @@ impl Editor {
                     // next save compares against the file just written.
                     target.set_disk_time(disk_time);
                 }
+                self.lossy_buffers.remove(&buffer);
+                self.new_files.remove(&buffer);
                 self.notify_saved(buffer);
                 let noun = if bytes == 1 { "byte" } else { "bytes" };
                 self.message(format!("Wrote {} ({bytes} {noun})", path.display()));
@@ -2295,7 +2817,7 @@ impl Editor {
                 // Nothing was written. Whichever expectation failed will fail
                 // the same way next time, so the only way on is the command
                 // that says to write regardless.
-                self.pending_overwrite = Some(buffer);
+                self.pending_overwrite = Some((buffer, path.clone()));
                 self.error(match because {
                     crate::task::WriteGuard::Absent => format!(
                         "{} already exists; M-x save-buffer-anyway to overwrite it",
@@ -2333,10 +2855,37 @@ impl Editor {
                 log,
                 failed,
             } => crate::commands::grammar::installed(self, &language, &summary, &log, failed),
+            #[cfg(feature = "full")]
+            TaskResult::LspNoAnswer {
+                uri,
+                query,
+                message,
+            } => {
+                tracing::debug!("language server gave no answer to {query:?} for {uri}: {message}");
+                // The outline stops saying it is reading; whatever it had
+                // before stays up.
+                if matches!(query, crate::task::LspQuery::DocumentSymbols { .. })
+                    && self.panel.symbols_pending
+                {
+                    self.panel.symbols_pending = false;
+                    self.render_symbols_buffer();
+                }
+                Ok(())
+            }
+            TaskResult::PathMoved { from, to } => {
+                self.follow_moved_path(&from, &to);
+                Ok(())
+            }
+            TaskResult::PathDeleted { path } => {
+                self.follow_deleted_path(&path);
+                Ok(())
+            }
             TaskResult::TreeUpdated {
                 nodes,
                 select,
                 show_hidden,
+                roots,
+                home,
             } => {
                 // The node the cursor was on, before the tree it indexes into
                 // is replaced. Expanding a directory adds lines below it and
@@ -2344,6 +2893,30 @@ impl Editor {
                 // cursor is on means something different afterwards; the
                 // node it was on does not.
                 let was = self.tree_selection().map(|node| node.path.clone());
+                let roots_before: Vec<&PathBuf> = self
+                    .tree
+                    .iter()
+                    .filter(|node| node.is_root)
+                    .map(|node| &node.path)
+                    .collect();
+                // A tree showing other directories, or dotfiles it was not,
+                // may now be able to show the file follow mode gave up on.
+                if roots_before.len() != roots.len()
+                    || roots_before.iter().zip(&roots).any(|(a, b)| *a != b)
+                    || show_hidden != self.tree_shows_hidden
+                {
+                    self.tree_follow_asked = None;
+                }
+                // The tree says where it is; the editor's idea of its root
+                // was a guess made when the tree was asked to open.
+                if let Some(first) = roots.first()
+                    && self.tree_root.as_ref() != Some(first)
+                {
+                    self.set_tree_root(first.clone());
+                }
+                if let Some(home) = home {
+                    self.tree_home = Some(home);
+                }
                 self.tree = nodes;
                 self.tree_shows_hidden = show_hidden;
                 self.render_panel_buffer();
@@ -2356,10 +2929,19 @@ impl Editor {
                 }
                 Ok(())
             }
-            TaskResult::DirectoryListed { entries, .. } => {
-                // Fills in completion for an open file prompt.
-                if self.minibuffer.is_active() {
+            TaskResult::DirectoryListed { path, entries } => {
+                // Fills in completion for an open file prompt — the listing
+                // of the directory it is in now, not one it has typed past —
+                // and shows it: the list is there as the prompt opens, not
+                // only after the first key.
+                let current = self.completion_directory.is_none()
+                    || self.completion_directory.as_ref() == Some(&path);
+                if self.minibuffer.kind() == Some(crate::MinibufferKind::File) && current {
+                    self.completion_directory = Some(path);
                     self.completion_candidates = entries;
+                    let candidates = std::mem::take(&mut self.completion_candidates);
+                    self.minibuffer.filter_completions(&candidates);
+                    self.completion_candidates = candidates;
                 }
                 Ok(())
             }
@@ -2369,31 +2951,23 @@ impl Editor {
                 Ok(())
             }
             #[cfg(feature = "full")]
-            TaskResult::GrepFinished { pattern, found } => {
-                if let Err(error) = crate::commands::grep::show(self, &pattern, found) {
+            TaskResult::GrepFinished {
+                pattern,
+                root,
+                found,
+            } => {
+                if let Err(error) = crate::commands::grep::show(self, &pattern, &root, found) {
                     self.error(error.to_string());
                 }
                 Ok(())
             }
             #[cfg(feature = "full")]
-            TaskResult::GrepApplied { applied, paths } => {
-                // The buffers for the files that were written are stale now,
-                // and a buffer showing an old copy of a file that has just
-                // been rewritten is how work gets lost.
-                for path in paths {
-                    if let Some(id) = self.buffers.find_by_path(&path) {
-                        self.spawn(crate::task::Task::ReadFile {
-                            path,
-                            reverting: Some(id),
-                            other_window: false,
-                        });
-                    }
-                }
-                self.message(format!(
-                    "Wrote {} in {}",
-                    crate::count(applied.lines, "line"),
-                    crate::count(applied.files, "file")
-                ));
+            TaskResult::GrepApplied {
+                written,
+                failure,
+                unsaved,
+            } => {
+                crate::commands::grep::written(self, written, failure, unsaved);
                 Ok(())
             }
             TaskResult::Said(_) => Ok(()),
@@ -2430,17 +3004,41 @@ impl Editor {
             }
             TaskResult::DiredDone { said, relist } => {
                 self.message(said);
-                self.spawn(crate::task::Task::Dired { path: relist });
+                self.refresh_tree_soon();
+                crate::commands::dired::relist_if_showing(self, relist);
                 Ok(())
             }
             #[cfg(feature = "full")]
             TaskResult::ScriptRead { source, path } => {
+                let loaded = maxgus_script::Script::load_in(&source, path.parent());
                 self.script_path = Some(path);
-                match maxgus_script::Script::load(&source) {
+                match loaded {
                     Ok(script) => self.set_script(script),
                     // A script that will not load is reported and the editor
                     // carries on: it is an extension, not a prerequisite.
                     Err(error) => self.error(format!("script: {error}")),
+                }
+                self.report_bindings_to_nothing();
+                Ok(())
+            }
+            #[cfg(feature = "full")]
+            TaskResult::ScriptMissing { path } => {
+                self.report_bindings_to_nothing();
+                // Nothing to say at startup, where most editors have none.
+                // Asked for again, it is said, and a script that was loaded
+                // and has since gone takes its commands with it.
+                if self.script_path.as_deref() != Some(path.as_path()) {
+                    return Ok(());
+                }
+                let shown = shorten_home(&path);
+                match self.script.is_some() {
+                    true => {
+                        self.unset_script();
+                        self.message(format!(
+                            "{shown} is gone, and so are the commands it defined"
+                        ));
+                    }
+                    false => self.message(format!("There is no script at {shown}")),
                 }
                 Ok(())
             }
@@ -2482,7 +3080,20 @@ impl Editor {
                 // ask, and `lsp-*` commands address positions in whatever
                 // encoding the server settled on.
                 self.lsp_encodings.retain(|(name, _)| *name != language);
-                self.lsp_encodings.push((language, encoding));
+                self.lsp_encodings.push((language.clone(), encoding));
+                // A server started again after a restart knows nothing: every
+                // open buffer in its language is opened on it again, not just
+                // the one that was current when it was asked for.
+                let unknown: Vec<BufferId> = self
+                    .buffers
+                    .iter()
+                    .filter(|b| b.language() == Some(language.as_str()) && b.path().is_some())
+                    .map(|b| b.id)
+                    .filter(|id| !self.lsp_versions.contains_key(id))
+                    .collect();
+                for id in unknown {
+                    self.request_language_server(id);
+                }
                 self.request_document_symbols();
                 // The outline window appears now, whether or not the panel
                 // was open before the server was.
@@ -2492,6 +3103,17 @@ impl Editor {
             #[cfg(feature = "full")]
             TaskResult::LanguageServerStopped { language } => {
                 self.lsp_encodings.retain(|(name, _)| *name != language);
+                // What that server was told went with it. Left here, the next
+                // one would be sent changes to documents it was never opened.
+                let known: Vec<BufferId> = self
+                    .buffers
+                    .iter()
+                    .filter(|b| b.language() == Some(language.as_str()))
+                    .map(|b| b.id)
+                    .collect();
+                for id in known {
+                    self.lsp_versions.remove(&id);
+                }
                 if !self.symbols_available() {
                     self.panel.forget_symbols();
                     self.sync_panel_sections();
@@ -2559,6 +3181,8 @@ impl Editor {
                     "" => format!("{action} done"),
                     said => format!("{action}: {}", said.lines().next().unwrap_or(said)),
                 });
+                // A checkout changes files, and staging changes their marks.
+                self.refresh_tree_soon();
                 Ok(())
             }
             #[cfg(feature = "full")]
@@ -2743,11 +3367,14 @@ impl Editor {
         else {
             return;
         };
-        let text: String = self
+        // A line per row and no empty one after the last, so `n` and `M->`
+        // stop on a row rather than past the end of the list.
+        let text = self
             .tree
             .iter()
-            .map(|n| format!("{}\n", n.render()))
-            .collect();
+            .map(|n| n.render())
+            .collect::<Vec<_>>()
+            .join("\n");
         let line = self.line_in(id);
         self.replace_buffer_contents(id, &text).ok();
         self.move_point_in(id, line.min(self.tree.len().saturating_sub(1)));
@@ -2762,18 +3389,19 @@ impl Editor {
             return;
         };
         let visible = self.panel.visible_symbols();
-        let text: String = visible
+        let text = visible
             .iter()
             .filter_map(|index| self.panel.symbols.get(*index))
             .map(|symbol| {
                 format!(
-                    "{}{}{}\n",
+                    "{}{}{}",
                     "  ".repeat(symbol.depth),
                     symbol.arrow(),
                     symbol.name
                 )
             })
-            .collect();
+            .collect::<Vec<_>>()
+            .join("\n");
         let line = self.line_in(id);
         self.replace_buffer_contents(id, &text).ok();
         self.move_point_in(id, line.min(visible.len().saturating_sub(1)));
@@ -2788,10 +3416,11 @@ impl Editor {
             return;
         };
         let listed = self.panel_buffers();
-        let text: String = listed
+        let text = listed
             .iter()
-            .map(|(_, name)| format!("  {name}\n"))
-            .collect();
+            .map(|(_, name)| format!("  {name}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let line = self.line_in(id);
         self.replace_buffer_contents(id, &text).ok();
         self.move_point_in(id, line.min(listed.len().saturating_sub(1)));
@@ -2838,15 +3467,23 @@ impl Editor {
         }
     }
 
-    /// The buffers the panel lists, most recently used first and without the
-    /// panel's own, which nobody wants to switch to from inside it.
+    /// The buffers the panel lists, in the order they were opened and without
+    /// the panel's own, which nobody wants to switch to from inside it.
+    ///
+    /// Not most recently used first. That order changes every time a buffer
+    /// is shown, and the list is walked with a cursor: showing one moved it
+    /// to the top, the cursor stayed on its line, and the row under it —
+    /// the one `k` kills — was then somebody else.
     pub fn panel_buffers(&self) -> Vec<(BufferId, String)> {
-        self.buffers
+        let mut listed: Vec<(BufferId, String)> = self
+            .buffers
             .iter()
             .filter(|buffer| !crate::commands::tree::PANEL_BUFFERS.contains(&buffer.name()))
             .filter(|buffer| !buffer.name().starts_with(' '))
             .map(|buffer| (buffer.id, buffer.name().to_string()))
-            .collect()
+            .collect();
+        listed.sort_by_key(|(id, _)| *id);
+        listed
     }
 
     /// True when a language server is running for the buffer being edited,
@@ -2877,20 +3514,84 @@ impl Editor {
     /// "Not the tree" is not enough any more — the panel is a column of
     /// windows, and the one after the tree is the symbol outline.
     pub fn editing_window(&self) -> Option<WindowId> {
+        let current = self.windows.current_id();
+        if !self.is_dedicated_window(current) {
+            return Some(current);
+        }
+        if let Some(last) = self.last_editing_window
+            && self.windows.get(last).is_some()
+            && !self.is_dedicated_window(last)
+        {
+            return Some(last);
+        }
         self.windows
             .ids()
             .into_iter()
-            .find(|id| !self.panel_windows.contains(id) && Some(*id) != self.terminal_pane())
+            .find(|id| !self.is_dedicated_window(*id))
     }
 
-    /// The buffer being edited: the one in the first window that is not part
-    /// of the panel or the terminal.
-    pub fn editing_buffer(&self) -> Option<BufferId> {
+    /// An editing window other than `except`: the one edited in last, or the
+    /// first there is. What a listing opens a row in — the listing's own
+    /// window is an editing window too, and the one place a row must not
+    /// open in.
+    pub fn other_editing_window(&self, except: WindowId) -> Option<WindowId> {
+        if let Some(last) = self.last_editing_window
+            && last != except
+            && self.windows.get(last).is_some()
+            && !self.is_dedicated_window(last)
+        {
+            return Some(last);
+        }
         self.windows
-            .iter()
-            .find(|window| {
-                !self.panel_windows.contains(&window.id) && Some(window.id) != self.terminal_pane()
-            })
+            .ids()
+            .into_iter()
+            .find(|id| *id != except && !self.is_dedicated_window(*id))
+    }
+
+    /// Selects the window something is opened "in the other window" into:
+    /// another editing window where there is one, else one split off this.
+    ///
+    /// `other-window` counts the panel's windows among the rest, so opening
+    /// a file in the other window with the tree open put it in no new
+    /// window at all — the one being edited in was reused, and `C-x 4 b`
+    /// from the last window along took the file into the tree's column.
+    pub fn select_other_editing_window(&mut self) -> Result<()> {
+        let here = self.windows.current_id();
+        let window = match self.other_editing_window(here) {
+            Some(window) => window,
+            None => self.split_window(Direction::Vertical)?,
+        };
+        self.select_window(window);
+        Ok(())
+    }
+
+    /// Remembers where point is, before a jump somewhere else.
+    pub fn push_jump(&mut self) {
+        let buffer = self.current_buffer_id();
+        let path = self.current_buffer().path().map(Path::to_path_buf);
+        let point = self.windows.current().point;
+        // The same place twice is one place to come back to.
+        if self
+            .jumps
+            .last()
+            .is_some_and(|jump| jump.buffer == buffer && jump.point == point)
+        {
+            return;
+        }
+        self.jumps.push(Jump {
+            buffer,
+            path,
+            point,
+        });
+        if self.jumps.len() > MAX_JUMPS {
+            self.jumps.remove(0);
+        }
+    }
+
+    /// The buffer being edited: the one in [`Editor::editing_window`].
+    pub fn editing_buffer(&self) -> Option<BufferId> {
+        self.editing_window()
+            .and_then(|id| self.windows.get(id))
             .map(|window| window.buffer)
     }
 
@@ -2919,6 +3620,12 @@ impl Editor {
                 (language, path)
             };
             if !self.lsp_encodings.iter().any(|(name, _)| *name == language) {
+                return;
+            }
+            // Not before the server has been told the document exists: asked
+            // first, clangd answers "trying to get AST for non-added
+            // document", and the outline said "Reading…" for ever.
+            if !self.lsp_versions.contains_key(&buffer) {
                 return;
             }
             // The outline belongs to one buffer; recording which before the
@@ -3386,6 +4093,21 @@ impl Editor {
             let Some(language) = buffer.language().map(str::to_string) else {
                 return;
             };
+            let limit = self.settings.syntax_highlighting_limit_mb;
+            let bytes = buffer.rope().len_bytes();
+            if limit > 0 && bytes > limit.saturating_mul(1024 * 1024) {
+                // Said once, when the file is first shown plain.
+                if self.shown_plain.insert(id) {
+                    let name = buffer.name().to_string();
+                    self.message_unless_error(format!(
+                        "{name} is {}, past syntax-highlighting-limit-mb={limit}, so it is shown \
+                         without colour",
+                        human_bytes(bytes)
+                    ));
+                }
+                return;
+            }
+            self.shown_plain.remove(&id);
             let (text, revision) = (buffer.text(), buffer.revision());
             let range = self.highlight_request_range(id);
             self.spawn(Task::Reparse {
@@ -3417,6 +4139,7 @@ impl Editor {
         let uri = maxgus_lsp::client::path_to_uri(&path);
         self.spawn(Task::StartLanguageServer {
             language: language.clone(),
+            file: Some(path.clone()),
         });
         self.spawn(Task::LspDidOpen {
             language,
@@ -3425,6 +4148,14 @@ impl Editor {
             text,
         });
         self.lsp_versions.insert(id, version as u64);
+        // With the server already up, nothing else will ask for this
+        // buffer's outline now that it can be asked for.
+        if self.editing_buffer() == Some(id) && self.panel.symbols_buffer != Some(id) {
+            self.panel.forget_symbols();
+        }
+        if self.editing_buffer() == Some(id) && self.panel.symbols.is_empty() {
+            self.request_document_symbols();
+        }
     }
 
     #[cfg(feature = "full")]
@@ -3490,6 +4221,11 @@ impl Editor {
             }
             if let Some((language, uri)) = self.lsp_document(buffer) {
                 self.spawn(Task::LspDidSave { language, uri });
+            }
+            // What the outline shows is what the server makes of the file,
+            // and the file has just changed as far as anyone is concerned.
+            if self.panel.symbols_buffer == Some(buffer) {
+                self.request_document_symbols();
             }
         }
     }
@@ -3589,6 +4325,9 @@ impl Editor {
             return Vec::new();
         };
         let icons = self.settings.nerd_font_icons;
+        if let Some(segments) = self.panel_mode_line(window, buffer) {
+            return segments;
+        }
         let mut out = Vec::new();
 
         // What state the buffer is in, said once and in colour.
@@ -3620,11 +4359,15 @@ impl Editor {
         };
         out.push(ModeLineSegment::new(format!(" {state} "), state_face));
 
-        // How big it is, as a person would say it.
-        out.push(ModeLineSegment::new(
-            format!("{} ", human_size(buffer.len_chars())),
-            "shadow",
-        ));
+        // How big it is, as a person would say it — for a file. The size of
+        // a status view or a directory listing is the size of the editor's
+        // own drawing of it, which says nothing to anybody.
+        if buffer.path().is_some() {
+            out.push(ModeLineSegment::new(
+                format!("{} ", human_size(buffer.len_chars())),
+                "shadow",
+            ));
+        }
 
         // The buffer, behind the glyph for whatever kind of file it is.
         let mut name = String::new();
@@ -3706,6 +4449,54 @@ impl Editor {
         out
     }
 
+    /// The mode line of one of the panel's windows, which says what it lists.
+    ///
+    /// The file's mode line was drawn there before: the size of a buffer of
+    /// file names, `*treefile*`, a line and column, `All` — four facts about
+    /// the machinery and none about the panel.
+    fn panel_mode_line(&self, window: &Window, buffer: &Buffer) -> Option<Vec<ModeLineSegment>> {
+        use crate::commands::tree::{BUFFERS_BUFFER_NAME, SYMBOLS_BUFFER_NAME, TREE_BUFFER_NAME};
+        let (title, count) = match buffer.name() {
+            TREE_BUFFER_NAME => {
+                let roots: Vec<&maxgus_tree::VisibleNode> =
+                    self.tree.iter().filter(|node| node.is_root).collect();
+                let mut title = match roots.first() {
+                    Some(root) => root.name.clone(),
+                    None => "Files".to_string(),
+                };
+                if roots.len() > 1 {
+                    title.push_str(&format!(" +{}", roots.len() - 1));
+                }
+                (title, self.tree.len())
+            }
+            SYMBOLS_BUFFER_NAME => {
+                let of = self
+                    .panel
+                    .symbols_buffer
+                    .and_then(|id| self.buffers.get(id))
+                    .map(|b| b.name().to_string());
+                let title = match of {
+                    Some(name) => format!("Outline of {name}"),
+                    None => "Outline".to_string(),
+                };
+                (title, self.panel.visible_symbols().len())
+            }
+            BUFFERS_BUFFER_NAME => ("Buffers".to_string(), self.panel_buffers().len()),
+            _ => return None,
+        };
+        let line = buffer.line_of(window.point.min(buffer.len_chars()));
+        let position = match count {
+            0 => String::new(),
+            _ => format!("{}/{count}  ", (line + 1).min(count)),
+        };
+        let mut name = ModeLineSegment::new(format!(" {title}"), "mode-line-buffer-id");
+        name.shortens = true;
+        Some(vec![
+            name,
+            ModeLineSegment::right(format!("  {position}"), "shadow"),
+        ])
+    }
+
     /// Where the buffer's file is, relative to the project it is in.
     ///
     /// Falls back to the bare name for a buffer with no file, and for a file
@@ -3713,16 +4504,12 @@ impl Editor {
     /// longer than the bar and tells the reader nothing they wanted.
     fn project_path(&self, buffer: &maxgus_text::Buffer) -> String {
         let Some(path) = buffer.path() else {
+            return self.view_name(buffer);
+        };
+        let Some(root) = self.known_project_root() else {
             return buffer.name().to_string();
         };
-        #[cfg(feature = "full")]
-        let root = self.git_root.as_ref().or(self.tree_root.as_ref());
-        #[cfg(not(feature = "full"))]
-        let root = self.tree_root.as_ref();
-        let Some(root) = root else {
-            return buffer.name().to_string();
-        };
-        match path.strip_prefix(root) {
+        match path.strip_prefix(&root) {
             // The project's own name in front, as `doom` shows it: it is what
             // tells two checkouts of the same repository apart.
             Ok(inside) => match root.file_name() {
@@ -3731,6 +4518,25 @@ impl Editor {
             },
             Err(_) => buffer.name().to_string(),
         }
+    }
+
+    /// What a buffer with no file of its own is a view of, where that says
+    /// more than its name: the directory a listing shows, the repository a
+    /// status is about.
+    fn view_name(&self, buffer: &maxgus_text::Buffer) -> String {
+        if buffer.name() == crate::commands::dired::DIRED_BUFFER_NAME
+            && let Some(view) = &self.dired
+        {
+            return shorten_home(&view.path);
+        }
+        #[cfg(feature = "full")]
+        if buffer.name() == crate::commands::git::STATUS_BUFFER_NAME
+            && let Some(root) = &self.git_root
+            && let Some(name) = root.file_name()
+        {
+            return format!("magit: {}", name.to_string_lossy());
+        }
+        buffer.name().to_string()
     }
 
     #[cfg(feature = "full")]
@@ -3831,6 +4637,19 @@ impl ModeLineSegment {
     }
 }
 
+/// `path` with the home directory written `~`, as a person writes it.
+pub(crate) fn shorten_home(path: &Path) -> String {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    match home
+        .as_deref()
+        .and_then(|home| path.strip_prefix(home).ok())
+    {
+        Some(inside) if inside.as_os_str().is_empty() => "~".to_string(),
+        Some(inside) => format!("~/{}", inside.display()),
+        None => path.display().to_string(),
+    }
+}
+
 /// The theme `name` describes: the built-in theme of that name, with the
 /// configuration's `theme "name" { … }` block laid over it.
 ///
@@ -3853,6 +4672,18 @@ pub fn build_theme(specs: &[ThemeSpec], name: &str) -> Theme {
         theme.apply_spec(spec).ok();
     }
     theme
+}
+
+/// A number of bytes as a person would say it: `812 bytes`, `6.6 KB`,
+/// `19.5 MB`.
+#[cfg(feature = "full")]
+fn human_bytes(bytes: usize) -> String {
+    const K: f64 = 1024.0;
+    match bytes as f64 {
+        b if b < K => format!("{bytes} bytes"),
+        b if b < K * K => format!("{:.1} KB", b / K),
+        b => format!("{:.1} MB", b / (K * K)),
+    }
 }
 
 /// A size as a person would say it: `812`, `6.6k`, `1.2M`.

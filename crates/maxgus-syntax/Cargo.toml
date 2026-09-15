@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Tree-sitter grammars, incremental parsing and highlighting."
 
 # The one crate in the workspace that does not inherit `unsafe_code =
 # "forbid"`. It is `deny` here instead, which is the same prohibition with

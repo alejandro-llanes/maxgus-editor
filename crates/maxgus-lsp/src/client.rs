@@ -170,6 +170,41 @@ impl Client {
         self.capabilities.lock().await.clone()
     }
 
+    /// Whether the server takes workspace folders added while it runs.
+    pub async fn can_add_workspace_folders(&self) -> bool {
+        let capabilities = self.capabilities.lock().await;
+        let folders = capabilities
+            .get("workspace")
+            .and_then(|workspace| workspace.get("workspaceFolders"));
+        let supported = folders
+            .and_then(|f| f.get("supported"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        // `true`, or the id of a registration still to come: either way the
+        // notification is wanted.
+        let notified = folders
+            .and_then(|f| f.get("changeNotifications"))
+            .is_some_and(|c| c.as_bool().unwrap_or(false) || c.is_string());
+        supported && notified
+    }
+
+    /// Tells the server about another folder of the workspace, so a file from
+    /// a second project is understood in that project rather than as a
+    /// stranger in the first.
+    pub fn add_workspace_folder(&self, root: &Path) -> Result<()> {
+        let name = root
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| root.to_string_lossy().into_owned());
+        self.notify(
+            "workspace/didChangeWorkspaceFolders",
+            json!({ "event": {
+                "added": [{ "uri": path_to_uri(root), "name": name }],
+                "removed": []
+            }}),
+        )
+    }
+
     /// True when the server declares support for the given capability key,
     /// e.g. `hoverProvider` or `definitionProvider`.
     pub async fn supports(&self, capability: &str) -> bool {

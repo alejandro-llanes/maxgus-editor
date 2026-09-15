@@ -3,7 +3,7 @@ Type=Application
 Version=1.5
 Name=maxgus
 GenericName=Text Editor
-Comment=A very small Emacs
+Comment=A lightning-fast Emacs, in a window or a terminal
 Keywords=Text;Editor;Emacs;Code;Programming;
 # Rewritten to the absolute path when installed: a launcher does not see
 # the shell's PATH, so `~/.local/bin` would be a menu entry that does

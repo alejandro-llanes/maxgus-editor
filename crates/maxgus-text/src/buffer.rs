@@ -711,6 +711,54 @@ impl Buffer {
         Ok(removed)
     }
 
+    /// `delete-trailing-whitespace`: removes the whitespace at the end of
+    /// every line in one undo step, and says how many characters went.
+    ///
+    /// Span by span, from the end, rather than by replacing the whole text:
+    /// point, the mark and whatever else tracks a position then move across
+    /// each deletion before them the way they move across any, instead of
+    /// staying at an offset that now falls a few lines further on.
+    pub fn delete_trailing_whitespace(&mut self) -> Result<usize> {
+        self.ensure_writable()?;
+        let spans = self.trailing_whitespace_spans();
+        if spans.is_empty() {
+            return Ok(0);
+        }
+        let goal = self.goal_column;
+        let removed = self.transact(false, |buffer| -> Result<usize> {
+            let mut removed = 0;
+            for span in spans.iter().rev() {
+                removed += span.end - span.start;
+                buffer.delete(*span)?;
+            }
+            Ok(removed)
+        })?;
+        self.goal_column = goal;
+        Ok(removed)
+    }
+
+    /// Where each line's trailing whitespace is, first line first.
+    fn trailing_whitespace_spans(&self) -> Vec<Range> {
+        let mut spans = Vec::new();
+        let mut start = 0;
+        for line in self.rope.lines() {
+            let length = line.len_chars();
+            let content = match length > 0 && line.char(length - 1) == '\n' {
+                true => length - 1,
+                false => length,
+            };
+            let mut end = content;
+            while end > 0 && line.char(end - 1).is_whitespace() {
+                end -= 1;
+            }
+            if end < content {
+                spans.push(Range::new(start + end, start + content));
+            }
+            start += length;
+        }
+        spans
+    }
+
     /// Replaces the whole buffer, as `revert-buffer` does.
     pub fn replace_all(&mut self, text: &str) -> Result<()> {
         let all = Range::new(0, self.rope.len_chars());
@@ -1473,5 +1521,27 @@ mod tests {
         b.insert(0, "").unwrap();
         assert_eq!(b.delete(Range::empty(2)).unwrap(), "");
         assert!(!b.can_undo(), "no undo group is recorded");
+    }
+
+    #[test]
+    fn trailing_whitespace_goes_and_point_stays_on_its_text() {
+        let mut buffer = Buffer::new(BufferId(1), "t");
+        buffer.insert(0, "one  \ntwo\t\nthree   \nfour").unwrap();
+        // On the `u` of `four`, after three lines that each lose something.
+        let before = buffer.text().find("our").unwrap();
+        buffer.set_point(before);
+        assert_eq!(buffer.delete_trailing_whitespace().unwrap(), 6);
+        assert_eq!(buffer.text(), "one\ntwo\nthree\nfour");
+        assert_eq!(
+            buffer.char_after(buffer.point()),
+            Some('o'),
+            "point moved with its text rather than staying at its offset"
+        );
+        assert_eq!(buffer.char_before(buffer.point()), Some('f'));
+        // One undo puts every line back.
+        buffer.undo().unwrap();
+        assert_eq!(buffer.text(), "one  \ntwo\t\nthree   \nfour");
+        assert_eq!(buffer.delete_trailing_whitespace().unwrap(), 6);
+        assert_eq!(buffer.delete_trailing_whitespace().unwrap(), 0);
     }
 }

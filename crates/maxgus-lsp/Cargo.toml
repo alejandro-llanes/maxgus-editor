@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "A language-server client: JSON-RPC framing, positions and requests."
 
 [lints]
 workspace = true

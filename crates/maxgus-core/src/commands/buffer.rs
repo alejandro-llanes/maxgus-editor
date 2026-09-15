@@ -4,7 +4,6 @@ use crate::{
     MinibufferKind, Result, command,
     command::{Args, Registry},
     editor::Editor,
-    window::Direction,
 };
 use maxgus_text::Range;
 
@@ -127,10 +126,7 @@ fn switch_other_window(editor: &mut Editor, args: &Args) -> Result<()> {
     };
     let id = resolve_buffer(editor, &name);
     // Reuse an existing second window rather than piling up splits.
-    if editor.windows.len() < 2 {
-        editor.split_window(Direction::Vertical)?;
-    }
-    editor.other_window(1);
+    editor.select_other_editing_window()?;
     editor.switch_to_buffer(id)
 }
 

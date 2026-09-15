@@ -38,15 +38,25 @@ pub fn register(registry: &mut Registry) {
     ]);
 }
 
-/// The line-comment marker for a language.
-pub fn comment_prefix(language: Option<&str>) -> &'static str {
-    match language {
-        Some("rust" | "c" | "cpp" | "javascript" | "typescript" | "go" | "css" | "kdl") => "//",
-        Some("python" | "bash" | "toml" | "yaml" | "make" | "dockerfile") => "#",
-        Some("html" | "markdown") => "<!--",
-        // Anything unrecognised gets the most widely understood marker.
+/// The line-comment marker for a language, or `None` for a buffer with no
+/// language to have one — prose, where Emacs says there is no comment
+/// syntax rather than putting a `#` in front of a sentence.
+pub fn comment_prefix(language: Option<&str>) -> Option<&'static str> {
+    Some(match language? {
+        "rust" | "c" | "cpp" | "javascript" | "typescript" | "tsx" | "go" | "java" | "kotlin"
+        | "swift" | "scala" | "dart" | "zig" | "php" | "csharp" | "c_sharp" | "css" | "scss"
+        | "kdl" | "jsonc" | "groovy" | "proto" => "//",
+        "sql" | "lua" | "haskell" | "elm" | "ada" => "--",
+        "lisp" | "commonlisp" | "elisp" | "emacs-lisp" | "scheme" | "racket" | "clojure"
+        | "fennel" | "ini" | "asm" => ";",
+        "tex" | "latex" | "erlang" | "matlab" | "prolog" => "%",
+        "vim" => "\"",
+        "html" | "xml" | "markdown" | "svelte" | "vue" => "<!--",
+        // Everything else — shells, Python, Ruby, TOML, YAML, Make and the
+        // many configuration formats nobody has listed — uses the most widely
+        // understood marker.
         _ => "#",
-    }
+    })
 }
 
 /// The closing marker, for languages whose comments are delimited.
@@ -72,7 +82,11 @@ fn target_lines(editor: &mut Editor) -> (usize, usize) {
 
 /// Comments or uncomments `first..=last`, whichever leaves them consistent.
 fn toggle_comments(editor: &mut Editor, first: usize, last: usize) -> Result<()> {
-    let prefix = comment_prefix(editor.current_buffer().language());
+    let Some(prefix) = comment_prefix(editor.current_buffer().language()) else {
+        return Err(crate::CoreError::Message(
+            "No comment syntax is defined for this buffer".into(),
+        ));
+    };
     let suffix = comment_suffix(prefix);
 
     // Every non-blank line already commented means the command uncomments.
@@ -177,29 +191,69 @@ pub fn fill(text: &str, width: usize, indent: &str) -> String {
     lines.join("\n")
 }
 
+/// What starts a line of a paragraph and is not part of its words: the
+/// indentation, and a comment marker with the space after it — `    // `,
+/// `/// `, `# `, ` * ` in a block comment, `> ` in a quotation.
+///
+/// Filling keeps it on every line it makes. Without it `M-q` on a comment
+/// wrapped its words onto a line of their own with no `//` in front, and a
+/// comment became code.
+fn fill_prefix(line: &str, language: Option<&str>) -> String {
+    let indent = line.len() - line.trim_start().len();
+    let rest = &line[indent..];
+    let mut leaders: Vec<&str> = Vec::new();
+    if let Some(marker) = comment_prefix(language).filter(|m| *m != "<!--") {
+        // Doc comments are the marker and one more character.
+        match marker {
+            "//" => leaders.extend(["///", "//!", "//"]),
+            ";" => leaders.extend([";;;", ";;", ";"]),
+            "--" => leaders.extend(["---", "--"]),
+            "#" => leaders.extend(["##", "#"]),
+            other => leaders.push(other),
+        }
+    }
+    // A block comment's continuation, and a quotation in prose.
+    leaders.extend(["* ", "> "]);
+    for leader in leaders {
+        if let Some(after) = rest.strip_prefix(leader) {
+            let spaces = after.len() - after.trim_start().len();
+            return line[..indent + leader.len() + spaces].to_string();
+        }
+    }
+    line[..indent].to_string()
+}
+
+/// The part of a line that is words, once `prefix` is off it.
+fn words_of<'a>(line: &'a str, prefix: &str) -> &'a str {
+    match line.strip_prefix(prefix.trim_end()) {
+        Some(rest) => rest.trim_start(),
+        None => line.trim_start(),
+    }
+}
+
 /// Fills `first..=last`, treating them as one paragraph.
 fn fill_lines(editor: &mut Editor, first: usize, last: usize) -> Result<()> {
     let width = editor.fill_column_for(editor.current_buffer_id());
-    let (range, indent, text) = {
+    let (range, prefix, text) = {
         let buffer = editor.current_buffer();
         let start = buffer.line_start(first);
         let end = Motion::line_end(buffer.rope(), buffer.line_start(last));
         if end <= start {
             return Ok(());
         }
-        let head = buffer.line_text(first);
-        let indent = head[..head.len() - head.trim_start().len()].to_string();
-        (
-            Range::new(start, end),
-            indent,
-            buffer.slice(Range::new(start, end)),
-        )
+        let prefix = fill_prefix(&buffer.line_text(first), buffer.language());
+        // The words of every line, each with its own marker taken off.
+        let words: Vec<String> = (first..=last)
+            .map(|line| words_of(&buffer.line_text(line), &prefix).to_string())
+            .collect();
+        (Range::new(start, end), prefix, words.join(" "))
     };
     if text.trim().is_empty() {
         return Ok(());
     }
-    let filled = fill(&text, width, &indent);
-    if filled == text {
+    let filled = fill(&text, width, &prefix);
+    let current = editor.current_buffer().slice(range);
+    if filled == current {
         editor.message("Paragraph is already filled");
         return Ok(());
     }
@@ -215,17 +269,26 @@ fn fill_lines(editor: &mut Editor, first: usize, last: usize) -> Result<()> {
 fn fill_paragraph(editor: &mut Editor, _: &Args) -> Result<()> {
     let (first, last) = {
         let buffer = editor.current_buffer();
+        let language = buffer.language();
         let here = buffer.line_of(buffer.point());
-        let blank = |l: usize| buffer.line_text(l).trim().is_empty();
-        if blank(here) {
+        let prefix = fill_prefix(&buffer.line_text(here), language);
+        // A line belongs to the paragraph when it carries the same marker
+        // and has words after it: an empty `//` is the blank line between two
+        // paragraphs of a comment, and the code after a comment is not in it.
+        let belongs = |line: usize| {
+            let text = buffer.line_text(line);
+            fill_prefix(&text, language).trim_end() == prefix.trim_end()
+                && !words_of(&text, &prefix).is_empty()
+        };
+        if !belongs(here) {
             return Ok(());
         }
         let mut first = here;
-        while first > 0 && !blank(first - 1) {
+        while first > 0 && belongs(first - 1) {
             first -= 1;
         }
         let mut last = here;
-        while last + 1 < buffer.len_lines() && !blank(last + 1) {
+        while last + 1 < buffer.len_lines() && belongs(last + 1) {
             last += 1;
         }
         (first, last)
@@ -401,23 +464,10 @@ mod syntax_tests {
 /// The setting of the same name does this on save; this is for a buffer that
 /// is not going to be saved yet, or one whose project has switched it off.
 fn delete_trailing_whitespace(editor: &mut Editor, _: &Args) -> Result<()> {
-    let (cleaned, before) = {
-        let buffer = editor.current_buffer();
-        let text = buffer.text();
-        let cleaned: String = text
-            .split('\n')
-            .map(str::trim_end)
-            .collect::<Vec<_>>()
-            .join("\n");
-        (cleaned, text)
-    };
-    if cleaned == before {
+    let removed = editor.with_current_buffer(|b| b.delete_trailing_whitespace())?;
+    if removed == 0 {
         return Err(crate::CoreError::Message("No trailing whitespace".into()));
     }
-    let removed = before.chars().count() - cleaned.chars().count();
-    let point = editor.windows.current().point;
-    editor.with_current_buffer(move |b| b.replace_all(&cleaned))?;
-    editor.move_point_to(point.min(editor.current_buffer().len_chars()));
     editor.message(format!("Removed {}", crate::count(removed, "character")));
     Ok(())
 }
@@ -467,10 +517,16 @@ mod tests {
 
     #[test]
     fn the_comment_marker_follows_the_language() {
-        assert_eq!(comment_prefix(Some("rust")), "//");
-        assert_eq!(comment_prefix(Some("python")), "#");
-        assert_eq!(comment_prefix(Some("html")), "<!--");
-        assert_eq!(comment_prefix(None), "#", "a sensible default");
+        assert_eq!(comment_prefix(Some("rust")), Some("//"));
+        assert_eq!(comment_prefix(Some("python")), Some("#"));
+        assert_eq!(comment_prefix(Some("html")), Some("<!--"));
+        assert_eq!(comment_prefix(Some("lua")), Some("--"));
+        assert_eq!(
+            comment_prefix(Some("conf")),
+            Some("#"),
+            "an unlisted language"
+        );
+        assert_eq!(comment_prefix(None), None, "prose has no comment syntax");
         assert_eq!(comment_suffix("<!--"), " -->");
         assert_eq!(comment_suffix("//"), "");
     }
@@ -572,6 +628,34 @@ mod tests {
     }
 
     // ---- filling ----
+
+    #[test]
+    fn filling_a_comment_keeps_its_marker_on_every_line() {
+        let (mut d, mut e) = setup(
+            "main.rs",
+            "fn f() {}\n    // one two three four five six seven eight nine ten eleven twelve\n    //\n    // second\nfn g() {}\n",
+        );
+        e.settings.fill_column = 30;
+        e.apply_settings_everywhere();
+        let line = e.current_buffer().line_start(1) + 8;
+        e.with_current_buffer(|b| b.set_point(line));
+        d.execute(&mut e, "fill-paragraph", None);
+        assert_eq!(
+            e.current_buffer().text(),
+            "fn f() {}\n    // one two three four five\n    // six seven eight nine\n    // ten eleven twelve\n    //\n    // second\nfn g() {}\n",
+            "the marker was lost, or the paragraph reached past the comment"
+        );
+    }
+
+    #[test]
+    fn a_line_with_no_language_has_no_comment_to_toggle() {
+        let (mut d, mut e) = setup("notes", "plain prose\n");
+        assert!(matches!(
+            d.execute(&mut e, "comment-dwim", None),
+            Dispatch::Failed { .. }
+        ));
+        assert_eq!(e.current_buffer().text(), "plain prose\n");
+    }
 
     #[test]
     fn filling_wraps_at_the_fill_column() {

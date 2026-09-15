@@ -162,7 +162,7 @@ impl Registry {
             // take a built-in command's name out from under it.
             #[cfg(feature = "full")]
             if editor.has_script_command(name) {
-                return crate::commands::script::run(editor, name);
+                return crate::commands::script::run(editor, name, self);
             }
             return Err(crate::CoreError::UnknownCommand(name.to_string()));
         };

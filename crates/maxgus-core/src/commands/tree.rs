@@ -236,20 +236,20 @@ pub fn register(registry: &mut Registry) {
         ),
         command!(
             "treefile-copy-relative-path",
-            "Copy the path here, relative to the root.",
+            "Copy the path here, from the directory the tree shows it in.",
             copy_relative,
             non_interactive
         ),
         command!(
             "treefile-copy-project-path",
-            "Copy the path here, relative to the project.",
-            copy_relative,
+            "Copy the path of the project this is in.",
+            copy_project_path,
             non_interactive
         ),
         command!(
             "treefile-copy-file",
-            "Copy the file name here.",
-            copy_name,
+            "Copy the file or directory here somewhere else.",
+            copy_file,
             non_interactive
         ),
         command!(
@@ -349,10 +349,26 @@ fn act(editor: &mut Editor, action: TreeAction) {
 /// them is then ordinary window movement, each keeps its own point, and each
 /// scrolls on its own.
 pub fn open(editor: &mut Editor, root: PathBuf) -> Result<()> {
+    open_with(editor, root.clone(), TreeAction::Show(root))
+}
+
+/// Opens the panel, and asks the tree to do `action` to get there.
+///
+/// `Show` keeps a tree that already has the directory in it and roots one
+/// that does not at the repository around it; opening on a directory chosen
+/// by hand wants exactly that directory instead.
+fn open_with(editor: &mut Editor, root: PathBuf, action: TreeAction) -> Result<()> {
     use crate::panel::PanelSection;
-    editor.set_tree_root(root.clone());
-    // Where `r r` comes back to, whatever `r d` does afterwards.
-    editor.tree_home = Some(root.clone());
+    // A guess, for the moment before the tree answers with where it really
+    // opened — which may be the top of the repository `root` is in. The
+    // answer corrects both; they are not overwritten here, or a panel being
+    // rebuilt would forget where `r r` comes back to.
+    if editor.tree_root.is_none() {
+        editor.set_tree_root(root.clone());
+    }
+    if editor.tree_home.is_none() {
+        editor.tree_home = Some(root);
+    }
 
     // The configured heights, cut down to what the frame can actually give.
     // A twelve-row outline in a ten-row frame would leave the tree nothing at
@@ -396,7 +412,7 @@ pub fn open(editor: &mut Editor, root: PathBuf) -> Result<()> {
     // comes back here. One cycle would terminate; relying on that is how a
     // later change turns into a stack overflow.
     editor.request_document_symbols();
-    act(editor, TreeAction::Refresh);
+    act(editor, action);
     Ok(())
 }
 
@@ -482,7 +498,7 @@ fn select_directory(editor: &mut Editor, args: &Args) -> Result<()> {
     }
     let root = crate::commands::file::expand(editor, &input);
     close(editor);
-    open(editor, root)
+    open_with(editor, root.clone(), TreeAction::SetRoots(vec![root]))
 }
 
 fn quit(editor: &mut Editor, _: &Args) -> Result<()> {
@@ -498,6 +514,7 @@ fn kill(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.tree.clear();
     editor.tree_root = None;
     editor.tree_home = None;
+    act(editor, TreeAction::Close);
     Ok(())
 }
 
@@ -965,8 +982,8 @@ fn open_selection(editor: &mut Editor, split: Option<Direction>, stay: bool) -> 
         .ok_or_else(|| crate::CoreError::Message("No window to open into".into()))?;
     editor.select_window(target);
     if let Some(direction) = split {
-        editor.split_window(direction)?;
-        editor.other_window(1);
+        let window = editor.split_window(direction)?;
+        editor.select_window(window);
     }
 
     match editor.buffers.find_by_path(&node.path) {
@@ -1034,34 +1051,64 @@ fn target_directory(editor: &Editor) -> Result<PathBuf> {
         .ok_or_else(|| crate::CoreError::Message("No directory here".into()))
 }
 
+/// The directory a new entry goes in, the way a prompt should name it: from
+/// the tree's own directory, so it says where without saying the whole path.
+fn shown_directory(editor: &Editor, directory: &Path) -> String {
+    let root = root_holding(editor, directory);
+    match root.and_then(|root| Some((root.file_name()?, directory.strip_prefix(root).ok()?))) {
+        Some((name, inside)) if inside.as_os_str().is_empty() => {
+            format!("{}/", name.to_string_lossy())
+        }
+        Some((name, inside)) => format!("{}/{}/", name.to_string_lossy(), inside.display()),
+        None => format!("{}/", directory.display()),
+    }
+}
+
+/// The directory the tree is showing that holds `path`: the deepest, for a
+/// directory added inside another one.
+fn root_holding<'a>(editor: &'a Editor, path: &Path) -> Option<&'a Path> {
+    editor
+        .tree
+        .iter()
+        .filter(|node| node.is_root && path.starts_with(&node.path))
+        .max_by_key(|node| node.path.as_os_str().len())
+        .map(|node| node.path.as_path())
+}
+
 fn create_file(editor: &mut Editor, args: &Args) -> Result<()> {
+    let parent = target_directory(editor)?;
     let Some(name) = args.input.clone() else {
         editor.prompt_for(
             "treefile-create-file",
             MinibufferKind::Text,
-            "Create file: ",
+            format!("Create file in {}: ", shown_directory(editor, &parent)),
             "",
             Vec::new(),
         );
         return Ok(());
     };
-    let parent = target_directory(editor)?;
+    if name.trim().is_empty() {
+        return Err(crate::CoreError::Message("No name given".into()));
+    }
     act(editor, TreeAction::CreateFile { parent, name });
     Ok(())
 }
 
 fn create_dir(editor: &mut Editor, args: &Args) -> Result<()> {
+    let parent = target_directory(editor)?;
     let Some(name) = args.input.clone() else {
         editor.prompt_for(
             "treefile-create-dir",
             MinibufferKind::Text,
-            "Create directory: ",
+            format!("Create directory in {}: ", shown_directory(editor, &parent)),
             "",
             Vec::new(),
         );
         return Ok(());
     };
-    let parent = target_directory(editor)?;
+    if name.trim().is_empty() {
+        return Err(crate::CoreError::Message("No name given".into()));
+    }
     act(editor, TreeAction::CreateDirectory { parent, name });
     Ok(())
 }
@@ -1090,11 +1137,31 @@ fn rename(editor: &mut Editor, args: &Args) -> Result<()> {
 
 fn delete(editor: &mut Editor, args: &Args) -> Result<()> {
     let node = selection(editor)?;
+    if node.is_root {
+        return Err(crate::CoreError::Message(
+            "The tree's own directory is not deleted from here; `r k` takes it off the tree".into(),
+        ));
+    }
     let Some(answer) = args.input.clone() else {
+        // A directory is everything in it, and the question has to say so:
+        // "Delete `src`?" reads like a question about one thing.
+        let question = match node.kind {
+            maxgus_tree::NodeKind::Directory => format!(
+                "Delete the directory `{}` and everything in it? (yes or no) ",
+                node.name
+            ),
+            maxgus_tree::NodeKind::Symlink => {
+                format!(
+                    "Delete the link `{}` (not what it points to)? (yes or no) ",
+                    node.name
+                )
+            }
+            maxgus_tree::NodeKind::File => format!("Delete `{}`? (yes or no) ", node.name),
+        };
         editor.prompt_for(
             "treefile-delete-file",
             MinibufferKind::YesNo,
-            format!("Delete `{}`? (yes or no) ", node.name),
+            question,
             "",
             Vec::new(),
         );
@@ -1110,27 +1177,45 @@ fn delete(editor: &mut Editor, args: &Args) -> Result<()> {
 
 fn move_file(editor: &mut Editor, args: &Args) -> Result<()> {
     let node = selection(editor)?;
+    if node.is_root {
+        return Err(crate::CoreError::Message(
+            "The tree's own directory cannot be moved from here".into(),
+        ));
+    }
+    let here = node
+        .path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| node.path.clone());
     let Some(destination) = args.input.clone() else {
-        let initial = editor
-            .tree_root
-            .clone()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned();
+        // Where it is now, so moving it next door is an edit of the end of
+        // the path rather than typing all of it.
+        let mut initial = here.to_string_lossy().into_owned();
+        if !initial.ends_with('/') {
+            initial.push('/');
+        }
         editor.prompt_for(
             "treefile-move-file",
             MinibufferKind::File,
-            format!("Move `{}` to directory: ", node.name),
+            format!("Move `{}` into directory: ", node.name),
             &initial,
             Vec::new(),
         );
         return Ok(());
     };
+    if destination.trim().is_empty() {
+        return Err(crate::CoreError::Message("No directory given".into()));
+    }
+    // `~` is home and a relative path is relative to where the file is,
+    // which is what someone typing `../lib` beside it means. It was relative
+    // to wherever the editor had been started.
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let destination = crate::commands::file::expand_against(&here, home.as_deref(), &destination);
     act(
         editor,
         TreeAction::Move {
             path: node.path,
-            destination: PathBuf::from(destination.trim()),
+            destination,
         },
     );
     Ok(())
@@ -1161,10 +1246,14 @@ fn shell_command(editor: &mut Editor, args: &Args) -> Result<()> {
 
 // ---- copying paths ------------------------------------------------------
 
-/// Puts `text` on the kill ring and says so.
+/// Puts `text` on the kill ring and the clipboard, and says so.
+///
+/// Through the editor's own kill rather than straight onto the ring: that is
+/// what hands it to the system clipboard in a window, and a path copied in
+/// the tree is nearly always a path about to be pasted somewhere else.
 fn copy(editor: &mut Editor, text: String) -> Result<()> {
-    editor.kill_ring.kill_new(text.clone());
-    editor.message(format!("Copied `{text}`"));
+    editor.kill(&text, false);
+    editor.message(format!("Copied {text}"));
     Ok(())
 }
 
@@ -1173,16 +1262,68 @@ fn copy_absolute(editor: &mut Editor, _: &Args) -> Result<()> {
     copy(editor, node.path.to_string_lossy().into_owned())
 }
 
+/// `y r`: the path from the directory the node is in, of the ones the tree
+/// is showing — the second of two directories has paths of its own.
 fn copy_relative(editor: &mut Editor, _: &Args) -> Result<()> {
     let node = selection(editor)?;
-    let root = editor.tree_root.clone().unwrap_or_default();
-    let relative = node.path.strip_prefix(&root).unwrap_or(&node.path);
-    copy(editor, relative.to_string_lossy().into_owned())
+    let relative = root_holding(editor, &node.path)
+        .and_then(|root| node.path.strip_prefix(root).ok())
+        .filter(|inside| !inside.as_os_str().is_empty())
+        .unwrap_or(&node.path);
+    let text = relative.to_string_lossy().into_owned();
+    copy(editor, text)
 }
 
-fn copy_name(editor: &mut Editor, _: &Args) -> Result<()> {
+/// `y p`: the path of the project the node belongs to, as treemacs'
+/// `treemacs-copy-project-path-at-point` has it.
+fn copy_project_path(editor: &mut Editor, _: &Args) -> Result<()> {
     let node = selection(editor)?;
-    copy(editor, node.name)
+    let root = root_holding(editor, &node.path)
+        .map(Path::to_path_buf)
+        .ok_or_else(|| crate::CoreError::Message("No directory here".into()))?;
+    copy(editor, root.to_string_lossy().into_owned())
+}
+
+/// `y f`: copies the file itself, as treemacs' `treemacs-copy-file` does —
+/// its help has always said "the file itself", and it copied the name.
+fn copy_file(editor: &mut Editor, args: &Args) -> Result<()> {
+    let node = selection(editor)?;
+    if node.is_root {
+        return Err(crate::CoreError::Message(
+            "The tree's own directory is not copied from here".into(),
+        ));
+    }
+    let here = node
+        .path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| node.path.clone());
+    let Some(destination) = args.input.clone() else {
+        let mut initial = here.to_string_lossy().into_owned();
+        if !initial.ends_with('/') {
+            initial.push('/');
+        }
+        editor.prompt_for(
+            "treefile-copy-file",
+            MinibufferKind::File,
+            format!("Copy `{}` to: ", node.name),
+            &initial,
+            Vec::new(),
+        );
+        return Ok(());
+    };
+    if destination.trim().is_empty() {
+        return Err(crate::CoreError::Message("No destination given".into()));
+    }
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let to = crate::commands::file::expand_against(&here, home.as_deref(), &destination);
+    editor.spawn(Task::DiredAct {
+        action: crate::task::FileAction::Copy {
+            from: vec![node.path],
+            to,
+        },
+    });
+    Ok(())
 }
 
 // ---- toggles and width --------------------------------------------------
@@ -1354,6 +1495,8 @@ mod tests {
             nodes: snapshot(),
             select: None,
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
         let window = e.tree_window.expect("the tree window is open");
@@ -1416,8 +1559,8 @@ mod tests {
             e.tasks
                 .peek()
                 .iter()
-                .any(|t| matches!(t, Task::Tree(TreeAction::Refresh))),
-            "a refresh was queued"
+                .any(|t| matches!(t, Task::Tree(TreeAction::Show(_)))),
+            "the tree was asked to show the directory"
         );
 
         run(&mut d, &mut e, "treefile-toggle");
@@ -1732,9 +1875,32 @@ mod tests {
         assert_eq!(e.kill_ring.front(), Some("/project/src/main.rs"));
         run(&mut d, &mut e, "treefile-copy-relative-path");
         assert_eq!(e.kill_ring.front(), Some("src/main.rs"));
-        run(&mut d, &mut e, "treefile-copy-file");
-        assert_eq!(e.kill_ring.front(), Some("main.rs"));
         assert!(e.minibuffer.display().starts_with("Copied"));
+        run(&mut d, &mut e, "treefile-copy-project-path");
+        assert_eq!(e.kill_ring.front(), Some("/project"));
+
+        // `y f` copies the file itself, somewhere.
+        e.tasks.drain();
+        run(&mut d, &mut e, "treefile-copy-file");
+        assert!(e.minibuffer.is_active(), "it asks where to");
+        e.minibuffer.kill_whole();
+        for c in "/project/backup.rs".chars() {
+            e.minibuffer.insert_char(c);
+        }
+        d.handle_keys(&mut e, "RET");
+        assert_eq!(
+            e.tasks
+                .drain()
+                .into_iter()
+                .filter(|task| !matches!(task, Task::ListDirectory { .. }))
+                .collect::<Vec<_>>(),
+            vec![Task::DiredAct {
+                action: crate::task::FileAction::Copy {
+                    from: vec![PathBuf::from("/project/src/main.rs")],
+                    to: PathBuf::from("/project/backup.rs"),
+                }
+            }]
+        );
     }
 
     #[test]
@@ -1930,6 +2096,8 @@ mod tests {
             nodes: snapshot(),
             select: None,
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
         assert_eq!(
@@ -1957,6 +2125,8 @@ mod tests {
             nodes: grown,
             select: None,
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
         assert_eq!(
@@ -1981,6 +2151,8 @@ mod tests {
             nodes: without,
             select: None,
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
         assert_eq!(
@@ -1998,6 +2170,8 @@ mod tests {
             nodes: snapshot(),
             select: Some(PathBuf::from("/project/Cargo.toml")),
             show_hidden: true,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
         assert_eq!(selected(&e), "Cargo.toml");

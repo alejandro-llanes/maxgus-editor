@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+publish.workspace = true
 description = "Searching a project's files, and writing the answers back."
 
 [lints]

@@ -9,11 +9,13 @@ set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 mkdir -p "$here/screenshots"
 cp "$here/../docs/screenshots/"* "$here/screenshots/"
-# The demo clips, when there are any. `scripts/record-demos.sh` makes them.
+# Any clips, when there are some.
 if [ -n "$(ls -A "$here/../docs/media" 2>/dev/null)" ]; then
     mkdir -p "$here/media"
     cp "$here/../docs/media/"* "$here/media/"
 fi
 port="${1:-8000}"
 echo "http://127.0.0.1:$port"
-cd "$here" && python3 -m http.server "$port"
+# On this machine only: the address printed is the one it listens on, not
+# every interface the machine has.
+cd "$here" && python3 -m http.server --bind 127.0.0.1 "$port"

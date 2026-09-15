@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Reading git: status, diffs and logs, and the patches that stage a hunk."
 
 [lints]
 workspace = true

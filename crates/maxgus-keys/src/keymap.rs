@@ -156,6 +156,59 @@ impl Keymap {
         }
     }
 
+    /// Removes whatever `sequence` holds — one binding, or a prefix and every
+    /// binding under it — returning the bindings that went.
+    ///
+    /// [`Keymap::undefine`] keeps a prefix, since a sequence named to be
+    /// unbound is not a request for everything that begins with it; this is
+    /// for when it is, as a configuration's `unbind` of a prefix says.
+    pub fn remove(&mut self, sequence: &KeySequence) -> Vec<(KeySequence, String)> {
+        let Some((head, rest)) = sequence.keys().split_first() else {
+            return Vec::new();
+        };
+        if rest.is_empty() {
+            return match self.entries.remove(head) {
+                Some(Entry::Command(command)) => vec![(sequence.clone(), command)],
+                Some(Entry::Prefix(map)) => {
+                    let mut gone = Vec::new();
+                    map.collect(&mut sequence.clone(), &mut gone);
+                    gone
+                }
+                None => Vec::new(),
+            };
+        }
+        match self.entries.get_mut(head) {
+            Some(Entry::Prefix(map)) => {
+                let mut gone = map.remove(&KeySequence::new(rest.to_vec()));
+                for (keys, _) in &mut gone {
+                    let mut full = KeySequence::new(vec![*head]);
+                    for key in keys.keys() {
+                        full.push(*key);
+                    }
+                    *keys = full;
+                }
+                gone
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// The bindings under `sequence` when it is a prefix, which binding the
+    /// sequence itself to a command would take away. Empty for a sequence
+    /// that is not one.
+    pub fn bindings_under(&self, sequence: &KeySequence) -> Vec<(KeySequence, String)> {
+        let mut map = self;
+        for key in sequence.keys() {
+            match map.entries.get(key) {
+                Some(Entry::Prefix(inner)) => map = inner,
+                _ => return Vec::new(),
+            }
+        }
+        let mut out = Vec::new();
+        map.collect(&mut sequence.clone(), &mut out);
+        out
+    }
+
     /// Looks up a whole sequence.
     pub fn lookup(&self, sequence: &KeySequence) -> Lookup {
         self.lookup_keys(sequence.keys())
@@ -317,6 +370,26 @@ impl KeymapSet {
             .map(|(seq, _)| seq)
             .collect()
     }
+
+    /// [`KeymapSet::where_is`] for the buffer rather than for whatever is
+    /// open over it: the major and global maps, without the minor ones.
+    ///
+    /// What `M-x` shows beside a command is the key to run it with once the
+    /// prompt is gone. Asked with the prompt's own map in the stack, a key
+    /// the prompt takes for itself — `M-DEL` — was hidden from the command it
+    /// runs everywhere else.
+    pub fn where_is_beneath_minor_maps(&self, command: &str) -> Vec<KeySequence> {
+        let mut seen = BTreeMap::new();
+        for map in self.major.iter().chain(std::iter::once(&self.global)) {
+            for (seq, cmd) in map.bindings() {
+                seen.entry(seq).or_insert(cmd);
+            }
+        }
+        seen.into_iter()
+            .filter(|(_, c)| c == command)
+            .map(|(seq, _)| seq)
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -404,6 +477,39 @@ mod tests {
         let mut m = sample_map();
         assert_eq!(m.undefine(&seq("C-x")), None);
         assert_eq!(m.lookup(&seq("C-x C-f")).command(), Some("find-file"));
+    }
+
+    #[test]
+    fn removing_a_prefix_takes_everything_under_it_and_says_what() {
+        let mut m = sample_map();
+        let gone = m.remove(&seq("C-x"));
+        let names: Vec<String> = gone.iter().map(|(keys, _)| keys.notation()).collect();
+        assert_eq!(names, ["C-x C-f", "C-x C-s"]);
+        assert!(m.lookup(&seq("C-x")).is_undefined());
+        assert_eq!(
+            m.lookup(&seq("C-a")).command(),
+            Some("move-beginning-of-line")
+        );
+    }
+
+    #[test]
+    fn removing_one_binding_inside_a_prefix_names_it_in_full() {
+        let mut m = sample_map();
+        let gone = m.remove(&seq("C-x C-f"));
+        assert_eq!(gone, vec![(seq("C-x C-f"), "find-file".to_string())]);
+        assert_eq!(m.lookup(&seq("C-x C-s")).command(), Some("save-buffer"));
+        assert!(m.remove(&seq("C-q")).is_empty());
+    }
+
+    #[test]
+    fn what_a_prefix_holds_can_be_counted_before_it_is_bound_over() {
+        let m = sample_map();
+        assert_eq!(m.bindings_under(&seq("C-x")).len(), 2);
+        assert!(
+            m.bindings_under(&seq("C-a")).is_empty(),
+            "a command, not a prefix"
+        );
+        assert!(m.bindings_under(&seq("C-q")).is_empty());
     }
 
     #[test]

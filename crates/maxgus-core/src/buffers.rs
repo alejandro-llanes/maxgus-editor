@@ -210,8 +210,14 @@ impl BufferList {
         if !self.buffers.contains_key(&id) {
             return Err(crate::CoreError::NoSuchBuffer);
         }
+        // Killing the last buffer leaves `*scratch*` behind, as Emacs does:
+        // there is always something for a window to show.
         if self.buffers.len() == 1 {
-            return Err(crate::CoreError::LastBuffer);
+            if self.get(id).is_some_and(|b| b.name() == SCRATCH_NAME) {
+                return Err(crate::CoreError::LastBuffer);
+            }
+            let scratch = self.create(SCRATCH_NAME);
+            self.touch(scratch);
         }
         self.buffers.remove(&id);
         self.order.retain(|existing| *existing != id);

@@ -246,6 +246,78 @@ pub fn hunk_patch(file: &FileDiff, hunk: &Hunk) -> String {
     patch
 }
 
+/// A patch changing only some lines of one hunk: the ones whose indices into
+/// `hunk.lines` are in `selected`.
+///
+/// What magit does with a region inside a hunk, and what `git add -p`'s `e`
+/// has a person do by hand. Every line of the hunk that is not selected
+/// becomes what it is on the side the patch will be applied to, which
+/// depends on the direction:
+///
+/// - forwards — staging — the patch is laid over its old side, where an
+///   unselected removal is still a line of the file, so it becomes context,
+///   and an unselected addition has never been there, so it is left out;
+/// - in reverse — unstaging, discarding — it is laid over its new side,
+///   where an unselected addition is the one that stays as context and an
+///   unselected removal is left out.
+///
+/// The counts in the `@@` line are worked out again from what is left. The
+/// `\ No newline` marker goes with the line it belongs to, or with nothing.
+/// `None` when the selection holds no change to make.
+pub fn lines_patch(
+    file: &FileDiff,
+    hunk: &Hunk,
+    selected: std::ops::Range<usize>,
+    reverse: bool,
+) -> Option<String> {
+    let mut lines: Vec<DiffLine> = Vec::new();
+    let mut changes = 0;
+    let mut previous_left_out = false;
+    for (index, line) in hunk.lines.iter().enumerate() {
+        let chosen = selected.contains(&index);
+        let kept = match (line.kind, chosen, reverse) {
+            (LineKind::NoNewline, ..) => (!previous_left_out).then(|| line.clone()),
+            (LineKind::Context, ..) => Some(line.clone()),
+            (LineKind::Added | LineKind::Removed, true, _) => {
+                changes += 1;
+                Some(line.clone())
+            }
+            (LineKind::Removed, false, false) | (LineKind::Added, false, true) => Some(DiffLine {
+                kind: LineKind::Context,
+                text: line.text.clone(),
+            }),
+            (LineKind::Added, false, false) | (LineKind::Removed, false, true) => None,
+        };
+        if line.kind != LineKind::NoNewline {
+            previous_left_out = kept.is_none();
+        }
+        lines.extend(kept);
+    }
+    if changes == 0 {
+        return None;
+    }
+    let count = |kinds: &[LineKind]| lines.iter().filter(|l| kinds.contains(&l.kind)).count();
+    let old_lines = count(&[LineKind::Context, LineKind::Removed]);
+    let new_lines = count(&[LineKind::Context, LineKind::Added]);
+    // Whatever git put after the second `@@` — the enclosing function —
+    // carries over; it is a hint to the reader and nothing git checks.
+    let context = hunk.header.splitn(3, "@@").nth(2).unwrap_or_default();
+    let mut patch = String::new();
+    for line in &file.header {
+        patch.push_str(line);
+        patch.push('\n');
+    }
+    patch.push_str(&format!(
+        "@@ -{},{old_lines} +{},{new_lines} @@{context}\n",
+        hunk.old_start, hunk.new_start
+    ));
+    for line in &lines {
+        patch.push_str(&line.to_patch_line());
+        patch.push('\n');
+    }
+    Some(patch)
+}
+
 /// A patch containing every hunk of one file.
 pub fn file_patch(file: &FileDiff) -> String {
     let mut patch = String::new();

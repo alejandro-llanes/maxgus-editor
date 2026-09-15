@@ -60,6 +60,18 @@ impl VisibleNode {
     }
 }
 
+/// How many directories [`FileTree::expand_recursively`] opens at most.
+pub const RECURSIVE_EXPANSION_LIMIT: usize = 1_000;
+
+/// How far a recursive expansion got.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Expansion {
+    /// Directories opened.
+    pub directories: usize,
+    /// True when it stopped at the limit with directories still to open.
+    pub stopped: bool,
+}
+
 /// A lazily expanded view of one or more directories.
 ///
 /// More than one because a workspace is usually more than one directory —
@@ -328,19 +340,22 @@ impl FileTree {
     /// which directories are open and where the cursor sits.
     pub async fn refresh(&mut self) -> Result<()> {
         let selected = self.selected_path().map(Path::to_path_buf);
+        // Cleared whether or not it is read again: switching git status off
+        // has to take the marks away, not leave the last ones up.
+        self.git.clear();
         if self.config.git_status {
             // One reading per root: they may be different repositories, or
             // no repository at all, and a status read from one of them says
             // nothing about the others.
-            self.git.clear();
             for path in self
                 .roots
                 .iter()
                 .map(|r| r.path.clone())
                 .collect::<Vec<_>>()
             {
-                self.git.extend(git_status(&path, false).await);
+                self.git.extend(git_status(&path, true).await);
             }
+            self.mark_directories_holding_changes();
         }
         let expanded = self.expanded_paths();
         for root in &mut self.roots {
@@ -408,13 +423,49 @@ impl FileTree {
             if !node.is_expandable() {
                 return node.git;
             }
-            let mut statuses: Vec<GitStatus> = node.children.iter_mut().filter_map(walk).collect();
+            let mut statuses: Vec<GitStatus> = node
+                .children
+                .iter_mut()
+                .filter_map(walk)
+                // An ignored file says nothing about the directory it is
+                // in: a `src` holding one stray `.log` is not ignored.
+                .filter(|status| *status != GitStatus::Ignored)
+                .collect();
             statuses.extend(node.git);
             node.git = GitStatus::rollup(statuses);
             node.git
         }
         for root in &mut self.roots {
             walk(root);
+        }
+    }
+
+    /// Files every directory above a change with that change's status.
+    ///
+    /// The roll-up above only sees what has been read, so a collapsed
+    /// `crates/` with a modified file three levels down said nothing until
+    /// someone opened every directory on the way to it — which is the one
+    /// thing a mark on a collapsed directory exists to save them doing.
+    fn mark_directories_holding_changes(&mut self) {
+        let roots: Vec<PathBuf> = self.roots.iter().map(|root| root.path.clone()).collect();
+        let changes: Vec<(PathBuf, GitStatus)> = self
+            .git
+            .iter()
+            .filter(|(_, status)| **status != GitStatus::Ignored)
+            .map(|(path, status)| (path.clone(), *status))
+            .collect();
+        for (path, status) in changes {
+            let mut directory = path.parent();
+            while let Some(at) = directory {
+                if !roots.iter().any(|root| at.starts_with(root)) {
+                    break;
+                }
+                let mark = self.git.entry(at.to_path_buf()).or_insert(status);
+                if status < *mark || *mark == GitStatus::Ignored {
+                    *mark = status;
+                }
+                directory = at.parent();
+            }
         }
     }
 
@@ -449,17 +500,25 @@ impl FileTree {
 
     /// Expands `path`, reading its children if this is the first time.
     pub async fn expand(&mut self, path: &Path) -> Result<()> {
+        if self.open_directory(path).await? {
+            self.roll_up_git();
+            self.rebuild_visible();
+        }
+        Ok(())
+    }
+
+    /// Reads and opens one directory without redrawing the view, and says
+    /// whether it was one. Expanding a file is a no-op rather than an error:
+    /// `RET` on a file visits it, and the caller decides which happened.
+    async fn open_directory(&mut self, path: &Path) -> Result<bool> {
         let needs_read = match self.find(path) {
             Some(node) if node.is_expandable() => !node.loaded,
-            // Expanding a file is a no-op rather than an error: `RET` on a file
-            // visits it, and the caller decides which happened.
-            Some(_) => return Ok(()),
-            None => return Ok(()),
+            Some(_) | None => return Ok(false),
         };
         if needs_read {
             let children = self.read_dir(path).await?;
             let Some(node) = self.find_mut(path) else {
-                return Ok(());
+                return Ok(false);
             };
             node.children = children;
             node.loaded = true;
@@ -467,9 +526,7 @@ impl FileTree {
         if let Some(node) = self.find_mut(path) {
             node.expanded = true;
         }
-        self.roll_up_git();
-        self.rebuild_visible();
-        Ok(())
+        Ok(true)
     }
 
     /// Collapses `path` and everything under it.
@@ -511,25 +568,67 @@ impl FileTree {
     }
 
     /// Expands every directory beneath `path`, as `treemacs-expand-all` does.
-    pub async fn expand_recursively(&mut self, path: &Path) -> Result<()> {
-        let mut queue = vec![path.to_path_buf()];
-        while let Some(current) = queue.pop() {
-            self.expand(&current).await?;
+    ///
+    /// Shallowest first, and no further than [`RECURSIVE_EXPANSION_LIMIT`]
+    /// directories: pressed on a home directory or a `node_modules` it would
+    /// otherwise read the disk for minutes and hand back a tree too long to
+    /// scroll, with every other job the editor had queued waiting behind it.
+    ///
+    /// A link to a directory is opened by `RET` and never by this. A link
+    /// back up the tree — `a/up -> ..` — is a loop, and a walk that follows
+    /// links does not end.
+    pub async fn expand_recursively(&mut self, path: &Path) -> Result<Expansion> {
+        let mut queue = std::collections::VecDeque::from([path.to_path_buf()]);
+        let mut expansion = Expansion::default();
+        let mut first = true;
+        while let Some(current) = queue.pop_front() {
+            if expansion.directories == RECURSIVE_EXPANSION_LIMIT {
+                expansion.stopped = true;
+                break;
+            }
+            match self.open_directory(&current).await {
+                Ok(true) => expansion.directories += 1,
+                Ok(false) => continue,
+                // The directory asked for has to be readable; one somewhere
+                // below it that is not — a permission, a race — is skipped
+                // rather than taking everything else with it.
+                Err(error) if first => return Err(error),
+                Err(_) => continue,
+            }
+            first = false;
             let Some(node) = self.find(&current) else {
                 continue;
             };
             for child in &node.children {
-                if child.is_expandable() {
-                    queue.push(child.path.clone());
+                if child.kind == NodeKind::Directory {
+                    queue.push_back(child.path.clone());
                 }
             }
         }
-        Ok(())
+        self.roll_up_git();
+        self.rebuild_visible();
+        Ok(expansion)
     }
 
     /// `treemacs-toggle-show-dotfiles`.
     pub async fn toggle_show_hidden(&mut self) -> Result<()> {
         self.config.show_hidden = !self.config.show_hidden;
+        self.refresh().await
+    }
+
+    /// Sorts directories ahead of files, or everything by name.
+    ///
+    /// In place: every directory being looked at, every one that is open and
+    /// the row the cursor is on all stay, which opening the tree afresh with
+    /// the new order — what this used to do — threw away.
+    pub async fn set_directories_first(&mut self, on: bool) -> Result<()> {
+        self.config.directories_first = on;
+        self.refresh().await
+    }
+
+    /// Shows git's marks, or takes them away, keeping everything else.
+    pub async fn set_git_status(&mut self, on: bool) -> Result<()> {
+        self.config.git_status = on;
         self.refresh().await
     }
 
@@ -675,20 +774,59 @@ impl FileTree {
         }
     }
 
-    fn validate_name(name: &str) -> Result<()> {
-        if name.is_empty() || name.contains('/') || name == "." || name == ".." {
+    /// A name for something that already has a directory: one component.
+    fn validate_name(name: &str) -> Result<&str> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(TreeError::NoName);
+        }
+        if name.contains('/') || name == "." || name == ".." {
             return Err(TreeError::InvalidName(name.to_string()));
         }
-        Ok(())
+        Ok(name)
     }
 
-    /// `treemacs-create-file`.
+    /// A path for something new, below the directory it is created in.
+    ///
+    /// `a/b/c.txt` is three things to make, which is how treemacs reads it
+    /// too; refusing it made the directories two more trips round the
+    /// prompt. What it may not do is leave that directory: an absolute path
+    /// or a `..` is somewhere else, and this is not the command for there.
+    fn validate_new_path(name: &str) -> Result<PathBuf> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(TreeError::NoName);
+        }
+        let path = Path::new(name);
+        let inside = !path.is_absolute()
+            && path
+                .components()
+                .all(|part| matches!(part, std::path::Component::Normal(_)));
+        match inside {
+            true => Ok(path.to_path_buf()),
+            false => Err(TreeError::InvalidName(name.to_string())),
+        }
+    }
+
+    /// `treemacs-create-file`. Directories the name passes through are
+    /// made on the way, and the new file is opened up to and selected.
     pub async fn create_file(&mut self, name: &str) -> Result<PathBuf> {
-        Self::validate_name(name)?;
+        if name.trim_end().ends_with('/') {
+            return Err(TreeError::InvalidName(name.trim().to_string()));
+        }
+        let relative = Self::validate_new_path(name)?;
         let dir = self.target_directory().ok_or(TreeError::NoSelection)?;
-        let path = dir.join(name);
+        let path = dir.join(relative);
         if tokio::fs::try_exists(&path).await.unwrap_or(false) {
             return Err(TreeError::AlreadyExists(path));
+        }
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|source| TreeError::Io {
+                    path: parent.to_path_buf(),
+                    source,
+                })?;
         }
         tokio::fs::write(&path, b"")
             .await
@@ -697,26 +835,26 @@ impl FileTree {
                 source,
             })?;
         self.refresh().await?;
-        self.goto_path(&path);
+        self.reveal(&path).await?;
         Ok(path)
     }
 
-    /// `treemacs-create-dir`.
+    /// `treemacs-create-dir`, with the same reading of a nested name.
     pub async fn create_directory(&mut self, name: &str) -> Result<PathBuf> {
-        Self::validate_name(name)?;
+        let relative = Self::validate_new_path(name)?;
         let dir = self.target_directory().ok_or(TreeError::NoSelection)?;
-        let path = dir.join(name);
+        let path = dir.join(relative);
         if tokio::fs::try_exists(&path).await.unwrap_or(false) {
             return Err(TreeError::AlreadyExists(path));
         }
-        tokio::fs::create_dir(&path)
+        tokio::fs::create_dir_all(&path)
             .await
             .map_err(|source| TreeError::Io {
                 path: path.clone(),
                 source,
             })?;
         self.refresh().await?;
-        self.goto_path(&path);
+        self.reveal(&path).await?;
         Ok(path)
     }
 
@@ -743,7 +881,7 @@ impl FileTree {
 
     /// `treemacs-rename-file`.
     pub async fn rename_selected(&mut self, new_name: &str) -> Result<PathBuf> {
-        Self::validate_name(new_name)?;
+        let new_name = Self::validate_name(new_name)?;
         let old = self
             .selected_path()
             .map(Path::to_path_buf)
@@ -776,6 +914,17 @@ impl FileTree {
         if self.is_root(&old) {
             return Err(TreeError::NoSelection);
         }
+        let is_directory = tokio::fs::metadata(destination)
+            .await
+            .is_ok_and(|meta| meta.is_dir());
+        if !is_directory {
+            return Err(TreeError::NotADirectory(destination.to_path_buf()));
+        }
+        // A directory cannot go inside itself; the rename below would fail
+        // with an error that says nothing about why.
+        if destination.starts_with(&old) {
+            return Err(TreeError::IntoItself(old));
+        }
         let name = old.file_name().ok_or(TreeError::NoSelection)?;
         let new = destination.join(name);
         if tokio::fs::try_exists(&new).await.unwrap_or(false) {
@@ -790,6 +939,46 @@ impl FileTree {
         self.refresh().await?;
         self.goto_path(&new);
         Ok(new)
+    }
+
+    /// `path` the way a message about it should put it: from the directory
+    /// holding it, named, so `maxgus-editor/src/main.rs` rather than a home
+    /// directory's worth of prefix that pushes the part that matters off the
+    /// end of the echo area.
+    pub fn shown(&self, path: &Path) -> String {
+        let root = self
+            .roots
+            .iter()
+            .filter(|root| path.starts_with(&root.path))
+            .max_by_key(|root| root.path.as_os_str().len());
+        match root.and_then(|root| Some((root, path.strip_prefix(&root.path).ok()?))) {
+            Some((root, inside)) if inside.as_os_str().is_empty() => root.name.clone(),
+            Some((root, inside)) => format!("{}/{}", root.name, inside.display()),
+            None => path.display().to_string(),
+        }
+    }
+
+    /// An error from one of the operations above, in those terms.
+    pub fn explain(&self, error: &TreeError) -> String {
+        match error {
+            TreeError::AlreadyExists(path) => format!("{} already exists", self.shown(path)),
+            TreeError::NotADirectory(path) => format!("{} is not a directory", self.shown(path)),
+            TreeError::IntoItself(path) => {
+                format!("{} cannot be moved inside itself", self.shown(path))
+            }
+            TreeError::NotInTree(path) => format!("{} is not in the tree", self.shown(path)),
+            TreeError::Io { path, source } => format!("{}: {source}", self.shown(path)),
+            other => other.to_string(),
+        }
+    }
+
+    /// The directory the tree is showing that holds `path`, when one does.
+    pub fn root_holding(&self, path: &Path) -> Option<&Path> {
+        self.roots
+            .iter()
+            .filter(|root| path.starts_with(&root.path))
+            .max_by_key(|root| root.path.as_os_str().len())
+            .map(|root| root.path.as_path())
     }
 
     /// `treemacs-copy-absolute-path-at-point`.
@@ -1302,12 +1491,187 @@ mod tests {
     async fn invalid_names_are_rejected() {
         let f = Fixture::new("badname").await;
         let mut tree = open(&f).await;
-        for name in ["", "a/b", ".", ".."] {
+        assert!(matches!(
+            tree.create_file("  ").await,
+            Err(TreeError::NoName)
+        ));
+        for name in [".", "..", "/etc/passwd", "../escape", "a/../b", "dir/"] {
             assert!(
                 matches!(tree.create_file(name).await, Err(TreeError::InvalidName(_))),
                 "`{name}` should be rejected"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn a_nested_name_makes_the_directories_and_selects_the_file() {
+        let f = Fixture::new("nested-create").await;
+        let mut tree = open(&f).await;
+        tree.goto_path(f.path());
+        let made = tree.create_file(" a/b/c.txt ").await.unwrap();
+        assert_eq!(made, f.path().join("a/b/c.txt"));
+        assert!(tokio::fs::try_exists(&made).await.unwrap());
+        assert_eq!(
+            tree.selected_path(),
+            Some(made.as_path()),
+            "the new file is opened up to and selected"
+        );
+        let dir = tree.create_directory("x/y").await.unwrap();
+        assert!(tokio::fs::metadata(&dir).await.unwrap().is_dir());
+    }
+
+    #[tokio::test]
+    async fn expanding_everything_does_not_follow_a_link_back_up_the_tree() {
+        let f = Fixture::new("expand-loop").await;
+        #[cfg(unix)]
+        {
+            tokio::fs::symlink(f.path(), f.path().join("src/up"))
+                .await
+                .unwrap();
+            tokio::fs::symlink("..", f.path().join("src/inner/parent"))
+                .await
+                .unwrap();
+        }
+        let mut tree = open(&f).await;
+        let done = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            tree.expand_recursively(f.path()),
+        )
+        .await
+        .expect("a loop of links must not make this run for ever")
+        .unwrap();
+        assert!(!done.stopped);
+        assert!(names(&tree).contains(&"deep.rs"));
+        #[cfg(unix)]
+        {
+            let up = tree
+                .visible()
+                .iter()
+                .find(|node| node.name == "up")
+                .expect("the link is listed");
+            assert!(!up.expanded, "a link is not walked into");
+        }
+    }
+
+    #[tokio::test]
+    async fn expanding_everything_stops_at_the_limit_and_says_so() {
+        let f = Fixture::new("expand-limit").await;
+        for n in 0..(RECURSIVE_EXPANSION_LIMIT + 5) {
+            tokio::fs::create_dir_all(f.path().join(format!("many/d{n}")))
+                .await
+                .unwrap();
+        }
+        let mut tree = open(&f).await;
+        let done = tree.expand_recursively(f.path()).await.unwrap();
+        assert!(done.stopped);
+        assert_eq!(done.directories, RECURSIVE_EXPANSION_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn changing_the_order_keeps_every_directory_that_was_open() {
+        let one = Fixture::new("order-keep").await;
+        let two = Fixture::new("order-keep-2").await;
+        let mut tree = open(&one).await;
+        tree.add_root(two.path()).await.unwrap();
+        tree.expand(&one.path().join("src")).await.unwrap();
+        tree.goto_path(&one.path().join("src/main.rs"));
+
+        tree.set_directories_first(false).await.unwrap();
+        assert_eq!(tree.roots().len(), 2, "the second directory went");
+        assert!(names(&tree).contains(&"main.rs"), "`src` closed");
+        assert_eq!(
+            tree.selected_path(),
+            Some(one.path().join("src/main.rs").as_path())
+        );
+        tree.set_git_status(true).await.unwrap();
+        assert_eq!(tree.roots().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_directory_cannot_be_moved_into_itself_or_onto_a_file() {
+        let f = Fixture::new("move-self").await;
+        let mut tree = open(&f).await;
+        tree.goto_path(&f.path().join("src"));
+        assert!(matches!(
+            tree.move_selected(&f.path().join("src/inner")).await,
+            Err(TreeError::IntoItself(_))
+        ));
+        assert!(matches!(
+            tree.move_selected(&f.path().join("README.md")).await,
+            Err(TreeError::NotADirectory(_))
+        ));
+        assert!(tokio::fs::try_exists(f.path().join("src")).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_collapsed_directory_says_something_changed_inside_it() {
+        let f = Fixture::new("git-collapsed").await;
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(f.path())
+                .args(args)
+                .output()
+                .is_ok_and(|out| out.status.success())
+        };
+        if !git(&["init", "-q"]) {
+            return;
+        }
+        git(&["add", "."]);
+        git(&[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-qm",
+            "init",
+        ]);
+        tokio::fs::write(f.path().join("src/inner/deep.rs"), "changed")
+            .await
+            .unwrap();
+        tokio::fs::write(f.path().join("src/debug.log"), "")
+            .await
+            .unwrap();
+        tokio::fs::write(f.path().join(".gitignore"), "target\n*.log\n")
+            .await
+            .unwrap();
+
+        let tree = FileTree::open(
+            f.path(),
+            TreeConfig {
+                git_status: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let src = tree
+            .visible()
+            .iter()
+            .find(|node| node.name == "src")
+            .expect("src is listed");
+        assert!(!src.expanded, "the test is about a closed directory");
+        assert_eq!(
+            src.git,
+            Some(GitStatus::Modified),
+            "a change three levels down marks the closed directory above it"
+        );
+    }
+
+    #[tokio::test]
+    async fn messages_name_a_path_from_the_directory_holding_it() {
+        let f = Fixture::new("shown").await;
+        let tree = open(&f).await;
+        let name = f.path().file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(
+            tree.shown(&f.path().join("src/main.rs")),
+            format!("{name}/src/main.rs")
+        );
+        assert_eq!(tree.shown(f.path()), name);
+        assert_eq!(tree.shown(Path::new("/elsewhere/x")), "/elsewhere/x");
     }
 
     #[tokio::test]

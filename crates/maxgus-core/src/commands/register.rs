@@ -149,6 +149,12 @@ fn insert_register(editor: &mut Editor, args: &Args) -> Result<()> {
         return Ok(());
     }
     let key = register_name(args)?;
+    // A rectangle goes back in as one, each row below the last at the same
+    // column; joined into lines, it came back as a paragraph.
+    if let Some(maxgus_text::Register::Rectangle(rows)) = editor.registers.get(key) {
+        let rows = rows.clone();
+        return crate::commands::rectangle::insert(editor, &rows);
+    }
     let text = editor.registers.text_of(key)?;
     editor.with_current_buffer(|b| {
         let at = b.point();

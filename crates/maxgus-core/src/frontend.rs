@@ -17,8 +17,74 @@ use crate::{dispatch::Dispatcher, editor::Editor};
 /// the front end can carry out.
 pub fn after_key(editor: &mut Editor, dispatcher: &mut Dispatcher) {
     replay_macro(editor, dispatcher);
+    editor.forget_dead_windows();
+    remember_the_editing_window(editor);
     follow_tree(editor);
     close_the_menu_on_the_way_out(editor);
+}
+
+/// Notes which editing window is in use, whichever way it was reached.
+///
+/// Selecting a window through the editor records it already; this catches
+/// the layouts that change the selection by themselves — a window deleted
+/// from under the cursor, a split.
+fn remember_the_editing_window(editor: &mut Editor) {
+    let current = editor.windows.current_id();
+    if !editor.is_dedicated_window(current) {
+        editor.last_editing_window = Some(current);
+    }
+}
+
+/// Puts text a front end was handed — a bracketed paste in a terminal, the
+/// middle button or a dropped string in a window — where the keys would
+/// have put it.
+///
+/// Both front ends inserted it straight into the buffer, whatever was
+/// taking the keys: a paste while searching went into the text rather than
+/// the search, one into the terminal panel went nowhere near the shell, and
+/// one into a buffer being typed in joined the typing's undo step.
+pub fn paste_text(editor: &mut Editor, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    if editor.isearch.is_some() {
+        if let Err(error) = crate::commands::search::extend_with_paste(editor, text) {
+            editor.error(error.to_string());
+        }
+        return;
+    }
+    if editor.minibuffer.is_active() {
+        editor.minibuffer.insert(&text.replace(['\r', '\n'], " "));
+        editor.refresh_completions();
+        return;
+    }
+    #[cfg(feature = "full")]
+    if editor.terminal_pane() == Some(editor.windows.current_id())
+        && let Some(terminal) = editor.terminals.current()
+        && !terminal.in_copy_mode()
+    {
+        let bytes = maxgus_term::keys::paste(text, terminal.emulator.modes());
+        let id = terminal.id;
+        editor.spawn(crate::task::Task::TerminalInput {
+            terminal: id,
+            bytes,
+        });
+        return;
+    }
+    // Its own undo step, and on the kill ring as Emacs' `xterm-paste` leaves
+    // it, so `M-y` can reach it again.
+    let text = text.replace("\r\n", "\n");
+    let inserted = editor.with_current_buffer(|b| {
+        let at = b.point();
+        b.insert(at, &text)?;
+        b.set_point(at + text.chars().count());
+        Ok::<(), maxgus_text::TextError>(())
+    });
+    match inserted {
+        Ok(()) => editor.kill_ring.kill_new(text),
+        Err(error) => editor.error(error.to_string()),
+    }
+    editor.follow_point();
 }
 
 /// Puts the file tree's `?` panel away once the tree is no longer where the
@@ -45,9 +111,22 @@ fn replay_macro(editor: &mut Editor, dispatcher: &mut Dispatcher) {
     }
     let keys = editor.last_macro.clone();
     editor.replaying_macro = true;
-    for _ in 0..repeats {
+    // A key that fails stops the macro, as it does in Emacs: a search that
+    // finds nothing, or the end of the buffer, is where going on typing the
+    // rest of the keys does damage.
+    'replay: for _ in 0..repeats {
         for key in &keys {
-            dispatcher.handle_key(editor, *key);
+            match dispatcher.handle_key(editor, *key) {
+                crate::Dispatch::Failed { message, .. } => {
+                    editor.error(format!("Keyboard macro stopped: {message}"));
+                    break 'replay;
+                }
+                crate::Dispatch::Undefined { keys } => {
+                    editor.error(format!("Keyboard macro stopped: {keys} is undefined"));
+                    break 'replay;
+                }
+                _ => {}
+            }
         }
     }
     editor.replaying_macro = false;
@@ -70,12 +149,30 @@ fn follow_tree(editor: &mut Editor) {
         return;
     };
     if editor.tree.iter().any(|node| node.path == path) {
+        editor.tree_follow_asked = None;
         editor.select_tree_path(&path);
-    } else {
-        editor.spawn(crate::task::Task::Tree(crate::task::TreeAction::Reveal(
-            path,
-        )));
+        return;
     }
+    // Once per file. This runs after every key *and after every answer the
+    // executor sends*, and a file the tree cannot show — a dotfile while
+    // dotfiles are hidden, an ignored directory — never turns up in the
+    // answer: asking again each time kept a core spinning for as long as
+    // the file stayed open.
+    if editor.tree_follow_asked.as_ref() == Some(&path) {
+        return;
+    }
+    // Nor anywhere the tree is not looking at all.
+    let inside = editor
+        .tree
+        .iter()
+        .any(|node| node.is_root && path.starts_with(&node.path));
+    if !inside {
+        return;
+    }
+    editor.tree_follow_asked = Some(path.clone());
+    editor.spawn(crate::task::Task::Tree(crate::task::TreeAction::Reveal(
+        path,
+    )));
 }
 
 /// The work that waits for typing to stop: re-highlighting the buffer and
@@ -88,7 +185,11 @@ pub fn on_idle(editor: &mut Editor) {
     if editor.highlights_are_stale(id) {
         editor.request_highlighting(id);
     }
-    editor.sync_language_server(id);
+    // The outline is of the text as the server last heard it; telling the
+    // server about an edit is when to ask again.
+    if editor.sync_language_server(id) && editor.panel.symbols_buffer == Some(id) {
+        editor.request_document_symbols();
+    }
     #[cfg(feature = "full")]
     ask_about_the_symbol_under_point(editor, id);
     #[cfg(feature = "full")]
@@ -112,10 +213,17 @@ fn ask_what_could_follow(editor: &mut Editor, id: maxgus_text::BufferId) {
     if editor.completions_asked_at == Some((id, point)) {
         return;
     }
+    // Only while a word is being typed. Moving onto the end of a word that
+    // is already there — `M-f` along a line — is not asking what could
+    // follow it, and a list appearing under every word passed was.
+    if editor.autocomplete.is_none()
+        && editor.last_command.as_deref() != Some("self-insert-command")
+    {
+        return;
+    }
     // Enough of a word to be worth asking about. Without this every space
     // bar asks for the whole of what the server knows.
-    let text = editor.current_buffer().text();
-    let start = crate::autocomplete::word_start(&text, point);
+    let start = crate::autocomplete::word_start_in(editor.current_buffer(), point);
     if point.saturating_sub(start) < editor.settings.autocomplete_min_chars.max(1) {
         // And the list that was up is for a word that is no longer there.
         editor.close_autocomplete();

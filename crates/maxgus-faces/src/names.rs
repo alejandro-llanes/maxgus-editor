@@ -137,6 +137,31 @@ pub const TREE_FACES: &[&str] = &[
     "tree-git-conflict",
 ];
 
+/// The sixteen colours a program in the terminal asks for, in their ANSI
+/// order, by the names Emacs gives them.
+///
+/// Only a window draws with these. A terminal front end hands a program's
+/// colours to the terminal it is running in, whose own theme is the right
+/// answer; a window has no terminal to ask.
+pub const ANSI_FACES: &[&str] = &[
+    "ansi-color-black",
+    "ansi-color-red",
+    "ansi-color-green",
+    "ansi-color-yellow",
+    "ansi-color-blue",
+    "ansi-color-magenta",
+    "ansi-color-cyan",
+    "ansi-color-white",
+    "ansi-color-bright-black",
+    "ansi-color-bright-red",
+    "ansi-color-bright-green",
+    "ansi-color-bright-yellow",
+    "ansi-color-bright-blue",
+    "ansi-color-bright-magenta",
+    "ansi-color-bright-cyan",
+    "ansi-color-bright-white",
+];
+
 /// Every face the editor knows about.
 pub fn all() -> Vec<&'static str> {
     UI_FACES
@@ -144,6 +169,7 @@ pub fn all() -> Vec<&'static str> {
         .chain(FONT_LOCK_FACES)
         .chain(DIAGNOSTIC_FACES)
         .chain(TREE_FACES)
+        .chain(ANSI_FACES)
         .copied()
         .collect()
 }
@@ -342,13 +368,7 @@ mod tests {
         // that exists but is written down nowhere may as well not exist, and
         // adding one is exactly when documenting it is easiest to forget.
         let reference = include_str!("../../../docs/configuration-reference.md");
-        let documented: Vec<&str> = UI_FACES
-            .iter()
-            .chain(FONT_LOCK_FACES)
-            .chain(DIAGNOSTIC_FACES)
-            .chain(TREE_FACES)
-            .copied()
-            .collect();
+        let documented = all();
         for name in documented {
             assert!(
                 reference.contains(&format!("`{name}`")),

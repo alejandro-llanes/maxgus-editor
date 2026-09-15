@@ -280,3 +280,70 @@ fn the_status_parser_reads_what_git_actually_writes() {
         ["untracked.txt"]
     );
 }
+
+#[test]
+fn some_lines_of_a_hunk_are_staged_and_unstaged_and_the_rest_left_alone() {
+    // magit's region inside a hunk. Two edits close enough to be one hunk,
+    // and only the first of them wanted.
+    let repo = Repo::new("stage-lines");
+    repo.write("file.txt", &numbered());
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-m", "first"]);
+    repo.write(
+        "file.txt",
+        &numbered()
+            .replace("line 4\n", "LINE FOUR\n")
+            .replace("line 6\n", "LINE SIX\n"),
+    );
+    let diff = repo.git(&["diff"]);
+    let files = maxgus_git::diff::parse(&diff);
+    assert_eq!(files[0].hunks.len(), 1, "one hunk:\n{diff}");
+    let hunk = &files[0].hunks[0];
+    let first_change = hunk
+        .lines
+        .iter()
+        .position(|l| l.kind != maxgus_git::diff::LineKind::Context)
+        .unwrap();
+    // `-line 4` and `+LINE FOUR`.
+    let patch =
+        maxgus_git::diff::lines_patch(&files[0], hunk, first_change..first_change + 2, false)
+            .expect("a change was selected");
+    repo.apply(&patch, &["--cached"])
+        .unwrap_or_else(|e| panic!("git refused the patch: {e}\n{patch}"));
+    let staged = repo.git(&["diff", "--cached"]);
+    assert!(staged.contains("+LINE FOUR"), "{staged}");
+    assert!(!staged.contains("+LINE SIX"), "{staged}");
+    let unstaged = repo.git(&["diff"]);
+    assert!(unstaged.contains("+LINE SIX"), "{unstaged}");
+    assert!(!unstaged.contains("+LINE FOUR"), "{unstaged}");
+
+    // And a staged pair comes back out, alone, by the same means reversed.
+    repo.git(&["add", "."]);
+    let staged = repo.git(&["diff", "--cached"]);
+    let files = maxgus_git::diff::parse(&staged);
+    let hunk = &files[0].hunks[0];
+    let from = hunk.lines.iter().position(|l| l.text == "line 4").unwrap();
+    let to = hunk
+        .lines
+        .iter()
+        .position(|l| l.text == "LINE FOUR")
+        .unwrap()
+        + 1;
+    let patch = maxgus_git::diff::lines_patch(&files[0], hunk, from..to, true)
+        .expect("a change was selected");
+    repo.apply(&patch, &["--cached", "--reverse"])
+        .unwrap_or_else(|e| panic!("git refused the reversed patch: {e}\n{patch}"));
+    let staged = repo.git(&["diff", "--cached"]);
+    assert!(!staged.contains("+LINE FOUR"), "{staged}");
+    assert!(staged.contains("+LINE SIX"), "{staged}");
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("file.txt")).unwrap(),
+        numbered()
+            .replace("line 4\n", "LINE FOUR\n")
+            .replace("line 6\n", "LINE SIX\n"),
+        "the working tree was touched"
+    );
+
+    // A selection of nothing but context is nothing to do.
+    assert!(maxgus_git::diff::lines_patch(&files[0], hunk, 0..1, false).is_none());
+}

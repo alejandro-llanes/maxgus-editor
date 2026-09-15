@@ -1105,6 +1105,61 @@ fn a_configuration_problem_survives_the_files_opening() {
 }
 
 #[test]
+fn a_configuration_that_is_not_kdl_still_lets_the_editor_start() {
+    // It refused to start with "Failed to parse KDL document", naming no
+    // line, and there was no way to the mistake from inside the editor.
+    let fixture = Fixture::new("broken-config");
+    std::fs::write(
+        fixture.path().join("config.kdl"),
+        "set tab-width=4\nkeymap \"global\" {\n    bind \"C-c z\" \"save-buffer\"\n",
+    )
+    .unwrap();
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+    assert!(
+        wait_for(&mut session, "is not valid KDL", 60),
+        "got:\n{:#?}",
+        session.screen()
+    );
+    assert!(session.shows("line 2"), "no line:\n{:#?}", session.screen());
+    assert_eq!(session.quit(), 0);
+}
+
+#[test]
+fn a_theme_that_does_not_exist_is_reported_with_a_suggestion() {
+    let fixture = Fixture::new("unknown-theme");
+    std::fs::write(
+        fixture.path().join("config.kdl"),
+        "set theme=\"maxgus-drak\"\n",
+    )
+    .unwrap();
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+    assert!(
+        wait_for(&mut session, "no theme called `maxgus-drak`", 60)
+            && session.shows("`maxgus-dark`?"),
+        "got:\n{:#?}",
+        session.screen()
+    );
+    assert_eq!(session.quit(), 0);
+}
+
+#[test]
+fn a_binding_to_no_command_is_reported_once_the_script_has_had_its_say() {
+    let fixture = Fixture::new("dead-binding");
+    std::fs::write(
+        fixture.path().join("config.kdl"),
+        "keymap \"global\" {\n    bind \"C-c z\" \"no-such-command\"\n}\n",
+    )
+    .unwrap();
+    let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
+    assert!(
+        wait_for(&mut session, "no-such-command", 60),
+        "got:\n{:#?}",
+        session.screen()
+    );
+    assert_eq!(session.quit(), 0);
+}
+
+#[test]
 fn an_ordinary_notice_still_shows_when_nothing_is_wrong() {
     // The other half: giving way to an error must not stop the notice being
     // shown when there is no error to give way to.
@@ -1143,6 +1198,10 @@ fn a_file_that_is_not_text_cannot_be_saved_over_its_own_bytes() {
         "the reason was not given:\n{:#?}",
         session.screen()
     );
+    // The reason is wider than the echo area, so it is drawn up over the
+    // mode line until the next key.
+    session.send(b"\x06"); // C-f
+    session.settle();
     assert!(
         session.says_read_only(),
         "read-only: `{}`",
@@ -1479,10 +1538,12 @@ fn the_cursor_follows_the_selected_window_with_the_tree_open() {
         in_tree.0 < in_code.0,
         "the cursor is not in the tree: {in_tree:?}"
     );
-    session.send(b"\x0e");
+    // Up, because follow mode has put it on the file being edited, and
+    // that is the last row: a row past the end of the tree is not a row.
+    session.send(b"\x10"); // C-p
     assert_eq!(
         session.cursor(),
-        (in_tree.0, in_tree.1 + 1),
+        (in_tree.0, in_tree.1 - 1),
         "the tree cursor is stuck"
     );
 
@@ -1627,7 +1688,7 @@ fn the_trees_own_arrow_keys_still_work_inside_the_tree() {
 #[test]
 fn a_treefile_mode_binding_adds_to_the_built_in_ones() {
     // The tree's keymap is a mode map now, so the configuration can extend it
-    // — and extending it must not cost the fifty-eight bindings it ships with.
+    // — and extending it must not cost the fifty-six bindings it ships with.
     let fixture = Fixture::new("treemode-config");
     std::fs::write(
         fixture.path().join("config.kdl"),
@@ -2216,14 +2277,16 @@ fn the_panel_opens_at_startup_when_the_configuration_asks() {
     .unwrap();
     let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "hello.txt"]);
 
+    // The tree's mode line names the directory it shows, the buffer list's
+    // says what it is.
     assert!(
-        wait_for(&mut session, "*treefile*", 60),
+        wait_for(&mut session, "Buffers", 60),
         "the panel did not open on its own:\n{:#?}",
         session.screen()
     );
     assert!(
-        session.shows("*buffers*"),
-        "the buffer list is missing:\n{:#?}",
+        session.shows("maxgus-smoke-panelstart"),
+        "the tree is missing:\n{:#?}",
         session.screen()
     );
     assert!(session.shows("hello.txt"), "the file is not shown");
@@ -2238,7 +2301,7 @@ fn the_panels_windows_are_reached_with_the_ordinary_window_keys() {
     let mut session = Session::start(fixture.path(), &["-Q", "hello.txt"]);
     session.send(b"\x18tt");
     assert!(
-        wait_for(&mut session, "*buffers*", 60),
+        wait_for(&mut session, "Buffers", 60),
         "no panel:\n{:#?}",
         session.screen()
     );
@@ -2283,7 +2346,7 @@ fn the_outline_fills_from_a_real_server_without_disturbing_anything() {
     let mut session = Session::start(fixture.path(), &["--config", "config.kdl", "main.c"]);
 
     assert!(
-        wait_for(&mut session, "*symbols*", 200),
+        wait_for(&mut session, "Outline of main.c", 200),
         "the outline window never appeared:\n{:#?}",
         session.screen()
     );
@@ -2293,7 +2356,7 @@ fn the_outline_fills_from_a_real_server_without_disturbing_anything() {
         session.screen()
     );
     // The three windows are all still there, in order, and the file with them.
-    for expected in ["*treefile*", "*symbols*", "*buffers*", "main.c"] {
+    for expected in ["Outline of main.c", "Buffers", "main.c"] {
         assert!(
             session.shows(expected),
             "{expected} is gone:\n{:#?}",
@@ -3266,11 +3329,11 @@ fn the_desktop_entry_says_what_the_installer_expects_to_rewrite() {
 
     // And the two lines the script rewrites are the two lines it matches.
     assert!(
-        script.contains("s|^Exec=maxgus |Exec=$PREFIX/maxgus |"),
+        script.contains("s|^Exec=maxgus |Exec="),
         "the script no longer rewrites `Exec`"
     );
     assert!(
-        script.contains("s|^TryExec=maxgus$|TryExec=$PREFIX/maxgus|"),
+        script.contains("s|^TryExec=maxgus\\$|TryExec="),
         "the script no longer rewrites `TryExec`"
     );
     assert!(
@@ -3296,14 +3359,14 @@ fn a_release_archive_carries_the_configuration_and_the_desktop_entry() {
     }
     // What the script reaches for inside the archive.
     let script = std::fs::read_to_string(root.join("site/install.sh")).expect("install.sh");
-    for wanted in [
-        "docs/config.example.kdl",
-        "docs/themes/",
-        "assets/maxgus.desktop",
-        "assets/maxgus.svg",
+    for (wanted, named) in [
+        ("docs/config.example.kdl", "config.example.kdl"),
+        ("docs/themes/", "docs/themes/"),
+        ("assets/maxgus.desktop", "assets/maxgus.desktop"),
+        ("assets/maxgus.svg", "assets/maxgus.svg"),
     ] {
         assert!(
-            script.contains(wanted),
+            script.contains(named),
             "the script does not install `{wanted}`"
         );
         assert!(
@@ -3311,6 +3374,182 @@ fn a_release_archive_carries_the_configuration_and_the_desktop_entry() {
             "`{wanted}` is not in the repository"
         );
     }
+}
+
+/// The install script, run for real against a mirror of archives on disk.
+///
+/// A binary that could not start was installed and announced; a download
+/// with no checksum was installed with a note; and the first configuration
+/// was the whole example. Each of those is held here, by running the script
+/// rather than reading it.
+#[cfg(unix)]
+#[test]
+fn the_install_script_checks_what_it_installs() {
+    for tool in ["sh", "curl", "tar", "sha256sum"] {
+        if !available(tool) {
+            eprintln!("skipped: no {tool}");
+            return;
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("the workspace root");
+    let fixture = Fixture::new("installer");
+    let base = fixture.path();
+    let mirror = base.join("mirror");
+    let home = base.join("home");
+    std::fs::create_dir_all(&mirror).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+
+    // An archive the script can unpack, holding `binary` as the editor.
+    let pack = |build: &str, platform: &str, binary: &str, checksum: bool| {
+        let stem = format!("maxgus-{build}-{platform}");
+        let stage = base.join("stage").join(&stem);
+        std::fs::create_dir_all(stage.join("docs/themes")).unwrap();
+        std::fs::create_dir_all(stage.join("assets")).unwrap();
+        std::fs::copy(
+            root.join("docs/config.example.kdl"),
+            stage.join("docs/config.example.kdl"),
+        )
+        .unwrap();
+        std::fs::copy(
+            root.join("docs/themes/nord.kdl"),
+            stage.join("docs/themes/nord.kdl"),
+        )
+        .unwrap();
+        std::fs::copy(
+            root.join("assets/maxgus.desktop"),
+            stage.join("assets/maxgus.desktop"),
+        )
+        .unwrap();
+        std::fs::write(stage.join("maxgus"), binary).unwrap();
+        let archive = format!("{stem}.tar.gz");
+        let ok = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "chmod 755 '{stem}/maxgus' && tar -czf '{mirror}/{archive}' '{stem}'",
+                mirror = mirror.display()
+            ))
+            .current_dir(base.join("stage"))
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "could not pack {archive}");
+        if checksum {
+            let ok = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(format!("sha256sum '{archive}' > '{archive}.sha256'"))
+                .current_dir(&mirror)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok);
+        }
+    };
+    // The glibc build will not start here; the static one will.
+    pack(
+        "full",
+        "linux-x86_64",
+        "#!/bin/sh\necho 'version GLIBC_2.39 not found' >&2\nexit 1\n",
+        true,
+    );
+    pack(
+        "full",
+        "linux-x86_64-musl",
+        "#!/bin/sh\necho 'maxgus 9.9.9 (full)'\n",
+        true,
+    );
+    // And one with no checksum published beside it.
+    pack(
+        "minimal",
+        "linux-x86_64",
+        "#!/bin/sh\necho 'maxgus 9.9.9 (minimal)'\n",
+        false,
+    );
+
+    let install = |arguments: &[&str]| {
+        std::process::Command::new("sh")
+            .arg(root.join("site/install.sh"))
+            .args(arguments)
+            .env_clear()
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", home.join(".config"))
+            .env("XDG_DATA_HOME", home.join(".local/share"))
+            .env(
+                "MAXGUS_RELEASE_BASE",
+                format!("file://{}", mirror.display()),
+            )
+            .output()
+            .expect("the script runs")
+    };
+    if std::process::Command::new("uname")
+        .arg("-sm")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() != "Linux x86_64")
+        .unwrap_or(true)
+    {
+        eprintln!("skipped: the mirror holds Linux x86_64 archives");
+        return;
+    }
+    let prefix = home.join("bin");
+    let prefix = prefix.to_str().unwrap();
+
+    let out = install(&["--prefix", prefix, "--no-desktop"]);
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.status.success(), "{said}");
+    assert!(said.contains("the static one will"), "{said}");
+    assert!(said.contains("Installed maxgus 9.9.9 (full)"), "{said}");
+    let config = std::fs::read_to_string(home.join(".config/maxgus/config.kdl")).unwrap();
+    assert!(
+        config
+            .lines()
+            .all(|line| line.is_empty() || line.starts_with("//")),
+        "the first configuration sets things:\n{config}"
+    );
+    assert!(home.join(".config/maxgus/config.example.kdl").exists());
+
+    // Edited, it is left alone the second time.
+    std::fs::write(home.join(".config/maxgus/config.kdl"), "set tab-width=2\n").unwrap();
+    assert!(
+        install(&["--prefix", prefix, "--no-desktop"])
+            .status
+            .success()
+    );
+    assert_eq!(
+        std::fs::read_to_string(home.join(".config/maxgus/config.kdl")).unwrap(),
+        "set tab-width=2\n"
+    );
+
+    // No checksum, nothing installed — unless it is asked for.
+    let unchecked = install(&["--build", "minimal", "--prefix", prefix, "--no-desktop"]);
+    assert!(
+        !unchecked.status.success(),
+        "an unchecked download was installed"
+    );
+    assert!(
+        String::from_utf8_lossy(&unchecked.stderr).contains("no published checksum"),
+        "{}",
+        String::from_utf8_lossy(&unchecked.stderr)
+    );
+    let forced = install(&[
+        "--build",
+        "minimal",
+        "--prefix",
+        prefix,
+        "--no-desktop",
+        "--insecure-skip-checksum",
+    ]);
+    assert!(
+        forced.status.success(),
+        "{}",
+        String::from_utf8_lossy(&forced.stderr)
+    );
 }
 
 /// Walking the tree's root into a subdirectory and back out, against real

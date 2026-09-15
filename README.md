@@ -12,7 +12,7 @@ Emacs keys, tree-sitter, a language-server client, magit&nbsp; ·&nbsp; the same
 <p>
 <a href="https://github.com/alejandro-llanes/maxgus-editor/actions/workflows/release.yml"><img alt="Release" src="https://img.shields.io/github/actions/workflow/status/alejandro-llanes/maxgus-editor/release.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=release"></a>
 <a href="https://github.com/alejandro-llanes/maxgus-editor/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/alejandro-llanes/maxgus-editor?style=for-the-badge&color=e05d44&display_name=tag&sort=semver"></a>
-<a href="https://www.rust-lang.org"><img alt="Rust" src="https://img.shields.io/badge/rust-stable%20·%202024-000000?style=for-the-badge&logo=rust&logoColor=white"></a>
+<a href="https://www.rust-lang.org"><img alt="Rust" src="https://img.shields.io/badge/rust-1.98%2B%20·%202024-000000?style=for-the-badge&logo=rust&logoColor=white"></a>
 <a href="LICENSE"><img alt="Licence" src="https://img.shields.io/badge/licence-MIT-3d7ebb?style=for-the-badge"></a>
 <a href="https://alejandrollanes.com/maxgus-editor/"><img alt="Website" src="https://img.shields.io/badge/alejandrollanes.com-8abeb7?style=for-the-badge&logo=github&logoColor=white&label=site"></a>
 </p>
@@ -22,8 +22,8 @@ Emacs keys, tree-sitter, a language-server client, magit&nbsp; ·&nbsp; the same
 <img alt="" src="https://img.shields.io/badge/macos-333?style=flat-square&logo=apple&logoColor=white">
 <img alt="" src="https://img.shields.io/badge/windows-333?style=flat-square&logo=windows&logoColor=white">
 <img alt="" src="https://img.shields.io/badge/freebsd-333?style=flat-square&logo=freebsd&logoColor=white">
-<img alt="Unsafe" src="https://img.shields.io/badge/unsafe-forbidden-4c9a2a?style=flat-square">
-<img alt="Tests" src="https://img.shields.io/badge/tests-2359-4c9a2a?style=flat-square">
+<img alt="Unsafe" src="https://img.shields.io/badge/unsafe-grammar%20loading%20only-4c9a2a?style=flat-square">
+<img alt="Tests" src="https://img.shields.io/badge/tests-2490-4c9a2a?style=flat-square">
 </p>
 
 <sub><b>A file is on the screen 5 ms after the shell hands over.</b> No Lisp interpreter, no plugin runtime · fifteen crates · three builds to pick from.</sub>
@@ -53,8 +53,9 @@ $ curl -fsSL https://alejandrollanes.com/maxgus-editor/install.sh | sh -s -- --b
 
 That fetches the `gui` build for this machine — the window, and
 `maxgus -nw` for the terminal from the same binary — checks it against the
-checksum published beside it, and puts it in `~/.local/bin` — or
-`/usr/local/bin` where that is writable. Nothing else: no daemon, no package
+checksum published beside it, makes sure it runs here, and puts it in
+`~/.local/bin` — or `/usr/local/bin` where that is writable. A download that
+cannot be checked is not installed. Nothing else: no daemon, no package
 manager, no shell profile rewritten behind your back.
 
 **Three builds**, and `--build` says which:
@@ -66,23 +67,27 @@ $ curl -fsSL .../install.sh | sh -s -- --build minimal    # nothing to install
 ```
 
 `--prefix DIR` puts it somewhere else, `--version vX.Y.Z` fetches an older
-release, `--dry-run` says what it would do and stops.
+release, `--dry-run` says what it would do and stops. On Linux the glibc
+builds need glibc 2.35 or newer; where the one fetched will not start, `full`
+and `minimal` fall back to the static build, which runs anywhere.
 
-It also writes **a configuration and the themes** into
-`~/.config/maxgus` — `config.kdl`, the four themes that ship, and the
-reference — and **never over a file that is already there**, so running it
-again to upgrade leaves everything you have edited alone. The `gui` build
-additionally gets **an application-menu entry**, with the binary's absolute
-path in it, because a launcher does not see your shell's `PATH`.
-`--no-config` and `--no-desktop` skip either.
+It also writes **a short `config.kdl`** — comments, and where to look — and
+**the four themes that ship**, into the directory the editor reads
+(`~/.config/maxgus`, or `~/Library/Application Support/maxgus` on macOS),
+**never over your configuration or a theme already there**, so running it
+again to upgrade leaves what you have edited alone. `config.example.kdl`,
+with every setting in it, and the references are refreshed each time. The
+`gui` build additionally gets **an application-menu entry**, with the
+binary's absolute path in it, because a launcher does not see your shell's
+`PATH`. `--no-config` and `--no-desktop` skip either.
 
 ### Which build
 
 | | `minimal` | `full` *(default)* | `gui` |
 |---|:---:|:---:|:---:|
 | **Binary** | **4.9M** | **14M** | **23M** |
-| **Commands** | 325 | 477 | 477 |
-| **Needs from the system** | nothing | nothing | a window system's headers |
+| **Commands** | 337 | 489 | 489 |
+| **Needs from the system** | nothing | nothing | a window system, and a Vulkan or OpenGL driver |
 | Emacs keys, prefix arguments, the mark ring | ● | ● | ● |
 | Buffers, windows, `C-x` everything | ● | ● | ● |
 | The file tree, with treemacs' keys | ● | ● | ● |
@@ -133,13 +138,14 @@ what a development environment does. It builds in a fraction of the time.
 <summary><b>Or download an archive</b></summary>
 
 Every [release](https://github.com/alejandro-llanes/maxgus-editor/releases/latest)
-carries all three builds for Linux (glibc, musl and aarch64), macOS (Intel and
-Apple Silicon), Windows and FreeBSD, each with a `.sha256` beside it. The
-archives are named `maxgus-<build>-<platform>`:
+carries builds for Linux (glibc, musl and aarch64), macOS (Intel and Apple
+Silicon), Windows and FreeBSD — all three where the table says so — each
+with a `.sha256` beside it that `sha256sum -c` reads. The archives are named
+`maxgus-<build>-<platform>`:
 
 | Platform | Builds |
 |---|---|
-| Linux x86_64 (glibc) | `minimal` `full` `gui` |
+| Linux x86_64 (glibc 2.35 and newer) | `minimal` `full` `gui` |
 | Linux x86_64 (static, musl) | `minimal` `full` |
 | Linux aarch64 | `minimal` `full` |
 | macOS Intel | `minimal` `full` `gui` |
@@ -158,9 +164,11 @@ $ ./maxgus-gui-linux-x86_64/maxgus
 
 </details>
 
-**Or build it** — Rust stable, edition 2024. `minimal` and `full` need
-nothing but a terminal; `gui` needs a window system's headers
-(`libwayland-dev` and `libxkbcommon-dev` on Debian and its relatives):
+**Or build it** — Rust 1.98 or newer, edition 2024. `minimal` and `full` need
+nothing but a terminal; `gui` needs a window system's headers to build
+(`libwayland-dev` and `libxkbcommon-dev` on Debian and its relatives), and its
+libraries to run — `libwayland-client` and `libxkbcommon`, or X11's
+`libX11`, `libXcursor` and `libXi` — which every desktop already has:
 
 ```console
 $ git clone https://github.com/alejandro-llanes/maxgus-editor
@@ -242,7 +250,7 @@ What the window has that a terminal cannot:
   Ghostty, GNOME's, Konsole, Windows Terminal, and through tmux — and
   draws a plain underline elsewhere.
 
-  <img src="docs/screenshots/gui-undercurl.png" alt="A C file with wavy underlines in red under three errors and in yellow under a warning, and the mode line counting them" width="100%">
+  <img src="docs/screenshots/gui-undercurl.png" alt="A C file with wavy underlines under its errors and warnings, each in its severity's colour, and the mode line counting them" width="100%">
 
 - **Ligatures.** `!=` drawn as the one mark the font's designer drew it as,
   and `->`, `=>`, `<=`, `>=`, `|>`, `...` with them. The text is *shaped*
@@ -354,7 +362,7 @@ What the window has that a terminal cannot:
   rectangle of the same text with a line around it. Four faces say how:
   `doc`, `doc-border`, `doc-title` and `doc-code`. `set lsp-doc=#false`
   turns it off; `C-c c k` asks for it either way. The terminal front end
-  draws the same box:
+  draws it as a box of cells; the window sets it in prose, on a card:
 
   <img src="docs/screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and its documentation, from clangd" width="100%">
 - **A window that behaves like one.** Its title says the file, the
@@ -414,8 +422,8 @@ the terminal front end too.
 
 ### Emacs keys, and they behave like Emacs
 
-**410 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
-the panel, tree, magit and terminal maps, driving **477 commands**. Prefix
+**421 bindings** across the `C-x`, `C-c`, `C-h`, `M-g` and `M-s` prefixes and
+the panel, tree, magit and terminal maps, driving **489 commands**. Prefix
 arguments (`C-u`, `M-1`…`M-9`, `M--`), the mark and the mark ring, the kill
 ring with `M-y`, registers, keyboard macros, rectangles, narrowing,
 incremental and regexp search, `query-replace`, `occur`.
@@ -433,7 +441,7 @@ of typing, not one character.
 ### Prompts that tell you what is there
 
 `M-x` opens a bordered popup at the top of the frame. It lists every command
-the moment it opens, with the key that runs each one and a line saying what it
+meant to be run by name the moment it opens, with the key that runs each one and a line saying what it
 does, and a count of where you are in the list:
 
 <img src="docs/screenshots/command-popup.svg" alt="The M-x popup: a bordered box at the top of the frame listing commands, their key bindings and what each one does" width="100%">
@@ -503,7 +511,7 @@ for terminals without such a font, and everything falls back to plain text.
 
 ### Themes you can rewrite without recompiling
 
-Three built in (`maxgus-dark`, `maxgus-light`, `maxgus-term`) and **53 named
+Three built in (`maxgus-dark`, `maxgus-light`, `maxgus-term`) and **115 named
 faces**, with `inherit`, bold/italic/underline/undercurl/reverse/dim/strikethrough, and
 truecolor degraded to 256 and then 16 colours by what your terminal reports.
 `M-x load-theme` switches at runtime and keeps your overrides.
@@ -536,11 +544,14 @@ recompiling, no Lisp:
 </tr>
 </table>
 
-<sub>Every picture on this page is drawn by the editor itself —
-<a href="crates/maxgus/examples/screenshot.rs"><code>cargo run --example screenshot</code></a>
-runs the real redisplay over a real buffer and writes out each cell in the
-colour its face resolved to. Nerd Font glyphs are the one thing switched off
-for them, so they render in a browser without the font installed.</sub>
+<sub>Every picture on this page is drawn by the editor itself. The terminal
+ones by
+<a href="crates/maxgus/examples/screenshot.rs"><code>cargo run --example screenshot</code></a>,
+which runs the real redisplay over a real buffer and writes out each cell in
+the colour its face resolved to, with Nerd Font glyphs switched off so they
+render in a browser without the font installed; the window's by
+<a href="scripts/screenshots-gui.sh"><code>scripts/screenshots-gui.sh</code></a>,
+which drives the `gui` build in a headless compositor and photographs it.</sub>
 
 ### A side panel: files, symbols, buffers
 
@@ -635,24 +646,27 @@ bind them:
 ```rhai
 fn wrap_in_backticks(ctx) {
     if ctx.region == () { fail("Select something first"); }
-    insert(`\`${ctx.region}\``);
+    goto_char(ctx.region_start);
+    delete(ctx.region.len());
+    insert("`" + ctx.region + "`");
 }
 define("wrap-in-backticks", "Put backticks around the region.", wrap_in_backticks);
 
-fn save_and_format(ctx) {
-    run("lsp-format-buffer");
-    run("save-buffer");
+fn save_everything_and_search(ctx) {
+    run("save-some-buffers");
+    run("project-grep");
 }
-define("save-and-format", "Format, then save.", save_and_format);
+define("save-and-search", "Save every buffer, then search the project.", save_everything_and_search);
 ```
 
 A script does **not** get the editor. It is told what is on screen — the text,
-point, the line and column, the buffer, the file, the mode, the region — and
-asks for a list of changes: `insert`, `delete`, `goto`, `message`, `fail`, and
-`run`, which is any command the editor already has. That is a deliberate
-limit and a useful one: a script can be tested without an editor, one that
-fails leaves nothing behind rather than half an edit, and a script can never
-take a built-in command's name out from under it.
+point, the line and column, the buffer, the file, the mode, the region and
+where it is — and asks for a list of changes: `insert`, `delete`, `goto_char`,
+`message`, `fail`, and `run`, which is any command the editor already has.
+They happen in the order they were asked for, and `C-/` undoes the lot in one
+step. That is a deliberate limit and a useful one: a script can be tested
+without an editor, one that fails leaves nothing behind rather than half an
+edit, and a script can never take a built-in command's name out from under it.
 
 `M-x reload-scripts` picks up changes without restarting; `M-x
 list-script-commands` shows what is defined. A script that will not parse is
@@ -871,8 +885,10 @@ takes the pattern literally. What it does *not* search is what `.gitignore`
 says not to: no `target/`, no lockfiles, no `node_modules`. Binary files are
 skipped by the same rule `grep` uses.
 
-The results are a buffer: `n` and `p` walk them, `RET` opens the line, `o`
-opens it without leaving the results, `g` searches again, `q` closes.
+The results are a buffer, a file at a time and in the order a listing shows
+them: `n` and `p` walk them, `RET` opens the line (`M-,` comes back), `o`
+shows it in another window without leaving the results, `g` searches again,
+`q` closes.
 
 Then the part that makes it worth more than a list. **`C-c C-p` makes the
 results writable.** Edit the lines as ordinary text — search and replace by
@@ -882,10 +898,15 @@ done with the editor you already know instead of a dialog box. `C-c C-k` gives
 up on it.
 
 Each line carries the text it was found as, so a file that something else
-changed in the meantime is refused rather than overwritten, and no file is
-half-written when one is refused. Buffers showing the rewritten files are
-re-read, because a stale buffer over a rewritten file is how the work gets
-undone by the next save.
+changed in the meantime is refused rather than overwritten — and every file is
+checked before any is written, so one refusal writes nothing. Adding or
+deleting a whole line of the results is refused too, rather than guessed at.
+A file's line endings are its own afterwards, `\r\n` included.
+
+A file you have open is edited **in its buffer**. One with nothing unsaved is
+written and takes the change as an edit `C-/` can undo; one with unsaved
+changes keeps them, gains the new lines beside them, and is left for you to
+save.
 
 ### Git, the way magit does it
 
@@ -897,9 +918,12 @@ repository in one buffer that folds:
 Magit's arrangement, for magit's reason — **a commit is assembled by looking
 at the change, not by remembering it**. Every key acts on the row point is on:
 `s` stages a file when point is on a file, **one hunk** when point is on a
-hunk, and the whole section when point is on the heading. `u` unstages the
-same way, `k` discards, `TAB` folds whatever is under the cursor. `n` and `p`
-move by *section*, `M-n`/`M-p` by sibling, `^` out to the parent.
+hunk, **just the lines of a region** marked inside a hunk, and the whole
+section when point is on the heading. `u` unstages the same way — and on the
+heading asks first, since that is everything staged — and `k` discards, which
+on a staged file means what is staged and the copy in the worktree both, and
+takes a rename back as one change. `TAB` folds whatever is under the cursor.
+`n` and `p` move by *section*, `M-n`/`M-p` by sibling, `^` out to the parent.
 
 **`?` shows what git can do here**, and every prefix opens a menu of its own:
 
@@ -1006,7 +1030,7 @@ group they open (`+file`, `+code`) rather than listed one row per binding.
 <img src="docs/screenshots/which-key.svg" alt="A panel along the bottom of the editor listing every key that can follow C-c, with the ones that open another map shown as +code, +file and so on" width="100%">
 
 `set which-key=#false` turns it off, `set which-key-delay-ms=` changes how
-long the pause is. It is in both builds.
+long the pause is. It is in all three builds.
 
 ## Keys worth knowing
 
@@ -1052,6 +1076,9 @@ first.
 | `M-q` | Fill the paragraph |
 | `M-h` `C-M-h` | Mark the paragraph, the definition |
 | `C-x z` | Repeat the last command |
+| `<f3>` `<f4>` | Record a keyboard macro — `<f3>` again inserts a counter — then stop, and play it |
+| `C-x r k` `C-x r y` | Kill a rectangle, yank it back as one |
+| `C-x r t` `C-x r o` | Put text on every line of a rectangle, open a blank one |
 | `C-x U` | Show the undo history as a tree |
 | `C->` `C-<` | A cursor at the next / previous occurrence |
 | `C-c C-<` | A cursor at every occurrence |
@@ -1063,12 +1090,13 @@ first.
 | `C-x t 1` / `2` / `3` | Select the tree, the outline, the buffer list |
 | `C-x t v` | Toggle the terminal panel |
 | `C-x g` `C-c v g` | Git status |
-| `M-.` `M-,` | Go to definition, come back |
+| `M-.` `M-,` | Go to definition, come back — across files, and from a list |
 | `M-s o` | Occur: every line matching, in a list beside the text |
 | `n` `p` `RET` `o` `q` | In that list, or in `*xref*`: next, previous, visit, visit and stay, close |
 | `C-c c r` | Rename through the language server |
 | `C-c c f` | Format the buffer |
 | `C-h b` | Every binding |
+| `C-h e` | Everything the echo area has said |
 | `C-h t` | The tutorial |
 | `C-h v` | A setting's current value |
 | `C-c t l` `C-c t I` | Toggle line numbers, tabs-or-spaces |
@@ -1140,7 +1168,7 @@ from inside itself:
 set tab-width=4 theme="maxgus-dark" line-numbers=#true
 
 keymap "global" {
-    bind "C-c f" "lsp-format-buffer"
+    bind "<f5>" "lsp-format-buffer"
     unbind "C-z"
 }
 
@@ -1177,7 +1205,9 @@ accepts.
 
 ## Layout
 
-Twelve crates, `unsafe_code = "forbid"` across all of them.
+Fifteen crates. `unsafe_code` is forbidden in all of them but `maxgus-syntax`,
+where it is denied, and allowed only for the three calls in `dynamic.rs` that
+load a grammar's shared library — which cannot be done without it.
 
 | Crate | What it holds |
 |---|---|
@@ -1191,12 +1221,15 @@ Twelve crates, `unsafe_code = "forbid"` across all of them.
 | `maxgus-git` | Reading git: status, diffs, logs, and the patches that stage a hunk |
 | `maxgus-term` | Terminal emulator: grid, escape sequences, selection, key encoding |
 | `maxgus-tui` | Cell grid, frame diffing, terminal setup, job control |
+| `maxgus-grep` | Searching a project, and writing edited results back |
+| `maxgus-script` | Rhai: the commands a script defines, and what they ask for |
 | `maxgus-core` | Buffers, windows, minibuffer, commands, dispatch, redisplay |
+| `maxgus-gui` | The window: wgpu, fonts, the cursor, blur, the mouse |
 | `maxgus` | The event loop and the task executor |
 
 ## Testing
 
-**2036 tests.** Unit tests beside the code; session tests that press real keys
+**2490 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.
@@ -1215,8 +1248,11 @@ What changed in each release is in [CHANGELOG.md](CHANGELOG.md). Tagging is
 the whole of publishing one:
 
 ```console
-$ git tag v1.4.0 && git push origin v1.4.0
+$ git tag vX.Y.Z && git push origin vX.Y.Z
 ```
+
+The tag has to be the version in `Cargo.toml`, which the workflow checks; a
+tag with a `-` in it is published as a pre-release.
 
 [`.github/workflows/release.yml`](.github/workflows/release.yml) builds all
 seven targets — three Linux, two macOS, Windows and a cross-compiled FreeBSD —
@@ -1226,8 +1262,8 @@ checksum beside it, and all of them are attached to the release.
 
 The site publishes itself from
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) whenever
-`site/` or the screenshots change, which is also what keeps
-`install.sh` pointing at the latest release.
+`site/` or the screenshots change. `install.sh` needs no publishing to follow
+a release: it asks GitHub for the latest one each time it runs.
 
 ---
 

@@ -23,6 +23,7 @@ pub mod misc;
 pub mod motion;
 pub mod multi;
 pub mod panel;
+pub mod rectangle;
 pub mod register;
 #[cfg(feature = "full")]
 pub mod script;
@@ -71,6 +72,7 @@ pub fn standard_registry() -> Registry {
     help::register(&mut registry);
     listing::register(&mut registry);
     register::register(&mut registry);
+    rectangle::register(&mut registry);
     text::register(&mut registry);
     #[cfg(feature = "full")]
     text::register_syntax(&mut registry);

@@ -2,11 +2,12 @@ name: Release
 
 # Tag a commit and the binaries follow:
 #
-#     git tag v0.1.0 && git push origin v0.1.0
+#     git tag vX.Y.Z && git push origin vX.Y.Z
 #
 # `workflow_dispatch` rebuilds an existing tag without moving it, which is what
 # you want when a build failed on one platform and nothing about the source
-# needs to change.
+# needs to change. A tag with a `-` in it — `v1.5.0-rc1` — is published as a
+# pre-release, which `releases/latest`, and so the install script, passes over.
 on:
   push:
     tags: ["v*"]
@@ -17,8 +18,10 @@ on:
         required: true
         type: string
 
+# Nothing here writes, except the job that publishes: the builds run
+# third-party actions and containers, and have no need of a token that can.
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -34,8 +37,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Built on the oldest runner there is, because a binary needs the
+          # C library it was linked against or a newer one: from the newest,
+          # it would not start on Debian 12 or Ubuntu 22.04. glibc 2.35 is
+          # the floor this sets; the musl build runs on anything older.
           - name: linux-x86_64
-            runner: ubuntu-latest
+            runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             builds: minimal full gui
           # Statically linked, so it runs on distributions older than the one
@@ -84,9 +91,22 @@ jobs:
         shell: bash
         run: echo "name=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ steps.tag.outputs.name }}
+
+      # A tag that says one version over a Cargo.toml that says another
+      # publishes binaries whose `--version` contradicts their release.
+      - name: Check the tag is the version being built
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.tag.outputs.name }}"
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          if [ "${tag#v}" != "$version" ]; then
+            echo "the tag is $tag but Cargo.toml says $version" >&2
+            exit 1
+          fi
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -133,6 +153,9 @@ jobs:
             mkdir -p "dist/$stem"
             cp README.md LICENSE "dist/$stem/"
             cp -r docs "dist/$stem/"
+            # The pictures are for the README on GitHub and the site; in
+            # every archive they were megabytes of what nobody reads there.
+            rm -rf "dist/$stem/docs/screenshots"
             # The desktop entry and its icon, which the install script
             # puts in place for a `gui` build. Carried by every archive so
             # there is one thing to download and one checksum to check.
@@ -149,11 +172,14 @@ jobs:
             fi
 
             # A checksum beside every archive, so a download can be verified
-            # — which the install script does, every time.
+            # — which the install script does, every time. In the form
+            # `sha256sum -c` reads, hash and name, which is what the site
+            # tells people to run: a bare hash was not.
+            name=$(basename "$asset")
             if command -v sha256sum >/dev/null; then
-              sha256sum "$asset" | awk '{print $1}' > "$asset.sha256"
+              (cd dist && sha256sum "$name" > "$name.sha256")
             else
-              shasum -a 256 "$asset" | awk '{print $1}' > "$asset.sha256"
+              (cd dist && shasum -a 256 "$name" > "$name.sha256")
             fi
             rm -rf "dist/$stem"
           done
@@ -172,6 +198,8 @@ jobs:
     name: Publish the release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Work out which tag is being built
         id: tag
@@ -190,6 +218,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.name }}
           name: maxgus ${{ steps.tag.outputs.name }}
           draft: false
+          prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |

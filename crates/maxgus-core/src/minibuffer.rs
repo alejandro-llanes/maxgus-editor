@@ -168,10 +168,16 @@ pub struct Minibuffer {
     /// The input as it was before history walking began, so `M-n` past the
     /// newest entry restores it.
     saved_input: String,
+    /// Every message shown, oldest first, with how many times over it was
+    /// said in a row: what `C-h e` lists.
+    log: std::collections::VecDeque<(String, usize)>,
 }
 
 /// The maximum entries kept per history ring.
 const HISTORY_MAX: usize = 100;
+
+/// How many messages `*Messages*` keeps.
+const MESSAGE_LOG_MAX: usize = 1000;
 
 impl Minibuffer {
     pub fn new() -> Minibuffer {
@@ -229,14 +235,49 @@ impl Minibuffer {
 
     /// `message`: shows text in the echo area.
     pub fn show_message(&mut self, text: impl Into<String>) {
-        self.message = Some(text.into());
+        let text = text.into();
+        self.remember(&text);
+        self.message = Some(text);
         self.message_is_error = false;
     }
 
     /// Shows an error, which is drawn in the error face.
     pub fn show_error(&mut self, text: impl Into<String>) {
-        self.message = Some(text.into());
+        let text = text.into();
+        self.remember(&text);
+        self.message = Some(text);
         self.message_is_error = true;
+    }
+
+    /// Keeps a message for `C-h e`, the way Emacs keeps `*Messages*`: a
+    /// message goes as soon as a key is pressed, and one that was cut off at
+    /// the edge, or said while something else was being looked at, was
+    /// otherwise gone for good.
+    fn remember(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        match self.log.back_mut() {
+            Some((last, times)) if last == text => *times += 1,
+            _ => {
+                self.log.push_back((text.to_string(), 1));
+                if self.log.len() > MESSAGE_LOG_MAX {
+                    self.log.pop_front();
+                }
+            }
+        }
+    }
+
+    /// The messages shown so far, oldest first; one said several times in a
+    /// row is one line saying how many.
+    pub fn messages(&self) -> Vec<String> {
+        self.log
+            .iter()
+            .map(|(text, times)| match times {
+                1 => text.clone(),
+                n => format!("{text} [{n} times]"),
+            })
+            .collect()
     }
 
     pub fn clear_message(&mut self) {
@@ -313,6 +354,12 @@ impl Minibuffer {
 
     fn len_chars(&self) -> usize {
         self.input.chars().count()
+    }
+
+    /// Replaces what has been typed, leaving point at the end of it.
+    pub fn set_input(&mut self, text: impl Into<String>) {
+        self.input = text.into();
+        self.point = self.len_chars();
     }
 
     /// Inserts text at point. Editing invalidates any completion in progress.

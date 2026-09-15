@@ -7,8 +7,11 @@
 <meta name="description" content="A lightning-fast Emacs written in Rust and drawn by the GPU: ligatures, blurred popups, documentation set in prose beside the code, a cursor that travels, tree-sitter, a language-server client, magit — and the same editor in a terminal.">
 <meta property="og:title" content="maxgus — a lightning-fast Emacs, drawn by the GPU">
 <meta property="og:description" content="Emacs keys and a GPU: ligatures, blur behind every popup, documentation set in prose, a cursor that travels. A file is on screen in milliseconds. One binary, no Lisp interpreter.">
-<meta property="og:image" content="screenshots/gui-editor.png">
+<meta name="color-scheme" content="dark">
+<meta property="og:url" content="https://alejandrollanes.com/maxgus-editor/">
+<meta property="og:image" content="https://alejandrollanes.com/maxgus-editor/screenshots/gui-editor.png">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://alejandrollanes.com/maxgus-editor/screenshots/gui-editor.png">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%231d1f21'/><text y='72' x='50' text-anchor='middle' font-size='62' font-family='monospace' fill='%238abeb7'>m</text></svg>">
 <style>
 :root {
@@ -198,7 +201,7 @@ section > .wrap > h2::before { content: "## "; color: var(--purple); }
   letter-spacing: .08em; margin-left: .4rem; font-weight: 400; }
 
 /* ---- config ---- */
-.two { display: grid; gap: 1.6rem; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: start; }
+.two { display: grid; gap: 1.6rem; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); align-items: start; }
 pre.block {
   background: var(--surface); border: 1px solid var(--selection);
   border-radius: var(--radius); padding: 1rem 1.2rem; overflow-x: auto;
@@ -387,8 +390,9 @@ footer .sp { margin-left: auto; }
 <section id="platforms"><div class="wrap">
   <h2>On your machine</h2>
   <p class="lede">
-    Every release carries all three builds for Linux, macOS, Windows and
-    FreeBSD, each with a <code>.sha256</code> beside it. The install line
+    Every release carries builds for Linux, macOS, Windows and FreeBSD —
+    all three where the platform says so — each with a <code>.sha256</code>
+    beside it. The install line
     above works out which archive your machine wants; below is the same
     thing said per platform, and the archives are there if you would rather
     not pipe anything into a shell.
@@ -399,7 +403,9 @@ footer .sp { margin-left: auto; }
     <div class="build">
       <h3>Linux</h3>
       <p>glibc, musl and aarch64. A musl system gets the static build, which
-         runs anywhere; the script works that out from <code>ldd</code>.</p>
+         runs anywhere; the script works that out from <code>ldd</code>, and
+         falls back to it where the glibc build, which needs glibc 2.35,
+         will not start.</p>
       <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh \
     -s -- --build gui
 <span class="c"># or the terminal-only build:</span>
@@ -418,8 +424,12 @@ footer .sp { margin-left: auto; }
       <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh \
     -s -- --build gui</pre>
       <ul>
-        <li>Goes to <code>~/.local/bin</code> unless <code>--prefix</code>
-            says otherwise</li>
+        <li>Goes to <code>/usr/local/bin</code> where that is writable,
+            <code>~/.local/bin</code> otherwise, unless <code>--prefix</code>
+            says where</li>
+        <li>The configuration goes to
+            <code>~/Library/Application Support/maxgus</code>, where the
+            editor reads it</li>
         <li>Gatekeeper: the binary is not notarised, so the first run may
             need Open anyway in Privacy &amp; Security</li>
       </ul>
@@ -447,7 +457,8 @@ footer .sp { margin-left: auto; }
          against.</p>
       <pre><span class="p">$ </span>curl -fsSL …/install.sh | sh</pre>
       <ul>
-        <li>Needs <code>curl</code> or <code>fetch</code></li>
+        <li>Needs <code>curl</code>, <code>wget</code> or the base
+            system's <code>fetch</code></li>
       </ul>
     </div>
 
@@ -464,7 +475,7 @@ footer .sp { margin-left: auto; }
 
     <div class="build">
       <h3>From source</h3>
-      <p>Rust stable, edition 2024. <code>minimal</code> and <code>full</code>
+      <p>Rust 1.98 or newer, edition 2024. <code>minimal</code> and <code>full</code>
          need nothing but a terminal; <code>gui</code> needs a window
          system's headers.</p>
       <pre><span class="p">$ </span>git clone …/maxgus-editor
@@ -516,89 +527,89 @@ footer .sp { margin-left: auto; }
     <figcaption>The window: a file open beside the side panel, which stacks the file tree, the symbols in the buffer and the open buffers. Drawn by wgpu, in whatever font the system has.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-card" hidden>
+  <figure class="shot" id="s-card">
     <img src="screenshots/gui-doc-card.png" alt="A rounded card beside a line of C, setting what clangd knows about printf in a proportional face with the code parts in the editor's font" loading="lazy" width="1280" height="720">
     <figcaption><kbd>C-c c k</kbd> asks the language server what the thing at point is, and the answer arrives on a card: the prose in a proportional face wrapped at the pixel, the code in the editor's own font on a chip, over a blur of what is behind it. Real output from clangd. <code>gui</code> only.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-which" hidden>
+  <figure class="shot" id="s-which">
     <img src="screenshots/gui-which-key.png" alt="A panel along the bottom listing what can follow C-c" loading="lazy" width="1280" height="720">
     <figcaption>Stop in the middle of <kbd>C-c</kbd> and a panel says what the next key can be. Keys that open another map are shown as the group they open. In all three builds.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-command" hidden>
+  <figure class="shot" id="s-command">
     <img src="screenshots/gui-command.png" alt="The M-x popup, listing commands that match what has been typed with their keys" loading="lazy" width="1280" height="720">
     <figcaption><kbd>M-x</kbd> fuzzy-matches every command, with its key and a line of documentation beside it.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-popups" hidden>
+  <figure class="shot" id="s-popups">
     <img src="screenshots/gui-buffers.png" alt="A buffer-switching popup over source code, the code behind it blurred" loading="lazy" width="1280" height="720">
     <figcaption>What is behind a popup is blurred rather than hidden, so you keep your place while you read the list. Three passes while a popup is open, and none at all while nothing is. <code>gui</code> only.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-ligatures" hidden>
+  <figure class="shot" id="s-ligatures">
     <img src="screenshots/gui-ligatures.png" alt="A line of Rust with its operators drawn as ligatures" loading="lazy" width="1280" height="720">
     <figcaption>Ligatures where the font has them — <code>-&gt;</code> as one arrow, <code>!=</code> as one glyph — without changing a byte of the file. The text is shaped, not looked up a character at a time, and the cursor's own cell is never joined, so a block over half of <code>≠</code> can never hide which character is under it. <code>gui</code> only.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-undercurl" hidden>
+  <figure class="shot" id="s-undercurl">
     <img src="screenshots/gui-undercurl.png" alt="A C file with wavy lines under its mistakes, and a wavy count of them in the mode line" loading="lazy" width="1280" height="720">
     <figcaption>A diagnostic's underline is the wavy one, drawn by the GPU in the severity's colour, joined across the cells it runs under and as smooth at any zoom. The terminal front end asks kitty, foot, WezTerm, Ghostty and their kind for the same.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-doc" hidden>
-    <img src="screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and documentation from clangd" loading="lazy" width="1280" height="720">
+  <figure class="shot" id="s-doc">
+    <img src="screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and documentation from clangd" loading="lazy" width="1896" height="1021">
     <figcaption>Rest the cursor on a symbol and what the language server knows appears in a box beside it, not over it, the way lsp-ui-doc does. In both front ends.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-magit" hidden>
+  <figure class="shot" id="s-magit">
     <img src="screenshots/gui-magit.png" alt="The magit status view, with untracked files, unstaged changes and a diff opened" loading="lazy" width="1280" height="720">
     <figcaption>magit: stage a hunk, write a commit, read a diff, without leaving the editor.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-tree" hidden>
+  <figure class="shot" id="s-tree">
     <img src="screenshots/gui-tree.png" alt="The file tree in the side panel, with a directory expanded and a file selected" loading="lazy" width="1280" height="720">
     <figcaption>treemacs' keys, git status in the margin, and a panel that stacks the tree, the outline and the buffer list.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-grammar" hidden>
+  <figure class="shot" id="s-grammar">
     <img src="screenshots/gui-grammar.png" alt="A popup listing tree-sitter parsers matching what has been typed" loading="lazy" width="1280" height="720">
     <figcaption><kbd>M-x install-grammar</kbd> lists the five hundred parsers tree-sitter's wiki names. Choosing one clones it, builds it and loads it.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-terminal" hidden>
+  <figure class="shot" id="s-terminal">
     <img src="screenshots/gui-terminal.png" alt="A terminal along the bottom of the window, running a command" loading="lazy" width="1280" height="720">
     <figcaption>A terminal along the bottom, with tabs, in a window of its own — not a buffer pretending to be one.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-grep" hidden>
+  <figure class="shot" id="s-grep">
     <img src="screenshots/gui-grep.png" alt="Search results grouped by file, each with its line number" loading="lazy" width="1280" height="720">
     <figcaption>Search the whole project, edit the results, and write the edits back to the files they came from.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-cursors" hidden>
+  <figure class="shot" id="s-cursors">
     <img src="screenshots/gui-cursors.png" alt="The same word marked in several places at once, with a cursor on each" loading="lazy" width="1280" height="720">
     <figcaption>Take the next occurrence, and the next, and type once into all of them.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-undo" hidden>
+  <figure class="shot" id="s-undo">
     <img src="screenshots/gui-undo.png" alt="The undo history drawn as a tree, with two branches and the current position marked" loading="lazy" width="1280" height="720">
     <figcaption>Undo that keeps what you undid: the history is a tree, and both branches are still there.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-dired" hidden>
+  <figure class="shot" id="s-dired">
     <img src="screenshots/gui-dired.png" alt="A directory listing with permissions, sizes and dates" loading="lazy" width="1280" height="720">
     <figcaption>A directory as a buffer you can work on, the way dired does it.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-beacon" hidden>
-    <img src="screenshots/beacon.svg" alt="A light beside the cursor after it jumped, fading out to the right" loading="lazy" width="1280" height="720">
+  <figure class="shot" id="s-beacon">
+    <img src="screenshots/beacon.svg" alt="A light beside the cursor after it jumped, fading out to the right" loading="lazy" width="1019" height="568">
     <figcaption>A light where the cursor landed after a jump, so the eye finds it again — beacon, for Emacs. This is the terminal's answer; the window animates the cursor across instead.</figcaption>
   </figure>
 
-  <figure class="shot" id="s-themes" hidden>
-    <img src="screenshots/gruvbox.svg" alt="The same editor under the gruvbox theme" loading="lazy" width="1280" height="720">
-    <figcaption>Themes are files you can rewrite. Five ship with it — gruvbox here, plus dracula, nord, solarized-light and the built-in one.</figcaption>
+  <figure class="shot" id="s-themes">
+    <img src="screenshots/gruvbox.svg" alt="The same editor under the gruvbox theme" loading="lazy" width="1019" height="568">
+    <figcaption>Themes are files you can rewrite. Four ship with it — gruvbox here, plus dracula, nord and solarized-light — beside the three built in.</figcaption>
   </figure>
 </div></section>
 
@@ -749,8 +760,9 @@ footer .sp { margin-left: auto; }
     </div>
     <div class="feature">
       <h3>magit</h3>
-      <p>Status, staging by hunk, commits, branches, stashes, log, blame,
-         and the transient menus they hang off.</p>
+      <p>Status, staging by file, hunk or selected lines, commits,
+         branches, stashes, the log, and the transient menus they hang
+         off.</p>
     </div>
     <div class="feature">
       <h3>A file tree</h3>
@@ -811,7 +823,7 @@ footer .sp { margin-left: auto; }
 
 <span class="c">// ---- keys ----</span>
 <span class="k">keymap</span> <span class="s">"global"</span> {
-    <span class="k">bind</span> <span class="s">"C-c f"</span> <span class="s">"lsp-format-buffer"</span>
+    <span class="k">bind</span> <span class="s">"&lt;f5&gt;"</span> <span class="s">"lsp-format-buffer"</span>
     <span class="k">unbind</span> <span class="s">"C-z"</span>
 }</pre>
     <pre class="block"><span class="c">// ---- faces ----</span>
@@ -831,7 +843,7 @@ footer .sp { margin-left: auto; }
   <h2>Getting going</h2>
   <div class="two">
     <div>
-      <p>Open a file and press <kbd>C-h t</kbd> for a guided tour, or
+      <p>Open a file and press <kbd>C-h t</kbd> for a short guide, or
          <kbd>C-h b</kbd> to list every binding. <kbd>C-x C-c</kbd> leaves.</p>
       <p>If <kbd>C-c</kbd> is a prefix you do not know yet, hold it: the panel
          will tell you what is under it.</p>
@@ -847,7 +859,7 @@ maxgus 1.4.0 (gui)
 
 <span class="c"># Install somewhere else, or an older release:</span>
 <span class="p">$</span> curl -fsSL …/install.sh | sh -s -- \
-    --prefix /usr/local/bin --version v0.1.0</pre>
+    --prefix /usr/local/bin --version v1.3.1</pre>
   </div>
 </div></section>
 
@@ -857,7 +869,7 @@ maxgus 1.4.0 (gui)
   <a href="https://github.com/alejandro-llanes/maxgus-editor/issues">Issues</a>
   <a href="install.sh">install.sh</a>
   <a href="https://github.com/alejandro-llanes/maxgus-editor/blob/main/CHANGELOG.md">Changelog</a>
-  <span class="sp">Written in Rust, edition 2024. No unsafe code. Drawn by wgpu.</span>
+  <span class="sp">Written in Rust, edition 2024. No unsafe code but the three calls that load a grammar. Drawn by wgpu.</span>
 </div></footer>
 
 <script>
@@ -887,19 +899,42 @@ document.getElementById("copy").addEventListener("click", function () {
 });
 
 // The screenshot gallery. Without JavaScript every picture is simply shown,
-// which is a worse gallery and a perfectly good page.
+// which is a worse gallery and a perfectly good page: the pictures are only
+// hidden from here, never in the markup.
 (function () {
   Array.prototype.forEach.call(document.querySelectorAll(".tabs"), function (bar) {
     var tabs = Array.prototype.slice.call(bar.querySelectorAll("button"));
     var panels = tabs.map(function (tab) { return document.getElementById(tab.dataset.shot); });
+    function select(n, focus) {
+      tabs.forEach(function (other, m) {
+        var chosen = m === n;
+        other.setAttribute("aria-selected", String(chosen));
+        other.tabIndex = chosen ? 0 : -1;
+        panels[m].hidden = !chosen;
+      });
+      if (focus) { tabs[n].focus(); }
+    }
     tabs.forEach(function (tab, n) {
-      tab.addEventListener("click", function () {
-        tabs.forEach(function (other, m) {
-          other.setAttribute("aria-selected", String(m === n));
-          panels[m].hidden = m !== n;
-        });
+      tab.id = tab.id || "tab-" + tab.dataset.shot;
+      tab.setAttribute("aria-controls", tab.dataset.shot);
+      panels[n].setAttribute("role", "tabpanel");
+      panels[n].setAttribute("aria-labelledby", tab.id);
+      tab.addEventListener("click", function () { select(n, false); });
+      // The keys a tab list is walked with, as the ARIA pattern has them.
+      tab.addEventListener("keydown", function (event) {
+        var to = {
+          ArrowRight: (n + 1) % tabs.length,
+          ArrowLeft: (n - 1 + tabs.length) % tabs.length,
+          Home: 0,
+          End: tabs.length - 1
+        }[event.key];
+        if (to === undefined) { return; }
+        event.preventDefault();
+        select(to, true);
       });
     });
+    var first = tabs.findIndex(function (tab) { return tab.getAttribute("aria-selected") === "true"; });
+    select(first < 0 ? 0 : first, false);
   });
 })();
 </script>

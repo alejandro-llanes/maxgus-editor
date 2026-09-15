@@ -83,22 +83,43 @@ impl DiredView {
         view
     }
 
-    /// Keeps the marks that still name something, over a refresh.
+    /// Keeps the marks that still name something, over a refresh — each as
+    /// the mark it was.
+    ///
+    /// A flag for deletion came back as an ordinary mark, so the next copy or
+    /// rename took the files that had only been flagged, and `x` found
+    /// nothing to delete.
     pub fn refreshed(&self, entries: Vec<Entry>) -> DiredView {
-        let marked: Vec<&str> = self
+        let marked: Vec<(&str, Mark)> = self
             .marks
             .iter()
             .enumerate()
             .filter(|(_, mark)| **mark != Mark::None)
-            .filter_map(|(index, _)| self.entries.get(index).map(|e| e.name.as_str()))
+            .filter_map(|(index, mark)| self.entries.get(index).map(|e| (e.name.as_str(), *mark)))
             .collect();
         let mut fresh = DiredView::new(self.path.clone(), entries);
         for (index, entry) in fresh.entries.iter().enumerate() {
-            if marked.contains(&entry.name.as_str()) {
-                fresh.marks[index] = Mark::Marked;
+            if let Some((_, mark)) = marked.iter().find(|(name, _)| *name == entry.name) {
+                fresh.marks[index] = *mark;
             }
         }
         fresh
+    }
+
+    /// How many of `paths` are directories, as far as the listing knows.
+    pub fn directories_among(&self, paths: &[PathBuf]) -> usize {
+        paths
+            .iter()
+            .filter(|path| {
+                path.parent() == Some(self.path.as_path())
+                    && self.entries.iter().any(|entry| {
+                        entry.is_dir
+                            && entry.link.is_none()
+                            && Some(entry.name.as_str())
+                                == path.file_name().and_then(|n| n.to_str())
+                    })
+            })
+            .count()
     }
 
     pub fn rows(&self) -> &[Row] {

@@ -38,6 +38,8 @@ struct Palette {
     /// green and red text is much harder to read than banded rows are.
     added_bg: Color,
     removed_bg: Color,
+    /// The sixteen colours of a terminal in a window, in ANSI order.
+    ansi: [Color; 16],
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -66,6 +68,27 @@ const DARK: Palette = Palette {
     surface_fg: rgb(0xc5, 0xc8, 0xc6),
     added_bg: rgb(0x1f, 0x2b, 0x1f),
     removed_bg: rgb(0x2e, 0x1f, 0x1f),
+    // Tomorrow Night's terminal colours, and Tomorrow Night Bright's for the
+    // bright half. Black is a step off the background, or it could not be
+    // seen on it.
+    ansi: [
+        rgb(0x37, 0x3b, 0x41),
+        rgb(0xcc, 0x66, 0x66),
+        rgb(0xb5, 0xbd, 0x68),
+        rgb(0xf0, 0xc6, 0x74),
+        rgb(0x81, 0xa2, 0xbe),
+        rgb(0xb2, 0x94, 0xbb),
+        rgb(0x8a, 0xbe, 0xb7),
+        rgb(0xc5, 0xc8, 0xc6),
+        rgb(0x96, 0x98, 0x96),
+        rgb(0xd5, 0x4e, 0x53),
+        rgb(0xb9, 0xca, 0x4a),
+        rgb(0xe7, 0xc5, 0x47),
+        rgb(0x7a, 0xa6, 0xda),
+        rgb(0xc3, 0x97, 0xd8),
+        rgb(0x70, 0xc0, 0xb1),
+        rgb(0xea, 0xea, 0xea),
+    ],
 };
 
 /// Tomorrow.
@@ -86,6 +109,26 @@ const LIGHT: Palette = Palette {
     surface_fg: rgb(0x4d, 0x4d, 0x4c),
     added_bg: rgb(0xe8, 0xf3, 0xdd),
     removed_bg: rgb(0xfa, 0xe6, 0xe6),
+    // Tomorrow's, with white and bright white a step or two off the
+    // background rather than the background itself.
+    ansi: [
+        rgb(0x4d, 0x4d, 0x4c),
+        rgb(0xc8, 0x28, 0x29),
+        rgb(0x71, 0x8c, 0x00),
+        rgb(0xc9, 0x9e, 0x00),
+        rgb(0x42, 0x71, 0xae),
+        rgb(0x89, 0x59, 0xa8),
+        rgb(0x3e, 0x99, 0x9f),
+        rgb(0xd6, 0xd6, 0xd6),
+        rgb(0x8e, 0x90, 0x8c),
+        rgb(0xc8, 0x28, 0x29),
+        rgb(0x71, 0x8c, 0x00),
+        rgb(0xc9, 0x9e, 0x00),
+        rgb(0x42, 0x71, 0xae),
+        rgb(0x89, 0x59, 0xa8),
+        rgb(0x3e, 0x99, 0x9f),
+        rgb(0xef, 0xef, 0xef),
+    ],
 };
 
 /// Terminal defaults: nothing but the sixteen ANSI colours, so the theme
@@ -109,6 +152,24 @@ const TERM: Palette = Palette {
     // green to be had among them: the foreground carries the meaning here.
     added_bg: Color::Default,
     removed_bg: Color::Default,
+    ansi: [
+        idx(0),
+        idx(1),
+        idx(2),
+        idx(3),
+        idx(4),
+        idx(5),
+        idx(6),
+        idx(7),
+        idx(8),
+        idx(9),
+        idx(10),
+        idx(11),
+        idx(12),
+        idx(13),
+        idx(14),
+        idx(15),
+    ],
 };
 
 /// Builds a theme from a palette.
@@ -152,19 +213,15 @@ fn build(name: &str, p: &Palette) -> Theme {
     set("fill-column-indicator", Face::fg(p.selection));
     set("completion-selected", Face::bg(p.selection).bold());
     set("completion-annotation", Face::fg(p.comment).italic());
-    // The panel's section bands. A heading has to read as furniture rather
-    // than as content, or the eye keeps mistaking it for a file.
-    // A terminal's own colours come from the program running in it; this is
-    // only what an unpainted cell falls back to.
-    // Magit's own face names, so a theme written for magit ports straight
-    // across. The diff faces carry a background as well as a foreground: a
-    // wall of green and red text is much harder to read than banded rows.
     // The menus. A key has to stand out from its description or the menu is
     // a wall of words rather than something to read a key off.
     set("transient-key", Face::fg(p.aqua).bold());
     set("transient-heading", Face::fg(p.yellow).bold());
     set("transient-switch-on", Face::fg(p.green).bold());
     set("transient-switch-off", Face::fg(p.comment));
+    // Magit's own face names, so a theme written for magit ports straight
+    // across. The diff faces carry a background as well as a foreground: a
+    // wall of green and red text is much harder to read than banded rows.
     set("magit-section-heading", Face::fg(p.yellow).bold());
     set("magit-section-highlight", Face::bg(p.selection));
     set("magit-diff-file-heading", Face::fg(p.fg).bold());
@@ -185,6 +242,8 @@ fn build(name: &str, p: &Palette) -> Theme {
     set("dired-symlink", Face::fg(p.aqua));
     set("dired-marked", Face::fg(p.yellow).bold());
     set("dired-flagged", Face::fg(p.red).bold());
+    // A terminal's own colours come from the program running in it; this is
+    // only what an unpainted cell falls back to.
     set("terminal", Face::fg(p.fg));
     set("terminal-tab", Face::fg(p.comment).with_bg(p.selection));
     set(
@@ -192,6 +251,13 @@ fn build(name: &str, p: &Palette) -> Theme {
         Face::fg(p.bg).with_bg(p.blue).bold(),
     );
     set("terminal-exited", Face::fg(p.red).with_bg(p.selection));
+    // What a program in a window's terminal asks for by number. xterm's
+    // were used, and its blue cannot be read on a dark background.
+    for (name, color) in names::ANSI_FACES.iter().zip(p.ansi) {
+        set(name, Face::fg(color));
+    }
+    // The panel's section bands. A heading has to read as furniture rather
+    // than as content, or the eye keeps mistaking it for a file.
     set("panel-header", Face::fg(p.blue).with_bg(p.selection).bold());
     set("panel-note", Face::fg(p.comment).italic());
     set("panel-current-buffer", Face::fg(p.yellow).bold());
@@ -201,8 +267,6 @@ fn build(name: &str, p: &Palette) -> Theme {
     // The `+file` and `+code` entries in the which-key panel: another map
     // rather than a command, so it reads as a different kind of thing.
     set("which-key-group", Face::fg(p.purple).bold());
-    // Code in a doc box, on a panel of its own so a signature reads as one
-    // thing rather than as a sentence that happens to have brackets in it.
     set("menu-heading", Face::fg(p.orange).bold());
     // The doc box is a panel rather than a hole cut in the buffer: its own
     // background, one step off the text's, and a border in a colour that
@@ -210,7 +274,9 @@ fn build(name: &str, p: &Palette) -> Theme {
     set("doc", Face::fg(p.fg).with_bg(p.surface));
     set("doc-border", Face::fg(p.blue).with_bg(p.surface));
     set("doc-title", Face::fg(p.blue).with_bg(p.surface).bold());
-    // A step further off again, or code on the panel would be the panel.
+    // Code in a doc box, on a panel of its own so a signature reads as one
+    // thing rather than as a sentence that happens to have brackets in it —
+    // a step further off again, or code on the panel would be the panel.
     set("doc-code", Face::fg(p.aqua).with_bg(p.selection));
     set("completion-count", Face::fg(p.orange).bold());
     set("error", Face::fg(p.red).bold());

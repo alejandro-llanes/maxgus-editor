@@ -1,9 +1,9 @@
-// The configuration the demo clips are recorded under.
+// The configuration the screenshots of the window are taken under.
 //
-// `scripts/record-demos.sh` starts the editor with this rather than with
-// whoever is recording's own configuration, so a clip shows the editor as it
-// ships instead of as one person has bent it, and so the clips do not change
-// when that person changes their theme.
+// `scripts/screenshots-gui.sh` starts the editor with this rather than with
+// whoever is taking them's own configuration, so a picture shows the editor
+// as it ships instead of as one person has bent it, and so the pictures do
+// not change when that person changes their theme.
 //
 // It is the shipped example with two things turned off:
 //

@@ -355,6 +355,11 @@ fn printing_char(editor: &mut Editor, args: &Args) -> Result<()> {
 }
 
 /// Adds `text` to the search string, as the yank commands do.
+/// Adds pasted text to the search, the way a yank into isearch does.
+pub fn extend_with_paste(editor: &mut Editor, text: &str) -> Result<()> {
+    extend(editor, text)
+}
+
 fn extend(editor: &mut Editor, text: &str) -> Result<()> {
     if text.is_empty() {
         return Ok(());

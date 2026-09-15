@@ -277,6 +277,11 @@ pub fn draw_floating(editor: &Editor, surface: &mut Surface) -> Vec<Rect> {
     if let Some(browser) = editor.browser.as_ref() {
         floating.extend(draw_browser(editor, surface, frame, browser));
     }
+    // A message wider than the echo area climbs over the bottom of the
+    // windows until the next key, as Emacs grows its echo area for one. Cut
+    // off at the edge, a configuration problem lost the line it was on and
+    // a suggestion the name it was suggesting.
+    draw_long_message(editor, surface, frame);
     // The completion popup takes the echo area with it: the prompt it is
     // answering rides along the top of the box instead.
     if let Some(area) = completion_popup(editor, frame) {
@@ -1280,10 +1285,16 @@ fn draw_git_diff(
                     if folded { '\u{25b8}' } else { '\u{25be}' },
                     face("shadow"),
                 ) + 1;
+                // A rename says where from; a heading of just the new name
+                // with `+0 −0` beside it read as an empty file.
+                let heading = match &file.old_path {
+                    Some(old) if *old != file.path => format!("{old} \u{2192} {}", file.path),
+                    _ => file.path.clone(),
+                };
                 x = surface.set_string(
                     x,
                     y,
-                    &file.path,
+                    &heading,
                     face("magit-diff-file-heading"),
                     area.right().saturating_sub(x),
                 );
@@ -1393,7 +1404,12 @@ pub fn git_diff_row_text(view: &crate::git::DiffView, row: &crate::git::DiffRow)
             .get(*index)
             .map(|file| {
                 let (added, removed) = file.counts();
-                format!("{}  +{added} -{removed}", file.path)
+                match &file.old_path {
+                    Some(old) if *old != file.path => {
+                        format!("{old} \u{2192} {}  +{added} -{removed}", file.path)
+                    }
+                    _ => format!("{}  +{added} -{removed}", file.path),
+                }
             })
             .unwrap_or_default(),
         DiffRow::Hunk(file, hunk) => view
@@ -1546,10 +1562,15 @@ fn draw_git_row(
                     right.saturating_sub(x),
                 );
             }
+            // A rename says where from, as magit says it.
+            let shown = match rename_origin(editor, *section, &path) {
+                Some(original) => format!("{original} \u{2192} {path}"),
+                None => path.clone(),
+            };
             x = surface.set_string(
                 x,
                 area.y,
-                &path,
+                &shown,
                 face("magit-diff-file-heading"),
                 right.saturating_sub(x),
             );
@@ -1681,6 +1702,22 @@ fn draw_git_row(
             );
         }
     }
+}
+
+/// Where a renamed file came from, when it was renamed in this section.
+#[cfg(feature = "full")]
+pub fn rename_origin(editor: &Editor, section: crate::git::Section, path: &str) -> Option<String> {
+    if section != crate::git::Section::Staged {
+        return None;
+    }
+    editor
+        .git
+        .status
+        .entries
+        .iter()
+        .find(|entry| entry.path.to_string_lossy() == path)
+        .and_then(|entry| entry.original.as_ref())
+        .map(|original| original.to_string_lossy().into_owned())
 }
 
 #[cfg(feature = "full")]
@@ -2029,10 +2066,10 @@ fn draw_symbol_row(
         area.width.saturating_sub(1),
         area.height,
     );
-    // One level deeper than the tree's, because every symbol sits under the
-    // heading rather than beside it.
-    draw_indent_guides(surface, area, y, symbol.depth + 1, face("tree-indent"));
-    let indent = ((symbol.depth as u16 + 1) * 2).min(area.width);
+    // The outline is a window of its own, with no heading above it to hang
+    // a first level of guide from; a top-level symbol starts at the edge.
+    draw_indent_guides(surface, area, y, symbol.depth, face("tree-indent"));
+    let indent = (symbol.depth as u16 * 2).min(area.width);
     let mut x = area.x + indent;
     let mark = expander(symbol.has_children(), symbol.expanded, icons);
     x = surface.set_string(x, y, &mark, face("tree-arrow"), area.right() - x);
@@ -2078,11 +2115,9 @@ fn draw_buffer_row(
     let Some(buffer) = editor.buffers.get(id) else {
         return;
     };
-    let current = editor
-        .windows
-        .iter()
-        .find(|w| !editor.panel_windows.contains(&w.id))
-        .is_some_and(|w| w.buffer == id);
+    // The window being edited, not the first one that is not the panel's:
+    // with a split, or the terminal open, that was often some other buffer.
+    let current = editor.editing_buffer() == Some(id);
     let name_face = if current {
         "panel-current-buffer"
     } else {
@@ -2853,6 +2888,21 @@ fn resolve_search_matches(
             .copied()
             .collect();
     }
+    // So do the results of a project search, while they are being read:
+    // once they are being typed into, the places are no longer where they
+    // were found.
+    #[cfg(feature = "full")]
+    if buffer.name() == crate::commands::grep::GREP_BUFFER_NAME
+        && let Some(view) = editor.grep.as_ref().filter(|view| !view.editable)
+    {
+        return (first_line..last_line.min(buffer.len_lines()))
+            .filter_map(|line| {
+                let columns = view.match_on(line)?;
+                let start = buffer.line_start(line);
+                Some(Range::new(start + columns.start, start + columns.end))
+            })
+            .collect();
+    }
     // The query being replaced marks its other matches too, so what `!`
     // would do to the rest of the screen can be seen before answering it.
     let query = match (editor.isearch.as_ref(), editor.query_replace.as_ref()) {
@@ -3218,20 +3268,20 @@ fn draw_completion_popup(editor: &Editor, surface: &mut Surface, area: Rect) {
         theme.resolve("completion-count"),
         inner.width,
     );
+    let (prompt, input, _) = fit_prompt_line(
+        editor.minibuffer.prompt(),
+        editor.minibuffer.input(),
+        editor.minibuffer.point(),
+        inner.right().saturating_sub(x) as usize,
+    );
     x = surface.set_string(
         x,
         inner.y,
-        editor.minibuffer.prompt(),
+        &prompt,
         theme.resolve("minibuffer-prompt"),
         inner.right().saturating_sub(x),
     );
-    surface.set_string(
-        x,
-        inner.y,
-        editor.minibuffer.input(),
-        default,
-        inner.right().saturating_sub(x),
-    );
+    surface.set_string(x, inner.y, &input, default, inner.right().saturating_sub(x));
 
     let rows = inner.height.saturating_sub(1) as usize;
     // The window into the list, which scrolls under the box.
@@ -3249,10 +3299,20 @@ fn draw_completion_popup(editor: &Editor, surface: &mut Surface, area: Rect) {
         true => inner.width * 2 / 3,
         false => inner.width,
     };
-    let names = column_width(shown.iter().map(String::as_str), most);
+    // A file prompt's candidates are whole paths, for completing into the
+    // input; the list shows their names. Every row shares the directory, and
+    // spelling it out pushed the part that differs off the edge of the box.
+    let labels: Vec<&str> = shown
+        .iter()
+        .map(|candidate| match editor.minibuffer.kind() {
+            Some(crate::MinibufferKind::File) => file_label(candidate),
+            _ => candidate.as_str(),
+        })
+        .collect();
+    let names = column_width(labels.iter().copied(), most);
     let keys = column_width(annotations.iter().map(|(k, _)| k.as_str()), inner.width / 4);
 
-    for (row, candidate) in shown.iter().enumerate() {
+    for row in 0..shown.len() {
         let y = inner.y + 1 + row as u16;
         let chosen = completion.selected == Some(top + row);
         let face = if chosen {
@@ -3264,10 +3324,12 @@ fn draw_completion_popup(editor: &Editor, surface: &mut Surface, area: Rect) {
         // a row's worth of colour is far easier to track with the arrow keys
         // than a word's worth.
         surface.clear_rect(Rect::new(inner.x, y, inner.width, 1), face);
-        surface.set_string(inner.x, y, candidate, face, names);
+        surface.set_string(inner.x, y, labels[row], face, names);
 
         let (key, doc) = &annotations[row];
-        let mut x = inner.x + names + 1;
+        // Two columns apart: at one, the longest name ran straight into its
+        // key — `save-buffers-kill-terminal C-x C-c` — and read as one word.
+        let mut x = inner.x + names + COLUMN_GAP;
         if keys > 0 {
             let key_face = if chosen {
                 face
@@ -3275,7 +3337,7 @@ fn draw_completion_popup(editor: &Editor, surface: &mut Surface, area: Rect) {
                 theme.resolve("completion-key")
             };
             surface.set_string(x, y, key, key_face, keys);
-            x += keys + 1;
+            x += keys + COLUMN_GAP;
         }
         if x < inner.right() {
             let doc_face = if chosen {
@@ -3287,6 +3349,19 @@ fn draw_completion_popup(editor: &Editor, surface: &mut Surface, area: Rect) {
         }
     }
 }
+
+/// The last part of a path, keeping a directory's trailing slash.
+fn file_label(path: &str) -> &str {
+    let trimmed = path.trim_end_matches('/');
+    match trimmed.rfind('/') {
+        Some(at) if at + 1 < path.len() => &path[at + 1..],
+        _ => path,
+    }
+}
+
+/// The blank columns between a completion's name, its key and its
+/// documentation.
+const COLUMN_GAP: u16 = 2;
 
 /// The width of a column: its widest entry, capped, and zero when empty.
 fn column_width<'a>(entries: impl Iterator<Item = &'a str>, most: u16) -> u16 {
@@ -3308,10 +3383,18 @@ fn annotate(editor: &Editor, candidate: &str) -> (String, String) {
             // shorter is the one worth showing in a column this narrow.
             let key = editor
                 .keymaps
-                .where_is(candidate)
+                .where_is_beneath_minor_maps(candidate)
                 .iter()
                 .map(|sequence| sequence.notation())
-                .min_by_key(|notation| (notation.chars().count(), notation.clone()))
+                // On a tie, the classic key rather than the one under Doom's
+                // leader: `C-x C-c` is what a person reaching for this knows.
+                .min_by_key(|notation| {
+                    (
+                        notation.chars().count(),
+                        notation.starts_with("C-c "),
+                        notation.clone(),
+                    )
+                })
                 .unwrap_or_default();
             let doc = editor
                 .command_docs
@@ -3375,12 +3458,10 @@ fn draw_border(surface: &mut Surface, area: Rect, face: Face) {
     surface.set_char(right, bottom, '╯', face);
 }
 
-fn draw_echo_area(editor: &Editor, surface: &mut Surface, area: Rect) {
-    if area.height == 0 {
-        return;
-    }
+/// The face the echo area draws in, from what it is showing.
+fn echo_face(editor: &Editor) -> maxgus_faces::Face {
     let theme = &editor.theme;
-    let face = match () {
+    match () {
         // A search that is finding nothing says so in its own face, which is
         // the difference between noticing and typing on obliviously.
         _ if editor.isearch.as_ref().is_some_and(|s| s.failing) => theme.resolve("isearch-fail"),
@@ -3390,11 +3471,149 @@ fn draw_echo_area(editor: &Editor, surface: &mut Surface, area: Rect) {
             Some(name) => theme.resolve(name),
             None => theme.resolve("echo-area"),
         },
-    };
+    }
+}
+
+/// The most rows a message climbs to before the rest of it is cut.
+const LONG_MESSAGE_ROWS: usize = 6;
+
+/// A message too wide for the echo area, wrapped at spaces over as many rows
+/// as it needs above it — or `None` when it fits, or when the echo area is
+/// busy with a prompt, a search or a half-typed key.
+fn draw_long_message(editor: &Editor, surface: &mut Surface, frame: Rect) -> Option<Rect> {
+    if editor.minibuffer.is_active() || editor.isearch.is_some() || editor.pending_keys.is_some() {
+        return None;
+    }
+    let message = editor.minibuffer.display();
+    let width = frame.width as usize;
+    let wide: usize = message.chars().map(char_width).sum();
+    if width < 20 || wide <= width {
+        return None;
+    }
+    let mut lines = wrap_message(&message, width);
+    // Always a row of the windows left above it.
+    let room = (frame.height as usize)
+        .saturating_sub(2)
+        .clamp(1, LONG_MESSAGE_ROWS);
+    if lines.len() > room {
+        lines.truncate(room);
+        if let Some(last) = lines.last_mut() {
+            let mut kept: Vec<char> = last.chars().collect();
+            while kept.iter().map(|c| char_width(*c)).sum::<usize>() + 1 > width {
+                kept.pop();
+            }
+            *last = kept.into_iter().collect::<String>() + "\u{2026}";
+        }
+    }
+    let height = lines.len() as u16;
+    let area = Rect::new(frame.x, frame.bottom() - height, frame.width, height);
+    let face = echo_face(editor);
+    surface.clear_rect(area, editor.theme.resolve("default"));
+    for (row, line) in lines.iter().enumerate() {
+        surface.set_string(area.x, area.y + row as u16, line, face, area.width);
+    }
+    Some(area)
+}
+
+/// `text` in lines no wider than `width` columns, broken at spaces where it
+/// can be and inside a word only where a word is wider than a line.
+fn wrap_message(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    let mut used = 0;
+    for word in text.split(' ') {
+        let wide: usize = word.chars().map(char_width).sum();
+        let gap = usize::from(!line.is_empty());
+        if used + gap + wide <= width {
+            if gap == 1 {
+                line.push(' ');
+            }
+            line.push_str(word);
+            used += gap + wide;
+            continue;
+        }
+        if !line.is_empty() {
+            lines.push(std::mem::take(&mut line));
+            used = 0;
+        }
+        for c in word.chars() {
+            let w = char_width(c);
+            if used + w > width {
+                lines.push(std::mem::take(&mut line));
+                used = 0;
+            }
+            line.push(c);
+            used += w;
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
+fn draw_echo_area(editor: &Editor, surface: &mut Surface, area: Rect) {
+    if area.height == 0 {
+        return;
+    }
+    let theme = &editor.theme;
+    let face = echo_face(editor);
     surface.clear_rect(area, theme.resolve("default"));
 
+    if editor.minibuffer.is_active() && editor.isearch.is_none() {
+        let (prompt, input, _) = fit_prompt_line(
+            editor.minibuffer.prompt(),
+            editor.minibuffer.input(),
+            editor.minibuffer.point(),
+            area.width as usize,
+        );
+        let x = surface.set_string(area.x, area.y, &prompt, face, area.width);
+        surface.set_string(
+            x,
+            area.y,
+            &input,
+            theme.resolve("default"),
+            area.right().saturating_sub(x),
+        );
+        return;
+    }
     let text = echo_text(editor);
     surface.set_string(area.x, area.y, &text, face, area.width);
+}
+
+/// The part of a prompt and its input to draw in `room` columns, and the
+/// column the cursor is at within them.
+///
+/// A line longer than the room scrolls to keep the cursor in view, as a
+/// one-line minibuffer scrolls in Emacs, with `…` where its start went. A
+/// file prompt opens holding a directory that is often wider than the
+/// terminal, and what was typed after it was drawn off the edge — typed
+/// blind, with the cursor stuck at the last column.
+pub fn fit_prompt_line(
+    prompt: &str,
+    input: &str,
+    point: usize,
+    room: usize,
+) -> (String, String, usize) {
+    let prompt_chars = prompt.chars().count();
+    let line: Vec<char> = prompt.chars().chain(input.chars()).collect();
+    let cursor = prompt_chars + point.min(input.chars().count());
+    if room == 0 || line.len() < room {
+        return (prompt.to_string(), input.to_string(), cursor);
+    }
+    // The cursor one short of the edge, so there is a cell to draw it in.
+    let start = (cursor + 1).saturating_sub(room);
+    let end = (start + room).min(line.len());
+    let mut shown: Vec<char> = line[start..end].to_vec();
+    if start > 0 && !shown.is_empty() {
+        shown[0] = '\u{2026}';
+    }
+    let split = prompt_chars.saturating_sub(start).min(shown.len());
+    (
+        shown[..split].iter().collect(),
+        shown[split..].iter().collect(),
+        cursor - start,
+    )
 }
 
 /// The face a message deserves, judged by what it says.
@@ -3429,6 +3648,59 @@ pub fn echo_text(editor: &Editor) -> String {
         return pending.clone();
     }
     editor.minibuffer.display()
+}
+
+#[cfg(test)]
+mod long_message_tests {
+    use super::*;
+
+    #[test]
+    fn a_message_wraps_at_spaces() {
+        assert_eq!(
+            wrap_message("one two three four", 9),
+            ["one two", "three", "four"]
+        );
+    }
+
+    #[test]
+    fn a_word_wider_than_a_line_is_broken_inside() {
+        assert_eq!(wrap_message("abcdefghij", 4), ["abcd", "efgh", "ij"]);
+    }
+
+    #[test]
+    fn a_long_message_is_shown_whole_above_the_echo_area() {
+        let mut e = Editor::new(
+            maxgus_config::Settings::default(),
+            maxgus_faces::defaults::builtin_or_fallback("maxgus-dark"),
+            Rect::new(0, 0, 30, 10),
+        );
+        e.error("config.kdl is not valid KDL, so none of it is in use: line 2: No closing brace");
+        let mut surface = Surface::new(maxgus_tui::Size::new(30, 10));
+        draw(&e, &mut surface);
+        let rows: Vec<String> = (0..10)
+            .map(|y| {
+                (0..30)
+                    .map(|x| surface.get(x, y).map_or(' ', |c| c.ch))
+                    .collect()
+            })
+            .collect();
+        let shown = rows.join("\n");
+        assert!(shown.contains("No closing brace"), "{shown}");
+        assert!(shown.contains("config.kdl is not valid KDL"), "{shown}");
+        assert!(rows[9].trim_end().ends_with("brace"), "{shown}");
+    }
+
+    #[test]
+    fn a_message_that_fits_leaves_the_windows_alone() {
+        let mut e = Editor::new(
+            maxgus_config::Settings::default(),
+            maxgus_faces::defaults::builtin_or_fallback("maxgus-dark"),
+            Rect::new(0, 0, 30, 10),
+        );
+        e.message("short");
+        let mut surface = Surface::new(maxgus_tui::Size::new(30, 10));
+        assert!(draw_long_message(&e, &mut surface, Rect::new(0, 0, 30, 10)).is_none());
+    }
 }
 
 #[cfg(test)]
@@ -4701,6 +4973,37 @@ mod tests {
             None,
             "an ordinary message is ordinary"
         );
+    }
+
+    #[test]
+    fn a_file_candidate_is_listed_by_its_name() {
+        assert_eq!(file_label("/home/me/project/src/main.rs"), "main.rs");
+        assert_eq!(file_label("/home/me/project/src/"), "src/");
+        assert_eq!(file_label("/"), "/");
+    }
+
+    #[test]
+    fn a_prompt_longer_than_the_room_keeps_the_cursor_in_view() {
+        let (prompt, input, cursor) = fit_prompt_line("Find file: ", "/a/b", 4, 40);
+        assert_eq!(
+            (prompt.as_str(), input.as_str(), cursor),
+            ("Find file: ", "/a/b", 15)
+        );
+
+        let long = "/home/somebody/a/very/deep/project/directory/src/";
+        let (prompt, input, cursor) = fit_prompt_line("Find file: ", long, long.len(), 30);
+        let line = format!("{prompt}{input}");
+        // One cell left over, for the cursor after the last character.
+        assert_eq!(line.chars().count(), 29);
+        assert!(
+            line.starts_with('\u{2026}'),
+            "the lost start is marked: {line}"
+        );
+        assert!(
+            line.ends_with("src/"),
+            "the end, where typing happens, shows: {line}"
+        );
+        assert_eq!(cursor, 29, "the cursor is on the last cell, not past it");
     }
 
     #[test]

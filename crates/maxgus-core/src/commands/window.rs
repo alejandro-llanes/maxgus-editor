@@ -97,25 +97,65 @@ fn split_right(editor: &mut Editor, _: &Args) -> Result<()> {
     Ok(())
 }
 
+/// `C-x 0`.
+///
+/// In one of the panel's windows it closes the panel: a column with one of
+/// its three windows missing is not something anything else knows how to
+/// draw around. The last window that is not the panel's or the terminal's
+/// stays, as Emacs keeps the main window of a frame with side windows.
 fn delete_window(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.sync_to_buffer();
     let current = editor.windows.current_id();
-    editor.windows.delete(current)?;
-    // The tree window may have been the one deleted.
-    if editor.tree_window == Some(current) {
-        editor.tree_window = None;
+    if editor.panel_windows.contains(&current) {
+        crate::commands::tree::close(editor);
+        editor.follow_point();
+        return Ok(());
     }
+    let dedicated = editor.is_dedicated_window(current);
+    let others = editor
+        .windows
+        .ids()
+        .into_iter()
+        .filter(|id| *id != current && !editor.is_dedicated_window(*id))
+        .count();
+    if !dedicated && others == 0 && editor.windows.len() > 1 {
+        return Err(crate::CoreError::Message(
+            "Cannot delete the last window that is not a side window".into(),
+        ));
+    }
+    editor.windows.delete(current)?;
+    editor.forget_dead_windows();
+    editor.activate_mode_keymap();
     editor.follow_point();
     Ok(())
 }
 
+/// `C-x 1`: every other window goes, except the side windows.
+///
+/// The panel and the terminal are not part of the layout being tidied, and
+/// Emacs leaves side windows alone here for that reason. Deleting them too
+/// left the editor still believing in a panel that was gone: `C-x t 1`
+/// said "No such window", `C-x t t` had to be pressed twice, and keys meant
+/// for the tree were typed into the file.
 fn delete_other_windows(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.sync_to_buffer();
     let kept = editor.windows.current_id();
-    editor.windows.delete_others();
-    if editor.tree_window.is_some_and(|tree| tree != kept) {
-        editor.tree_window = None;
+    if editor.is_dedicated_window(kept) {
+        return Err(crate::CoreError::Message(
+            "Cannot make a side window the only window".into(),
+        ));
     }
+    let doomed: Vec<_> = editor
+        .windows
+        .ids()
+        .into_iter()
+        .filter(|id| *id != kept && !editor.is_dedicated_window(*id))
+        .collect();
+    for id in doomed {
+        editor.windows.delete(id).ok();
+    }
+    editor.windows.select(kept);
+    editor.forget_dead_windows();
     editor.follow_point();
     Ok(())
 }
@@ -553,29 +593,67 @@ mod tests {
     }
 
     #[test]
-    fn deleting_windows_forgets_a_tree_window_that_went_with_them() {
+    fn deleting_the_other_windows_leaves_the_side_windows_alone() {
         let (mut d, mut e) = setup();
         let buffer = e.buffers.create("*treefile*");
         let tree = e.windows.add_side_window(buffer, 32);
         e.tree_window = Some(tree);
+        e.panel_windows = vec![tree];
+        run(&mut d, &mut e, "split-window-below");
+        assert_eq!(e.windows.len(), 3);
 
         run(&mut d, &mut e, "delete-other-windows");
-        assert!(
-            e.tree_window.is_none(),
-            "the tree window is gone, so the record is too"
-        );
+        assert_eq!(e.windows.len(), 2, "the split went and the tree stayed");
+        assert_eq!(e.tree_window, Some(tree));
+        assert!(e.windows.get(tree).is_some());
     }
 
     #[test]
-    fn deleting_the_tree_window_itself_clears_the_record() {
+    fn a_side_window_cannot_be_made_the_only_one() {
         let (mut d, mut e) = setup();
         let buffer = e.buffers.create("*treefile*");
         let tree = e.windows.add_side_window(buffer, 32);
         e.tree_window = Some(tree);
+        e.panel_windows = vec![tree];
+        e.select_window(tree);
+
+        let outcome = d.execute(&mut e, "delete-other-windows", None);
+        assert!(
+            matches!(outcome, Dispatch::Failed { .. }),
+            "got {outcome:?}"
+        );
+        assert_eq!(e.windows.len(), 2);
+    }
+
+    #[test]
+    fn deleting_the_tree_window_itself_closes_the_panel() {
+        let (mut d, mut e) = setup();
+        let buffer = e.buffers.create("*treefile*");
+        let tree = e.windows.add_side_window(buffer, 32);
+        e.tree_window = Some(tree);
+        e.panel_windows = vec![tree];
         e.select_window(tree);
 
         run(&mut d, &mut e, "delete-window");
         assert!(e.tree_window.is_none());
+        assert!(e.panel_windows.is_empty());
+        assert_eq!(e.windows.len(), 1);
+    }
+
+    #[test]
+    fn the_last_window_beside_the_panel_is_not_deleted() {
+        let (mut d, mut e) = setup();
+        let buffer = e.buffers.create("*treefile*");
+        let tree = e.windows.add_side_window(buffer, 32);
+        e.tree_window = Some(tree);
+        e.panel_windows = vec![tree];
+
+        let outcome = d.execute(&mut e, "delete-window", None);
+        assert!(
+            matches!(outcome, Dispatch::Failed { .. }),
+            "got {outcome:?}"
+        );
+        assert_eq!(e.windows.len(), 2);
     }
 
     #[test]

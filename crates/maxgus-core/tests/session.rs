@@ -89,8 +89,21 @@ impl Session {
             .collect()
     }
 
+    /// What the echo area says: its row, or — for a message too wide for
+    /// it, wrapped up over the rows above — the whole of what those rows
+    /// show.
     fn echo(&mut self) -> String {
-        self.screen().last().cloned().unwrap_or_default()
+        let last = self.screen().last().cloned().unwrap_or_default();
+        let said = self.editor.minibuffer.display();
+        let tail = last.trim_end();
+        match !self.editor.minibuffer.is_active()
+            && !tail.is_empty()
+            && said.chars().count() > last.chars().count()
+            && said.ends_with(tail)
+        {
+            true => said,
+            false => last,
+        }
     }
 
     /// The face one cell is drawn in, after a fresh redisplay.
@@ -174,6 +187,144 @@ fn a_prefix_argument_repeats_a_command() {
     // `M-3 C-b` moves back three.
     s.keys("M-3 C-b");
     assert_eq!(s.point(), 2);
+}
+
+#[test]
+fn a_paste_goes_where_the_keys_are_going() {
+    // Into the search while searching.
+    let mut s = Session::editing("/project/notes.txt", "one two three\n");
+    s.keys("C-s");
+    maxgus_core::frontend::paste_text(&mut s.editor, "two");
+    assert_eq!(
+        s.editor.isearch.as_ref().map(|search| search.query.clone()),
+        Some("two".to_string())
+    );
+    assert_eq!(s.text(), "one two three\n", "the paste went into the text");
+    s.keys("RET");
+
+    // Into the text as its own undo step, after some typing.
+    let mut s = Session::editing("/project/notes.txt", "");
+    s.type_text("abc");
+    maxgus_core::frontend::paste_text(&mut s.editor, "XYZ");
+    assert_eq!(s.text(), "abcXYZ");
+    s.keys("C-/");
+    assert_eq!(s.text(), "abc", "the paste undid with the typing before it");
+}
+
+#[test]
+fn a_file_prompt_lists_the_directory_the_input_is_typed_into() {
+    let mut s = Session::editing("/project/src/main.rs", "fn main() {}\n");
+    s.keys("C-x C-f");
+    let listed = |s: &mut Session| -> Vec<std::path::PathBuf> {
+        s.editor
+            .tasks
+            .drain()
+            .into_iter()
+            .filter_map(|task| match task {
+                Task::ListDirectory { path } => Some(path),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(
+        listed(&mut s),
+        vec![std::path::PathBuf::from("/project/src/")]
+    );
+    // The listing arrives and is on show without a key being pressed.
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::DirectoryListed {
+            path: "/project/src/".into(),
+            entries: vec!["/project/src/main.rs".into(), "/project/src/lib.rs".into()],
+        })
+        .unwrap();
+    assert!(
+        !s.editor.minibuffer.completion().is_empty(),
+        "the list is not up"
+    );
+
+    // Into the parent: that directory is what is asked for now.
+    s.keys("C-a C-k");
+    s.type_text("/project/");
+    assert!(listed(&mut s).contains(&std::path::PathBuf::from("/project/")));
+
+    // And a path started again after the prefilled one is the new path.
+    s.keys("C-a C-k");
+    s.type_text("/project/src//etc/");
+    assert_eq!(s.editor.minibuffer.input(), "/etc/");
+    assert!(listed(&mut s).contains(&std::path::PathBuf::from("/etc/")));
+}
+
+#[test]
+fn a_macro_ended_by_name_does_not_replay_the_name() {
+    let mut s = Session::editing("/project/notes.txt", "");
+    s.keys("<f3>");
+    s.type_text("ab");
+    s.keys("M-x");
+    s.type_text("kmacro-end-macro");
+    s.keys("RET");
+    assert_eq!(s.text(), "ab");
+    s.keys("<f4>");
+    maxgus_core::frontend::after_key(&mut s.editor, &mut s.dispatcher);
+    assert_eq!(s.text(), "abab", "the macro typed more than was recorded");
+}
+
+#[test]
+fn the_macro_counter_numbers_what_the_macro_makes() {
+    let mut s = Session::editing("/project/notes.txt", "");
+    s.keys("<f3>");
+    s.keys("<f3>");
+    s.type_text(". item");
+    s.keys("RET");
+    s.keys("<f4>");
+    for _ in 0..2 {
+        s.keys("<f4>");
+        maxgus_core::frontend::after_key(&mut s.editor, &mut s.dispatcher);
+    }
+    assert_eq!(s.text(), "0. item\n1. item\n2. item\n");
+}
+
+#[test]
+fn a_macro_stops_at_the_first_key_that_fails() {
+    let mut s = Session::editing("/project/notes.txt", "one\ntwo\n");
+    // Down a line and type: from the last line, `C-n` fails, and the `x`
+    // after it must not be typed.
+    s.keys("<f3> C-n");
+    s.type_text("x");
+    s.keys("<f4>");
+    s.keys("M-> C-u 5 <f4>");
+    maxgus_core::frontend::after_key(&mut s.editor, &mut s.dispatcher);
+    assert_eq!(s.text(), "one\nxtwo\n", "the macro went on after failing");
+    assert!(
+        s.echo().contains("Keyboard macro stopped"),
+        "got `{}`",
+        s.echo()
+    );
+}
+
+#[test]
+fn digits_after_the_universal_argument_are_the_argument() {
+    let mut s = Session::editing("/project/notes.txt", "");
+    s.keys("C-u 1 2");
+    s.type_text("x");
+    assert_eq!(s.text(), "x".repeat(12), "`C-u 1 2 x` inserts twelve");
+
+    let mut s = Session::editing("/project/notes.txt", "hello world\n");
+    s.keys("C-e M-b C-u 0 C-k");
+    assert_eq!(
+        s.text(),
+        "world\n",
+        "`C-u 0 C-k` kills back to the line's start"
+    );
+
+    let mut s = Session::editing("/project/notes.txt", "abcdefghij\n");
+    // A digit after `M-3` goes on building the number too: thirty-something
+    // is clamped at the end of the line.
+    s.keys("M-3 0 C-f");
+    assert_eq!(s.point(), 11);
+
+    let mut s = Session::editing("/project/notes.txt", "one two\n");
+    s.keys("C-e C-u - M-d");
+    assert_eq!(s.text(), "one \n", "`C-u -` is minus one");
 }
 
 #[test]
@@ -395,6 +546,8 @@ fn the_file_tree_opens_beside_the_buffer_and_takes_the_keyboard() {
             ],
             select: None,
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
 
@@ -425,7 +578,8 @@ fn the_file_tree_opens_beside_the_buffer_and_takes_the_keyboard() {
     // The tree's buffer is the tree and nothing else: one line per node,
     // which is what lets its commands index straight into the snapshot.
     // Depth one indents by two and a file has no arrow, so four spaces.
-    assert_eq!(s.editor.current_buffer().text(), "v project\n    main.rs\n");
+    // No empty line after the last row, so `n` stops on it.
+    assert_eq!(s.editor.current_buffer().text(), "v project\n    main.rs");
 
     s.keys("q");
     assert!(s.editor.tree_window.is_none());
@@ -575,16 +729,16 @@ fn with_no_parser_list_yet_the_offer_asks_only_to_go_and_look() {
 #[cfg(feature = "full")]
 #[test]
 fn a_language_with_several_parsers_is_a_menu_of_them() {
-    let mut s = Session::editing("/project/thing.kdl", "node 1\n");
+    let mut s = Session::editing("/project/main.zig", "const a = 1;\n");
     s.editor
         .apply_task_result(maxgus_core::TaskResult::GrammarMissing {
-            language: "kdl".into(),
+            language: "zig".into(),
             candidates: vec![
                 a_parser(
-                    "kdl",
-                    "https://github.com/tree-sitter-grammars/tree-sitter-kdl",
+                    "zig",
+                    "https://github.com/tree-sitter-grammars/tree-sitter-zig",
                 ),
-                a_parser("kdl", "https://github.com/spaarmann/tree-sitter-kdl"),
+                a_parser("zig", "https://github.com/maxxnino/tree-sitter-zig"),
             ],
         })
         .unwrap();
@@ -610,7 +764,7 @@ fn a_language_with_several_parsers_is_a_menu_of_them() {
         tasks.iter().any(|t| matches!(
             t,
             Task::InstallGrammar { url, .. }
-                if url == "https://github.com/tree-sitter-grammars/tree-sitter-kdl"
+                if url == "https://github.com/tree-sitter-grammars/tree-sitter-zig"
         )),
         "the highlighted row is the one installed: {tasks:?}"
     );
@@ -620,12 +774,12 @@ fn a_language_with_several_parsers_is_a_menu_of_them() {
 #[cfg(feature = "full")]
 #[test]
 fn skipping_from_the_menu_installs_nothing_and_is_not_asked_again() {
-    let mut s = Session::editing("/project/thing.kdl", "node 1\n");
+    let mut s = Session::editing("/project/main.zig", "const a = 1;\n");
     let missing = maxgus_core::TaskResult::GrammarMissing {
-        language: "kdl".into(),
+        language: "zig".into(),
         candidates: vec![
-            a_parser("kdl", "https://github.com/x/tree-sitter-kdl"),
-            a_parser("kdl", "https://github.com/y/tree-sitter-kdl"),
+            a_parser("zig", "https://github.com/x/tree-sitter-zig"),
+            a_parser("zig", "https://github.com/y/tree-sitter-zig"),
         ],
     };
     s.editor.apply_task_result(missing.clone()).unwrap();
@@ -642,6 +796,30 @@ fn skipping_from_the_menu_installs_nothing_and_is_not_asked_again() {
     );
     s.editor.apply_task_result(missing).unwrap();
     assert_eq!(s.editor.minibuffer.kind(), None, "skip was not remembered");
+}
+
+/// Opening the configuration is not a moment to be offered KDL's grammar,
+/// which reads KDL v1 and stops at the first `#true` of every file this
+/// editor's configuration is written in.
+#[cfg(feature = "full")]
+#[test]
+fn a_kdl_file_is_not_offered_a_grammar_that_cannot_read_it() {
+    let mut s = Session::editing("/home/someone/.config/maxgus/config.kdl", "set a=#true\n");
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GrammarMissing {
+            language: "kdl".into(),
+            candidates: Vec::new(),
+        })
+        .unwrap();
+    assert_eq!(s.editor.minibuffer.kind(), None, "it asked");
+    s.keys("M-x");
+    s.type_text("install-grammar-for-buffer");
+    s.keys("RET");
+    assert_eq!(
+        s.editor.minibuffer.kind(),
+        Some(MinibufferKind::YesNo),
+        "asked for outright, it should still offer"
+    );
 }
 
 /// The setting turns the question off without taking the feature away.
@@ -883,6 +1061,39 @@ fn every_key_the_readme_documents_is_really_bound() {
     );
 }
 
+/// The script the README offers as an example loads, and does what it says.
+///
+/// It did not: a template string escaped the way the README escaped it is
+/// not Rhai, and a user who copied it had a script that would not load.
+#[cfg(feature = "full")]
+#[test]
+fn the_readmes_script_loads_and_runs() {
+    let readme = include_str!("../../../README.md");
+    let source = readme
+        .split("```rhai\n")
+        .nth(1)
+        .and_then(|rest| rest.split("```").next())
+        .expect("the README has a script");
+    let mut s = tall_session("/project/main.rs", "hello world\n");
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::ScriptRead {
+            source: source.into(),
+            path: "/home/someone/.config/maxgus/init.rhai".into(),
+        })
+        .unwrap();
+    assert!(
+        s.echo().contains("from the script") && !s.echo().contains("already"),
+        "it did not load: `{}`",
+        s.echo()
+    );
+    s.editor.with_current_buffer(|b| b.set_mark(0));
+    s.editor.windows.current_mut().point = 5;
+    s.editor.with_current_buffer(|b| b.set_point(5));
+    s.dispatcher
+        .execute(&mut s.editor, "wrap-in-backticks", None);
+    assert_eq!(s.editor.current_buffer().text(), "`hello` world\n");
+}
+
 /// The commands the README names in its feature list must exist.
 ///
 /// The README describes the whole editor, so this is a claim about the full
@@ -894,8 +1105,8 @@ fn every_command_the_readme_names_is_registered() {
     let readme = include_str!("../../../README.md");
     let registry = maxgus_core::standard_registry();
     let mut checked = 0;
-    let mut check = |word: &str| {
-        if word.starts_with("lsp-") || word.starts_with("treefile-") {
+    let mut check = |word: &str, surely: bool| {
+        if surely || word.starts_with("lsp-") || word.starts_with("treefile-") {
             assert!(
                 registry.contains(word),
                 "the README names `{word}`, which is not a command"
@@ -907,20 +1118,29 @@ fn every_command_the_readme_names_is_registered() {
         // Names in the configuration examples, which are quoted because that
         // is how a `bind` names a command.
         for quoted in line.split('"').skip(1).step_by(2) {
-            check(quoted);
+            check(quoted, false);
         }
         // And names written in prose, in backticks. A console transcript is
         // neither of those, which is why it is not scanned: a line of one
         // can begin with `lsp-` without naming a command.
         for span in line.split('`').skip(1).step_by(2) {
-            check(span);
+            check(span, false);
+            // `M-x` is followed by nothing but a command's name.
+            if let Some(name) = span.strip_prefix("M-x ") {
+                check(name.trim(), true);
+            }
+        }
+        // As is a script's `run`.
+        for call in line.split("run(\"").skip(1) {
+            if let Some((name, _)) = call.split_once('"') {
+                check(name, true);
+            }
         }
     }
-    // The README names two, both `lsp-format-buffer`: one in the scripting
-    // example and one in the configuration example. The floor is there to
-    // catch the scan breaking, not to require a number of mentions.
+    // The floor is there to catch the scan breaking, not to require a
+    // number of mentions.
     assert!(
-        checked >= 2,
+        checked >= 10,
         "only {checked} were checked; the scan has stopped finding them"
     );
 }
@@ -1795,6 +2015,8 @@ fn with_tree() -> Session {
             ],
             select: None,
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
     s.editor.tasks.drain();
@@ -2696,8 +2918,11 @@ fn with_panel() -> Session {
         .buffers
         .visit_file("/project/other.rs", "fn other() {}\n");
     // The server first: whether the outline window exists is decided when the
-    // column is built.
+    // column is built. And told about the file, as reading it tells it: the
+    // outline is not asked for before the server knows the document exists.
     start_server(&mut s);
+    let editing = s.editor.current_buffer_id();
+    s.editor.request_language_server(editing);
     s.keys("C-x t t");
     s.editor
         .apply_task_result(maxgus_core::TaskResult::TreeUpdated {
@@ -2708,11 +2933,46 @@ fn with_panel() -> Session {
             ],
             select: None,
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
     deliver_symbols(&mut s);
     s.editor.tasks.drain();
     s
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_buffer_opened_in_the_other_window_beside_the_panel_gets_a_window_of_its_own() {
+    // `other-window` counts the panel's windows, so with the tree open there
+    // were "enough" windows and the file was put in the one being edited.
+    let mut s = with_panel();
+    let main = s.editor.editing_window().expect("an editing window");
+    s.editor.select_window(main);
+    s.keys("C-x 4 b");
+    s.type_text("other.rs");
+    s.keys("RET");
+    let editing: Vec<_> = s
+        .editor
+        .windows
+        .ids()
+        .into_iter()
+        .filter(|id| !s.editor.panel_windows.contains(id))
+        .collect();
+    assert_eq!(editing.len(), 2, "no window was made for it");
+    assert_ne!(s.editor.windows.current_id(), main);
+    assert_eq!(s.editor.current_buffer().name(), "other.rs");
+    let main_shows = s.editor.windows.get(main).unwrap().buffer;
+    assert_eq!(
+        s.editor.buffers.get(main_shows).unwrap().name(),
+        "main.rs",
+        "the file replaced the one being edited"
+    );
+    for panel in s.editor.panel_windows.clone() {
+        let shows = s.editor.windows.get(panel).unwrap().buffer;
+        assert_ne!(s.editor.buffers.get(shows).unwrap().name(), "other.rs");
+    }
 }
 
 #[cfg(feature = "full")]
@@ -3021,6 +3281,257 @@ fn a_tree_command_typed_in_the_outline_does_nothing_to_the_tree() {
     );
 }
 
+// ---- the panel, as it was found wanting ---------------------------------
+
+#[test]
+fn follow_mode_asks_once_for_a_file_the_tree_cannot_show() {
+    // A dotfile while dotfiles are hidden never turns up in the tree. Asking
+    // again after every answer was a loop that kept a core busy for as long
+    // as the file stayed open.
+    let mut s = with_tree();
+    let hidden = s.editor.buffers.visit_file("/project/.env", "SECRET=1\n");
+    let editing = s.editor.editing_window().expect("a window to edit in");
+    s.editor.select_window(editing);
+    s.editor.switch_to_buffer(hidden).unwrap();
+    s.editor.tasks.drain();
+
+    let reveals = |s: &mut Session| {
+        s.editor
+            .tasks
+            .drain()
+            .into_iter()
+            .filter(|task| {
+                matches!(
+                    task,
+                    maxgus_core::Task::Tree(maxgus_core::TreeAction::Reveal(_))
+                )
+            })
+            .count()
+    };
+    maxgus_core::frontend::after_key(&mut s.editor, &mut s.dispatcher);
+    assert_eq!(reveals(&mut s), 1, "asked to reveal it once");
+
+    // The answer arrives without the file in it, as it would.
+    let nodes = s.editor.tree.clone();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::TreeUpdated {
+            nodes,
+            select: None,
+            show_hidden: false,
+            roots: vec!["/project".into()],
+            home: None,
+        })
+        .unwrap();
+    for _ in 0..3 {
+        maxgus_core::frontend::after_key(&mut s.editor, &mut s.dispatcher);
+    }
+    assert_eq!(reveals(&mut s), 0, "and not again after the answer");
+}
+
+#[test]
+fn a_file_outside_the_tree_is_not_asked_about_at_all() {
+    let mut s = with_tree();
+    let elsewhere = s.editor.buffers.visit_file("/etc/hosts", "127.0.0.1\n");
+    let editing = s.editor.editing_window().expect("a window to edit in");
+    s.editor.select_window(editing);
+    s.editor.switch_to_buffer(elsewhere).unwrap();
+    s.editor.tasks.drain();
+    maxgus_core::frontend::after_key(&mut s.editor, &mut s.dispatcher);
+    assert!(
+        s.editor.tasks.drain().is_empty(),
+        "nothing to reveal outside every root"
+    );
+}
+
+#[test]
+fn the_buffer_list_will_not_kill_unsaved_work_with_one_key() {
+    let mut s = tall_session("/project/main.rs", "fn main() {}\n");
+    s.type_text("x");
+    assert!(s.editor.current_buffer().is_modified());
+    s.keys("C-x t t");
+    select_panel_window(&mut s, "*buffers*");
+    // Onto the row of the modified file.
+    let row = s
+        .editor
+        .panel_buffers()
+        .iter()
+        .position(|(_, name)| name == "main.rs")
+        .expect("listed");
+    for _ in 0..row {
+        s.keys("n");
+    }
+    s.keys("k");
+    assert!(
+        s.editor
+            .buffers
+            .find_by_path(std::path::Path::new("/project/main.rs"))
+            .is_some(),
+        "the unsaved buffer was killed"
+    );
+    assert!(s.echo().contains("unsaved changes"), "got `{}`", s.echo());
+
+    s.keys("C-u k");
+    assert!(
+        s.editor
+            .buffers
+            .find_by_path(std::path::Path::new("/project/main.rs"))
+            .is_none(),
+        "`C-u k` is the way past the refusal"
+    );
+}
+
+#[test]
+fn killing_a_shown_buffer_from_the_list_never_shows_the_panel_in_its_place() {
+    let mut s = tall_session("/project/main.rs", "fn main() {}\n");
+    s.editor
+        .buffers
+        .visit_file("/project/other.rs", "fn other() {}\n");
+    s.keys("C-x t t");
+    let editing = s.editor.editing_window().expect("a window to edit in");
+    select_panel_window(&mut s, "*buffers*");
+    let row = s
+        .editor
+        .panel_buffers()
+        .iter()
+        .position(|(_, name)| name == "main.rs")
+        .expect("listed");
+    for _ in 0..row {
+        s.keys("n");
+    }
+    s.keys("k");
+    let shown = s.editor.windows.get(editing).expect("still there").buffer;
+    let name = s.editor.buffers.get(shown).unwrap().name().to_string();
+    assert!(
+        !["*treefile*", "*symbols*", "*buffers*"].contains(&name.as_str()),
+        "the editing window now shows `{name}`"
+    );
+}
+
+#[test]
+fn a_file_opened_from_inside_the_tree_goes_to_the_window_beside_it() {
+    let mut s = with_tree();
+    let tree = s.editor.tree_window.expect("the tree");
+    s.editor.select_window(tree);
+    let other = s.editor.buffers.visit_file("/project/notes.txt", "notes\n");
+    // What `C-x b` and a file arriving from `C-x C-f` both end in.
+    s.editor.switch_to_buffer(other).unwrap();
+    assert_eq!(
+        s.editor.windows.get(tree).map(|w| w.buffer),
+        s.editor.buffers.find_by_name("*treefile*"),
+        "the tree's window was taken over"
+    );
+    assert_eq!(s.editor.current_buffer().name(), "notes.txt");
+}
+
+#[test]
+fn a_renamed_file_takes_its_buffer_with_it_and_a_deleted_one_closes_it() {
+    let mut s = with_tree();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::PathMoved {
+            from: "/project".into(),
+            to: "/renamed".into(),
+        })
+        .unwrap();
+    let main = s
+        .editor
+        .buffers
+        .find_by_path(std::path::Path::new("/renamed/main.rs"))
+        .expect("the buffer follows a directory renamed above it");
+    assert_eq!(s.editor.buffers.get(main).unwrap().name(), "main.rs");
+
+    let clean = s
+        .editor
+        .buffers
+        .visit_file("/renamed/clean.txt", "nothing new\n");
+    let dirty = s.editor.buffers.visit_file("/renamed/dirty.txt", "work\n");
+    s.editor
+        .buffers
+        .get_mut(dirty)
+        .unwrap()
+        .insert(0, "more ")
+        .unwrap();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::PathDeleted {
+            path: "/renamed".into(),
+        })
+        .unwrap();
+    assert!(
+        s.editor.buffers.get(clean).is_none(),
+        "an unmodified buffer over a deleted file is closed"
+    );
+    assert!(
+        s.editor.buffers.get(dirty).is_some(),
+        "unsaved work is never thrown away"
+    );
+    assert!(
+        s.echo().contains("dirty.txt"),
+        "and is named: `{}`",
+        s.echo()
+    );
+}
+
+#[test]
+fn delete_other_windows_from_the_file_keeps_the_panel_working() {
+    let mut s = with_tree();
+    let editing = s.editor.editing_window().expect("a window to edit in");
+    s.editor.select_window(editing);
+    s.keys("C-x 2");
+    s.keys("C-x 1");
+    assert!(
+        s.editor.tree_window.is_some(),
+        "the tree went with the split"
+    );
+    s.keys("C-x t 1");
+    assert_eq!(s.editor.windows.current_id(), s.editor.tree_window.unwrap());
+    s.keys("C-x t t");
+    assert!(
+        s.editor.panel_windows.is_empty(),
+        "one press closes the panel"
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_late_outline_for_the_previous_file_is_not_shown_against_this_one() {
+    let mut s = with_panel();
+    let other = s
+        .editor
+        .buffers
+        .find_by_path(std::path::Path::new("/project/other.rs"))
+        .unwrap();
+    let editing = s.editor.editing_window().expect("a window to edit in");
+    s.editor.select_window(editing);
+    s.editor.switch_to_buffer(other).unwrap();
+    s.editor.request_language_server(other);
+    // The answer to the question asked about main.rs arrives now.
+    deliver_symbols(&mut s);
+    assert!(
+        s.editor.panel.symbols.is_empty(),
+        "main.rs's outline was filed against other.rs"
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn an_outline_that_cannot_be_had_stops_saying_it_is_reading() {
+    let mut s = with_panel();
+    s.editor.panel.forget_symbols();
+    s.editor.request_document_symbols();
+    assert!(s.editor.panel.symbols_pending);
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::LspNoAnswer {
+            uri: "file:///project/main.rs".into(),
+            query: maxgus_core::LspQuery::DocumentSymbols { for_panel: true },
+            message: "trying to get AST for non-added document".into(),
+        })
+        .unwrap();
+    assert!(!s.editor.panel.symbols_pending);
+    assert!(
+        !s.editor.minibuffer.message_is_error(),
+        "a question nobody asked out loud is not answered with an error"
+    );
+}
+
 // ---- the terminal panel -------------------------------------------------
 
 #[cfg(feature = "full")]
@@ -3136,6 +3647,8 @@ fn tree_only_session() -> Session {
             ],
             select: None,
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
     s.editor.tasks.drain();
@@ -3612,6 +4125,8 @@ fn send_the_tree_to(s: &mut Session, root: &str) {
             nodes: vec![node(root, "root", true, 0, true)],
             select: None,
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
     s.editor.tasks.drain();
@@ -3635,6 +4150,8 @@ fn magit_opens_on_the_project_the_tree_is_showing() {
             ],
             select: None,
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
     s.editor.tasks.drain();
@@ -3798,6 +4315,162 @@ fn staging_a_file_stages_that_file() {
         }
         other => panic!("expected a stage, got {other:?}"),
     }
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn unstaging_everything_from_the_heading_asks_first() {
+    let mut s = with_git();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Section(section)
+        if *section == maxgus_core::git::Section::Staged)
+    });
+    s.keys("u");
+    assert!(s.editor.minibuffer.is_active(), "it did not ask");
+    assert!(git_tasks(&mut s).is_empty(), "it unstaged before asking");
+    s.type_text("no");
+    s.keys("RET");
+    assert!(git_tasks(&mut s).is_empty());
+
+    s.keys("u");
+    s.type_text("yes");
+    s.keys("RET");
+    assert_eq!(
+        git_tasks(&mut s),
+        vec![maxgus_core::task::GitAction::UnstageAll]
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_staged_rename_is_unstaged_and_discarded_by_both_its_names() {
+    let mut s = with_git();
+    let status = maxgus_git::status::parse(
+        b"# branch.oid 5958f5e13418d8b5\0\
+          # branch.head main\0\
+          2 R. N... 100644 100644 100644 aaa aaa R100 new.txt\0old.txt\0",
+    );
+    let snapshot = maxgus_core::task::GitSnapshot {
+        root: "/project".into(),
+        status,
+        unstaged: Vec::new(),
+        staged: maxgus_git::diff::parse(
+            "diff --git a/old.txt b/new.txt\nsimilarity index 100%\nrename from old.txt\nrename to new.txt\n",
+        ),
+        stashes: Vec::new(),
+        unpushed: Vec::new(),
+        unpulled: Vec::new(),
+        recent: Vec::new(),
+        head_subject: String::new(),
+        branches: Vec::new(),
+        references: Vec::new(),
+    };
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GitRefreshed(Box::new(snapshot)))
+        .unwrap();
+    s.editor.tasks.drain();
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::File { section, .. }
+        if *section == maxgus_core::git::Section::Staged)
+    });
+    assert!(
+        s.screen()
+            .iter()
+            .any(|line| line.contains("old.txt \u{2192} new.txt")),
+        "the rename does not say where from:\n{:#?}",
+        s.screen()
+    );
+    s.keys("u");
+    match &git_tasks(&mut s)[..] {
+        [maxgus_core::task::GitAction::Unstage(paths)] => {
+            assert!(paths.iter().any(|p| p.ends_with("new.txt")), "{paths:?}");
+            assert!(paths.iter().any(|p| p.ends_with("old.txt")), "{paths:?}");
+        }
+        other => panic!("expected an unstage of both names, got {other:?}"),
+    }
+
+    s.keys("k");
+    assert!(
+        s.editor.minibuffer.prompt().contains("does not have"),
+        "the question does not say the file goes: `{}`",
+        s.editor.minibuffer.prompt()
+    );
+    s.type_text("yes");
+    s.keys("RET");
+    match &git_tasks(&mut s)[..] {
+        [maxgus_core::task::GitAction::DiscardStaged(paths)] => {
+            assert!(paths.iter().any(|p| p.ends_with("old.txt")), "{paths:?}");
+        }
+        other => panic!("expected a discard back to the commit, got {other:?}"),
+    }
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_region_inside_a_hunk_stages_just_those_lines() {
+    let mut s = with_git();
+    // Open the first unstaged file's diff and put the region over one line.
+    go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::File { section, .. }
+        if *section == maxgus_core::git::Section::Unstaged)
+    });
+    s.keys("TAB");
+    let first = go_to_git(&mut s, |row| {
+        matches!(row, maxgus_core::git::Row::Line { section, .. }
+        if *section == maxgus_core::git::Section::Unstaged)
+    });
+    // To the first changed line, whatever the context above it.
+    let changed = (first..first + 20)
+        .find(|line| {
+            let row = s.editor.git.row(*line).cloned();
+            match row {
+                Some(maxgus_core::git::Row::Line {
+                    section,
+                    file,
+                    hunk,
+                    line,
+                }) => s
+                    .editor
+                    .git
+                    .files(section)
+                    .get(file)
+                    .and_then(|f| f.hunks.get(hunk))
+                    .and_then(|h| h.lines.get(line))
+                    .is_some_and(|l| l.kind != maxgus_git::diff::LineKind::Context),
+                _ => false,
+            }
+        })
+        .expect("a changed line");
+    s.editor.move_git_cursor_to_line(changed);
+    s.keys("C-SPC C-e");
+    s.editor.tasks.drain();
+    s.keys("s");
+    match &git_tasks(&mut s)[..] {
+        [
+            maxgus_core::task::GitAction::ApplyPatch {
+                patch,
+                arguments,
+                describe,
+            },
+        ] => {
+            assert_eq!(arguments, &vec!["--cached".to_string()]);
+            assert!(describe.contains("1 line"), "{describe}");
+            let changes = patch
+                .lines()
+                .filter(|l| {
+                    (l.starts_with('+') || l.starts_with('-'))
+                        && !l.starts_with("+++")
+                        && !l.starts_with("---")
+                })
+                .count();
+            assert_eq!(changes, 1, "more than the one line went into:\n{patch}");
+        }
+        other => panic!("expected a patch of one line, got {other:?}"),
+    }
+    assert!(
+        !s.editor.current_buffer().is_mark_active(),
+        "the region is still up after it was used"
+    );
 }
 
 #[cfg(feature = "full")]
@@ -5119,9 +5792,9 @@ fn the_readme_quotes_the_right_totals() {
 }
 
 #[cfg(feature = "full")]
-const README_BINDINGS: usize = 410;
+const README_BINDINGS: usize = 421;
 #[cfg(feature = "full")]
-const README_COMMANDS: usize = 477;
+const README_COMMANDS: usize = 489;
 
 #[cfg(feature = "full")]
 #[test]
@@ -5661,6 +6334,7 @@ fn with_grep() -> Session {
     s.editor
         .apply_task_result(maxgus_core::TaskResult::GrepFinished {
             pattern: "alpha".into(),
+            root: "/project".into(),
             found: found(&[
                 ("/project/src/a.rs", 0, "fn alpha() {}"),
                 ("/project/src/b.rs", 3, "// alpha again"),
@@ -5724,9 +6398,14 @@ fn the_results_are_a_buffer_of_files_and_lines() {
     let screen = s.screen();
     let has = |needle: &str| screen.iter().any(|line| line.contains(needle));
     assert!(has("2 matches for `alpha`"), "no summary:\n{screen:#?}");
-    assert!(has("/project/src/a.rs"), "no first file");
+    // Named from where the search ran, not from the root of the disk.
+    assert!(
+        screen.iter().any(|line| line.trim_end() == "src/a.rs"),
+        "no first file:\n{screen:#?}"
+    );
     assert!(has("fn alpha() {}"), "no first line");
-    assert!(has("/project/src/b.rs"), "no second file");
+    assert!(has("src/b.rs"), "no second file");
+    assert!(!has("/project/"), "the whole path:\n{screen:#?}");
 }
 
 #[cfg(feature = "full")]
@@ -5810,30 +6489,343 @@ fn the_results_are_read_only_until_they_are_made_editable() {
     );
 }
 
+/// Makes the results editable and replaces `was` with `now` in them.
+#[cfg(feature = "full")]
+fn edit_results(s: &mut Session, was: &str, now: &str) {
+    s.keys("C-c C-p");
+    let edited = s.editor.current_buffer().text().replace(was, now);
+    let id = s.editor.current_buffer_id();
+    s.editor.replace_buffer_contents(id, &edited).unwrap();
+    s.editor.tasks.drain();
+}
+
 #[cfg(feature = "full")]
 #[test]
 fn an_edited_line_is_written_back_to_the_file_it_came_from() {
     let mut s = with_grep();
-    s.keys("C-c C-p");
-    let edited = s
-        .editor
-        .current_buffer()
-        .text()
-        .replace("fn alpha() {}", "fn renamed() {}");
-    let id = s.editor.current_buffer_id();
-    s.editor.replace_buffer_contents(id, &edited).unwrap();
-    s.editor.tasks.drain();
+    edit_results(&mut s, "// alpha again", "// renamed again");
 
     s.keys("C-c C-c");
     match &s.editor.tasks.drain()[..] {
-        [Task::ApplyGrep { replacements }] => {
+        [
+            Task::ApplyGrep {
+                replacements,
+                unsaved,
+            },
+        ] => {
             assert_eq!(replacements.len(), 1);
-            assert_eq!(replacements[0].now, "fn renamed() {}");
-            assert_eq!(replacements[0].line, 0);
-            assert!(replacements[0].path.ends_with("a.rs"));
+            assert_eq!(replacements[0].now, "// renamed again");
+            assert_eq!(replacements[0].line, 3);
+            assert!(replacements[0].path.ends_with("b.rs"));
+            assert!(unsaved.is_empty(), "b.rs is not open");
         }
         other => panic!("expected the edits, got {other:?}"),
     }
+}
+
+#[cfg(feature = "full")]
+fn a_rs(s: &Session) -> maxgus_text::BufferId {
+    s.editor
+        .buffers
+        .find_by_path(std::path::Path::new("/project/src/a.rs"))
+        .expect("the fixture has a.rs open")
+}
+
+/// Sends `C-c C-c` and answers the write it asks for as though every file
+/// in it had been written.
+#[cfg(feature = "full")]
+fn apply_results(s: &mut Session) {
+    s.keys("C-c C-c");
+    let Some(Task::ApplyGrep {
+        replacements,
+        unsaved,
+    }) = s.editor.tasks.drain().pop()
+    else {
+        panic!("nothing was written: `{}`", s.echo());
+    };
+    let mut written: Vec<maxgus_core::grep::WrittenFile> = Vec::new();
+    for line in replacements {
+        match written.iter_mut().find(|file| file.path == line.path) {
+            Some(file) => file.lines.push(line),
+            None => written.push(maxgus_core::grep::WrittenFile {
+                path: line.path.clone(),
+                lines: vec![line],
+                disk_time: None,
+            }),
+        }
+    }
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GrepApplied {
+            written,
+            failure: None,
+            unsaved,
+        })
+        .unwrap();
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_file_that_is_open_is_written_and_its_buffer_takes_the_line_as_an_undoable_edit() {
+    let mut s = with_grep();
+    let a = a_rs(&s);
+    edit_results(&mut s, "fn alpha() {}", "fn renamed() {}");
+
+    s.keys("C-c C-c");
+    match s.editor.tasks.drain().pop() {
+        Some(Task::ApplyGrep {
+            replacements,
+            unsaved,
+        }) => {
+            assert_eq!(
+                replacements.len(),
+                1,
+                "a.rs, with nothing unsaved, is written"
+            );
+            assert!(unsaved.is_empty());
+        }
+        other => panic!("expected the edits, got {other:?}"),
+    }
+    assert_eq!(
+        s.editor.buffers.get(a).unwrap().text(),
+        "fn alpha() {}\nfn beta() {}\n",
+        "the buffer changed before the file was written"
+    );
+
+    edit_results(&mut s, "fn renamed() {}", "fn renamed() {}");
+    apply_results(&mut s);
+    let buffer = s.editor.buffers.get(a).unwrap();
+    assert_eq!(buffer.text(), "fn renamed() {}\nfn beta() {}\n");
+    assert!(
+        !buffer.is_modified(),
+        "it holds what is on disk, and says it has changes to save"
+    );
+    assert!(
+        !s.editor
+            .tasks
+            .drain()
+            .iter()
+            .any(|t| matches!(t, Task::ReadFile { .. })),
+        "it was read over rather than edited, which loses its undo"
+    );
+    s.editor.switch_to_buffer(a).unwrap();
+    s.keys("C-x u");
+    assert_eq!(
+        s.editor.current_buffer().text(),
+        "fn alpha() {}\nfn beta() {}\n"
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_buffer_with_unsaved_changes_keeps_them_and_is_not_written() {
+    // Written to disk under the buffer and then re-read, the line took with
+    // it everything the buffer held that had not been saved.
+    let mut s = with_grep();
+    let a = a_rs(&s);
+    s.editor
+        .with_buffer(a, |b| b.insert(b.len_chars(), "// mine\n"))
+        .unwrap()
+        .unwrap();
+    edit_results(&mut s, "fn alpha() {}", "fn renamed() {}");
+
+    s.keys("C-c C-c");
+    let tasks = s.editor.tasks.drain();
+    match &tasks[..] {
+        [
+            Task::ApplyGrep {
+                replacements,
+                unsaved,
+            },
+        ] => {
+            assert!(replacements.is_empty(), "a.rs was sent to disk");
+            assert_eq!(unsaved.len(), 1);
+        }
+        other => panic!("expected the edits, got {other:?}"),
+    }
+    let Some(Task::ApplyGrep { unsaved, .. }) = tasks.into_iter().next() else {
+        unreachable!()
+    };
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GrepApplied {
+            written: Vec::new(),
+            failure: None,
+            unsaved,
+        })
+        .unwrap();
+    assert_eq!(
+        s.editor.buffers.get(a).unwrap().text(),
+        "fn renamed() {}\nfn beta() {}\n// mine\n",
+        "one of the two edits was lost"
+    );
+    assert!(s.editor.buffers.get(a).unwrap().is_modified());
+    assert!(
+        s.echo().contains("a.rs had unsaved changes"),
+        "got `{}`",
+        s.echo()
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_refused_write_leaves_the_buffers_alone_too() {
+    let mut s = with_grep();
+    let a = a_rs(&s);
+    s.editor
+        .with_buffer(a, |b| b.insert(b.len_chars(), "// mine\n"))
+        .unwrap()
+        .unwrap();
+    edit_results(&mut s, "fn alpha() {}", "fn renamed() {}");
+    edit_results(&mut s, "// alpha again", "// renamed again");
+    s.keys("C-c C-c");
+    let Some(Task::ApplyGrep { unsaved, .. }) = s.editor.tasks.drain().pop() else {
+        panic!("nothing was sent");
+    };
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GrepApplied {
+            written: Vec::new(),
+            failure: Some("/project/src/b.rs has changed since it was searched".into()),
+            unsaved,
+        })
+        .unwrap();
+    assert!(
+        !s.editor.buffers.get(a).unwrap().text().contains("renamed"),
+        "a.rs took its line although b.rs was refused"
+    );
+    assert!(
+        s.echo().contains("Nothing was written"),
+        "got `{}`",
+        s.echo()
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn an_open_file_that_changed_since_the_search_is_refused_and_left_alone() {
+    let mut s = with_grep();
+    let a = a_rs(&s);
+    s.editor
+        .with_buffer(a, |b| b.insert(0, "// moved everything down\n"))
+        .unwrap()
+        .unwrap();
+    edit_results(&mut s, "fn alpha() {}", "fn renamed() {}");
+    edit_results(&mut s, "// alpha again", "// renamed again");
+
+    s.keys("C-c C-c");
+    assert!(s.echo().contains("changed since"), "got `{}`", s.echo());
+    assert!(
+        s.editor.tasks.drain().is_empty(),
+        "b.rs was written although a.rs was refused"
+    );
+    assert!(!s.editor.buffers.get(a).unwrap().text().contains("renamed"));
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_line_taken_out_of_the_results_is_refused() {
+    let mut s = with_grep();
+    s.keys("C-c C-p");
+    s.keys("C-a C-k C-k");
+    s.editor.tasks.drain();
+    s.keys("C-c C-c");
+    assert!(s.echo().contains("taken out"), "got `{}`", s.echo());
+    assert!(s.editor.tasks.drain().is_empty());
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn once_written_the_results_are_read_again_and_show_the_new_lines() {
+    let mut s = with_grep();
+    edit_results(&mut s, "// alpha again", "// renamed again");
+    apply_results(&mut s);
+    assert_eq!(s.echo(), "Wrote 1 line in 1 file");
+    assert!(
+        s.editor
+            .current_buffer()
+            .text()
+            .contains("// renamed again"),
+        "{}",
+        s.editor.current_buffer().text()
+    );
+    s.type_text("x");
+    assert!(s.echo().contains("read-only"), "it stayed writable");
+    s.keys("C-c C-c");
+    assert!(s.echo().contains("not being edited"), "got `{}`", s.echo());
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_write_that_failed_part_way_says_what_was_done_and_stays_editable() {
+    let mut s = with_grep();
+    edit_results(&mut s, "// alpha again", "// renamed again");
+    s.keys("C-c C-c");
+    s.editor.tasks.drain();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GrepApplied {
+            written: Vec::new(),
+            failure: Some("/project/src/b.rs: Permission denied".into()),
+            unsaved: Vec::new(),
+        })
+        .unwrap();
+    assert!(
+        s.echo().contains("Nothing was written") && s.echo().contains("Permission denied"),
+        "got `{}`",
+        s.echo()
+    );
+    s.type_text("x");
+    assert!(
+        s.editor.current_buffer().text().contains('x'),
+        "the results stopped being editable, and the edit can't be tried again"
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn o_on_a_file_that_is_not_open_leaves_the_cursor_in_the_results() {
+    let mut s = with_grep();
+    let results = s.editor.windows.current_id();
+    s.keys("n");
+    s.editor.tasks.drain();
+    s.keys("o");
+    match &s.editor.tasks.drain()[..] {
+        [Task::ReadFile { other_window, .. }] => assert!(*other_window),
+        other => panic!("expected a read, got {other:?}"),
+    }
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::FileRead {
+            path: "/project/src/b.rs".into(),
+            contents: "one\ntwo\nthree\n// alpha again\n".into(),
+            read_only: false,
+            lossy: false,
+            disk_time: None,
+            reverting: None,
+            other_window: true,
+            editor_config: Default::default(),
+        })
+        .unwrap();
+    assert_eq!(s.editor.windows.current_id(), results, "the cursor left");
+    assert_eq!(s.editor.current_buffer().name(), "*grep*");
+    let b = s
+        .editor
+        .buffers
+        .find_by_path(std::path::Path::new("/project/src/b.rs"))
+        .unwrap();
+    let window = s.editor.windows.showing(b)[0];
+    let shown = s.editor.windows.get(window).unwrap();
+    assert_eq!(
+        s.editor.buffers.get(b).unwrap().line_of(shown.point),
+        3,
+        "not on the matching line"
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn return_on_a_result_can_be_come_back_from() {
+    let mut s = with_grep();
+    s.keys("RET"); // the hit in a.rs, which is open
+    assert_eq!(s.editor.current_buffer().name(), "a.rs");
+    s.keys("M-,");
+    assert_eq!(s.editor.current_buffer().name(), "*grep*");
 }
 
 #[cfg(feature = "full")]
@@ -5910,6 +6902,7 @@ fn a_search_that_found_nothing_says_so_and_opens_no_buffer() {
     s.editor
         .apply_task_result(maxgus_core::TaskResult::GrepFinished {
             pattern: "zzz".into(),
+            root: "/project".into(),
             found: maxgus_grep::Found::default(),
         })
         .unwrap();
@@ -5919,33 +6912,62 @@ fn a_search_that_found_nothing_says_so_and_opens_no_buffer() {
 
 #[cfg(feature = "full")]
 #[test]
-fn writing_the_files_re_reads_the_buffers_that_were_showing_them() {
-    // A buffer left showing the old text of a file that was just rewritten
-    // is how an edit gets undone by the next save.
+fn a_file_opened_while_it_was_written_is_read_again_unless_it_was_changed() {
+    // Its lines went to disk because it had no buffer when they were sent;
+    // a buffer made since holds whichever text it was read as.
     let mut s = with_grep();
-    let id = s
+    let b = s
         .editor
         .buffers
-        .find_by_path(std::path::Path::new("/project/src/a.rs"));
-    assert!(id.is_some(), "the fixture should have a.rs open");
+        .visit_file("/project/src/b.rs", "one\ntwo\nthree\n// renamed again\n");
+    let written = || {
+        vec![maxgus_core::grep::WrittenFile {
+            path: "/project/src/b.rs".into(),
+            lines: vec![maxgus_grep::Replacement {
+                path: "/project/src/b.rs".into(),
+                line: 3,
+                was: "// alpha again".into(),
+                now: "// renamed again".into(),
+            }],
+            disk_time: None,
+        }]
+    };
     s.editor.tasks.drain();
     s.editor
         .apply_task_result(maxgus_core::TaskResult::GrepApplied {
-            applied: maxgus_grep::Applied { files: 1, lines: 1 },
-            paths: vec!["/project/src/a.rs".into()],
+            written: written(),
+            failure: None,
+            unsaved: Vec::new(),
         })
         .unwrap();
-    match &s.editor.tasks.drain()[..] {
-        [
-            Task::ReadFile {
-                path, reverting, ..
-            },
-        ] => {
-            assert!(path.ends_with("a.rs"));
-            assert_eq!(*reverting, id, "it did not revert the buffer");
-        }
-        other => panic!("expected a revert, got {other:?}"),
-    }
+    let tasks = s.editor.tasks.drain();
+    assert!(
+        tasks.iter().any(|t| matches!(
+            t,
+            Task::ReadFile { path, reverting: Some(id), .. } if path.ends_with("b.rs") && *id == b
+        )),
+        "it did not re-read the buffer: {tasks:?}"
+    );
+
+    s.editor
+        .with_buffer(b, |buffer| buffer.insert(0, "unsaved "))
+        .unwrap()
+        .unwrap();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::GrepApplied {
+            written: written(),
+            failure: None,
+            unsaved: Vec::new(),
+        })
+        .unwrap();
+    assert!(
+        !s.editor
+            .tasks
+            .drain()
+            .iter()
+            .any(|t| matches!(t, Task::ReadFile { .. })),
+        "a buffer with unsaved changes was read over"
+    );
 }
 
 // ---- the undo tree -------------------------------------------------------
@@ -6928,6 +7950,19 @@ fn flagging_and_executing_deletes_what_was_flagged() {
     s.keys("d"); // flag the first
     s.editor.tasks.drain();
     s.keys("x");
+    // It asks first, and says a directory is going with everything in it.
+    assert!(s.editor.minibuffer.is_active(), "`x` did not ask");
+    assert!(
+        s.editor.minibuffer.prompt().contains("everything in it"),
+        "got `{}`",
+        s.editor.minibuffer.prompt()
+    );
+    assert!(
+        s.editor.tasks.drain().is_empty(),
+        "deleted before the answer"
+    );
+    s.type_text("yes");
+    s.keys("RET");
     match &s.editor.tasks.drain()[..] {
         [
             Task::DiredAct {
@@ -6939,6 +7974,24 @@ fn flagging_and_executing_deletes_what_was_flagged() {
         }
         other => panic!("expected a delete, got {other:?}"),
     }
+}
+
+#[test]
+fn a_flag_is_still_a_flag_after_the_listing_is_read_again() {
+    let mut s = with_dired();
+    s.keys("d");
+    let path = s.editor.dired.as_ref().unwrap().path.clone();
+    let entries = s.editor.dired.as_ref().unwrap().entries.clone();
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::DiredListed { path, entries })
+        .unwrap();
+    let view = s.editor.dired.as_ref().unwrap();
+    assert_eq!(
+        view.with_mark(maxgus_core::dired::Mark::Deleted).len(),
+        1,
+        "the flag became something else"
+    );
+    assert!(view.with_mark(maxgus_core::dired::Mark::Marked).is_empty());
 }
 
 #[test]
@@ -7094,6 +8147,236 @@ fn a_refresh_keeps_point_on_the_file_it_was_on() {
     );
 }
 
+#[test]
+fn m_x_shows_the_key_a_command_has_in_the_buffer_not_in_the_prompt() {
+    // The prompt binds `M-DEL` for itself, which hid the key from the
+    // command that has it in every buffer.
+    let mut s = Session::editing("/project/notes.txt", "hello\n");
+    s.keys("M-x");
+    s.type_text("backward-kill-word");
+    let screen = s.screen().join("\n");
+    assert!(
+        screen
+            .lines()
+            .any(|line| line.contains("backward-kill-word") && line.contains("M-DEL")),
+        "no key beside it:\n{screen}"
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_file_past_the_highlighting_limit_is_shown_plain_and_says_so_once() {
+    let line = "fn f() -> u32 { 1 }\n";
+    let mut s = tall_session("/project/generated.rs", &line.repeat(60_000));
+    s.editor.settings.syntax_highlighting_limit_mb = 1;
+    let id = s.editor.current_buffer_id();
+    s.editor.request_highlighting(id);
+    assert!(
+        !s.editor
+            .tasks
+            .drain()
+            .iter()
+            .any(|t| matches!(t, Task::Reparse { .. })),
+        "a file past the limit was parsed"
+    );
+    assert!(
+        s.echo().contains("shown without colour"),
+        "got `{}`",
+        s.echo()
+    );
+    s.editor.message("something else");
+    s.editor.request_highlighting(id);
+    assert_eq!(s.echo(), "something else", "it was said again");
+
+    // Raised, the same file is parsed.
+    s.editor.settings.syntax_highlighting_limit_mb = 0;
+    s.editor.request_highlighting(id);
+    assert!(
+        s.editor
+            .tasks
+            .drain()
+            .iter()
+            .any(|t| matches!(t, Task::Reparse { .. })),
+        "no limit, and still not parsed"
+    );
+}
+
+// ---- what the echo area said ----------------------------------------------
+
+#[test]
+fn c_h_e_lists_what_the_echo_area_said_and_q_puts_it_away() {
+    let mut s = Session::editing("/project/notes.txt", "hello\n");
+    s.editor.message("first thing said");
+    s.editor
+        .error("a problem that was too long to read before the next key took it away");
+    s.editor.message("again");
+    s.editor.message("again");
+    s.keys("C-h e");
+    assert_eq!(s.editor.current_buffer().name(), "*Messages*");
+    let text = s.editor.current_buffer().text();
+    assert!(text.contains("first thing said\n"), "{text}");
+    assert!(text.contains("too long to read"), "{text}");
+    assert!(text.contains("again [2 times]\n"), "{text}");
+    let point = s.editor.windows.current().point;
+    assert_eq!(
+        s.editor
+            .current_buffer()
+            .line_text(s.editor.current_buffer().line_of(point)),
+        "again [2 times]",
+        "point is not on the newest"
+    );
+    s.type_text("z");
+    assert_eq!(
+        s.editor.current_buffer().text(),
+        text,
+        "it could be typed into"
+    );
+    s.keys("q");
+    assert_eq!(s.editor.current_buffer().name(), "notes.txt");
+}
+
+// ---- the configuration's keymaps -------------------------------------------
+
+fn configured(source: &str) -> (Session, Vec<String>) {
+    let config = maxgus_config::Config::parse(source).expect("it parses");
+    let mut s = Session::editing("/project/notes.txt", "hello\n");
+    let problems = maxgus_core::keymap::apply_configured_keymaps(&mut s.editor, &config.keymaps);
+    (s, problems)
+}
+
+#[test]
+fn binding_a_prefix_key_says_what_it_took_away() {
+    // The documentation's own example did this, and `C-c f p` — the key that
+    // opens the configuration — went with no word said.
+    let (mut s, problems) = configured(r#"keymap "global" { bind "C-c f" "save-buffer"; }"#);
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(
+        problems[0].contains("bindings under it (`C-c f "),
+        "{}",
+        problems[0]
+    );
+    s.keys("C-c f");
+    assert!(
+        s.echo().contains("No changes need to be saved"),
+        "the binding asked for was not made: `{}`",
+        s.echo()
+    );
+}
+
+#[test]
+fn a_prefix_unbound_first_is_replaced_without_a_word() {
+    let (_, problems) =
+        configured(r#"keymap "global" { unbind "C-c f"; bind "C-c f" "save-buffer"; }"#);
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+#[test]
+fn an_unbind_in_a_modes_block_takes_the_key_out_of_the_built_in_map() {
+    let (s, problems) = configured(r#"keymap "dired-mode" { unbind "g"; }"#);
+    assert!(problems.is_empty(), "{problems:?}");
+    let dired = s.editor.mode_keymap("dired-mode").expect("the dired map");
+    assert!(
+        dired
+            .lookup(&maxgus_keys::KeySequence::parse("g").unwrap())
+            .command()
+            != Some("dired-refresh"),
+        "`g` is still bound in dired"
+    );
+    assert_eq!(
+        dired
+            .lookup(&maxgus_keys::KeySequence::parse("n").unwrap())
+            .command(),
+        Some("dired-next"),
+        "the rest of the map went too"
+    );
+}
+
+#[test]
+fn a_binding_to_no_command_is_found() {
+    let config = maxgus_config::Config::parse(
+        r#"keymap "global" { bind "C-c z" "no-such-command"; bind "C-c y" "save-buffer"; }"#,
+    )
+    .unwrap();
+    let registry = maxgus_core::standard_registry();
+    let dead =
+        maxgus_core::keymap::bindings_to_nothing(&config.keymaps, |name| registry.contains(name));
+    assert_eq!(
+        dead,
+        vec![("C-c z".to_string(), "no-such-command".to_string())]
+    );
+    let said = maxgus_core::keymap::describe_bindings_to_nothing(&dead).unwrap();
+    assert!(
+        said.contains("`C-c z` is bound to `no-such-command`"),
+        "{said}"
+    );
+}
+
+/// Every keymap the documentation shows goes over the real maps without
+/// taking anything away, and names only commands there are.
+///
+/// Parsing them was checked; applying them was not, and the example every
+/// document shared bound `C-c f`, which removed the whole Files leader —
+/// `C-c f p`, the key the same page said opens the configuration, with it.
+#[cfg(feature = "full")]
+#[test]
+fn the_documented_keymaps_take_nothing_away_and_name_real_commands() {
+    let mut sources: Vec<(String, String)> = Vec::new();
+    for (name, text) in [
+        ("README.md", include_str!("../../../README.md")),
+        (
+            "configuration-reference.md",
+            include_str!("../../../docs/configuration-reference.md"),
+        ),
+    ] {
+        for (index, block) in text.split("```kdl\n").skip(1).enumerate() {
+            let body = block.split("```").next().unwrap_or_default();
+            sources.push((format!("{name} block {index}"), body.to_string()));
+        }
+    }
+    sources.push((
+        "config.example.kdl".into(),
+        include_str!("../../../docs/config.example.kdl").into(),
+    ));
+    let registry = maxgus_core::standard_registry();
+    let mut keymaps = 0;
+    for (name, source) in sources {
+        let config = maxgus_config::Config::parse(&source).expect("it parses");
+        let mut s = Session::new(80, 24);
+        let problems =
+            maxgus_core::keymap::apply_configured_keymaps(&mut s.editor, &config.keymaps);
+        assert!(problems.is_empty(), "{name}: {problems:?}");
+        let dead = maxgus_core::keymap::bindings_to_nothing(&config.keymaps, |command| {
+            registry.contains(command)
+        });
+        assert!(dead.is_empty(), "{name} binds keys to nothing: {dead:?}");
+        keymaps += config.keymaps.len();
+    }
+    assert!(keymaps >= 3, "only {keymaps} keymaps were found to check");
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_binding_to_a_script_command_is_not_called_dead_once_the_script_defines_it() {
+    let mut s = tall_session("/project/main.rs", "hello\n");
+    s.editor.unchecked_bindings = vec![
+        ("C-c s".into(), "shout".into()),
+        ("C-c z".into(), "no-such-command".into()),
+    ];
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::ScriptRead {
+            source: r#"fn shout(ctx) { insert("!"); } define("shout", "…", shout);"#.into(),
+            path: "/home/someone/.config/maxgus/init.rhai".into(),
+        })
+        .unwrap();
+    let said = s.echo();
+    assert!(said.contains("no-such-command"), "got `{said}`");
+    assert!(
+        !said.contains("shout"),
+        "a script's command was called dead: `{said}`"
+    );
+    assert!(s.editor.unchecked_bindings.is_empty(), "asked twice");
+}
+
 // ---- scripts -------------------------------------------------------------
 
 #[cfg(feature = "full")]
@@ -7190,12 +8473,163 @@ fn a_script_cannot_take_a_built_in_commands_name() {
         define("save-buffer", "…", hijack);
         "#,
     );
+    assert!(
+        s.echo().contains("`save-buffer` is already the editor's"),
+        "the script was not told: `{}`",
+        s.echo()
+    );
     s.editor.tasks.drain();
     s.dispatcher.execute(&mut s.editor, "save-buffer", None);
     assert!(
         !s.editor.current_buffer().text().contains("hijacked"),
         "a script overrode a built-in command"
     );
+    // Nor is its documentation offered, or taken away again on a reload.
+    let docs = |s: &Session| {
+        s.editor
+            .command_docs
+            .iter()
+            .filter(|(name, _)| name == "save-buffer")
+            .count()
+    };
+    let before = docs(&s);
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::ScriptRead {
+            source: String::new(),
+            path: "/home/someone/.config/maxgus/init.rhai".into(),
+        })
+        .unwrap();
+    assert_eq!(
+        docs(&s),
+        before,
+        "reloading took the built-in's documentation"
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn every_command_a_script_runs_runs_in_order_with_its_edits() {
+    // Handed to the dispatcher, only the first `run` happened, and nothing
+    // the script asked for after it.
+    let mut s = with_script(
+        r#"
+        fn both_ends(ctx) {
+            run("end-of-buffer");
+            insert("!");
+            run("beginning-of-buffer");
+            insert("?");
+        }
+        define("both-ends", "…", both_ends);
+        "#,
+    );
+    s.dispatcher.execute(&mut s.editor, "both-ends", None);
+    assert_eq!(s.editor.current_buffer().text(), "?hello world\n!");
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn what_a_script_did_is_undone_in_one_step() {
+    let mut s = with_script(
+        r#"
+        fn frame(ctx) { run("beginning-of-buffer"); insert("<"); run("end-of-buffer"); insert(">"); }
+        define("frame", "…", frame);
+        "#,
+    );
+    s.dispatcher.execute(&mut s.editor, "frame", None);
+    assert_eq!(s.editor.current_buffer().text(), "<hello world\n>");
+    s.keys("C-x u");
+    assert_eq!(s.editor.current_buffer().text(), "hello world\n");
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_script_can_replace_the_region() {
+    let mut s = with_script(
+        r#"
+        fn wrap(ctx) {
+            if ctx.region == () { fail("Select something first"); }
+            goto_char(ctx.region_start);
+            delete(ctx.region.len());
+            insert("`" + ctx.region + "`");
+        }
+        define("wrap-in-backticks", "…", wrap);
+        "#,
+    );
+    s.dispatcher
+        .execute(&mut s.editor, "wrap-in-backticks", None);
+    assert_eq!(s.echo(), "Select something first");
+    s.keys("M-f");
+    s.editor.with_current_buffer(|b| b.set_mark(0));
+    s.dispatcher
+        .execute(&mut s.editor, "wrap-in-backticks", None);
+    assert_eq!(s.editor.current_buffer().text(), "`hello` world\n");
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_script_that_runs_itself_is_stopped() {
+    let mut s = with_script(
+        r#"
+        fn again(ctx) { insert("x"); run("again"); }
+        define("again", "…", again);
+        "#,
+    );
+    s.dispatcher.execute(&mut s.editor, "again", None);
+    assert!(s.echo().contains("deep"), "got `{}`", s.echo());
+    assert_eq!(s.editor.script_depth, 0, "the count was left raised");
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_script_written_after_startup_can_be_loaded() {
+    let mut s = tall_session("/project/main.rs", "hello\n");
+    s.editor.config_path = Some("/home/someone/.config/maxgus/config.kdl".into());
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::ScriptMissing {
+            path: "/home/someone/.config/maxgus/init.rhai".into(),
+        })
+        .unwrap();
+    assert_eq!(s.echo(), "", "a missing script was mentioned at startup");
+
+    s.editor.tasks.drain();
+    s.dispatcher.execute(&mut s.editor, "reload-scripts", None);
+    match &s.editor.tasks.drain()[..] {
+        [Task::ReadScript { path }] => {
+            assert_eq!(
+                path,
+                std::path::Path::new("/home/someone/.config/maxgus/init.rhai")
+            );
+        }
+        other => panic!("expected the script to be read, got {other:?}"),
+    }
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::ScriptMissing {
+            path: "/home/someone/.config/maxgus/init.rhai".into(),
+        })
+        .unwrap();
+    assert!(
+        s.echo().contains("There is no script"),
+        "got `{}`",
+        s.echo()
+    );
+}
+
+#[cfg(feature = "full")]
+#[test]
+fn a_script_that_is_gone_takes_its_commands_with_it() {
+    let mut s = with_script(
+        r#"
+        fn shout(ctx) { insert("!"); }
+        define("shout", "…", shout);
+        "#,
+    );
+    s.editor
+        .apply_task_result(maxgus_core::TaskResult::ScriptMissing {
+            path: "/home/someone/.config/maxgus/init.rhai".into(),
+        })
+        .unwrap();
+    assert!(!s.editor.command_names.iter().any(|n| n == "shout"));
+    assert!(s.echo().contains("is gone"), "got `{}`", s.echo());
 }
 
 #[cfg(feature = "full")]
@@ -7955,6 +9389,8 @@ fn the_file_tree_follows_its_cursor_off_the_bottom() {
             nodes,
             select: None,
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
 
@@ -8025,6 +9461,8 @@ fn the_tree_help_draws_the_keymap_in_named_columns() {
             nodes: vec![node("/project", "project", true, 0, true)],
             select: None,
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
     // `C-x t 1` is how the keys reach the tree; `C-x t t` only opens it.
@@ -8958,7 +10396,7 @@ fn the_readme_quotes_the_right_total_for_a_minimal_build() {
 }
 
 #[cfg(not(feature = "full"))]
-const README_MINIMAL_COMMANDS: usize = 325;
+const README_MINIMAL_COMMANDS: usize = 337;
 
 #[test]
 fn the_box_says_what_it_is_asking_and_what_ret_will_do() {
@@ -8978,6 +10416,8 @@ fn the_box_says_what_it_is_asking_and_what_ret_will_do() {
             nodes: vec![node("/project", "project", true, 0, true)],
             select: None,
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
     s.keys("C-x t 1");

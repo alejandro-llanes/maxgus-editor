@@ -334,6 +334,11 @@ impl<'a> Parser<'a> {
                     self.config.settings.syntax_highlighting = b;
                 }
             }
+            "syntax-highlighting-limit-mb" => {
+                if let Some(n) = self.usize_value(node, key, value) {
+                    self.config.settings.syntax_highlighting_limit_mb = n;
+                }
+            }
             "grammar-auto-install" => {
                 if let Some(b) = self.bool_value(node, key, value) {
                     self.config.settings.grammar_auto_install = b;
@@ -1016,6 +1021,15 @@ mod tests {
 
         let c = parse("set scroll-margin=-2");
         assert!(c.warnings[0].message.contains("must not be negative"));
+    }
+
+    #[test]
+    fn a_file_that_is_not_kdl_says_where_and_why() {
+        let error = Config::parse("set tab-width=4\nkeymap \"global\" {\n    bind \"C-c z\" \"save-buffer\"\n\nset theme=\"x\"\n")
+            .unwrap_err()
+            .to_string();
+        assert!(error.starts_with("line 2: "), "{error}");
+        assert_ne!(error, "Failed to parse KDL document");
     }
 
     #[test]

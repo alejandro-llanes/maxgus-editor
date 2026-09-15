@@ -50,8 +50,13 @@ jobs:
           sudo apt-get install -y libwayland-dev libxkbcommon-dev
       - name: Build
         run: cargo build -p maxgus --features gui
+      # The binary's own tests as well as the window's: the smoke tests
+      # have a `gui` branch — a window is what a gui build opens, and its
+      # version names the build — that no other job runs.
       - name: Test
-        run: cargo test -p maxgus-gui --features full
+        run: |
+          cargo test -p maxgus-gui --features full
+          cargo test -p maxgus --features gui
 
   lint:
     name: clippy and fmt
@@ -67,9 +72,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwayland-dev libxkbcommon-dev
+      # All three builds, the window's included: code behind `gui` was
+      # never linted.
       - run: cargo clippy --workspace --all-targets
-      - name: Install what a window needs
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwayland-dev libxkbcommon-dev
       - run: cargo clippy --workspace --all-targets --no-default-features
+      - run: cargo clippy -p maxgus --all-targets --features gui

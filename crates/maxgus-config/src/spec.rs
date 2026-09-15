@@ -52,26 +52,60 @@ impl KeymapSpec {
         }
     }
 
-    /// Builds a keymap from this spec. Conflicting bindings — one sequence
-    /// used as a prefix of another — are reported by the underlying keymap.
-    pub fn to_keymap(&self) -> maxgus_keys::Result<Keymap> {
+    /// Builds a keymap from this spec, and says what could not be bound.
+    pub fn to_keymap(&self) -> (Keymap, Vec<String>) {
         let mut map = Keymap::new(self.name.clone());
-        for (seq, command) in &self.bindings {
-            map.define(seq, command.clone())?;
-        }
-        Ok(map)
+        let problems = self.apply_to(&mut map);
+        (map, problems)
     }
 
-    /// Applies this spec on top of an existing map: bindings override, and
-    /// `unbind` removes.
-    pub fn apply_to(&self, map: &mut Keymap) -> maxgus_keys::Result<()> {
+    /// Applies this spec on top of an existing map: `unbind` removes, then
+    /// bindings override. Returns a sentence for each thing that went wrong
+    /// or was lost on the way.
+    ///
+    /// No problem stops the rest: the first binding that could not be made
+    /// used to end the block, and every binding after it went unmade with
+    /// only the first one mentioned. And a sequence bound over a prefix took
+    /// the prefix's bindings with it in silence — `C-c f`, bound as the
+    /// documentation's own example did, removed every `C-c f` key there was.
+    pub fn apply_to(&self, map: &mut Keymap) -> Vec<String> {
+        let mut problems = Vec::new();
         for seq in &self.unbound {
-            map.undefine(seq);
+            // A prefix named here is meant whole, which is also the way to
+            // bind a prefix's key to a command without being told about it.
+            if map.remove(seq).is_empty() && map.name() == "global" {
+                problems.push(format!(
+                    "`unbind \"{}\"`: nothing is bound to it",
+                    seq.notation()
+                ));
+            }
         }
         for (seq, command) in &self.bindings {
-            map.define(seq, command.clone())?;
+            let under = map.bindings_under(seq);
+            if let Err(error) = map.define(seq, command.clone()) {
+                problems.push(error.to_string());
+                continue;
+            }
+            if !under.is_empty() {
+                let named: Vec<String> = under
+                    .iter()
+                    .take(2)
+                    .map(|(keys, _)| format!("`{}`", keys.notation()))
+                    .collect();
+                problems.push(format!(
+                    "binding `{keys}` to `{command}` took away the {count} under it ({named}{more}); \
+                     `unbind \"{keys}\"` first if that is meant",
+                    keys = seq.notation(),
+                    count = match under.len() {
+                        1 => "binding".to_string(),
+                        n => format!("{n} bindings"),
+                    },
+                    named = named.join(", "),
+                    more = if under.len() > 2 { ", …" } else { "" },
+                ));
+            }
         }
-        Ok(())
+        problems
     }
 }
 
@@ -252,7 +286,8 @@ mod tests {
     fn a_keymap_spec_builds_a_keymap() {
         let mut spec = KeymapSpec::new("global");
         spec.bindings.push((seq("C-x C-f"), "find-file".into()));
-        let map = spec.to_keymap().unwrap();
+        let (map, problems) = spec.to_keymap();
+        assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(map.lookup(&seq("C-x C-f")).command(), Some("find-file"));
         assert_eq!(map.name(), "global");
     }
@@ -266,18 +301,73 @@ mod tests {
         let mut spec = KeymapSpec::new("global");
         spec.bindings.push((seq("C-x C-f"), "my-find-file".into()));
         spec.unbound.push(seq("C-z"));
-        spec.apply_to(&mut base).unwrap();
+        assert!(spec.apply_to(&mut base).is_empty());
 
         assert_eq!(base.lookup(&seq("C-x C-f")).command(), Some("my-find-file"));
         assert!(base.lookup(&seq("C-z")).is_undefined());
     }
 
     #[test]
-    fn conflicting_bindings_surface_as_an_error() {
+    fn conflicting_bindings_surface_as_a_problem_and_the_rest_are_made() {
         let mut spec = KeymapSpec::new("bad");
         spec.bindings.push((seq("C-a"), "one".into()));
         spec.bindings.push((seq("C-a C-b"), "two".into()));
-        assert!(spec.to_keymap().is_err());
+        spec.bindings.push((seq("C-e"), "three".into()));
+        let (map, problems) = spec.to_keymap();
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert_eq!(
+            map.lookup(&seq("C-e")).command(),
+            Some("three"),
+            "the binding after the conflict was not made"
+        );
+    }
+
+    #[test]
+    fn binding_over_a_prefix_says_what_it_took_away() {
+        let mut base = Keymap::new("global");
+        base.define_str("C-c f p", "edit-configuration").unwrap();
+        base.define_str("C-c f f", "find-file").unwrap();
+        base.define_str("C-c f y", "yank-buffer-path").unwrap();
+
+        let mut spec = KeymapSpec::new("global");
+        spec.bindings
+            .push((seq("C-c f"), "lsp-format-buffer".into()));
+        let problems = spec.apply_to(&mut base);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("3 bindings") && problems[0].contains("unbind"),
+            "{}",
+            problems[0]
+        );
+        assert_eq!(
+            base.lookup(&seq("C-c f")).command(),
+            Some("lsp-format-buffer"),
+            "the binding asked for was not made"
+        );
+    }
+
+    #[test]
+    fn unbinding_a_prefix_first_takes_it_whole_and_quietly() {
+        let mut base = Keymap::new("global");
+        base.define_str("C-c f p", "edit-configuration").unwrap();
+        let mut spec = KeymapSpec::new("global");
+        spec.unbound.push(seq("C-c f"));
+        spec.bindings
+            .push((seq("C-c f"), "lsp-format-buffer".into()));
+        assert!(spec.apply_to(&mut base).is_empty());
+        assert_eq!(
+            base.lookup(&seq("C-c f")).command(),
+            Some("lsp-format-buffer")
+        );
+    }
+
+    #[test]
+    fn unbinding_what_is_not_bound_is_mentioned() {
+        let mut base = Keymap::new("global");
+        let mut spec = KeymapSpec::new("global");
+        spec.unbound.push(seq("C-q"));
+        let problems = spec.apply_to(&mut base);
+        assert!(problems[0].contains("nothing is bound"), "{problems:?}");
     }
 
     #[test]

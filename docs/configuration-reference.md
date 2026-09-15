@@ -2,13 +2,24 @@
 
 Every option `maxgus` understands, with its type and default.
 
-The file lives at `~/.config/maxgus/config.kdl`. Start elsewhere with
+The file lives at `~/.config/maxgus/config.kdl` — on macOS
+`~/Library/Application Support/maxgus/config.kdl`, and on Windows
+`%APPDATA%\maxgus\config\config.kdl`. Start elsewhere with
 `--config <file>`, or with nothing at all using `-Q`. From inside the editor,
-`C-c e` (`M-x edit-configuration`) opens whichever file this session was
+`C-c f p` (`M-x edit-configuration`) opens whichever file this session was
 started with, creating it if it is not there yet. Every node is optional.
 A node or key `maxgus` does not recognise is reported with its line number and
 skipped, so a file written for a newer version still starts an older one — and
-a misspelling gets a "did you mean" rather than silence.
+a misspelling gets a "did you mean" rather than silence. A file that is not
+valid KDL at all is reported the same way, with the line, and the editor
+starts on its defaults so that it can be opened and fixed. Every message the
+echo area has shown is in `*Messages*`, which `C-h e` opens.
+
+What the editor keeps for itself — sessions, workspaces, the size of its
+window, grammars it has installed — goes in its **state directory**:
+`~/.local/share/maxgus` on Linux and FreeBSD, `~/Library/Application
+Support/maxgus` on macOS, `%LOCALAPPDATA%\maxgus\data` on Windows. Setting
+`MAXGUS_LOG` to a file name writes the editor's traces there.
 
 See [configuration.md](configuration.md) for why KDL, and
 [config.example.kdl](config.example.kdl) for a working file that exercises
@@ -24,14 +35,15 @@ untouched, and Doom's leader — `C-c` — carries the same maps:
 | Prefix | What is under it |
 |---|---|
 | `C-c c` | Code: the language server, and `w` for trailing whitespace |
-| `C-c f` | Files: `f` find, `d` dired, `D` delete, `m` move, `C` copy, `y`/`Y` copy the path, `p` this configuration |
-| `C-c s` | Search: `p` the project, `b` this buffer, `i` the symbols |
-| `C-c o` | Open: `t` terminal, `p` panel, `-` dired, `b` the desktop's viewer |
+| `C-c f` | Files: `f` find, `b` browse, `d` dired, `D` delete, `m` move, `C` copy, `y`/`Y` copy the path, `p` this configuration |
+| `C-c s` | Search: `p` the project, `.` the project for text as written, `b` this buffer, `i`/`I` the symbols |
+| `C-c o` | Open: `t` terminal, `p` panel, `-` dired, `b` the desktop's viewer, `i` the picture the line names |
+| `C-c p` | Workspaces: `p` switch, `s` save, `d` delete |
 | `C-c t` | Toggle: `l` line numbers, `r` read-only, `c` fill column, `I` tabs or spaces, `w` wrapping |
 | `C-c v` | Versioning: `g` magit, `/` its dispatch |
 | `C-c m` | Cursors: `n`/`p`/`t`, and `<up>`/`<down>` for one per line |
-| `C-c i` | Insert: `s` a snippet, `y` from the kill ring |
-| `C-c q` | Quitting, and the session: `s` save, `l` restore |
+| `C-c i` | Insert: `s` a snippet, `y` from the kill ring; `C-c & i` a snippet too, as in Doom |
+| `C-c q` | Quitting, and the session: `q` quit, `s` save, `l` restore — also under `C-c w` |
 
 `C-c l` and `C-c e` are left unbound on purpose: Doom uses them for the
 localleader and for eval, and a global binding on either would take them away
@@ -59,6 +71,7 @@ called:
 | `path` | The file it is visiting, or `()` |
 | `mode` | Its major mode, or `()` |
 | `region` | The selected text, or `()` |
+| `region_start`, `region_end` | Where the region is, as offsets like `point`, or `()` |
 
 and calling any of:
 
@@ -66,13 +79,20 @@ and calling any of:
 |---|---|
 | `insert(text)` | Put text in at point |
 | `delete(count)` | Take characters out, forwards from point |
-| `goto(offset)` | Move point |
+| `goto_char(offset)` | Move point — `goto` is a word Rhai keeps for itself |
 | `run(command)` | Run one of the editor's own commands |
-| `message(text)` | Say something in the echo area |
-| `fail(text)` | Stop, and keep none of what was asked for |
+| `message(text)` | Say something in the echo area; so does `print` |
+| `fail(text)` | Stop there, keep none of what was asked for, and say why |
+
+What a command asks for happens in the order it asked, a `run` included, and
+`C-/` takes all of it back in one step. A command it runs that fails stops it
+at that point.
 
 A script cannot reach into editor state directly, and cannot take a built-in
-command's name.
+command's name: one that tries is told so when it loads. `import` finds
+modules beside `init.rhai`, and is written inside the function that uses them.
+`M-x reload-scripts` reads the file again, including one written since the
+editor started.
 
 ---
 
@@ -147,7 +167,7 @@ KDL spells booleans `#true` and `#false`, and null `#null`.
 | `beacon-blink-when-window-changes` | bool | `#true` | Light it when another window is selected. |
 | `beacon-blink-when-point-moves-vertically` | integer | `0` | Lines point must move for a light; `0` never. Off by default because ordinary editing would light it constantly. |
 | `session` | bool | `#false` | Remember what is open when the editor leaves, and open it again when it is next started in the same project with no file named. Kept under the state directory, keyed by the project's path. |
-| `gui-font` | string | `"JetBrainsMono Nerd Font"` | The family the window draws with. Falls through a list of installed monospace families when it is not there. Only read when drawing into a window, which a `full` build does unless started with `-nw`. |
+| `gui-font` | string | `"JetBrainsMono Nerd Font"` | The family the window draws with. Falls through a list of installed monospace families when it is not there. Only read when drawing into a window, which a `gui` build does unless started with `-nw`. |
 | `gui-font-size` | integer | `16` | Its size in pixels, clamped to 6–96. Logical pixels: on a display that reports a scale the glyphs are cut that much larger, so the text is the same size to the eye on both, and a window dragged between two such displays is laid out again for the cells that fit. `C-x C-+` and `C-x C--` zoom from here without changing it. |
 | `gui-line-spacing` | integer | `0` | Pixels added between one line of text and the next, over what the font asks for, up to 32. Scaled like the font. |
 | `gui-padding` | integer | `0` | Pixels of margin between the window's edge and the text, up to 64. Scaled like the font. |
@@ -190,6 +210,7 @@ KDL spells booleans `#true` and `#false`, and null `#null`.
 | Option | Type | Default | Meaning |
 |---|---|---|---|
 | `syntax-highlighting` | bool | `#true` | Use tree-sitter where a grammar is compiled in. |
+| `syntax-highlighting-limit-mb` | integer | `16` | The largest file that is parsed for colour. A syntax tree takes many times the memory of its text, so a larger file is shown plain, and says so; `0` puts no limit on it. |
 | `grammar-auto-install` | bool | `#true` | Offer to fetch and build a grammar for a language that has none. Asks before doing anything; see [grammars.md](grammars.md). |
 | `lsp-enabled` | bool | `#true` | Start a language server for buffers whose language has one configured. |
 | `idle-delay-ms` | integer | `150` | Quiet time before re-highlighting and syncing with the server. |
@@ -204,11 +225,11 @@ name merge.
 
 The file tree has a mode of its own, `"treefile-mode"`, holding the treemacs
 keymap. A block of that name **adds to** the built-in bindings rather than
-replacing them, so rebinding one key does not cost you the other fifty-eight.
+replacing them, so rebinding one key does not cost you the other fifty-five.
 
 ```kdl
 keymap "global" {
-    bind "C-c f" "lsp-format-buffer"
+    bind "<f5>" "lsp-format-buffer"
     unbind "C-z"
 }
 
@@ -220,7 +241,12 @@ keymap "rust-mode" {
 | Node | Arguments | Meaning |
 |---|---|---|
 | `bind` | key sequence, command name | Bind a sequence to a command. |
-| `unbind` | one or more key sequences | Remove bindings entirely. |
+| `unbind` | one or more key sequences | Remove bindings entirely — a prefix, with every binding under it. |
+
+Binding a key that begins other bindings — `C-c f`, which begins `C-c f p` and
+the rest of the Files keys — takes all of them away, and the editor says so
+when it starts. `unbind` the prefix first to do it on purpose. In a block named
+after a mode, `unbind` takes the key out of that mode's built-in map.
 
 **Key notation** is Emacs': `C-` control, `M-` meta, `S-` shift. Multi-key
 sequences are separated by spaces — `"C-x r SPC"`. The named keys, with the
@@ -241,8 +267,9 @@ alternative spellings each accepts:
 | `<f1>`, `<f2>`, … | any `<fN>` |
 
 **Command names** are the ones `M-x` lists and `C-h b` prints. A binding naming
-a command that does not exist is refused at startup rather than becoming a dead
-key.
+a command that does not exist is reported when the editor starts — once the
+script has been read, since a command it defines is a command — rather than
+left to be found by pressing the key.
 
 ---
 
@@ -378,6 +405,16 @@ your `theme` blocks override.
 `tree-git-deleted`, `tree-git-untracked`, `tree-git-ignored`,
 `tree-git-conflict`.
 
+**A terminal's colours**, in a window — `ansi-color-black`, `ansi-color-red`,
+`ansi-color-green`, `ansi-color-yellow`, `ansi-color-blue`,
+`ansi-color-magenta`, `ansi-color-cyan`, `ansi-color-white`,
+`ansi-color-bright-black`, `ansi-color-bright-red`, `ansi-color-bright-green`,
+`ansi-color-bright-yellow`, `ansi-color-bright-blue`,
+`ansi-color-bright-magenta`, `ansi-color-bright-cyan`,
+`ansi-color-bright-white`. Their foreground is the colour a program gets when
+it asks for that one by number. In a terminal front end the terminal's own
+colours are used instead.
+
 A `face` naming something not on this list is reported at startup with a "did
 you mean", because it would otherwise never paint and never say why.
 
@@ -409,11 +446,15 @@ lsp "typescript" command="typescript-language-server" {
 
 Language identifiers, as derived from the file name: `rust`, `python`,
 `javascript`, `typescript`, `json`, `c`, `cpp`, `bash`, `html`, `css`, `toml`,
-`markdown`, `kdl`, `go`, `yaml`, and `make` and `dockerfile` for `Makefile` and
-`Dockerfile`. Of these, `rust`, `python`, `javascript`, `json`, `c`, `bash`,
-`html` and `css` also have a tree-sitter grammar compiled in; the rest are
-recognised for the mode line and for choosing a language server, and are shown
-without syntax colouring.
+`markdown`, `kdl`, `go`, `yaml`, `ruby`, `kotlin`, `haskell`, `elixir`,
+`erlang`, `ocaml`, `c-sharp`, `perl`, `clojure` and `fortran`; `make` and
+`dockerfile` for `Makefile` and `Dockerfile`; and for any other extension, the
+extension itself — `lua`, `zig`, `xml`, `ini` — which is what a grammar is
+conventionally named after. Eleven have a tree-sitter grammar compiled in:
+`c`, `html`, `ini`, `javascript`, `json`, `markdown`, `python`, `rust`, `toml`,
+`xml` and `yaml`. The rest are recognised for the mode line and for choosing a
+language server, and are coloured once a grammar for them is installed — see
+[grammars.md](grammars.md).
 
 ---
 
@@ -439,7 +480,7 @@ tree {
 | `follow` | bool | `#true` | Keep the selection on the file being edited. |
 | `ignore` | strings | `target`, `node_modules`, `.git` | Names never shown. Replaces the default list rather than adding to it, so list everything you want ignored. |
 
-The five boolean nodes may be written bare, which reads as on: `show-hidden`
+The four boolean nodes may be written bare, which reads as on: `show-hidden`
 means `show-hidden #true`.
 
 ---
@@ -449,4 +490,4 @@ means `show-hidden #true`.
 - `C-h v` — a setting's current value.
 - `C-h b` — every key binding in effect.
 - `C-h m` — the current mode and its bindings.
-- `M-x` — every command, listed as the prompt opens and narrowed as you type.
+- `M-x` — every command meant to be run by name, listed as the prompt opens and narrowed as you type.

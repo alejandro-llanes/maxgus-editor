@@ -206,6 +206,16 @@ pub fn register(registry: &mut Registry) {
             end_and_call_macro
         ),
         command!(
+            "kmacro-start-macro-or-insert-counter",
+            "Begin recording a keyboard macro, or insert its counter while one is recorded.",
+            start_or_insert_counter
+        ),
+        command!(
+            "kmacro-end-or-call-macro",
+            "Stop recording a keyboard macro, or replay the last one.",
+            end_or_call
+        ),
+        command!(
             "shell-command",
             "Run a shell command and show its output.",
             shell_command
@@ -741,30 +751,61 @@ fn start_macro(editor: &mut Editor, _: &Args) -> Result<()> {
 }
 
 /// Stops recording, dropping the keys that ended the recording.
-fn finish_recording(editor: &mut Editor, trailing: usize) -> Result<usize> {
+///
+/// All of them, however many that was. Two were dropped whatever the keys:
+/// right for `C-x )`, and for `M-x kmacro-end-macro RET` a macro that typed
+/// most of that into the buffer every time it was played.
+fn finish_recording(editor: &mut Editor) -> Result<usize> {
     let Some(mut keys) = editor.recording_macro.take() else {
         return Err(crate::CoreError::Message(
             "Not defining a keyboard macro".into(),
         ));
     };
-    // The keys that invoked the stopping command are not part of the macro.
-    keys.truncate(keys.len().saturating_sub(trailing));
+    keys.truncate(editor.macro_command_start.min(keys.len()));
     let length = keys.len();
     editor.last_macro = keys;
     Ok(length)
 }
 
 fn end_macro(editor: &mut Editor, _: &Args) -> Result<()> {
-    // `C-x )` is two keys.
-    let length = finish_recording(editor, 2)?;
+    let length = finish_recording(editor)?;
     editor.message(format!("Keyboard macro defined ({length} keys)"));
     Ok(())
+}
+
+/// `<f3>`: begins recording, or — while a macro is being recorded or played —
+/// inserts its counter and steps it on, which is how a numbered list is made
+/// by a macro.
+fn start_or_insert_counter(editor: &mut Editor, args: &Args) -> Result<()> {
+    if editor.recording_macro.is_some() || editor.replaying_macro {
+        let value = editor.macro_counter;
+        editor.macro_counter += match args.prefix.is_present() {
+            true => args.prefix.count() as i64,
+            false => 1,
+        };
+        editor.with_current_buffer(|b| b.insert_at_point(&value.to_string()))?;
+        editor.follow_point();
+        return Ok(());
+    }
+    editor.macro_counter = match args.prefix.is_present() {
+        true => args.prefix.count() as i64,
+        false => 0,
+    };
+    start_macro(editor, args)
+}
+
+/// `<f4>`: ends the recording, or plays the last macro.
+fn end_or_call(editor: &mut Editor, args: &Args) -> Result<()> {
+    if editor.recording_macro.is_some() {
+        return end_macro(editor, args);
+    }
+    end_and_call_macro(editor, args)
 }
 
 /// `C-x e`: ends a recording if one is running, then replays the macro.
 fn end_and_call_macro(editor: &mut Editor, args: &Args) -> Result<()> {
     if editor.recording_macro.is_some() {
-        finish_recording(editor, 2)?;
+        finish_recording(editor)?;
     }
     if editor.last_macro.is_empty() {
         return Err(crate::CoreError::Message(
@@ -836,6 +877,9 @@ fn shell_command_on_region(editor: &mut Editor, args: &Args) -> Result<()> {
 
 /// Puts shell output into its own buffer, as `M-!` does.
 pub fn show_shell_output(editor: &mut Editor, command: &str, output: &str) -> Result<()> {
+    // A command may well have made, moved or deleted something the tree is
+    // showing.
+    editor.refresh_tree_soon();
     // Short output goes in the echo area, as Emacs does.
     let lines = output.lines().count();
     if lines <= 1 {
@@ -855,7 +899,9 @@ pub fn show_shell_output(editor: &mut Editor, command: &str, output: &str) -> Re
         .get_mut(id)
         .expect("just created")
         .set_read_only(true);
-    editor.switch_to_buffer(id)
+    // Beside the text rather than over it, and without taking the cursor:
+    // `!` in the tree used to put the output where the tree had been.
+    editor.display_buffer(id)
 }
 
 /// The keys `C-x (` and `C-x )` are made of, for tests and documentation.
@@ -1454,10 +1500,15 @@ mod tests {
         assert_eq!(e.minibuffer.display(), "Tue 27 Aug");
         assert!(e.buffers.find_by_name(SHELL_OUTPUT_NAME).is_none());
 
+        let before = e.current_buffer_id();
         show_shell_output(&mut e, "ls", "one\ntwo\nthree\n").unwrap();
-        assert_eq!(e.current_buffer().name(), SHELL_OUTPUT_NAME);
-        assert!(e.current_buffer().is_read_only());
-        assert!(e.current_buffer().text().starts_with("$ ls\n"));
+        // Beside the text, and the cursor stays where it was.
+        assert_eq!(e.current_buffer_id(), before);
+        let output = e.buffers.find_by_name(SHELL_OUTPUT_NAME).expect("a buffer");
+        assert!(!e.windows.showing(output).is_empty(), "shown in a window");
+        let output = e.buffers.get(output).unwrap();
+        assert!(output.is_read_only());
+        assert!(output.text().starts_with("$ ls\n"));
     }
 
     #[test]

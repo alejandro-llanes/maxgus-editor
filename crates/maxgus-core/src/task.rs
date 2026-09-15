@@ -23,6 +23,10 @@ pub enum GitAction {
     UnstageAll,
     /// Throws the working-tree change away. The one irreversible action here.
     Discard(Vec<PathBuf>),
+    /// Throws away what is staged for these paths, and what the working tree
+    /// has on top of it: back to the last commit. A path the last commit
+    /// does not have — a staged new file, the new name of a rename — goes.
+    DiscardStaged(Vec<PathBuf>),
     /// Deletes an untracked file, which `git checkout` will not do.
     DeleteUntracked(Vec<PathBuf>),
     /// Feeds a patch to `git apply`, which is how one hunk is staged,
@@ -235,6 +239,17 @@ pub enum Task {
     },
     /// List a directory, for `find-file` completion.
     ListDirectory { path: PathBuf },
+    /// Reads a file into a buffer without showing it, for a language server's
+    /// edit to be made in — a rename reaching files nobody has open.
+    #[cfg(feature = "full")]
+    ReadFileForEdits { path: PathBuf },
+    /// Reads a file a session remembers — only if it is still there. A file
+    /// deleted since would otherwise come back as an empty buffer, and be
+    /// written back into existence by the first save.
+    RestoreFile { path: PathBuf },
+    /// Reads a file to insert into `buffer` at its point, as `insert-file`
+    /// does — not to visit it.
+    InsertFile { path: PathBuf, buffer: BufferId },
     /// Act on the file tree. The tree itself lives in the event loop, where
     /// its directory reads can be awaited.
     Tree(TreeAction),
@@ -266,7 +281,12 @@ pub enum Task {
     GitBranch { root: PathBuf },
     /// Start a language server for `language`.
     #[cfg(feature = "full")]
-    StartLanguageServer { language: String },
+    /// Starts the server for `language`, rooted at the project `file` is
+    /// in — or, when one is already running, tells it about that project.
+    StartLanguageServer {
+        language: String,
+        file: Option<PathBuf>,
+    },
     /// Stop the server for `language`.
     #[cfg(feature = "full")]
     StopLanguageServer { language: String },
@@ -365,6 +385,10 @@ pub enum Task {
     #[cfg(feature = "full")]
     ApplyGrep {
         replacements: Vec<maxgus_grep::Replacement>,
+        /// Lines for buffers with unsaved changes, which go into the buffers
+        /// once the files are written, and not at all when they cannot be.
+        /// Handed back with the answer.
+        unsaved: Vec<maxgus_grep::Replacement>,
     },
     /// Re-parse a buffer and highlight `range`.
     ///
@@ -389,6 +413,14 @@ pub enum Task {
 /// so the tree stays responsive while a directory read is in flight.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TreeAction {
+    /// Open the tree for a directory — the one the file being edited is in.
+    ///
+    /// Kept as it is when it is already showing that directory; otherwise
+    /// rooted at the repository the directory belongs to, the way Doom's
+    /// treemacs follows the project being worked in.
+    Show(PathBuf),
+    /// Forget the tree altogether, so the next one starts afresh.
+    Close,
     /// Read the tree from scratch, preserving what is expanded.
     Refresh,
     /// Expand a collapsed directory, or collapse an expanded one.
@@ -595,6 +627,20 @@ pub enum TaskResult {
         buffer: BufferId,
         because: WriteGuard,
     },
+    /// A file read so a language server's edit could be made in it.
+    #[cfg(feature = "full")]
+    FileReadForEdits {
+        path: PathBuf,
+        contents: String,
+        read_only: bool,
+        disk_time: Option<std::time::SystemTime>,
+    },
+    /// A file's text, read to be inserted into a buffer.
+    FileInserted {
+        path: PathBuf,
+        buffer: BufferId,
+        contents: String,
+    },
     DirectoryListed {
         path: PathBuf,
         entries: Vec<String>,
@@ -614,6 +660,31 @@ pub enum TaskResult {
         nodes: Vec<maxgus_tree::VisibleNode>,
         select: Option<PathBuf>,
         show_hidden: bool,
+        /// The directories it is showing, the first of which is the tree's
+        /// root.
+        roots: Vec<PathBuf>,
+        /// Set when the action rooted the tree somewhere new, which is where
+        /// `treefile-root-reset` comes back to afterwards.
+        home: Option<PathBuf>,
+    },
+    /// A question nobody asked out loud went unanswered — the doc box's, the
+    /// outline's, the suggestion list's. Said nowhere: nobody is waiting on
+    /// it but whatever asked, which may need to stop saying it is waiting.
+    #[cfg(feature = "full")]
+    LspNoAnswer {
+        uri: String,
+        query: LspQuery,
+        message: String,
+    },
+    /// A file or directory was renamed or moved, so the buffers visiting it,
+    /// or anything inside it, can follow.
+    PathMoved {
+        from: PathBuf,
+        to: PathBuf,
+    },
+    /// A file or directory was deleted.
+    PathDeleted {
+        path: PathBuf,
     },
     /// The encoding is the one the server negotiated at `initialize`, and it
     /// is carried here because nothing else ever learns it: addressing a
@@ -717,14 +788,17 @@ pub enum TaskResult {
     #[cfg(feature = "full")]
     GrepFinished {
         pattern: String,
+        /// Where it was searched for.
+        root: PathBuf,
         found: maxgus_grep::Found,
     },
     /// What writing the edited results did.
     #[cfg(feature = "full")]
     GrepApplied {
-        applied: maxgus_grep::Applied,
-        /// The files that were written, so their buffers can be re-read.
-        paths: Vec<PathBuf>,
+        /// Every file asked for, unless `failure` says why the rest are not.
+        written: Vec<crate::grep::WrittenFile>,
+        failure: Option<String>,
+        unsaved: Vec<maxgus_grep::Replacement>,
     },
     /// A session, as it was read. Absent when there was none.
     SessionRead {
@@ -773,6 +847,11 @@ pub enum TaskResult {
     #[cfg(feature = "full")]
     ScriptRead {
         source: String,
+        path: PathBuf,
+    },
+    /// There is no script file where one was looked for.
+    #[cfg(feature = "full")]
+    ScriptMissing {
         path: PathBuf,
     },
 }
@@ -906,6 +985,8 @@ mod tests {
             nodes: Vec::new(),
             select: None,
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         };
         assert!(!ok.is_error());
         let bad = TaskResult::Failed {
@@ -946,7 +1027,9 @@ mod tests {
             TaskResult::TreeUpdated {
                 nodes: Vec::new(),
                 select: None,
-                show_hidden: false
+                show_hidden: false,
+                roots: Vec::new(),
+                home: None,
             }
             .message(),
             None

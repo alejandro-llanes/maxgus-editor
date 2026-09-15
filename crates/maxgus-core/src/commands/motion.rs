@@ -177,6 +177,11 @@ pub fn register(registry: &mut Registry) {
             pop_mark
         ),
         command!(
+            "xref-go-back",
+            "Go back to where the last jump left from, in whatever buffer.",
+            xref_go_back
+        ),
+        command!(
             "what-cursor-position",
             "Describe the character and position under point.",
             what_cursor_position
@@ -244,22 +249,39 @@ fn backward_char(editor: &mut Editor, args: &Args) -> Result<()> {
 /// Moves `delta` lines, keeping the display column point started at. The goal
 /// column persists across consecutive line motions, so walking down through a
 /// short line and out the other side returns to the original column.
+/// Moves `delta` lines, as far as the buffer goes, and says so when that was
+/// not far enough — `End of buffer`, `Beginning of buffer` — as Emacs does.
+///
+/// The error is not only a message: it is what stops a keyboard macro that
+/// walks down the lines once it reaches the end of them, instead of typing
+/// the rest of itself into the last line over and over.
 fn line_motion(editor: &mut Editor, delta: isize) -> Result<()> {
     // The window owns the goal column; take it before touching the buffer.
     let existing = editor.windows.current().goal_column;
-    editor.with_current_buffer(|buffer| {
+    let short = editor.with_current_buffer(|buffer| {
         let point = buffer.point();
         let goal = existing.unwrap_or_else(|| buffer.display_column(point));
         let line = buffer.line_of(point);
-        let target = line
-            .saturating_add_signed(delta)
-            .min(buffer.len_lines().saturating_sub(1));
+        let wanted = line.saturating_add_signed(delta);
+        let last = buffer.len_lines().saturating_sub(1);
+        let target = wanted.min(last);
         let to = buffer.offset_at_display_column(target, goal);
         buffer.set_point_keeping_goal(to);
         buffer.set_goal_column(Some(goal));
+        // Narrowing keeps point inside, which is as far as it can go too.
+        let landed = buffer.line_of(buffer.point());
+        match delta.cmp(&0) {
+            std::cmp::Ordering::Greater => (landed as isize - line as isize) < delta,
+            std::cmp::Ordering::Less => (line as isize - landed as isize) < -delta,
+            std::cmp::Ordering::Equal => false,
+        }
     });
     editor.follow_point();
-    Ok(())
+    match (short, delta > 0) {
+        (false, _) => Ok(()),
+        (true, true) => Err(crate::CoreError::Message("End of buffer".into())),
+        (true, false) => Err(crate::CoreError::Message("Beginning of buffer".into())),
+    }
 }
 
 fn next_line(editor: &mut Editor, args: &Args) -> Result<()> {
@@ -570,6 +592,38 @@ fn pop_mark(editor: &mut Editor, _: &Args) -> Result<()> {
     Ok(())
 }
 
+/// `M-,`: back to where the last jump left from — a definition, a row of a
+/// listing, a symbol in the outline — in whatever buffer that was.
+///
+/// It was `pop-mark`, which only knows the marks of the buffer point is in,
+/// so the one place it could never go back to was the file `M-.` had just
+/// left.
+fn xref_go_back(editor: &mut Editor, _: &Args) -> Result<()> {
+    while let Some(jump) = editor.jumps.pop() {
+        if editor.buffers.get(jump.buffer).is_some() {
+            editor.switch_to_buffer(jump.buffer)?;
+            let point = jump.point.min(editor.current_buffer().len_chars());
+            editor.move_point_to(point);
+            editor.follow_point();
+            return Ok(());
+        }
+        // Killed since: the file is opened again and point put back when it
+        // arrives, the way a session puts it back.
+        if let Some(path) = jump.path {
+            editor.session_points.insert(path.clone(), (jump.point, 0));
+            editor.spawn(crate::task::Task::ReadFile {
+                path,
+                reverting: None,
+                other_window: false,
+            });
+            return Ok(());
+        }
+    }
+    Err(crate::CoreError::Message(
+        "No earlier place to go back to".into(),
+    ))
+}
+
 fn exchange_point_and_mark(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.with_current_buffer(|buffer| buffer.exchange_point_and_mark())?;
     editor.follow_point();
@@ -825,6 +879,14 @@ mod tests {
         );
     }
 
+    /// Runs `command`, which must fail, and returns what it said.
+    fn fails(d: &mut Dispatcher, e: &mut Editor, command: &str) -> String {
+        match d.execute(e, command, None) {
+            crate::Dispatch::Failed { message, .. } => message,
+            other => panic!("`{command}` should have failed, got {other:?}"),
+        }
+    }
+
     /// Runs `command` with a numeric prefix argument.
     fn run_n(d: &mut Dispatcher, e: &mut Editor, command: &str, n: i32) {
         e.prefix = crate::Prefix::Numeric(n);
@@ -985,11 +1047,15 @@ mod tests {
     }
 
     #[test]
-    fn line_motion_clamps_at_the_first_and_last_line() {
+    fn line_motion_stops_at_the_first_and_last_line_and_says_so() {
         let (mut d, mut e) = setup("one\ntwo\nthree");
-        run_n(&mut d, &mut e, "previous-line", 5);
+        assert!(fails(&mut d, &mut e, "previous-line").contains("Beginning of buffer"));
         assert_eq!(e.current_buffer().line_of(point(&e)), 0);
-        run_n(&mut d, &mut e, "next-line", 50);
+        // As far as there is to go, then the error.
+        e.prefix = crate::Prefix::Numeric(50);
+        assert!(fails(&mut d, &mut e, "next-line").contains("End of buffer"));
+        assert_eq!(e.current_buffer().line_of(point(&e)), 2);
+        assert!(fails(&mut d, &mut e, "next-line").contains("End of buffer"));
         assert_eq!(e.current_buffer().line_of(point(&e)), 2);
     }
 

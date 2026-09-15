@@ -8,9 +8,8 @@ name: Pages
 #
 # It is static: `site/` plus the screenshots, which live in `docs/screenshots`
 # so the README and the site share one copy of each rather than drifting, and
-# the demo clips in `docs/media`, which are made by
-# `scripts/record-demos.sh` and committed rather than built here — recording
-# them needs a compositor, a window and a keyboard.
+# any clips in `docs/media`, which are committed rather than built here —
+# recording them needs a compositor, a window and a keyboard.
 on:
   push:
     branches: ["main"]

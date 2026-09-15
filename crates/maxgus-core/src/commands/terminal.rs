@@ -233,6 +233,17 @@ fn start_tab(editor: &mut Editor) {
         .unwrap_or("shell")
         .to_string();
     let id = editor.terminals.open(title, rows, columns);
+    // The colours the panel is drawn in, for a program that asks which.
+    let face = editor.theme.resolve("terminal");
+    let fallback = editor.theme.resolve("default");
+    let rgb = |color: Option<maxgus_faces::Color>| color.and_then(maxgus_faces::Color::to_rgb);
+    let foreground = rgb(face.foreground).or_else(|| rgb(fallback.foreground));
+    let background = rgb(face.background).or_else(|| rgb(fallback.background));
+    if let (Some(foreground), Some(background), Some(tab)) =
+        (foreground, background, editor.terminals.get_mut(id))
+    {
+        tab.emulator.set_colors(foreground, background);
+    }
     let directory = editor.default_directory();
     editor.spawn(Task::TerminalOpen {
         terminal: id,

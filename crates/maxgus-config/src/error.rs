@@ -5,8 +5,38 @@
 pub enum ConfigError {
     #[error("io error reading configuration: {0}")]
     Io(#[from] std::io::Error),
-    #[error("{0}")]
+    #[error("{}", describe_syntax(.0))]
     Syntax(#[from] Box<kdl::KdlError>),
+}
+
+/// A KDL error said so that it can be acted on: the line, and what is wrong
+/// there. The error's own text is "Failed to parse KDL document" whatever the
+/// failure, and that was all anyone was told.
+fn describe_syntax(error: &kdl::KdlError) -> String {
+    let Some(first) = error.diagnostics.first() else {
+        return error.to_string();
+    };
+    let line = error
+        .input
+        .chars()
+        .take(first.span.offset())
+        .filter(|c| *c == '\n')
+        .count()
+        + 1;
+    let mut said = format!(
+        "line {line}: {}",
+        first
+            .message
+            .as_deref()
+            .unwrap_or("this cannot be read as KDL")
+    );
+    if let Some(help) = &first.help {
+        said.push_str(&format!(" ({help})"));
+    }
+    if error.diagnostics.len() > 1 {
+        said.push_str(&format!(", and {} more", error.diagnostics.len() - 1));
+    }
+    said
 }
 
 impl From<kdl::KdlError> for ConfigError {

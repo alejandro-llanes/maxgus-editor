@@ -189,6 +189,22 @@ pub fn word_start(text: &str, point: usize) -> usize {
     start
 }
 
+/// [`word_start`], read straight off a buffer.
+///
+/// This runs after every command while the list is up, and at every pause in
+/// typing; rendering the whole buffer to a string for it cost the size of the
+/// file on each keystroke.
+pub fn word_start_in(buffer: &maxgus_text::Buffer, point: usize) -> usize {
+    let mut start = point.min(buffer.len_chars());
+    while let Some(ch) = start.checked_sub(1).and_then(|_| buffer.char_before(start)) {
+        if !(ch.is_alphanumeric() || ch == '_') {
+            break;
+        }
+        start -= 1;
+    }
+    start
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,5 +332,13 @@ mod tests {
         assert_eq!(word_start("with_under", 10), 0, "an underscore does not");
         assert_eq!(word_start("    ", 4), 4, "nothing to complete");
         assert_eq!(word_start("", 0), 0);
+        let mut buffer = maxgus_text::Buffer::new(maxgus_text::BufferId(1), "t");
+        buffer.insert(0, "let x = obj.fie_ld").unwrap();
+        assert_eq!(
+            word_start_in(&buffer, 18),
+            12,
+            "the same answer, off the buffer"
+        );
+        assert_eq!(word_start_in(&buffer, 0), 0);
     }
 }

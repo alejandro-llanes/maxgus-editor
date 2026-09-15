@@ -1,4 +1,4 @@
-//! `maxgus` — a very small Emacs. In a window, or in the terminal.
+//! `maxgus` — a lightning-fast Emacs. In a window, or in the terminal.
 
 mod app;
 mod tasks;
@@ -32,7 +32,7 @@ static VERSION: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 #[command(
     name = "maxgus",
     version = VERSION.as_str(),
-    about = "A very small Emacs"
+    about = "A lightning-fast Emacs, in a window or a terminal"
 )]
 struct Arguments {
     /// Files to visit on startup.
@@ -54,6 +54,11 @@ struct Arguments {
     #[cfg(feature = "gui")]
     #[arg(long)]
     gui: bool,
+
+    /// Open the window filling the screen, this time. Also `-fs`.
+    #[cfg(feature = "gui")]
+    #[arg(long)]
+    fullscreen: bool,
 
     /// Take over the terminal rather than opening a window. Also `-nw`.
     ///
@@ -86,6 +91,8 @@ fn argv_with_emacs_spellings() -> Vec<std::ffi::OsString> {
     std::env::args_os()
         .map(|argument| match argument.to_str() {
             Some("-nw") => std::ffi::OsString::from("--no-window-system"),
+            #[cfg(feature = "gui")]
+            Some("-fs") => std::ffi::OsString::from("--fullscreen"),
             _ => argument,
         })
         .collect()
@@ -109,12 +116,17 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    let (config, mut warnings) = load_config(&arguments)?;
+    let (config, mut problems) = load_config(&arguments);
     // The parser cannot do this itself: which faces exist is knowledge of the
     // faces crate, which is built on top of the config crate rather than under
     // it. A misspelled face would otherwise be accepted in silence and simply
     // never paint.
-    warnings.extend(unknown_face_warnings(&config));
+    problems.extend(
+        unknown_face_warnings(&config)
+            .iter()
+            .map(ToString::to_string),
+    );
+    problems.extend(unknown_theme_problems(&config));
     let root = project_root(&arguments);
 
     // A build with a window in it is a desktop program: it opens one unless
@@ -168,7 +180,6 @@ async fn main() -> Result<()> {
         editor.spawn(maxgus_core::Task::ReadScript { path });
     }
     editor.config_says_theme = Some(config.settings.theme.clone());
-    apply_keymaps(&mut editor, &config);
 
     let registry = maxgus_core::standard_registry();
     editor.command_names = registry.interactive_names();
@@ -176,21 +187,34 @@ async fn main() -> Result<()> {
         .iter()
         .map(|c| (c.name.to_string(), c.doc.to_string()))
         .collect();
-    editor.set_tree_root(root.clone());
+    editor.project_dir = Some(root.clone());
     editor.tree_width = config.tree.width as u16;
     editor.tree_follow = config.tree.follow;
 
+    // The keymaps once the commands are known, so a binding can be checked
+    // against them. Any problem goes in with the file's own.
+    problems.extend(maxgus_core::keymap::apply_configured_keymaps(
+        &mut editor,
+        &config.keymaps,
+    ));
+    let dead =
+        maxgus_core::keymap::bindings_to_nothing(&config.keymaps, |name| registry.contains(name));
+    // A command the script defines is not known until the script has been
+    // read, which is when a full build asks after these.
+    #[cfg(feature = "full")]
+    {
+        editor.unchecked_bindings = dead;
+    }
+    #[cfg(not(feature = "full"))]
+    problems.extend(maxgus_core::keymap::describe_bindings_to_nothing(&dead));
+
     // Configuration problems are reported rather than swallowed, but they
     // never stop the editor starting.
-    if !warnings.is_empty() {
+    if !problems.is_empty() {
         editor.error(format!(
             "{}: {}",
-            maxgus_core::count(warnings.len(), "configuration problem"),
-            warnings
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("; ")
+            maxgus_core::count(problems.len(), "configuration problem"),
+            problems.join("; ")
         ));
     }
 
@@ -258,6 +282,7 @@ async fn main() -> Result<()> {
             editor,
             Dispatcher::new(registry),
             &config,
+            arguments.fullscreen,
             task_tx,
             result_rx,
         );
@@ -290,6 +315,7 @@ mod gui {
         editor: Editor,
         dispatcher: Dispatcher,
         config: &Config,
+        fullscreen: bool,
         tasks: mpsc::UnboundedSender<Task>,
         mut results: mpsc::UnboundedReceiver<TaskResult>,
     ) -> Result<()> {
@@ -317,33 +343,87 @@ mod gui {
             font: config.settings.gui_font.clone(),
             font_size: config.settings.gui_font_size as f32,
             palette: Palette::of(&editor.theme),
+            fullscreen,
         };
         maxgus_gui::run(editor, dispatcher, settings, task_tx, result_rx)
     }
 }
 
 /// Reads the configuration, returning it and any complaints about it.
-fn load_config(arguments: &Arguments) -> Result<(Config, Vec<maxgus_config::Warning>)> {
+fn load_config(arguments: &Arguments) -> (Config, Vec<String>) {
     if arguments.no_config {
-        return Ok((Config::default(), Vec::new()));
+        return (Config::default(), Vec::new());
     }
     let Some(path) = arguments.config.clone().or_else(default_config_path) else {
-        return Ok((Config::default(), Vec::new()));
+        return (Config::default(), Vec::new());
     };
     let Ok(source) = std::fs::read_to_string(&path) else {
         // No configuration file is the normal case, not a problem.
-        return Ok((Config::default(), Vec::new()));
+        return (Config::default(), Vec::new());
     };
     match Config::parse(&source) {
         Ok(mut config) => {
-            let mut warnings = config.warnings.clone();
-            warnings.extend(load_theme_directory(&path, &mut config));
-            Ok((config, warnings))
+            let mut problems: Vec<String> =
+                config.warnings.iter().map(ToString::to_string).collect();
+            problems.extend(
+                load_theme_directory(&path, &mut config)
+                    .iter()
+                    .map(ToString::to_string),
+            );
+            (config, problems)
         }
-        // A file that cannot be parsed at all is worth refusing to start over:
-        // silently ignoring it would be more confusing than an error.
-        Err(error) => Err(anyhow::anyhow!("{}: {error}", path.display())),
+        // Not a reason to refuse to start. The editor would not open, said
+        // only "Failed to parse KDL document", and left some other editor to
+        // find the mistake with; now it opens on its defaults and says where
+        // the mistake is, and `C-c f p` is the way to it.
+        Err(error) => (
+            Config::default(),
+            vec![format!(
+                "{} is not valid KDL, {error}; none of it is in use until that is fixed \
+                 (C-c f p opens it)",
+                path.file_name()
+                    .unwrap_or(path.as_os_str())
+                    .to_string_lossy()
+            )],
+        ),
     }
+}
+
+/// A theme the configuration names that there is none of.
+///
+/// Asked for by `set theme` or by a theme's `base`, it was the default
+/// theme that appeared, with nothing said about why.
+fn unknown_theme_problems(config: &Config) -> Vec<String> {
+    let known: Vec<&str> = maxgus_faces::defaults::BUILTIN_THEMES
+        .iter()
+        .copied()
+        .chain(config.themes.iter().map(|theme| theme.name.as_str()))
+        .collect();
+    let hint = |name: &str, among: &[&str]| {
+        maxgus_config::settings::closest_among(name, among.iter().copied())
+            .map(|closest| format!(", did you mean `{closest}`?"))
+            .unwrap_or_default()
+    };
+    let mut problems = Vec::new();
+    let theme = config.settings.theme.as_str();
+    if !known.contains(&theme) {
+        problems.push(format!(
+            "there is no theme called `{theme}`{}",
+            hint(theme, &known)
+        ));
+    }
+    for spec in &config.themes {
+        if let Some(base) = spec.base.as_deref()
+            && !maxgus_faces::defaults::BUILTIN_THEMES.contains(&base)
+        {
+            problems.push(format!(
+                "theme `{}` is based on `{base}`, which is not a built-in theme{}",
+                spec.name,
+                hint(base, maxgus_faces::defaults::BUILTIN_THEMES)
+            ));
+        }
+    }
+    problems
 }
 
 /// Reads every `themes/*.kdl` beside the configuration file into `config`.
@@ -403,7 +483,6 @@ fn load_theme_directory(config_path: &Path, config: &mut Config) -> Vec<maxgus_c
     warnings
 }
 
-/// `~/.config/maxgus/config.kdl`, or wherever the platform puts it.
 /// Reads `snippets/<mode>/<name>` from beside the configuration file.
 ///
 /// A directory per mode and a file per snippet, as yasnippet arranges them,
@@ -478,6 +557,7 @@ fn grammar_home() -> Option<PathBuf> {
     default_state_dir().map(|dir| dir.join("grammars"))
 }
 
+/// `~/.config/maxgus/config.kdl`, or wherever the platform puts it.
 fn default_config_path() -> Option<PathBuf> {
     directories::ProjectDirs::from("", "", "maxgus")
         .map(|dirs| dirs.config_dir().join("config.kdl"))
@@ -488,13 +568,39 @@ fn project_root(arguments: &Arguments) -> PathBuf {
     if let Some(directory) = &arguments.directory {
         return absolute(directory);
     }
-    // A file argument implies its directory; otherwise the working directory.
+    let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    // A file argument implies its project: the repository around it, else
+    // the directory it was named from when it is under that, else its own.
+    // `maxgus src/editor.rs` from the top of a checkout used to root the
+    // tree and the project search at `src`.
     if let Some(first) = arguments.files.first()
         && let Some(parent) = absolute(first).parent()
     {
+        let home = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
+        if let Some(repository) = repository_around(parent, home.as_deref()) {
+            return repository;
+        }
+        if parent.starts_with(&here) && Some(here.as_path()) != home.as_deref() {
+            return here;
+        }
         return parent.to_path_buf();
     }
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    here
+}
+
+/// The top of the repository `directory` is in, stopping short of the home
+/// directory — a dotfiles repository there would make everything under it
+/// one project.
+fn repository_around(directory: &Path, home: Option<&Path>) -> Option<PathBuf> {
+    directory
+        .ancestors()
+        .take_while(|candidate| Some(*candidate) != home)
+        .find(|candidate| {
+            [".git", ".hg", ".jj"]
+                .iter()
+                .any(|marker| candidate.join(marker).exists())
+        })
+        .map(Path::to_path_buf)
 }
 
 fn absolute(path: &std::path::Path) -> PathBuf {
@@ -518,24 +624,4 @@ fn unknown_face_warnings(config: &Config) -> Vec<maxgus_config::Warning> {
             maxgus_config::Warning::new(line, format!("unknown face `{name}`{hint}"))
         })
         .collect()
-}
-
-/// Layers the configuration's keymaps over the built-in ones.
-fn apply_keymaps(editor: &mut Editor, config: &Config) {
-    if let Some(spec) = config.keymap("global")
-        && let Err(error) = spec.apply_to(&mut editor.keymaps.global)
-    {
-        editor.error(format!("global keymap: {error}"));
-    }
-    // Any other block becomes a minor-mode map, which the editor turns on when
-    // that mode is active.
-    for spec in &config.keymaps {
-        if spec.name == "global" {
-            continue;
-        }
-        match spec.to_keymap() {
-            Ok(map) => editor.mode_keymaps.push(map),
-            Err(error) => editor.error(format!("{} keymap: {error}", spec.name)),
-        }
-    }
 }

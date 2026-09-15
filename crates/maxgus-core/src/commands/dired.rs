@@ -78,7 +78,7 @@ pub fn register(registry: &mut Registry) {
         ),
         command!(
             "dired-do-flagged-delete",
-            "Delete everything flagged.",
+            "Delete everything flagged, after asking.",
             do_flagged,
             non_interactive
         ),
@@ -129,9 +129,26 @@ fn dired(editor: &mut Editor, args: &Args) -> Result<()> {
         );
         return Ok(());
     };
-    let path = PathBuf::from(input.trim_end_matches('/'));
+    if input.trim().is_empty() {
+        return Err(CoreError::Message("No directory given".into()));
+    }
+    // `~`, a relative path and a `//` started over, as at every file prompt;
+    // and the root, which trimming its slash used to turn into nothing.
+    let path = crate::commands::file::expand(editor, &input);
     editor.spawn(Task::Dired { path });
     Ok(())
+}
+
+/// A path typed at one of dired's prompts, read against the directory being
+/// listed rather than wherever the editor was started.
+fn typed_path(editor: &Editor, input: &str) -> Result<PathBuf> {
+    let here = view(editor)?.path.clone();
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    Ok(crate::commands::file::expand_against(
+        &here,
+        home.as_deref(),
+        input,
+    ))
 }
 
 /// Puts a listing on screen, keeping point on whatever it was on.
@@ -161,9 +178,26 @@ pub fn show(editor: &mut Editor, path: PathBuf, entries: Vec<crate::dired::Entry
     if let Some(buffer) = editor.buffers.get_mut(id) {
         buffer.set_read_only(true);
     }
-    editor.show_in_editing_window(id)?;
+    // A listing already on the screen is redrawn where it is; one that is
+    // not is brought to the window being edited in.
+    if editor.windows.showing(id).is_empty() {
+        editor.show_in_editing_window(id)?;
+    }
     editor.move_point_in(id, target);
     Ok(())
+}
+
+/// Lists `path` again after something changed it — but only when a listing
+/// of it is up to be wrong. A file deleted with `C-c f D` from its own
+/// buffer opened dired on its directory, which nobody had asked to see.
+pub fn relist_if_showing(editor: &mut Editor, path: PathBuf) {
+    let showing = editor
+        .buffers
+        .find_by_name(DIRED_BUFFER_NAME)
+        .is_some_and(|id| !editor.windows.showing(id).is_empty());
+    if showing && editor.dired.as_ref().is_some_and(|view| view.path == path) {
+        editor.spawn(Task::Dired { path });
+    }
 }
 
 fn visit(editor: &mut Editor, _: &Args) -> Result<()> {
@@ -291,25 +325,47 @@ fn targets(editor: &Editor) -> Result<Vec<PathBuf>> {
     }
 }
 
-fn do_flagged(editor: &mut Editor, _: &Args) -> Result<()> {
+/// `x`: deletes what is flagged — after asking, as `D` does.
+///
+/// It asked nothing. The flags are set a key at a time, often a while
+/// before, and `x` is one key; the question is where the list of what is
+/// about to go gets read.
+fn do_flagged(editor: &mut Editor, args: &Args) -> Result<()> {
     let flagged = view(editor)?.with_mark(Mark::Deleted);
     if flagged.is_empty() {
         return Err(CoreError::Message("Nothing is flagged".into()));
     }
-    delete(editor, flagged)
+    confirm_and_delete(editor, args, "dired-do-flagged-delete", flagged)
 }
 
 fn do_delete(editor: &mut Editor, args: &Args) -> Result<()> {
     let paths = targets(editor)?;
-    // Deleting is the one thing here that cannot be undone, so it asks —
-    // and says exactly what it is about to lose.
+    confirm_and_delete(editor, args, "dired-do-delete", paths)
+}
+
+/// Deleting is the one thing here that cannot be undone, so it asks — and
+/// says exactly what it is about to lose, directories and all.
+fn confirm_and_delete(
+    editor: &mut Editor,
+    args: &Args,
+    command: &str,
+    paths: Vec<PathBuf>,
+) -> Result<()> {
     let Some(answer) = args.input.clone() else {
-        let what = match paths.len() {
-            1 => paths[0].display().to_string(),
-            n => format!("{n} items"),
+        let directories = view(editor)?.directories_among(&paths);
+        let what = match (paths.len(), directories) {
+            (1, 1) => format!("the directory {} and everything in it", paths[0].display()),
+            (1, _) => paths[0].display().to_string(),
+            (n, 0) => crate::count(n, "file"),
+            (n, d) => format!(
+                "{} — {} of them with everything in {}",
+                crate::count(n, "item"),
+                crate::count(d, "directory"),
+                if d == 1 { "it" } else { "them" }
+            ),
         };
         editor.prompt_for(
-            "dired-do-delete",
+            command,
             MinibufferKind::Choice,
             format!("Delete {what}? (yes or no) "),
             "",
@@ -366,7 +422,10 @@ fn transfer(editor: &mut Editor, args: &Args, copying: bool) -> Result<()> {
         );
         return Ok(());
     };
-    let to = PathBuf::from(input);
+    if input.trim().is_empty() {
+        return Err(CoreError::Message("No destination given".into()));
+    }
+    let to = typed_path(editor, &input)?;
     let action = match copying {
         true => FileAction::Copy { from: paths, to },
         false => FileAction::Rename { from: paths, to },
@@ -387,8 +446,12 @@ fn create_directory(editor: &mut Editor, args: &Args) -> Result<()> {
         );
         return Ok(());
     };
+    if input.trim().is_empty() {
+        return Err(CoreError::Message("No directory given".into()));
+    }
+    let path = typed_path(editor, &input)?;
     editor.spawn(Task::DiredAct {
-        action: FileAction::CreateDirectory(PathBuf::from(input)),
+        action: FileAction::CreateDirectory(path),
     });
     Ok(())
 }
@@ -406,17 +469,52 @@ fn do_shell(editor: &mut Editor, args: &Args) -> Result<()> {
         );
         return Ok(());
     };
+    if command.trim().is_empty() {
+        return Err(CoreError::Message("No command given".into()));
+    }
     let arguments: Vec<String> = paths
         .iter()
         .map(|path| crate::shell_quote(&path.to_string_lossy()))
         .collect();
     let directory = view(editor)?.path.clone();
     editor.spawn(Task::Shell {
-        command: format!("{command} {}", arguments.join(" ")),
+        command: shell_line(&command, &arguments),
         directory,
         insert_at: None,
     });
     Ok(())
+}
+
+/// The command line `!` runs, with dired's own two placeholders.
+///
+/// A `*` on its own is where every file goes, once; a `?` on its own runs
+/// the command once per file with that file in its place. With neither, the
+/// files go on the end — which is all this ever did, so `tar czf out.tgz *`
+/// archived the files and then tried to add them to the archive again.
+fn shell_line(command: &str, arguments: &[String]) -> String {
+    let words: Vec<&str> = command.split_whitespace().collect();
+    if words.contains(&"*") {
+        let all = arguments.join(" ");
+        return words
+            .iter()
+            .map(|word| if *word == "*" { all.as_str() } else { word })
+            .collect::<Vec<_>>()
+            .join(" ");
+    }
+    if words.contains(&"?") {
+        return arguments
+            .iter()
+            .map(|file| {
+                words
+                    .iter()
+                    .map(|word| if *word == "?" { file.as_str() } else { word })
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+    }
+    format!("{command} {}", arguments.join(" "))
 }
 
 fn quit(editor: &mut Editor, _: &Args) -> Result<()> {
@@ -424,4 +522,24 @@ fn quit(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.dired = None;
     editor.kill_buffer(id).ok();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_shell_placeholders_put_the_files_where_they_are_asked_for() {
+        let files = vec!["'a.txt'".to_string(), "'b c.txt'".to_string()];
+        assert_eq!(
+            super::shell_line("tar czf out.tgz *", &files),
+            "tar czf out.tgz 'a.txt' 'b c.txt'"
+        );
+        assert_eq!(
+            super::shell_line("gzip -k ?", &files),
+            "gzip -k 'a.txt'; gzip -k 'b c.txt'"
+        );
+        assert_eq!(
+            super::shell_line("wc -l", &files),
+            "wc -l 'a.txt' 'b c.txt'"
+        );
+    }
 }

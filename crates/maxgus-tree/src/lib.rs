@@ -12,11 +12,11 @@ pub mod tree;
 pub use git::{GitStatus, git_status};
 pub use keymap::{HelpSection, TREEMACS_BINDINGS, TREEMACS_HELP, treemacs_keymap};
 pub use node::{Node, NodeKind};
-pub use tree::{FileTree, VisibleNode};
+pub use tree::{Expansion, FileTree, RECURSIVE_EXPANSION_LIMIT, VisibleNode};
 
 #[derive(Debug, thiserror::Error)]
 pub enum TreeError {
-    #[error("io error at {path}: {source}")]
+    #[error("{path}: {source}")]
     Io {
         path: std::path::PathBuf,
         #[source]
@@ -30,8 +30,12 @@ pub enum TreeError {
     NoSelection,
     #[error("{0} is not shown in the tree")]
     NotInTree(std::path::PathBuf),
-    #[error("`{0}` is not a valid file name")]
+    #[error("`{0}` is not a name that can be used here")]
     InvalidName(String),
+    #[error("no name was given")]
+    NoName,
+    #[error("{0} cannot be moved inside itself")]
+    IntoItself(std::path::PathBuf),
     #[error("{0} is not one of the tree's directories")]
     NotARoot(std::path::PathBuf),
     #[error("the tree must be showing at least one directory")]

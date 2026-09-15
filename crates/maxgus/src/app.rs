@@ -91,6 +91,11 @@ impl App {
     /// and to have said so, short enough to be the first thing seen.
     const GREETING_DELAY: Duration = Duration::from_millis(200);
 
+    /// How many results already waiting are folded into one frame, at most:
+    /// enough that a flood is drawn a few times a second rather than once a
+    /// read, few enough that keys still get their turn in between.
+    const RESULTS_PER_FRAME: usize = 256;
+
     /// Says how long the editor took, unless something worth more is showing.
     fn announce_startup(&mut self) {
         self.greeting_owed = false;
@@ -164,7 +169,19 @@ impl App {
                         }
                     }
                 }
-                Some(result) = self.results.recv() => self.on_result(result),
+                Some(result) = self.results.recv() => {
+                    self.on_result(result);
+                    // What else has already arrived is taken in before the
+                    // frame is drawn. A terminal pouring out output sends a
+                    // result for every read of it, and a whole frame drawn
+                    // for each was most of the time a long listing took.
+                    for _ in 0..App::RESULTS_PER_FRAME {
+                        match self.results.try_recv() {
+                            Ok(result) => self.on_result(result),
+                            Err(_) => break,
+                        }
+                    }
+                }
                 () = &mut echo, if self.unechoed_prefix.is_some() => {
                     // The user hesitated; show them where they are.
                     self.editor.pending_keys = self.unechoed_prefix.clone();
@@ -246,17 +263,7 @@ impl App {
             }
             TuiEvent::Resize(size) => self.resize(size),
             // A paste is inserted literally, so a pasted `C-x` is text.
-            TuiEvent::Paste(text) => {
-                if self.editor.minibuffer.is_active() {
-                    self.editor.minibuffer.insert(&text.replace('\n', " "));
-                } else if let Err(error) = self
-                    .editor
-                    .with_current_buffer(|b| b.insert_at_point(&text))
-                {
-                    self.editor.error(error.to_string());
-                }
-                self.editor.follow_point();
-            }
+            TuiEvent::Paste(text) => maxgus_core::frontend::paste_text(&mut self.editor, &text),
             TuiEvent::FocusGained | TuiEvent::FocusLost => {}
         }
         Ok(())
@@ -366,9 +373,16 @@ impl App {
             return Ok(());
         }
         maxgus_core::draw(&self.editor, &mut self.surface);
-        let surface = self.surface.clone();
         self.terminal.hide_cursor()?;
-        self.renderer.render(self.terminal.writer(), &surface)?;
+        // Borrowed apart rather than copied: the frame was cloned whole on
+        // every redraw only to be read.
+        let App {
+            terminal,
+            renderer,
+            surface,
+            ..
+        } = self;
+        renderer.render(terminal.writer(), surface)?;
         let (x, y) = self.editor.cursor_position();
         self.terminal.place_cursor(x, y)?;
         Ok(())

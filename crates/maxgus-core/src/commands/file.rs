@@ -96,7 +96,7 @@ pub fn register(registry: &mut Registry) {
         ),
         command!(
             "save-buffers-kill-terminal",
-            "Save and leave the editor.",
+            "Leave the editor, refusing while a buffer has unsaved changes.",
             kill_terminal
         ),
     ]);
@@ -106,8 +106,8 @@ pub fn register(registry: &mut Registry) {
 /// way a file prompt is expected to behave.
 ///
 /// Kept free of the environment so it can be tested directly.
-fn expand_against(directory: &Path, home: Option<&Path>, input: &str) -> PathBuf {
-    let text = input.trim();
+pub(crate) fn expand_against(directory: &Path, home: Option<&Path>, input: &str) -> PathBuf {
+    let text = start_again(input.trim());
     if let Some(rest) = text.strip_prefix("~/")
         && let Some(home) = home
     {
@@ -124,6 +124,47 @@ fn expand_against(directory: &Path, home: Option<&Path>, input: &str) -> PathBuf
     } else {
         directory.join(path)
     }
+}
+
+/// What is left of a typed path once a new one has been started inside it.
+///
+/// A file prompt opens holding a directory, so a path typed straight in is
+/// typed after it: `/home/me/project/~/notes.txt`, `/home/me/project//etc`.
+/// Emacs reads `//` as the root starting again and `/~` as home starting
+/// again, and so does this — taken literally, the first made a directory
+/// called `~` inside the project on the next save.
+fn start_again(text: &str) -> &str {
+    let mut start = 0;
+    let bytes = text.as_bytes();
+    for at in 1..bytes.len() {
+        if bytes[at - 1] != b'/' {
+            continue;
+        }
+        match bytes[at] {
+            b'/' => start = at,
+            b'~' if bytes.get(at + 1).is_none_or(|next| *next == b'/') => start = at,
+            _ => {}
+        }
+    }
+    &text[start..]
+}
+
+/// A file prompt's input with a path started again inside it made the whole
+/// of it, and `~` spelt out — what Emacs' `substitute-in-file-name` makes of
+/// it — or `None` when there is nothing to substitute.
+///
+/// Done to the prompt as it is typed, so completion is over the directory
+/// the input now names: `TAB` after `/project/~/no` looked for files in the
+/// project called `~`.
+pub(crate) fn substitute_input(input: &str, home: Option<&Path>) -> Option<String> {
+    let restarted = start_again(input);
+    let expanded = match restarted.strip_prefix('~') {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => {
+            format!("{}{rest}", home?.display())
+        }
+        _ => restarted.to_string(),
+    };
+    (expanded != input).then_some(expanded)
 }
 
 /// The same, against the editor's default directory and real `HOME`.
@@ -143,6 +184,8 @@ fn prompt_for_file(editor: &mut Editor, command: &str, verb: &str) {
     if !initial.ends_with('/') {
         initial.push('/');
     }
+    // Opening the prompt asks for the listing of the directory it holds, and
+    // for another whenever what is typed moves into one.
     editor.prompt_for(
         command,
         MinibufferKind::File,
@@ -150,17 +193,13 @@ fn prompt_for_file(editor: &mut Editor, command: &str, verb: &str) {
         &initial,
         Vec::new(),
     );
-    editor.spawn(Task::ListDirectory { path: directory });
 }
 
 /// Visits `path`, reusing an open buffer rather than re-reading from disk.
 fn visit(editor: &mut Editor, path: PathBuf, other_window: bool) -> Result<()> {
     if let Some(id) = editor.buffers.find_by_path(&path) {
-        if other_window && editor.windows.len() < 2 {
-            editor.split_window(crate::window::Direction::Vertical)?;
-        }
         if other_window {
-            editor.other_window(1);
+            editor.select_other_editing_window()?;
         }
         return editor.switch_to_buffer(id);
     }
@@ -252,6 +291,17 @@ fn find_alternate_file(editor: &mut Editor, args: &Args) -> Result<()> {
         ));
     }
     let path = expand(editor, &input);
+    // `C-x C-v RET` on the file already visited is how Emacs reads it again
+    // from the disk. Visiting it found this very buffer, and killing "the
+    // old one" afterwards killed the file that had just been asked for.
+    if editor.buffers.get(id).and_then(|b| b.path()) == Some(path.as_path()) {
+        editor.spawn(Task::ReadFile {
+            path,
+            reverting: Some(id),
+            other_window: false,
+        });
+        return Ok(());
+    }
     visit(editor, path, false)?;
     // Only drop the old buffer once there is somewhere else to go.
     if editor.buffers.len() > 1 {
@@ -263,41 +313,23 @@ fn find_alternate_file(editor: &mut Editor, args: &Args) -> Result<()> {
 /// Prepares a buffer's text for disk, applying the save-time settings.
 fn contents_for_disk(editor: &mut Editor, id: maxgus_text::BufferId) -> Result<String> {
     if editor.trims_trailing_whitespace(id) {
-        let cleaned: String = {
-            let buffer = editor
-                .buffers
-                .get(id)
-                .ok_or(crate::CoreError::NoSuchBuffer)?;
-            let text = buffer.text();
-            let mut out: String = text
-                .split('\n')
-                .map(|line| line.trim_end())
-                .collect::<Vec<_>>()
-                .join("\n");
-            if text.is_empty() {
-                out = text;
-            }
-            out
-        };
-        let buffer = editor
-            .buffers
-            .get_mut(id)
-            .ok_or(crate::CoreError::NoSuchBuffer)?;
-        if buffer.text() != cleaned {
-            let point = buffer.point();
-            buffer.replace_all(&cleaned)?;
-            buffer.set_point(point.min(buffer.point_max()));
-        }
+        editor
+            .with_buffer(id, |buffer| buffer.delete_trailing_whitespace())
+            .ok_or(crate::CoreError::NoSuchBuffer)??;
     }
     if editor.requires_final_newline(id) {
-        let buffer = editor
-            .buffers
-            .get_mut(id)
-            .ok_or(crate::CoreError::NoSuchBuffer)?;
-        if !buffer.is_empty() && buffer.char_before(buffer.len_chars()) != Some('\n') {
-            let end = buffer.len_chars();
-            buffer.insert(end, "\n")?;
-        }
+        editor
+            .with_buffer(id, |buffer| -> Result<()> {
+                if !buffer.is_empty() && buffer.char_before(buffer.len_chars()) != Some('\n') {
+                    let end = buffer.len_chars();
+                    let point = buffer.point();
+                    buffer.insert(end, "\n")?;
+                    // The newline goes after the text, not in front of point.
+                    buffer.set_point(point);
+                }
+                Ok(())
+            })
+            .ok_or(crate::CoreError::NoSuchBuffer)??;
     }
     let buffer = editor
         .buffers
@@ -307,9 +339,42 @@ fn contents_for_disk(editor: &mut Editor, id: maxgus_text::BufferId) -> Result<S
 }
 
 /// Queues a write of `id` to `path`.
-fn write(editor: &mut Editor, id: maxgus_text::BufferId, path: PathBuf) -> Result<()> {
-    let guard = WriteGuard::Unchanged(editor.buffers.get(id).and_then(|b| b.disk_time()));
+pub(crate) fn write(editor: &mut Editor, id: maxgus_text::BufferId, path: PathBuf) -> Result<()> {
+    refuse_unsaveable(editor, id, &path)?;
+    // A file that did not exist when it was visited must still not exist:
+    // otherwise whatever somebody else put there since is gone.
+    let guard = match editor.new_files.contains(&id) {
+        true => WriteGuard::Absent,
+        false => WriteGuard::Unchanged(editor.buffers.get(id).and_then(|b| b.disk_time())),
+    };
     write_guarded(editor, id, path, guard)
+}
+
+/// Refuses to save what saving would damage.
+///
+/// A picture's buffer holds a caption, and `C-x C-q` then a save wrote the
+/// caption over the image. A buffer read from bytes that are not UTF-8 holds
+/// replacement characters where those bytes were; that one can be written
+/// on purpose, with `save-buffer-anyway`, never by accident.
+fn refuse_unsaveable(editor: &mut Editor, id: maxgus_text::BufferId, path: &Path) -> Result<()> {
+    let name = editor
+        .buffers
+        .get(id)
+        .map(|b| b.name().to_string())
+        .unwrap_or_default();
+    if editor.pictures.contains_key(&id) {
+        return Err(crate::CoreError::Message(format!(
+            "{name} shows a picture; there is no text in it to save"
+        )));
+    }
+    if editor.lossy_buffers.contains(&id) {
+        editor.pending_overwrite = Some((id, path.to_path_buf()));
+        return Err(crate::CoreError::Message(format!(
+            "{name} was read from bytes that are not text, and saving would replace them; \
+             M-x save-buffer-anyway writes it regardless"
+        )));
+    }
+    Ok(())
 }
 
 fn write_guarded(
@@ -354,18 +419,19 @@ fn save_buffer(editor: &mut Editor, args: &Args) -> Result<()> {
 /// second press of `C-x C-s`: overwriting somebody else's change is not
 /// something to do by repeating a key that has just failed.
 fn save_buffer_anyway(editor: &mut Editor, _: &Args) -> Result<()> {
-    let Some(id) = editor.pending_overwrite.take() else {
+    let Some((id, path)) = editor.pending_overwrite.take() else {
         return Err(crate::CoreError::Message(
             "No save is waiting to be forced".into(),
         ));
     };
-    let Some(path) = editor
-        .buffers
-        .get(id)
-        .and_then(|b| b.path().map(Path::to_path_buf))
-    else {
+    if editor.buffers.get(id).is_none() {
         return Err(crate::CoreError::NoSuchBuffer);
-    };
+    }
+    if editor.pictures.contains_key(&id) {
+        return Err(crate::CoreError::Message(
+            "A picture's buffer has no text to save".into(),
+        ));
+    }
     write_guarded(editor, id, path, WriteGuard::Regardless)
 }
 
@@ -388,8 +454,22 @@ fn write_file(editor: &mut Editor, args: &Args) -> Result<()> {
     if input.trim().is_empty() {
         return Err(crate::CoreError::Message("No file name given".into()));
     }
-    let path = expand(editor, &input);
     let id = editor.current_buffer_id();
+    let mut path = expand(editor, &input);
+    // A directory — said with the slash — is where to put it, under the name
+    // it already has, as Emacs does.
+    if input.trim_end().ends_with('/') {
+        let name = editor
+            .buffers
+            .get(id)
+            .map(|b| match b.path().and_then(Path::file_name) {
+                Some(name) => name.to_string_lossy().into_owned(),
+                None => b.name().to_string(),
+            })
+            .unwrap_or_default();
+        path = path.join(name);
+    }
+    refuse_unsaveable(editor, id, &path)?;
     // Writing back to the file this buffer already visits is an ordinary
     // save; writing to any other name must not destroy whatever is there.
     let same_file = editor.buffers.get(id).and_then(|b| b.path()) == Some(path.as_path());
@@ -397,15 +477,8 @@ fn write_file(editor: &mut Editor, args: &Args) -> Result<()> {
         true => WriteGuard::Unchanged(editor.buffers.get(id).and_then(|b| b.disk_time())),
         false => WriteGuard::Absent,
     };
-    // The buffer takes on the new file, name and language.
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.to_string_lossy().into_owned());
-    if let Some(buffer) = editor.buffers.get_mut(id) {
-        buffer.set_path(path.clone());
-    }
-    editor.buffers.rename(id, &name)?;
+    // The buffer takes on the new file, its name and its language when the
+    // write has happened — see `FileWritten` — not before.
     write_guarded(editor, id, path, guard)
 }
 
@@ -415,7 +488,8 @@ fn save_some_buffers(editor: &mut Editor, _: &Args) -> Result<()> {
         editor.message("(No files need saving)");
         return Ok(());
     }
-    let count = modified.len();
+    let mut saving = 0;
+    let mut skipped = Vec::new();
     for id in modified {
         let Some(path) = editor
             .buffers
@@ -425,9 +499,20 @@ fn save_some_buffers(editor: &mut Editor, _: &Args) -> Result<()> {
         else {
             continue;
         };
-        write(editor, id, path)?;
+        // One that cannot be saved is said, and the rest are still saved.
+        match write(editor, id, path) {
+            Ok(()) => saving += 1,
+            Err(_) => skipped.extend(editor.buffers.get(id).map(|b| b.name().to_string())),
+        }
     }
-    editor.message(format!("Saving {}", crate::count(count, "buffer")));
+    match skipped.is_empty() {
+        true => editor.message(format!("Saving {}", crate::count(saving, "buffer"))),
+        false => editor.error(format!(
+            "Saving {}; not saved, because saving would damage them: {}",
+            crate::count(saving, "buffer"),
+            skipped.join(", ")
+        )),
+    }
     Ok(())
 }
 
@@ -436,14 +521,21 @@ fn insert_file(editor: &mut Editor, args: &Args) -> Result<()> {
         prompt_for_file(editor, "insert-file", "Insert file");
         return Ok(());
     };
+    if input.trim().is_empty() {
+        return Err(crate::CoreError::Message("No file name given".into()));
+    }
     let path = expand(editor, &input);
+    if editor.current_buffer().is_read_only() {
+        return Err(crate::CoreError::Text(maxgus_text::TextError::ReadOnly(
+            editor.current_buffer().name().to_string(),
+        )));
+    }
     // An already-open file is inserted from the buffer, not re-read.
     let Some(id) = editor.buffers.find_by_path(&path) else {
-        editor.spawn(Task::ReadFile {
-            path,
-            reverting: None,
-            other_window: false,
-        });
+        // Read to be inserted, not visited: this used to open the file in
+        // the window instead of putting its text at point.
+        let buffer = editor.current_buffer_id();
+        editor.spawn(Task::InsertFile { path, buffer });
         return Ok(());
     };
     let text = editor.buffers.get(id).expect("just found").text();
@@ -478,7 +570,7 @@ fn revert_buffer(editor: &mut Editor, args: &Args) -> Result<()> {
     Ok(())
 }
 
-/// `C-x C-c`: saves everything that has a file, then asks the loop to stop.
+/// `C-x C-c`: leaves, refusing while there is unsaved work.
 fn kill_terminal(editor: &mut Editor, args: &Args) -> Result<()> {
     if editor.buffers.has_unsaved_changes() && !args.prefix.is_present() {
         let names: Vec<String> = editor
@@ -489,7 +581,7 @@ fn kill_terminal(editor: &mut Editor, args: &Args) -> Result<()> {
             .map(|b| b.name().to_string())
             .collect();
         return Err(crate::CoreError::Message(format!(
-            "Unsaved: {}; save them, or C-u C-x C-c to leave anyway",
+            "Unsaved: {}; C-x s saves them all, C-u C-x C-c leaves without saving",
             names.join(", ")
         )));
     }
@@ -595,11 +687,10 @@ fn delete_this_file(editor: &mut Editor, args: &Args) -> Result<()> {
         editor.message("Nothing deleted".to_string());
         return Ok(());
     }
+    // The buffer goes when the file has: a delete that fails leaves both.
     editor.spawn(crate::task::Task::DiredAct {
         action: crate::task::FileAction::Delete(vec![path]),
     });
-    let id = editor.current_buffer_id();
-    editor.kill_buffer(id).ok();
     Ok(())
 }
 
@@ -630,7 +721,14 @@ fn transfer_this_file(editor: &mut Editor, args: &Args, copying: bool) -> Result
         );
         return Ok(());
     };
-    let to = std::path::PathBuf::from(input);
+    if input.trim().is_empty() {
+        return Err(crate::CoreError::Message("No destination given".into()));
+    }
+    // `~` and a relative path, the way every file prompt reads them — and
+    // relative to where the file is, which is what the prompt shows.
+    let here = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let to = expand_against(&here, home.as_deref(), &input);
     if to == path {
         return Err(crate::CoreError::Message(
             "That is where it already is".into(),
@@ -646,15 +744,11 @@ fn transfer_this_file(editor: &mut Editor, args: &Args, copying: bool) -> Result
             to: to.clone(),
         },
     };
+    // The buffer follows the file when it has moved, wherever it went —
+    // into a directory it names, under its own name — which the executor
+    // knows and says. Following it here, before the move, left the buffer
+    // visiting a directory, or a file that a failed move never made.
     editor.spawn(crate::task::Task::DiredAct { action });
-    // The buffer follows the file it is visiting, so a move does not leave it
-    // pointing at a name that no longer exists.
-    if !copying {
-        let id = editor.current_buffer_id();
-        if let Some(buffer) = editor.buffers.get_mut(id) {
-            buffer.set_path(to);
-        }
-    }
     Ok(())
 }
 
@@ -1183,14 +1277,156 @@ mod tests {
         run(&mut d, &mut e, "write-file");
         e.tasks.drain();
         answer(&mut d, &mut e, "/project/notes.py");
+        assert!(matches!(&e.tasks.peek()[0], Task::WriteFile { .. }));
+        // Not yet: a write that is refused must leave the buffer as it was.
+        assert_eq!(e.current_buffer().name(), "notes");
 
+        e.apply_task_result(TaskResult::FileWritten {
+            path: "/project/notes.py".into(),
+            buffer: id,
+            bytes: 1,
+            disk_time: None,
+        })
+        .unwrap();
         assert_eq!(e.current_buffer().name(), "notes.py");
         assert_eq!(
             e.current_buffer().path().unwrap(),
             Path::new("/project/notes.py")
         );
         assert_eq!(e.current_buffer().language(), Some("python"));
+    }
+
+    #[test]
+    fn a_refused_write_under_a_new_name_leaves_the_buffer_where_it_was() {
+        let (mut d, mut e) = setup();
+        let before = e.current_buffer().path().map(Path::to_path_buf);
+        e.with_current_buffer(|b| b.insert_at_point("x").unwrap());
+        run(&mut d, &mut e, "write-file");
+        e.tasks.drain();
+        answer(&mut d, &mut e, "/project/taken.rs");
+        let id = e.current_buffer_id();
+        e.apply_task_result(TaskResult::WriteRefused {
+            path: "/project/taken.rs".into(),
+            buffer: id,
+            because: WriteGuard::Absent,
+        })
+        .unwrap();
+        assert_eq!(e.current_buffer().path().map(Path::to_path_buf), before);
+        // And the way past it writes where it was asked to.
+        e.tasks.drain();
+        run(&mut d, &mut e, "save-buffer-anyway");
+        let Task::WriteFile { path, guard, .. } = &e.tasks.peek()[0] else {
+            panic!("no write")
+        };
+        assert_eq!(path, Path::new("/project/taken.rs"));
+        assert_eq!(*guard, WriteGuard::Regardless);
+    }
+
+    #[test]
+    fn a_path_typed_after_the_prefilled_directory_starts_again() {
+        let home = Some(Path::new("/home/me"));
+        let here = Path::new("/project");
+        assert_eq!(
+            expand_against(here, home, "/project/src/~/notes.txt"),
+            Path::new("/home/me/notes.txt")
+        );
+        assert_eq!(
+            expand_against(here, home, "/project/src//etc/hosts"),
+            Path::new("/etc/hosts")
+        );
+        assert_eq!(
+            expand_against(here, home, "/project/src/~"),
+            Path::new("/home/me")
+        );
+        assert_eq!(
+            expand_against(here, home, "/project/a~b/c"),
+            Path::new("/project/a~b/c"),
+            "a tilde inside a name is just a letter"
+        );
+    }
+
+    #[test]
+    fn a_picture_is_never_saved_as_its_caption() {
+        let (mut d, mut e) = setup();
+        let id = e.current_buffer_id();
+        e.pictures.insert(
+            id,
+            std::sync::Arc::new(crate::picture::Picture {
+                width: 1,
+                height: 1,
+                format: "PNG".into(),
+                bytes: 4,
+                pixels: crate::picture::Pixels {
+                    width: 1,
+                    height: 1,
+                    rgba: std::sync::Arc::from(vec![0u8; 4]),
+                },
+            }),
+        );
+        e.with_current_buffer(|b| b.insert_at_point("caption edited").unwrap());
+        e.tasks.drain();
+        let outcome = d.execute(&mut e, "save-buffer", None);
+        assert!(
+            matches!(outcome, crate::Dispatch::Failed { .. }),
+            "got {outcome:?}"
+        );
+        assert!(e.tasks.drain().is_empty(), "a write was queued");
+    }
+
+    #[test]
+    fn bytes_that_are_not_text_are_only_written_when_asked_twice() {
+        let (mut d, mut e) = setup();
+        let id = e.current_buffer_id();
+        e.lossy_buffers.insert(id);
+        e.with_current_buffer(|b| b.insert_at_point("x").unwrap());
+        e.tasks.drain();
+        let outcome = d.execute(&mut e, "save-buffer", None);
+        assert!(matches!(outcome, crate::Dispatch::Failed { .. }));
+        assert!(e.tasks.drain().is_empty());
+        run(&mut d, &mut e, "save-buffer-anyway");
         assert!(matches!(&e.tasks.peek()[0], Task::WriteFile { .. }));
+    }
+
+    #[test]
+    fn inserting_a_file_reads_it_for_insertion_rather_than_visiting_it() {
+        let (mut d, mut e) = setup();
+        let id = e.current_buffer_id();
+        run(&mut d, &mut e, "insert-file");
+        e.tasks.drain();
+        answer(&mut d, &mut e, "/project/other.txt");
+        assert_eq!(
+            e.tasks.drain(),
+            vec![Task::InsertFile {
+                path: "/project/other.txt".into(),
+                buffer: id
+            }]
+        );
+        e.with_current_buffer(|b| b.set_point(0));
+        e.apply_task_result(TaskResult::FileInserted {
+            path: "/project/other.txt".into(),
+            buffer: id,
+            contents: "inserted\n".into(),
+        })
+        .unwrap();
+        assert!(e.current_buffer().text().starts_with("inserted\nfn main"));
+        assert_eq!(e.current_buffer_id(), id, "nothing was visited");
+    }
+
+    #[test]
+    fn find_alternate_file_on_the_same_file_reads_it_again() {
+        let (mut d, mut e) = setup();
+        let id = e.current_buffer_id();
+        run(&mut d, &mut e, "find-alternate-file");
+        e.tasks.drain();
+        answer(&mut d, &mut e, "/project/main.rs");
+        assert!(e.buffers.get(id).is_some(), "the buffer was killed");
+        assert!(matches!(
+            &e.tasks.peek()[0],
+            Task::ReadFile {
+                reverting: Some(r),
+                ..
+            } if *r == id
+        ));
     }
 
     #[test]

@@ -120,7 +120,7 @@ fn set_section(editor: &mut Editor, section: PanelSection) -> Result<()> {
     crate::commands::tree::rebuild(editor)?;
     editor.message(format!(
         "{} {}",
-        section.title(),
+        section.describe(),
         if on { "shown" } else { "hidden" }
     ));
     Ok(())
@@ -205,6 +205,7 @@ pub fn goto_symbol(editor: &mut Editor, _: &Args) -> Result<()> {
 
     let target = editing_window(editor)?;
     editor.select_window(target);
+    editor.push_jump();
     if editor.windows.current().buffer != buffer {
         editor.switch_to_buffer(buffer)?;
     }
@@ -246,13 +247,21 @@ pub fn switch_to_buffer(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.switch_to_buffer(id)
 }
 
-fn kill_buffer(editor: &mut Editor, _: &Args) -> Result<()> {
+fn kill_buffer(editor: &mut Editor, args: &Args) -> Result<()> {
     let id = buffer_here(editor)?;
-    let name = editor
+    let (name, unsaved) = editor
         .buffers
         .get(id)
-        .map(|b| b.name().to_string())
+        .map(|b| (b.name().to_string(), b.is_modified() && b.path().is_some()))
         .unwrap_or_default();
+    // The same refusal `C-x k` gives, with the same way past it. One key in
+    // a list, pressed on the wrong row, must not be how a morning's work
+    // is lost.
+    if unsaved && !args.prefix.is_present() {
+        return Err(crate::CoreError::Message(format!(
+            "Buffer `{name}` has unsaved changes; C-u k kills it anyway"
+        )));
+    }
     editor.kill_buffer(id)?;
     editor.render_buffers_buffer();
     editor.message(format!("Killed {name}"));

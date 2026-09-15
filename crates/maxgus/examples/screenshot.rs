@@ -223,6 +223,8 @@ fn scene(theme: Theme, popup: bool) -> Editor {
             // mode would have put it.
             select: Some("/maxgus/crates/maxgus-core/src/fuzzy.rs".into()),
             show_hidden: false,
+            roots: Vec::new(),
+            home: None,
         })
         .unwrap();
 

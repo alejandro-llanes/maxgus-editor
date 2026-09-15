@@ -244,12 +244,20 @@ fn rename(editor: &mut Editor, args: &Args) -> Result<()> {
 }
 
 /// The identifier point is on, for pre-filling the rename prompt.
+/// The identifier point is in or just after, for the rename prompt to offer.
+///
+/// An identifier, not a word: `add_numbers` is one name to rename, and the
+/// word under point in it — what was offered — is `add`.
 fn symbol_at_point(editor: &Editor) -> String {
     let buffer = editor.current_buffer();
-    match maxgus_text::Motion::word_bounds(buffer.rope(), buffer.point()) {
-        Some((start, end)) => buffer.slice(maxgus_text::Range::new(start, end)),
-        None => String::new(),
+    let point = editor.windows.current().point.min(buffer.len_chars());
+    let part = |ch: char| ch.is_alphanumeric() || ch == '_';
+    let start = crate::autocomplete::word_start_in(buffer, point);
+    let mut end = point;
+    while buffer.char_after(end).is_some_and(part) {
+        end += 1;
     }
+    buffer.slice(maxgus_text::Range::new(start, end))
 }
 
 fn format_buffer(editor: &mut Editor, _: &Args) -> Result<()> {
@@ -317,11 +325,16 @@ fn restart_server(editor: &mut Editor, _: &Args) -> Result<()> {
     editor.spawn(Task::StopLanguageServer {
         language: language.clone(),
     });
+    // Once the old one has gone, every buffer in the language is opened on
+    // the new one as it starts — see `LanguageServerStarted`.
+    let file = editor
+        .current_buffer()
+        .path()
+        .map(std::path::Path::to_path_buf);
     editor.spawn(Task::StartLanguageServer {
         language: language.clone(),
+        file,
     });
-    let id = editor.current_buffer_id();
-    editor.request_language_server(id);
     editor.message(format!("Restarting the {language} language server"));
     Ok(())
 }
@@ -397,7 +410,7 @@ pub fn apply_response(
                 apply_hover(editor, result);
             }
         }
-        LspQuery::Completion { manual, .. } => apply_completion(editor, result, *manual),
+        LspQuery::Completion { manual, .. } => apply_completion(editor, uri, result, *manual),
         LspQuery::SignatureHelp(_) => apply_signature_help(editor, result),
         LspQuery::Rename { .. } => {
             apply_workspace_edit(editor, result);
@@ -410,7 +423,17 @@ pub fn apply_response(
             // made. Reading `for_panel` rather than the editor's pending flag
             // is what keeps a second answer from popping a listing over the
             // file, once the first has already cleared the flag.
-            if let Some(buffer) = editor.panel.symbols_buffer {
+            // Filed only against the buffer it is about. The outline asks
+            // again whenever the buffer being edited changes, and a late
+            // answer about the previous file was being shown against the
+            // new one — with `RET` jumping to lines from the other file.
+            if let Some(buffer) = editor.panel.symbols_buffer
+                && editor
+                    .buffers
+                    .get(buffer)
+                    .and_then(|b| b.path())
+                    .is_some_and(|path| maxgus_lsp::client::path_to_uri(path) == uri)
+            {
                 editor
                     .panel
                     .set_symbols(buffer, crate::panel::symbols_from_lsp(result));
@@ -477,7 +500,10 @@ fn jump_to(editor: &mut Editor, uri: &str, position: LspPosition) {
         editor.error(format!("Cannot open `{uri}`"));
         return;
     };
-    // The place being left goes on the mark ring, so `M-,` comes back.
+    // The place being left is remembered, so `M-,` comes back to it — in
+    // this buffer or any other — and goes on the mark ring too, where
+    // `C-u C-SPC` looks, as xref leaves it in Emacs.
+    editor.push_jump();
     editor.with_current_buffer(|b| {
         let from = b.point();
         b.push_mark(from);
@@ -566,7 +592,7 @@ fn hover_text(result: &serde_json::Value) -> Option<String> {
     (!trimmed.is_empty()).then_some(trimmed)
 }
 
-fn apply_completion(editor: &mut Editor, result: &serde_json::Value, manual: bool) {
+fn apply_completion(editor: &mut Editor, uri: &str, result: &serde_json::Value, manual: bool) {
     // The reply is either a list or an object holding one.
     let raw = result
         .get("items")
@@ -587,16 +613,32 @@ fn apply_completion(editor: &mut Editor, result: &serde_json::Value, manual: boo
     // it, and accepting replaces it.
     editor.sync_to_buffer();
     let point = editor.current_buffer().point();
-    let start = {
-        let buffer = editor.current_buffer();
-        crate::autocomplete::word_start(&buffer.text(), point)
-    };
-    let prefix: String = {
-        let text = editor.current_buffer().text();
-        text.chars().skip(start).take(point - start).collect()
-    };
+    let start = crate::autocomplete::word_start_in(editor.current_buffer(), point);
+    let prefix = editor
+        .current_buffer()
+        .slice(maxgus_text::Range::new(start, point));
     let buffer = editor.current_buffer_id();
+    // An answer nobody pressed a key for is only worth showing while it is
+    // still about the word being typed: not after a switch to another buffer,
+    // nor once point has gone off to another word while the server thought.
+    if !manual {
+        let same_document = document(editor).is_ok_and(|(_, current)| current == uri);
+        let same_word = editor.completions_asked_at.is_some_and(|(asked_in, at)| {
+            asked_in == buffer
+                && at <= point
+                && crate::autocomplete::word_start_in(editor.current_buffer(), at) == start
+        });
+        if !same_document || !same_word {
+            return;
+        }
+    }
     let list = crate::autocomplete::Autocomplete::new(buffer, start, &prefix, items);
+    // A list of one candidate that is exactly what is already typed offers
+    // nothing but something to dismiss.
+    if !manual && list.len() == 1 && list.selected().is_some_and(|item| item.insert == prefix) {
+        editor.close_autocomplete();
+        return;
+    }
     if list.is_empty() {
         editor.close_autocomplete();
         if manual {
@@ -786,60 +828,99 @@ fn apply_signature_help(editor: &mut Editor, result: &serde_json::Value) {
 
 /// Applies a list of `TextEdit`s to the current buffer.
 fn apply_text_edits(editor: &mut Editor, edits: Option<&[serde_json::Value]>) {
-    let Some(edits) = edits else {
+    let Some(edits) = edits.filter(|edits| !edits.is_empty()) else {
         editor.message("Nothing to change");
         return;
     };
-    if edits.is_empty() {
-        editor.message("Nothing to change");
-        return;
-    }
+    let id = editor.current_buffer_id();
     let encoding = encoding(editor);
-    let buffer = editor.current_buffer();
-
-    // Edits are expressed against the original text, so they are applied from
-    // the end backwards and the earlier offsets stay valid.
-    let mut resolved: Vec<(maxgus_text::Range, String)> = edits
-        .iter()
-        .filter_map(|edit| {
-            let range = edit.get("range")?;
-            let position = |key: &str| -> Option<LspPosition> {
-                let p = range.get(key)?;
-                Some(LspPosition::new(
-                    p.get("line")?.as_u64()? as u32,
-                    p.get("character")?.as_u64()? as u32,
-                ))
-            };
-            let start = crate::position::offset_of_position(buffer, position("start")?, encoding);
-            let end = crate::position::offset_of_position(buffer, position("end")?, encoding);
-            let replacement = edit.get("newText")?.as_str()?.to_string();
-            Some((
-                maxgus_text::Range::new(start.min(end), end.max(start)),
-                replacement,
-            ))
-        })
-        .collect();
-    resolved.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
-
-    let point = editor.current_buffer().point();
-    let applied = editor.with_current_buffer(|buffer| {
-        buffer.transact(false, |buffer| {
-            for (range, replacement) in &resolved {
-                buffer.replace(*range, replacement)?;
-            }
-            Ok::<(), maxgus_text::TextError>(())
-        })
-    });
-    if let Err(error) = applied {
-        editor.error(error.to_string());
-        return;
+    match apply_text_edits_to(editor, id, encoding, edits) {
+        Ok(count) => {
+            editor.follow_point();
+            editor.message(format!("Applied {}", crate::count(count, "change")));
+        }
+        Err(error) => editor.error(error.to_string()),
     }
-    editor.with_current_buffer(|b| b.set_point(point.min(b.point_max())));
-    editor.follow_point();
-    editor.message(format!(
-        "Applied {}",
-        crate::count(resolved.len(), "change")
-    ));
+}
+
+/// Applies a server's text edits to one buffer as one undo step, and says how
+/// many went in.
+///
+/// Point moves with the text the way it moves with any edit, so a format that
+/// re-indents the lines above the cursor leaves it on the same code. Putting
+/// it back at its old offset — what this did — left it that many characters
+/// away from where it had been. Only an edit that swallows point outright,
+/// as a server replacing the whole document does, puts it back by line and
+/// column instead.
+pub(crate) fn apply_text_edits_to(
+    editor: &mut Editor,
+    id: maxgus_text::BufferId,
+    encoding: PositionEncoding,
+    edits: &[serde_json::Value],
+) -> Result<usize> {
+    let (mut resolved, point, position) = {
+        let buffer = editor
+            .buffers
+            .get(id)
+            .ok_or(crate::CoreError::NoSuchBuffer)?;
+        let point = match editor.current_buffer_id() == id {
+            true => editor.windows.current().point,
+            false => buffer.point(),
+        };
+        // Edits are expressed against the original text, so they are resolved
+        // against it first and applied from the end backwards.
+        let resolved: Vec<(maxgus_text::Range, String)> = edits
+            .iter()
+            .filter_map(|edit| {
+                let range = edit.get("range")?;
+                let at = |key: &str| -> Option<LspPosition> {
+                    let p = range.get(key)?;
+                    Some(LspPosition::new(
+                        p.get("line")?.as_u64()? as u32,
+                        p.get("character")?.as_u64()? as u32,
+                    ))
+                };
+                let start = crate::position::offset_of_position(buffer, at("start")?, encoding);
+                let end = crate::position::offset_of_position(buffer, at("end")?, encoding);
+                let replacement = edit.get("newText")?.as_str()?.to_string();
+                Some((
+                    maxgus_text::Range::new(start.min(end), end.max(start)),
+                    replacement,
+                ))
+            })
+            .collect();
+        (resolved, point, buffer.position_of(point))
+    };
+    resolved.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    let swallowed = resolved
+        .iter()
+        .any(|(range, _)| range.start < point && point < range.end);
+    editor
+        .with_buffer(id, |buffer| {
+            buffer.transact(false, |buffer| {
+                for (range, replacement) in &resolved {
+                    buffer.replace(*range, replacement)?;
+                }
+                Ok::<(), maxgus_text::TextError>(())
+            })
+        })
+        .ok_or(crate::CoreError::NoSuchBuffer)??;
+    if swallowed {
+        let offset = editor
+            .buffers
+            .get(id)
+            .map(|b| b.offset_of(position))
+            .unwrap_or_default();
+        match editor.current_buffer_id() == id {
+            true => editor.move_point_to(offset),
+            false => {
+                if let Some(buffer) = editor.buffers.get_mut(id) {
+                    buffer.set_point(offset);
+                }
+            }
+        }
+    }
+    Ok(resolved.len())
 }
 
 /// Applies a `WorkspaceEdit`, which a rename produces and which a server may
@@ -900,26 +981,37 @@ pub(crate) fn apply_workspace_edit(editor: &mut Editor, result: &serde_json::Val
     total
 }
 
-/// Applies edits to whichever buffer holds `uri`, if one is open.
+/// Applies edits to whichever buffer holds `uri`, opening one for a file
+/// that is not open.
+///
+/// A rename reaches files nobody has open, and leaving those alone — what
+/// this did, with a note the next message wrote over — left the project half
+/// renamed. They are read into buffers and changed there, unsaved, as eglot
+/// and lsp-mode change them: for the change to be looked at before it is
+/// written.
 fn apply_edits_to(editor: &mut Editor, uri: &str, edits: Option<&Vec<serde_json::Value>>) {
     let Some(path) = maxgus_lsp::client::uri_to_path(uri) else {
         return;
     };
-    let Some(id) = editor.buffers.find_by_path(&path) else {
-        // A rename can touch files that are not open; those are left for the
-        // user to visit rather than edited behind their back.
-        editor.message(format!(
-            "`{}` was not changed: it is not open",
-            path.display()
-        ));
+    let Some(edits) = edits.filter(|edits| !edits.is_empty()) else {
         return;
     };
-    let previous = editor.current_buffer_id();
-    if editor.switch_to_buffer(id).is_err() {
+    // The encoding of the server that sent them, which is the current
+    // buffer's language's: the edit came in answer to a question about it.
+    let encoding = encoding(editor);
+    let Some(id) = editor.buffers.find_by_path(&path) else {
+        editor
+            .pending_edits
+            .entry(path.clone())
+            .or_insert_with(|| (encoding, Vec::new()))
+            .1
+            .extend(edits.iter().cloned());
+        editor.spawn(Task::ReadFileForEdits { path });
         return;
+    };
+    if let Err(error) = apply_text_edits_to(editor, id, encoding, edits) {
+        editor.error(format!("{}: {error}", path.display()));
     }
-    apply_text_edits(editor, edits.map(Vec::as_slice));
-    editor.switch_to_buffer(previous).ok();
 }
 
 /// Lists locations into the cross-reference buffer.
@@ -1529,7 +1621,49 @@ mod tests {
                 .iter()
                 .any(|t| matches!(t, Task::StartLanguageServer { .. }))
         );
+        // The document is opened again once the old server has gone and the
+        // new one has started, which is when it can be.
+        e.apply_task_result(crate::task::TaskResult::LanguageServerStopped {
+            language: "rust".into(),
+        })
+        .unwrap();
+        e.apply_task_result(crate::task::TaskResult::LanguageServerStarted {
+            language: "rust".into(),
+            encoding: maxgus_lsp::PositionEncoding::Utf16,
+        })
+        .unwrap();
+        let tasks = e.tasks.drain();
         assert!(tasks.iter().any(|t| matches!(t, Task::LspDidOpen { .. })));
+    }
+
+    #[test]
+    fn every_buffer_in_the_language_is_opened_on_a_server_started_again() {
+        let (_d, mut e) = setup("fn main() {}\n");
+        let other = e.buffers.visit_file("/project/other.rs", "fn other() {}\n");
+        let current = e.current_buffer_id();
+        e.request_language_server(current);
+        e.request_language_server(other);
+        e.tasks.drain();
+        e.apply_task_result(crate::task::TaskResult::LanguageServerStopped {
+            language: "rust".into(),
+        })
+        .unwrap();
+        e.apply_task_result(crate::task::TaskResult::LanguageServerStarted {
+            language: "rust".into(),
+            encoding: maxgus_lsp::PositionEncoding::Utf16,
+        })
+        .unwrap();
+        let opened: Vec<String> = e
+            .tasks
+            .drain()
+            .into_iter()
+            .filter_map(|t| match t {
+                Task::LspDidOpen { uri, .. } => Some(uri),
+                _ => None,
+            })
+            .collect();
+        assert!(opened.iter().any(|u| u.ends_with("main.rs")), "{opened:?}");
+        assert!(opened.iter().any(|u| u.ends_with("other.rs")), "{opened:?}");
     }
 
     #[test]
@@ -1676,8 +1810,115 @@ mod tests {
         assert_eq!(
             e.current_buffer().mark(),
             Some(from),
-            "M-, has somewhere to go back to"
+            "C-u C-SPC has somewhere to go back to"
         );
+    }
+
+    #[test]
+    fn a_rename_reaching_a_file_nobody_has_open_changes_it_too() {
+        let (_d, mut e) = setup("fn main() {\n    helper();\n}\n");
+        let current = e.current_buffer_id();
+        e.tasks.drain();
+        apply_response(
+            &mut e,
+            "file:///project/main.rs",
+            &LspQuery::Rename {
+                position: LspPosition::new(1, 4),
+                new_name: "assist".into(),
+            },
+            &serde_json::json!({ "changes": {
+                "file:///project/main.rs": [{ "range": {
+                    "start": {"line": 1, "character": 4}, "end": {"line": 1, "character": 10}
+                }, "newText": "assist" }],
+                "file:///project/helper.rs": [{ "range": {
+                    "start": {"line": 0, "character": 7}, "end": {"line": 0, "character": 13}
+                }, "newText": "assist" }]
+            }}),
+        );
+        assert!(e.current_buffer().text().contains("assist();"));
+        let tasks = e.tasks.drain();
+        assert!(
+            tasks.iter().any(
+                |t| matches!(t, Task::ReadFileForEdits { path } if path.ends_with("helper.rs"))
+            ),
+            "the unopened file was not read to be changed: {tasks:?}"
+        );
+        e.apply_task_result(crate::task::TaskResult::FileReadForEdits {
+            path: "/project/helper.rs".into(),
+            contents: "pub fn helper() {}\n".into(),
+            read_only: false,
+            disk_time: None,
+        })
+        .unwrap();
+        let helper = e
+            .buffers
+            .find_by_path(std::path::Path::new("/project/helper.rs"))
+            .expect("opened");
+        let buffer = e.buffers.get(helper).unwrap();
+        assert_eq!(buffer.text(), "pub fn assist() {}\n");
+        assert!(
+            buffer.is_modified(),
+            "changed but not saved, to be looked at"
+        );
+        assert_eq!(e.current_buffer_id(), current, "nothing moved the window");
+    }
+
+    #[test]
+    fn formatting_the_lines_above_point_leaves_point_on_its_text() {
+        let (_d, mut e) = setup("fn main() {\nlet x = 1;\nlet y = 2;\n}\n");
+        // On the `y`.
+        let y = e.current_buffer().text().find('y').unwrap();
+        e.with_current_buffer(|b| b.set_point(y));
+        e.windows.current_mut().point = y;
+        apply_response(
+            &mut e,
+            "file:///project/main.rs",
+            &LspQuery::Format {
+                tab_size: 4,
+                insert_spaces: true,
+            },
+            &serde_json::json!([
+                { "range": { "start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 0} }, "newText": "    " },
+                { "range": { "start": {"line": 2, "character": 0}, "end": {"line": 2, "character": 0} }, "newText": "    " }
+            ]),
+        );
+        let point = e.windows.current().point;
+        assert_eq!(
+            e.current_buffer().char_after(point),
+            Some('y'),
+            "point is no longer on the `y`: {:?}",
+            e.current_buffer().text()
+        );
+    }
+
+    #[test]
+    fn the_rename_prompt_offers_the_whole_identifier() {
+        let (mut d, mut e) = setup("let add_numbers = 1;\n");
+        e.with_current_buffer(|b| b.set_point(4));
+        e.windows.current_mut().point = 4;
+        run(&mut d, &mut e, "lsp-rename");
+        assert_eq!(e.minibuffer.input(), "add_numbers");
+    }
+
+    #[test]
+    fn going_back_after_a_jump_into_another_file_returns_to_the_first() {
+        let (mut d, mut e) = setup("fn main() {\n    helper();\n}\n");
+        let main = e.current_buffer_id();
+        let from = e.current_buffer().line_start(1) + 4;
+        e.with_current_buffer(|b| b.set_point(from));
+        e.windows.current_mut().point = from;
+        e.buffers
+            .visit_file("/project/helper.rs", "pub fn helper() {}\n");
+        apply_response(
+            &mut e,
+            "file:///project/main.rs",
+            &LspQuery::Definition(LspPosition::new(1, 4)),
+            &location("file:///project/helper.rs", 0, 7),
+        );
+        assert_eq!(e.current_buffer().name(), "helper.rs");
+        run(&mut d, &mut e, "xref-go-back");
+        assert_eq!(e.current_buffer_id(), main, "M-, did not leave helper.rs");
+        assert_eq!(e.windows.current().point, from);
     }
 
     #[test]

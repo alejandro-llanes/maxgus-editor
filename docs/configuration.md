@@ -16,8 +16,8 @@ parsed with the `kdl` crate (v6, KDL 2.0).
 |---|---|
 | **KDL** | Node-per-line with positional arguments and typed properties. Keymaps, faces and tree-view rules are all "a name plus a few arguments", which is exactly KDL's shape. One small pure-Rust dependency, no runtime. |
 | TOML | Fine for flat settings, poor for keymaps: every binding becomes a table header or a quoted key, and nesting prefix maps reads badly. |
-| A Lisp dialect | The idiomatic Emacs answer, and the wrong one here. An interpreter, a reader, a GC story and a stdlib is more code than the editor itself, against the "micro" goal. |
-| Lua / Rhai | Real scripting, real weight — an embedded VM plus bindings for every editor API, and a startup cost we would then spend effort hiding. |
+| A Lisp dialect | The idiomatic Emacs answer, and the wrong one here. An interpreter, a reader, a GC story and a stdlib is more code than the editor itself. |
+| Lua / Rhai | Real scripting, and the wrong shape for settings: a program has to be run to find out what it sets, and a mistake in it is a runtime error rather than a line number. Rhai is in the `full` and `gui` builds all the same — for `init.rhai`, which defines commands, which is the job scripting is for. The configuration stays data. |
 | RON | Serde-native and zero extra design work, but it reads as a serialised data structure rather than a config file. |
 
 KDL keeps configuration declarative. The escape hatch is that every binding
@@ -27,7 +27,7 @@ the config can bind — without the config file becoming a program.
 ### Shape
 
 ```kdl
-// Settings are nodes with a single value.
+// Settings are properties of `set` nodes, as many to a line as you like.
 set tab-width=4 indent-with-tabs=#false
 set theme="maxgus-dark"
 set line-numbers=#true

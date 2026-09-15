@@ -205,6 +205,15 @@ fn same_language(a: &str, b: &str) -> bool {
         .eq_ignore_ascii_case(&b.replace('-', "_"))
 }
 
+/// Languages whose only grammar does not read what this editor's users
+/// write in them, so they are not offered one unasked.
+///
+/// KDL's is for KDL v1, and stops parsing at the first `#true` in a v2
+/// file, which is every configuration this editor reads: `C-c f p` opened
+/// the configuration and asked straight away to install it. `M-x
+/// install-grammar-for-buffer` still does, for anyone who wants it anyway.
+const NOT_WORTH_OFFERING: &[&str] = &["kdl"];
+
 /// Applies [`crate::TaskResult::GrammarMissing`]: the offer.
 ///
 /// `candidates` empty means a parser for the language exists — the names
@@ -218,7 +227,10 @@ pub fn offer(
     language: &str,
     candidates: Vec<maxgus_syntax::Parser>,
 ) -> Result<()> {
-    if !editor.settings.grammar_auto_install || editor.grammars_declined.contains(language) {
+    if !editor.settings.grammar_auto_install
+        || editor.grammars_declined.contains(language)
+        || NOT_WORTH_OFFERING.contains(&language)
+    {
         return Ok(());
     }
     // A question already on screen is not pushed aside by this one, and a

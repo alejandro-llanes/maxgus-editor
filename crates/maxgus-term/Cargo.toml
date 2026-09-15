@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "A terminal emulator: the grid, escape sequences and key encoding."
 
 [lints]
 workspace = true

@@ -331,15 +331,36 @@ fn kill_range(editor: &mut Editor, range: Range, before: bool) -> Result<()> {
 }
 
 /// `C-k`: to the end of the line, or the newline itself when already there.
+///
+/// With an argument, Emacs' three readings of it: a positive one kills that
+/// many lines forward, newlines and all; zero kills back to the start of the
+/// line; a negative one kills back over that many line beginnings. Every
+/// argument was read as at least one, so `C-u 0 C-k` and `M-- C-k` both
+/// killed forward.
 fn kill_line(editor: &mut Editor, args: &Args) -> Result<()> {
+    let n = args.signed_count();
+    let backward = args.prefix.is_present() && n <= 0;
     let range = {
         let buffer = editor.current_buffer();
         let point = buffer.point();
         if args.prefix.is_present() {
-            // With an argument, kill that many whole lines.
             let line = buffer.line_of(point);
-            let target = (line + args.count()).min(buffer.len_lines().saturating_sub(1));
-            Range::new(point, buffer.line_start(target).max(point))
+            let lines = buffer.len_lines();
+            match n.cmp(&0) {
+                std::cmp::Ordering::Greater => {
+                    let target = line + n as usize;
+                    let end = match target < lines {
+                        true => buffer.line_start(target),
+                        false => buffer.point_max(),
+                    };
+                    Range::new(point, end.max(point))
+                }
+                std::cmp::Ordering::Equal => Range::new(buffer.line_start(line).min(point), point),
+                std::cmp::Ordering::Less => {
+                    let back = line.saturating_sub(n.unsigned_abs() as usize);
+                    Range::new(buffer.line_start(back).min(point), point)
+                }
+            }
         } else {
             let end = Motion::line_end(buffer.rope(), point);
             if end > point {
@@ -350,19 +371,39 @@ fn kill_line(editor: &mut Editor, args: &Args) -> Result<()> {
             }
         }
     };
-    kill_range(editor, range, false)
+    // Backwards kills go in front of what a run of kills has collected.
+    kill_range(editor, range, backward)
 }
 
+/// `C-S-<backspace>`: whole lines. Zero kills the line but not its newline;
+/// a negative count kills that many lines upward, with the newline before
+/// them rather than after, as Emacs does.
 fn kill_whole_line(editor: &mut Editor, args: &Args) -> Result<()> {
+    let n = args.signed_count();
     let range = {
         let buffer = editor.current_buffer();
         let point = buffer.point();
         let line = buffer.line_of(point);
         let start = buffer.line_start(line);
-        let end = buffer.line_start((line + args.count()).min(buffer.len_lines()));
-        Range::new(start, end.max(start))
+        let line_end = Motion::line_end(buffer.rope(), start);
+        match n.cmp(&0) {
+            std::cmp::Ordering::Greater => {
+                let target = line + n as usize;
+                let end = match target < buffer.len_lines() {
+                    true => buffer.line_start(target),
+                    false => buffer.point_max(),
+                };
+                Range::new(start, end.max(start))
+            }
+            std::cmp::Ordering::Equal => Range::new(start, line_end),
+            std::cmp::Ordering::Less => {
+                let first = line.saturating_sub(n.unsigned_abs() as usize - 1);
+                let from = buffer.line_start(first).saturating_sub(1);
+                Range::new(from, line_end)
+            }
+        }
     };
-    kill_range(editor, range, false)
+    kill_range(editor, range, n < 0)
 }
 
 fn kill_word(editor: &mut Editor, args: &Args) -> Result<()> {
@@ -1280,6 +1321,58 @@ mod tests {
     }
 
     // ---- the kill ring ----
+
+    #[test]
+    fn kill_line_with_zero_or_a_negative_argument_kills_backwards() {
+        let (mut d, mut e) = setup("one\ntwo three\nfour");
+        goto(&mut e, 8); // after `two `
+        e.prefix = crate::Prefix::Numeric(0);
+        run(&mut d, &mut e, "kill-line");
+        assert_eq!(
+            text(&e),
+            "one\nthree\nfour",
+            "zero kills back to the line's start"
+        );
+
+        let (mut d, mut e) = setup("one\ntwo three\nfour");
+        goto(&mut e, 8);
+        e.prefix = crate::Prefix::Negative;
+        run(&mut d, &mut e, "kill-line");
+        assert_eq!(
+            text(&e),
+            "three\nfour",
+            "minus one kills back over a line start"
+        );
+
+        let (mut d, mut e) = setup("one\ntwo\nthree");
+        goto(&mut e, 4);
+        e.prefix = crate::Prefix::Numeric(5);
+        run(&mut d, &mut e, "kill-line");
+        assert_eq!(
+            text(&e),
+            "one\n",
+            "more lines than there are kills to the end"
+        );
+    }
+
+    #[test]
+    fn kill_whole_line_reads_zero_and_negative_arguments_as_emacs_does() {
+        let (mut d, mut e) = setup("one\ntwo\nthree\n");
+        goto(&mut e, 5);
+        e.prefix = crate::Prefix::Numeric(0);
+        run(&mut d, &mut e, "kill-whole-line");
+        assert_eq!(text(&e), "one\n\nthree\n", "zero keeps the newline");
+
+        let (mut d, mut e) = setup("one\ntwo\nthree\n");
+        goto(&mut e, 5);
+        e.prefix = crate::Prefix::Negative;
+        run(&mut d, &mut e, "kill-whole-line");
+        assert_eq!(
+            text(&e),
+            "one\nthree\n",
+            "minus one takes the newline before"
+        );
+    }
 
     #[test]
     fn kill_line_takes_the_rest_of_the_line_then_the_newline() {

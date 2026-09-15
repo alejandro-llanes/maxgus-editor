@@ -217,7 +217,12 @@ fn complete(editor: &mut Editor, _: &Args) -> Result<()> {
     }
     let candidates = editor.completion_candidates.clone();
     if candidates.is_empty() {
-        editor.minibuffer.show_error("No completions");
+        // A file prompt may still be waiting for its directory to be read.
+        let message = match editor.minibuffer.kind() == Some(crate::MinibufferKind::File) {
+            true => "No files here to complete from",
+            false => "No completions",
+        };
+        editor.minibuffer.show_error(message);
         return Ok(());
     }
     // Once TAB has put the list up, TAB cycles through it. A list that is

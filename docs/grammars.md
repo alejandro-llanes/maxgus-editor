@@ -44,7 +44,10 @@ Given both, maxgus loads the library when a buffer in that language is
 opened, and colours it exactly as it colours a built-in one. Capture names
 are mapped to the editor's own faces, so your theme applies without any
 extra configuration: `@keyword.function` becomes `font-lock-keyword`,
-`@comment` becomes `font-lock-comment`, and so on down the list in
+`@comment` becomes `font-lock-comment`, and so on — the whole table is
+`face_for_capture` in
+[`crates/maxgus-faces/src/names.rs`](../crates/maxgus-faces/src/names.rs), and
+the faces themselves are listed in
 [configuration-reference.md](configuration-reference.md).
 
 **Which grammar wins.** A compiled-in grammar always beats one on disk. A
@@ -140,14 +143,18 @@ that the list is cached and the offer names the repository straight away.
 
 ### Where it puts things
 
-`~/.local/share/maxgus/grammars`, in the layout the loader expects:
+`grammars` in the editor's state directory — `~/.local/share/maxgus/grammars`
+on Linux, `~/Library/Application Support/maxgus/grammars` on macOS — in the
+layout the loader expects, with the cached list beside it rather than among
+the grammars:
 
 ```
-~/.local/share/maxgus/grammars/
-├── libtree-sitter-zig.so
-├── parser-list.md          ← the cached list, beside rather than among them
-└── zig/
-    └── highlights.scm
+~/.local/share/maxgus/
+├── parser-list.md          ← the cached list
+└── grammars/
+    ├── libtree-sitter-zig.so
+    └── zig/
+        └── highlights.scm
 ```
 
 That directory is searched without appearing in any configuration file,
@@ -371,9 +378,8 @@ Grammar repositories live under
 [github.com/tree-sitter-grammars](https://github.com/tree-sitter-grammars),
 and most carry their own `queries/highlights.scm`.
 
-**Rhai**, for instance, is
-[tree-sitter-rhai](https://github.com/rhaiscript/tree-sitter-rhai) through
-exactly those steps.
+A grammar found on the wiki's list, or on either of those organisations,
+goes through exactly those steps.
 
 ### A word about KDL
 
@@ -392,7 +398,8 @@ $ tree-sitter parse --lib-path libtree-sitter-kdl.so --lang-name kdl v2.kdl
 
 What that looks like in the editor is the top of the file coloured and the
 rest plain, which is worse than none of it coloured, so it is not worth
-setting up until a v2 grammar exists. Nothing breaks — a grammar that cannot
+setting up until a v2 grammar exists — and opening a `.kdl` file does not
+offer it. `M-x install-grammar-for-buffer` still will, if asked. Nothing breaks — a grammar that cannot
 parse a file colours what it managed and leaves the rest alone — but nothing
 is gained either.
 
@@ -445,8 +452,11 @@ its own keywords and nothing a plain C file would have, that missing line is
 why.
 
 A query using captures maxgus has no face for is not an error — those parts
-simply stay the default colour. The full list of captures that map to
-something is in [configuration-reference.md](configuration-reference.md).
+simply stay the default colour. Which captures map to something is
+`face_for_capture` in
+[`crates/maxgus-faces/src/names.rs`](../crates/maxgus-faces/src/names.rs); a
+capture is looked up whole and then with its last `.part` taken off, so
+`@keyword.function` finds `keyword`.
 
 ## When it does not work
 
@@ -463,8 +473,9 @@ Run `M-x describe-grammars`. It prints the reason, which is one of:
 
 Two things that look like failures and are not:
 
-- **A language with no `grammars` block never loads anything.** The report
-  says so in as many words.
+- **With no `grammars` block, nothing is loaded from the system** — only
+  the grammars compiled in and the ones `M-x install-grammar` put in the
+  state directory. The report says so in as many words.
 - **A grammar is loaded when a file in that language is opened**, not at
   startup. Open one first, then ask.
 

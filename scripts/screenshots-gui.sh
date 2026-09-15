@@ -51,9 +51,6 @@ out="$root/docs/screenshots"
 binary="$root/target/variants/maxgus-gui"
 [ -x "$binary" ] || binary="$root/target/release/maxgus"
 
-WIDTH=1280
-HEIGHT=720
-
 # A copy of this project, at a path with nobody's name in it.
 #
 # Every picture shows a path somewhere — the mode line, the echo area, the
@@ -65,7 +62,11 @@ PROJECT=""
 
 project_copy() {
     local dir=/tmp/maxgus-screenshots/maxgus-editor
-    if [ -d "$dir/.git" ]; then
+    local commit
+    commit=$(git -C "$root" rev-parse HEAD)
+    # Made again when the project has moved on: kept for ever, a copy went
+    # on showing the source as it was the first time.
+    if [ -d "$dir/.git" ] && [ "$(cat "$dir/.git/screenshots-of" 2>/dev/null)" = "$commit" ]; then
         printf '%s' "$dir"
         return
     fi
@@ -80,6 +81,7 @@ project_copy() {
         -c user.name=maxgus -c user.email=maxgus@example.com \
         -c commit.gpgsign=false \
         commit -q -m "A lightning-fast Emacs, written in Rust"
+    printf '%s' "$commit" > "$dir/.git/screenshots-of"
     printf '%s' "$dir"
 }
 
@@ -431,15 +433,24 @@ EOF
 # Everything started for one take, so a failure half way through takes its
 # processes with it rather than leaving a compositor running for ever.
 compositor=
-recorder=
 cleanup() {
-    [ -n "$recorder"   ] && kill "$recorder"   2>/dev/null || true
     # By pid, and only ever by pid: a pattern that matched "cage" or a
     # compositor's name could match the session the person running this is
     # sitting in.
     [ -n "$compositor" ] && kill "$compositor" 2>/dev/null || true
-    recorder= compositor=
+    compositor=
     unset WAYLAND_DISPLAY
+}
+
+# The Wayland sockets there are now, by name. A glob rather than `ls | grep`,
+# which under `pipefail` ended the script without a word when there were none.
+sockets() {
+    local socket
+    for socket in "$XDG_RUNTIME_DIR"/wayland-[0-9]*; do
+        if [[ "$socket" =~ /wayland-[0-9]+$ ]]; then
+            printf '%s\n' "${socket##*/}"
+        fi
+    done | sort
 }
 trap cleanup EXIT INT TERM
 
@@ -448,13 +459,16 @@ start_compositor() {
     # The sockets that existed before, so the one this starts can be picked
     # out by name rather than by being the newest. A stray compositor left
     # over from something else must not be the one that gets recorded.
-    before=$(ls "$XDG_RUNTIME_DIR" | grep '^wayland-[0-9]*$' | sort)
+    before=$(sockets)
 
     # `WAYLAND_DISPLAY` unset, or wlroots would nest a window in the session
     # this was started from instead of going headless.
     # Started *in* the directory the take is about: git resolves the top of
     # a working tree from where it is run, so a magit clip recorded from
     # somewhere else shows that somewhere else.
+    # `--fullscreen`, because cage offers no server-side decorations: a
+    # window keeps 35 pixels of the output for a title bar cage never shows,
+    # and every picture had a black band along its bottom where it went.
     # `exec`, so the pid recorded below is the compositor itself rather than
     # a shell that happens to have started one — killing the shell would
     # leave cage running, and a leaked compositor holds a socket that the
@@ -463,7 +477,7 @@ start_compositor() {
       exec env -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE \
         WLR_BACKENDS=headless \
         WLR_LIBINPUT_NO_DEVICES=1 \
-        cage -- "$binary" --gui \
+        cage -- "$binary" --gui --fullscreen \
             --config "$config" \
             --directory "$workdir" \
             "$workdir/$opens" \
@@ -471,7 +485,7 @@ start_compositor() {
     compositor=$!
 
     for _ in $(seq 1 80); do
-        after=$(ls "$XDG_RUNTIME_DIR" | grep '^wayland-[0-9]*$' | sort)
+        after=$(sockets)
         new=$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after") | head -1)
         [ -n "$new" ] && break
         sleep 0.25

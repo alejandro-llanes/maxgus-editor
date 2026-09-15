@@ -37,6 +37,17 @@ struct BufferSyntax {
     text: String,
 }
 
+/// A parse that has finished, on its way back to the executor.
+#[cfg(feature = "full")]
+struct Parsed {
+    buffer: maxgus_text::BufferId,
+    revision: u64,
+    /// `None` when the parse panicked, which takes the parser with it: the
+    /// next request starts a fresh one.
+    syntax: Option<BufferSyntax>,
+    highlights: Option<(std::ops::Range<usize>, Vec<maxgus_syntax::Highlight>)>,
+}
+
 /// Everything the executor owns.
 pub struct Executor {
     root: PathBuf,
@@ -57,6 +68,9 @@ pub struct Executor {
     /// Running language servers, by language.
     #[cfg(feature = "full")]
     servers: HashMap<String, Arc<Client>>,
+    /// The workspace folders each running server has been told about.
+    #[cfg(feature = "full")]
+    server_roots: HashMap<String, Vec<PathBuf>>,
     /// The text each open document was last sent as, so a change can be
     /// described as the region that differs rather than the whole file.
     #[cfg(feature = "full")]
@@ -83,7 +97,7 @@ pub struct Executor {
     #[cfg(feature = "full")]
     catalog: Option<Option<maxgus_syntax::Catalog>>,
 
-    results: mpsc::UnboundedSender<TaskResult>,
+    reporter: Reporter,
 }
 
 #[cfg(feature = "full")]
@@ -108,6 +122,8 @@ enum PtyCommand {
     Write(Vec<u8>),
     Resize(u16, u16),
     Close,
+    /// The program's output has ended: it has exited, or is about to.
+    Ended,
 }
 
 /// The configured directories, with the editor's own install directory
@@ -122,6 +138,428 @@ fn with_home(mut directories: Vec<PathBuf>, home: Option<&Path>) -> Vec<PathBuf>
         directories.push(home.to_path_buf());
     }
     directories
+}
+
+/// Somewhere to say how a job went, and nothing else.
+///
+/// The jobs that need no more than that — a shell command, a project search,
+/// a walk of the home directory, a copy, git — are run beside the executor
+/// rather than in its queue. In it, `M-! sleep 10`, a search of a large
+/// project or a push to a slow remote held up every save and every file read
+/// queued behind it, for as long as it took.
+#[derive(Clone)]
+struct Reporter {
+    results: mpsc::UnboundedSender<TaskResult>,
+}
+
+impl Reporter {
+    fn send(&self, result: TaskResult) {
+        let _ = self.results.send(result);
+    }
+
+    /// Reports a failure to the editor rather than swallowing it.
+    fn fail(&self, context: &str, error: impl std::fmt::Display) {
+        self.send(TaskResult::Failed {
+            context: context.to_string(),
+            message: error.to_string(),
+        });
+    }
+
+    /// Every directory under `root`, for the browser to narrow by typing.
+    ///
+    /// Breadth first, so what turns up first is what is nearest the top —
+    /// the thing being looked for is far more often two directories down
+    /// than ten, and a walk that has to be capped should be capped at the
+    /// far end rather than the near one.
+    async fn find_directories(&self, root: PathBuf) {
+        /// Deep enough to reach a project inside a couple of levels of
+        /// grouping, shallow enough not to wander into a source tree.
+        const DEPTH: usize = 6;
+        /// Enough to hold anyone's projects, and a bound on the memory and
+        /// the time either way.
+        const MOST: usize = 20_000;
+
+        let mut paths: Vec<String> = Vec::new();
+        let mut queue = std::collections::VecDeque::from([(root.clone(), 0usize)]);
+        let mut capped = false;
+        while let Some((directory, depth)) = queue.pop_front() {
+            if paths.len() >= MOST {
+                capped = true;
+                break;
+            }
+            let Ok(mut reader) = tokio::fs::read_dir(&directory).await else {
+                // Unreadable is not a failure here: somewhere under a home
+                // directory there is always something the owner cannot open,
+                // and one of them should not end the search.
+                continue;
+            };
+            while let Ok(Some(entry)) = reader.next_entry().await {
+                // `file_type` rather than `metadata`, so a symlink reads as a
+                // symlink instead of as whatever it points at. Following them
+                // is how a walk finds the same tree twice, or itself.
+                if !entry.file_type().await.is_ok_and(|kind| kind.is_dir()) {
+                    continue;
+                }
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if skip(&name) {
+                    continue;
+                }
+                let path = directory.join(&name);
+                if let Ok(relative) = path.strip_prefix(&root) {
+                    paths.push(relative.to_string_lossy().into_owned());
+                }
+                if depth + 1 < DEPTH {
+                    queue.push_back((path, depth + 1));
+                }
+            }
+        }
+        capped |= paths.len() >= MOST;
+        paths.truncate(MOST);
+        paths.sort();
+        self.send(TaskResult::DirectoriesFound {
+            root,
+            paths,
+            capped,
+        });
+    }
+
+    /// Does what dired asked, and says which directory to list again.
+    async fn dired_act(&self, action: maxgus_core::task::FileAction) {
+        use maxgus_core::task::FileAction;
+        let said = action.describe();
+        let relist = match &action {
+            FileAction::Delete(paths) | FileAction::Chmod { paths, .. } => paths
+                .first()
+                .and_then(|p| p.parent())
+                .map(std::path::Path::to_path_buf),
+            FileAction::Copy { from, .. } | FileAction::Rename { from, .. } => from
+                .first()
+                .and_then(|p| p.parent())
+                .map(std::path::Path::to_path_buf),
+            FileAction::CreateDirectory(path) => path.parent().map(std::path::Path::to_path_buf),
+        };
+        let outcome = match action {
+            FileAction::Delete(paths) => {
+                let outcome = delete_all(&paths).await;
+                // Whatever did go, even when something after it would not:
+                // a buffer over a deleted file writes it back on save.
+                for path in paths {
+                    if !tokio::fs::try_exists(&path).await.unwrap_or(true) {
+                        self.send(TaskResult::PathDeleted { path });
+                    }
+                }
+                outcome
+            }
+            FileAction::Copy { from, to } => copy_all(&from, &to).await,
+            FileAction::Rename { from, to } => match rename_all(&from, &to).await {
+                Ok(moved) => {
+                    for (from, to) in moved {
+                        self.send(TaskResult::PathMoved { from, to });
+                    }
+                    Ok(())
+                }
+                Err(error) => Err(error),
+            },
+            FileAction::CreateDirectory(path) => tokio::fs::create_dir_all(&path).await,
+            FileAction::Chmod { .. } => Ok(()),
+        };
+        match (outcome, relist) {
+            (Ok(()), Some(relist)) => self.send(TaskResult::DiredDone { said, relist }),
+            (Ok(()), None) => self.send(TaskResult::Failed {
+                context: "dired".into(),
+                message: "nowhere to list again".into(),
+            }),
+            (Err(error), _) => self.fail("dired", error),
+        }
+    }
+
+    #[cfg(feature = "full")]
+    /// Runs one git command, or reads the whole status.
+    async fn git(&self, root: PathBuf, action: GitAction) {
+        match action {
+            GitAction::Refresh => self.git_refresh(root).await,
+            // These three answer with a buffer rather than with a line of
+            // output, so they never reach `git_do`.
+            GitAction::Log { arguments, title } => self.git_log(root, arguments, title).await,
+            GitAction::Diff { arguments, title } => self.git_diff(root, arguments, title).await,
+            GitAction::Show { revision } => self.git_show(root, revision).await,
+            other => self.git_do(root, other).await,
+        }
+    }
+
+    #[cfg(feature = "full")]
+    /// Reads everything the status view shows, in one pass.
+    ///
+    /// One answer rather than eight: a view assembled from results arriving
+    /// separately shows a diff that disagrees with the status it is listed
+    /// under, and that is exactly the moment somebody stages the wrong thing.
+    async fn git_refresh(&self, from: PathBuf) {
+        // Where the repository actually is. `git rev-parse` is the only
+        // answer that is right for a worktree, a submodule, or a `.git` that
+        // is a file rather than a directory.
+        let top = git_output(&from, &["rev-parse", "--show-toplevel"]).await;
+        let Some(root) = top
+            .lines()
+            .next()
+            .map(PathBuf::from)
+            .filter(|p| !p.as_os_str().is_empty())
+        else {
+            return self.fail("git", "not inside a repository");
+        };
+        let run = |args: Vec<&'static str>| {
+            let root = root.clone();
+            async move { git_output(&root, &args).await }
+        };
+        // The prefixes are forced rather than left to configuration: modern
+        // git writes `i/` and `w/` for a worktree diff when `diff.mnemonicPrefix`
+        // is on, and the patches this produces have to be predictable.
+        let unstaged_args = DIFF_ARGS.to_vec();
+        let mut staged_args = DIFF_ARGS.to_vec();
+        staged_args.push("--cached");
+
+        let status_bytes = git_raw(&root, &["status", "--porcelain=v2", "-z", "--branch"]).await;
+        let snapshot = GitSnapshot {
+            root: root.clone(),
+            status: maxgus_git::status::parse(&status_bytes),
+            unstaged: maxgus_git::diff::parse(&git_output(&root, &unstaged_args).await),
+            staged: maxgus_git::diff::parse(&git_output(&root, &staged_args).await),
+            stashes: maxgus_git::log::parse_stashes(
+                &run(vec!["stash", "list", "--format=%gd%x1f%s%x1e"]).await,
+            ),
+            unpushed: maxgus_git::log::parse_log(
+                &run(vec!["log", LOG_FORMAT_ARG, "@{upstream}..HEAD"]).await,
+            ),
+            unpulled: maxgus_git::log::parse_log(
+                &run(vec!["log", LOG_FORMAT_ARG, "HEAD..@{upstream}"]).await,
+            ),
+            recent: maxgus_git::log::parse_log(&run(vec!["log", "-n", "10", LOG_FORMAT_ARG]).await),
+            head_subject: run(vec!["log", "-1", "--format=%s"])
+                .await
+                .trim()
+                .to_string(),
+            branches: Vec::new(),
+            references: maxgus_git::log::parse_refs(
+                &run(vec!["for-each-ref", "--format=%(refname)"]).await,
+            ),
+        };
+        let mut snapshot = snapshot;
+        // The prompts want the names a person types; the references view
+        // wants to know what each one is. Both come from the one reading.
+        snapshot.branches = snapshot
+            .references
+            .iter()
+            .filter(|reference| reference.kind != maxgus_git::RefKind::Tag)
+            .map(|reference| reference.name.clone())
+            .collect();
+        self.send(TaskResult::GitRefreshed(Box::new(snapshot)));
+    }
+
+    #[cfg(feature = "full")]
+    /// Reads a log into its own buffer.
+    async fn git_log(&self, root: PathBuf, arguments: Vec<String>, title: String) {
+        let mut args: Vec<String> = vec!["log".into(), LOG_FORMAT_ARG.into()];
+        args.extend(arguments);
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        let output = git_output(&root, &borrowed).await;
+        self.send(TaskResult::GitLog {
+            title,
+            commits: maxgus_git::log::parse_log(&output),
+        });
+    }
+
+    #[cfg(feature = "full")]
+    /// Reads a diff into its own buffer.
+    async fn git_diff(&self, root: PathBuf, arguments: Vec<String>, title: String) {
+        let mut args: Vec<String> = DIFF_ARGS.iter().map(|a| a.to_string()).collect();
+        args.extend(arguments);
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        let output = git_output(&root, &borrowed).await;
+        self.send(TaskResult::GitDiff {
+            title,
+            preamble: Vec::new(),
+            files: maxgus_git::diff::parse(&output),
+        });
+    }
+
+    #[cfg(feature = "full")]
+    /// Reads one commit: who made it, what they said, and what it changed.
+    ///
+    /// Two commands rather than one `git show`: the header is asked for in a
+    /// format this can read field by field, and the diff is asked for with
+    /// the same arguments every other diff uses, so the patches agree.
+    async fn git_show(&self, root: PathBuf, revision: String) {
+        let header = git_output(
+            &root,
+            &[
+                "show",
+                "--no-patch",
+                "--format=%H%n%an <%ae>%n%ad%n%cn <%ce>%n%cd%n%B",
+                "--date=format:%Y-%m-%d %H:%M",
+                &revision,
+            ],
+        )
+        .await;
+        let mut lines = header.lines();
+        let hash = lines.next().unwrap_or_default().to_string();
+        let author = lines.next().unwrap_or_default().to_string();
+        let author_date = lines.next().unwrap_or_default().to_string();
+        let committer = lines.next().unwrap_or_default().to_string();
+        let commit_date = lines.next().unwrap_or_default().to_string();
+        let mut preamble = vec![
+            format!("Author:     {author}"),
+            format!("AuthorDate: {author_date}"),
+        ];
+        // Only when it differs: on most commits the two are the same person
+        // at the same moment, and saying so twice is noise.
+        if committer != author || commit_date != author_date {
+            preamble.push(format!("Commit:     {committer}"));
+            preamble.push(format!("CommitDate: {commit_date}"));
+        }
+        preamble.push(String::new());
+        preamble.extend(lines.map(|line| format!("    {line}")));
+
+        let mut args: Vec<String> = DIFF_ARGS.iter().map(|a| a.to_string()).collect();
+        args[0] = "show".into();
+        args.push("--format=".into());
+        args.push(revision.clone());
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        let output = git_output(&root, &borrowed).await;
+        self.send(TaskResult::GitDiff {
+            title: format!("commit {hash}"),
+            preamble,
+            files: maxgus_git::diff::parse(&output),
+        });
+    }
+
+    #[cfg(feature = "full")]
+    /// Runs one git command and reports what it said, then refreshes.
+    async fn git_do(&self, root: PathBuf, action: GitAction) {
+        let Some((arguments, describe, stdin)) = git_command(action) else {
+            return self.fail(
+                "git",
+                "that action answers with a buffer and should not have come here",
+            );
+        };
+        let mut process = tokio::process::Command::new("git");
+        never_ask_at_the_terminal(&mut process);
+        process
+            .args(&arguments)
+            .current_dir(&root)
+            .stdin(match stdin {
+                Some(_) => std::process::Stdio::piped(),
+                None => std::process::Stdio::null(),
+            })
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+
+        let output = match (process.spawn(), stdin) {
+            (Ok(mut child), Some(text)) => {
+                if let Some(mut pipe) = child.stdin.take() {
+                    use tokio::io::AsyncWriteExt as _;
+                    let _ = pipe.write_all(text.as_bytes()).await;
+                    let _ = pipe.shutdown().await;
+                }
+                child.wait_with_output().await
+            }
+            (Ok(child), None) => child.wait_with_output().await,
+            (Err(error), _) => return self.fail(&describe, error),
+        };
+        match output {
+            Ok(output) => {
+                let said = if output.stderr.is_empty() {
+                    &output.stdout
+                } else {
+                    &output.stderr
+                };
+                let text = String::from_utf8_lossy(said).into_owned();
+                let line = format!("git {}", arguments.join(" "));
+                if output.status.success() {
+                    self.send(TaskResult::GitDone {
+                        action: describe,
+                        command: line,
+                        output: text,
+                    });
+                } else {
+                    self.fail(&format!("{describe} ({line})"), text.trim());
+                }
+                // Whatever happened, the view is now out of date.
+                self.git_refresh(root).await;
+            }
+            Err(error) => self.fail(&describe, error),
+        }
+    }
+
+    /// Searches the project on a blocking thread.
+    ///
+    /// Walking a tree and reading every file in it is exactly the work tokio
+    /// asks not to be done on its own threads, and a large project would stop
+    /// every other task while it ran.
+    #[cfg(feature = "full")]
+    async fn grep(&self, root: PathBuf, search: maxgus_grep::Search) {
+        let pattern = search.pattern.clone();
+        let searched = root.clone();
+        let outcome =
+            tokio::task::spawn_blocking(move || maxgus_grep::search(&searched, &search)).await;
+        match outcome {
+            Ok(Ok(found)) => self.send(TaskResult::GrepFinished {
+                pattern,
+                root,
+                found,
+            }),
+            Ok(Err(error)) => self.fail("search", error),
+            Err(error) => self.fail("search", error),
+        }
+    }
+
+    async fn shell(
+        &self,
+        command: String,
+        directory: PathBuf,
+        insert_at: Option<(maxgus_text::BufferId, usize)>,
+    ) {
+        let mut process = tokio::process::Command::new("sh");
+        process
+            .arg("-c")
+            .arg(&command)
+            .current_dir(&directory)
+            .stdin(std::process::Stdio::null())
+            .kill_on_drop(true);
+        match process.output().await {
+            Ok(output) => {
+                // Both streams are shown: a command's error message is as
+                // interesting as its output.
+                let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+                if !output.stderr.is_empty() {
+                    text.push_str(&String::from_utf8_lossy(&output.stderr));
+                }
+                self.send(TaskResult::ShellOutput {
+                    command,
+                    output: text,
+                    status: output.status.code().unwrap_or(-1),
+                    insert_at,
+                });
+            }
+            Err(error) => self.fail("shell-command", error),
+        }
+    }
+}
+
+#[cfg(feature = "full")]
+/// Git's jobs, one after another on a queue of their own.
+///
+/// One at a time, because two gits at once in one repository fight over its
+/// index lock, and a status read between a stage and the refresh after it
+/// shows the stage undone. On their own queue, because a push to a slow
+/// remote is no reason for a save to wait.
+fn git_worker(reporter: Reporter) -> mpsc::UnboundedSender<(PathBuf, GitAction)> {
+    let (sender, mut jobs) = mpsc::unbounded_channel::<(PathBuf, GitAction)>();
+    tokio::spawn(async move {
+        while let Some((root, action)) = jobs.recv().await {
+            reporter.git(root, action).await;
+        }
+    });
+    sender
 }
 
 impl Executor {
@@ -181,6 +619,8 @@ impl Executor {
             #[cfg(feature = "full")]
             servers: HashMap::new(),
             #[cfg(feature = "full")]
+            server_roots: HashMap::new(),
+            #[cfg(feature = "full")]
             terminals: HashMap::new(),
             #[cfg(feature = "full")]
             documents: HashMap::new(),
@@ -192,29 +632,95 @@ impl Executor {
             announced: std::collections::HashSet::new(),
             #[cfg(feature = "full")]
             catalog: None,
-            results,
+            reporter: Reporter { results },
         }
     }
 
     /// Runs until the task channel closes.
     pub async fn run(mut self, mut tasks: mpsc::UnboundedReceiver<Task>) {
-        while let Some(task) = tasks.recv().await {
-            self.handle(task).await;
+        #[cfg(feature = "full")]
+        let git = git_worker(self.reporter.clone());
+        // Parses run beside the loop rather than in it. In it, every task
+        // behind a parse waited for it — a file read, a language server's
+        // request — and a parse that has to recover from a syntax error
+        // near the top of a large file takes seconds. Each buffer has at
+        // most one parse running and one request waiting behind it, the
+        // newest: typing through a slow parse used to queue a parse a key.
+        #[cfg(feature = "full")]
+        let (parsed_tx, mut parsed_rx) = mpsc::unbounded_channel::<Parsed>();
+        #[cfg(feature = "full")]
+        let mut parsing: HashMap<maxgus_text::BufferId, Option<Task>> = HashMap::new();
+        loop {
+            #[cfg(feature = "full")]
+            let task = tokio::select! {
+                task = tasks.recv() => task,
+                Some(parsed) = parsed_rx.recv() => {
+                    // A buffer forgotten while it was being parsed is not
+                    // put back.
+                    let Some(waiting) = parsing.remove(&parsed.buffer) else {
+                        continue;
+                    };
+                    self.finish_parse(parsed);
+                    if let Some(next) = waiting {
+                        self.start_parse(next, &parsed_tx, &mut parsing).await;
+                    }
+                    continue;
+                }
+            };
+            #[cfg(not(feature = "full"))]
+            let task = tasks.recv().await;
+            let Some(task) = task else {
+                break;
+            };
+            let reporter = self.reporter.clone();
+            match task {
+                #[cfg(feature = "full")]
+                Task::Reparse { buffer, .. } => match parsing.get_mut(&buffer) {
+                    Some(waiting) => *waiting = Some(task),
+                    None => self.start_parse(task, &parsed_tx, &mut parsing).await,
+                },
+                #[cfg(feature = "full")]
+                Task::ForgetBuffer { buffer } => {
+                    parsing.remove(&buffer);
+                    self.handle(task).await;
+                }
+                Task::Shell {
+                    command,
+                    directory,
+                    insert_at,
+                } => {
+                    tokio::spawn(
+                        async move { reporter.shell(command, directory, insert_at).await },
+                    );
+                }
+                Task::FindDirectories { root } => {
+                    tokio::spawn(async move { reporter.find_directories(root).await });
+                }
+                Task::DiredAct { action } => {
+                    tokio::spawn(async move { reporter.dired_act(action).await });
+                }
+                #[cfg(feature = "full")]
+                Task::Grep { root, search } => {
+                    tokio::spawn(async move { reporter.grep(root, search).await });
+                }
+                #[cfg(feature = "full")]
+                Task::Git { root, action } => {
+                    let _ = git.send((root, action));
+                }
+                task => self.handle(task).await,
+            }
         }
         // Leaving without shutting servers down would orphan the processes.
         self.shutdown().await;
     }
 
     fn send(&self, result: TaskResult) {
-        let _ = self.results.send(result);
+        self.reporter.send(result);
     }
 
     /// Reports a failure to the editor rather than swallowing it.
     fn fail(&self, context: &str, error: impl std::fmt::Display) {
-        self.send(TaskResult::Failed {
-            context: context.to_string(),
-            message: error.to_string(),
-        });
+        self.reporter.fail(context, error);
     }
 
     async fn handle(&mut self, task: Task) {
@@ -236,6 +742,18 @@ impl Executor {
                 self.write_file(path, contents, buffer, backup, guard).await;
             }
             Task::ListDirectory { path } => self.list_directory(path).await,
+            Task::InsertFile { path, buffer } => self.insert_file(path, buffer).await,
+            #[cfg(feature = "full")]
+            Task::ReadFileForEdits { path } => self.read_file_for_edits(path).await,
+            Task::RestoreFile { path } => {
+                match tokio::fs::try_exists(&path).await.unwrap_or(false) {
+                    true => self.read_file(path, None, false).await,
+                    false => self.send(TaskResult::Said(format!(
+                        "{} is gone, so the session left it out",
+                        path.display()
+                    ))),
+                }
+            }
             Task::Tree(action) => self.tree_action(action).await,
             #[cfg(feature = "full")]
             Task::Reparse {
@@ -260,8 +778,8 @@ impl Executor {
             Task::InstallGrammar { language, url } => self.install_grammar(language, url).await,
             Task::Dired { path } => self.dired(path).await,
             Task::Browse { path } => self.browse(path).await,
-            Task::FindDirectories { root } => self.find_directories(root).await,
-            Task::DiredAct { action } => self.dired_act(action).await,
+            Task::FindDirectories { root } => self.reporter.find_directories(root).await,
+            Task::DiredAct { action } => self.reporter.dired_act(action).await,
             #[cfg(feature = "full")]
             Task::ReadScript { path } => self.read_script(path).await,
             Task::SaveSession { path, contents } => self.save_session(path, contents).await,
@@ -277,7 +795,9 @@ impl Executor {
                 self.send(TaskResult::GitBranch { branch });
             }
             #[cfg(feature = "full")]
-            Task::StartLanguageServer { language } => self.start_server(&language).await,
+            Task::StartLanguageServer { language, file } => {
+                self.start_server(&language, file).await
+            }
             #[cfg(feature = "full")]
             Task::StopLanguageServer { language } => self.stop_server(&language).await,
             #[cfg(feature = "full")]
@@ -339,7 +859,7 @@ impl Executor {
                 directory,
                 insert_at,
             } => {
-                self.shell(command, directory, insert_at).await;
+                self.reporter.shell(command, directory, insert_at).await;
             }
             #[cfg(feature = "full")]
             Task::TerminalOpen {
@@ -364,11 +884,14 @@ impl Executor {
             #[cfg(feature = "full")]
             Task::TerminalClose { terminal } => self.close_terminal(terminal),
             #[cfg(feature = "full")]
-            Task::Git { root, action } => self.git(root, action).await,
+            Task::Git { root, action } => self.reporter.git(root, action).await,
             #[cfg(feature = "full")]
-            Task::Grep { root, search } => self.grep(root, search).await,
+            Task::Grep { root, search } => self.reporter.grep(root, search).await,
             #[cfg(feature = "full")]
-            Task::ApplyGrep { replacements } => self.apply_grep(replacements).await,
+            Task::ApplyGrep {
+                replacements,
+                unsaved,
+            } => self.apply_grep(replacements, unsaved).await,
             Task::ForgetBuffer { buffer } => self.forget(buffer),
         }
     }
@@ -381,6 +904,24 @@ impl Executor {
         reverting: Option<maxgus_text::BufferId>,
         other_window: bool,
     ) {
+        // What kind of thing it is, before any of it is read.
+        if let Ok(metadata) = tokio::fs::metadata(&path).await {
+            // A directory named at a file prompt is one to look at, as Emacs'
+            // `find-file` opens dired on it. It was an "Is a directory".
+            if metadata.is_dir() && reverting.is_none() {
+                self.dired(path).await;
+                return;
+            }
+            // A pipe or a device is read by waiting for whatever writes to
+            // it, and every other job the editor has queued would wait too.
+            if !metadata.is_file() {
+                self.fail(
+                    "find-file",
+                    format!("{} is not a regular file", path.display()),
+                );
+                return;
+            }
+        }
         match tokio::fs::read(&path).await {
             Ok(bytes) => {
                 // A picture is decoded rather than shown as the bytes it is
@@ -414,10 +955,7 @@ impl Executor {
                 let lossy = std::str::from_utf8(&bytes).is_err();
                 let contents = String::from_utf8_lossy(&bytes).into_owned();
                 let metadata = tokio::fs::metadata(&path).await.ok();
-                let read_only = lossy
-                    || metadata
-                        .as_ref()
-                        .is_some_and(|m| m.permissions().readonly());
+                let read_only = lossy || metadata.as_ref().is_some_and(|m| !may_write(m));
                 let disk_time = metadata.and_then(|m| m.modified().ok());
                 // Reading `.editorconfig` walks up the tree looking at files,
                 // which is blocking work and belongs off the runtime.
@@ -464,6 +1002,62 @@ impl Executor {
         }
     }
 
+    /// Reads a file a language server's edit is waiting to be made in.
+    #[cfg(feature = "full")]
+    async fn read_file_for_edits(&self, path: PathBuf) {
+        let why = "the language server's change to it was not made";
+        let metadata = match tokio::fs::metadata(&path).await {
+            Ok(metadata) if metadata.is_file() => metadata,
+            Ok(_) => {
+                return self.fail("rename", format!("{} is not a file; {why}", path.display()));
+            }
+            Err(error) => {
+                return self.fail("rename", format!("{}: {error}; {why}", path.display()));
+            }
+        };
+        match tokio::fs::read(&path).await {
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(contents) => self.send(TaskResult::FileReadForEdits {
+                    read_only: !may_write(&metadata),
+                    disk_time: metadata.modified().ok(),
+                    path,
+                    contents,
+                }),
+                Err(_) => self.fail("rename", format!("{} is not text; {why}", path.display())),
+            },
+            Err(error) => self.fail("rename", format!("{}: {error}; {why}", path.display())),
+        }
+    }
+
+    /// Reads a file for `insert-file`.
+    ///
+    /// Text only: bytes that are not UTF-8 would be inserted as replacement
+    /// characters and saved as them, which is the change the read-only guard
+    /// on visiting such a file exists to prevent.
+    async fn insert_file(&self, path: PathBuf, buffer: maxgus_text::BufferId) {
+        if tokio::fs::metadata(&path).await.is_ok_and(|m| !m.is_file()) {
+            self.fail(
+                "insert-file",
+                format!("{} is not a regular file", path.display()),
+            );
+            return;
+        }
+        match tokio::fs::read(&path).await {
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(contents) => self.send(TaskResult::FileInserted {
+                    path,
+                    buffer,
+                    contents,
+                }),
+                Err(_) => self.fail(
+                    "insert-file",
+                    format!("{} is not text; nothing was inserted", path.display()),
+                ),
+            },
+            Err(error) => self.fail("insert-file", format!("{}: {error}", path.display())),
+        }
+    }
+
     // ---- directories ---------------------------------------------------
 
     /// Lists a directory with the detail dired shows.
@@ -479,64 +1073,6 @@ impl Executor {
         }
     }
 
-    /// Every directory under `root`, for the browser to narrow by typing.
-    ///
-    /// Breadth first, so what turns up first is what is nearest the top —
-    /// the thing being looked for is far more often two directories down
-    /// than ten, and a walk that has to be capped should be capped at the
-    /// far end rather than the near one.
-    async fn find_directories(&self, root: PathBuf) {
-        /// Deep enough to reach a project inside a couple of levels of
-        /// grouping, shallow enough not to wander into a source tree.
-        const DEPTH: usize = 6;
-        /// Enough to hold anyone's projects, and a bound on the memory and
-        /// the time either way.
-        const MOST: usize = 20_000;
-
-        let mut paths: Vec<String> = Vec::new();
-        let mut queue = std::collections::VecDeque::from([(root.clone(), 0usize)]);
-        let mut capped = false;
-        while let Some((directory, depth)) = queue.pop_front() {
-            if paths.len() >= MOST {
-                capped = true;
-                break;
-            }
-            let Ok(mut reader) = tokio::fs::read_dir(&directory).await else {
-                // Unreadable is not a failure here: somewhere under a home
-                // directory there is always something the owner cannot open,
-                // and one of them should not end the search.
-                continue;
-            };
-            while let Ok(Some(entry)) = reader.next_entry().await {
-                // `file_type` rather than `metadata`, so a symlink reads as a
-                // symlink instead of as whatever it points at. Following them
-                // is how a walk finds the same tree twice, or itself.
-                if !entry.file_type().await.is_ok_and(|kind| kind.is_dir()) {
-                    continue;
-                }
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if skip(&name) {
-                    continue;
-                }
-                let path = directory.join(&name);
-                if let Ok(relative) = path.strip_prefix(&root) {
-                    paths.push(relative.to_string_lossy().into_owned());
-                }
-                if depth + 1 < DEPTH {
-                    queue.push_back((path, depth + 1));
-                }
-            }
-        }
-        capped |= paths.len() >= MOST;
-        paths.truncate(MOST);
-        paths.sort();
-        self.send(TaskResult::DirectoriesFound {
-            root,
-            paths,
-            capped,
-        });
-    }
-
     async fn dired(&self, path: PathBuf) {
         match Self::listing(&path).await {
             Ok(entries) => self.send(TaskResult::DiredListed { path, entries }),
@@ -550,11 +1086,16 @@ impl Executor {
         let mut reader = tokio::fs::read_dir(path).await?;
         while let Ok(Some(entry)) = reader.next_entry().await {
             let name = entry.file_name().to_string_lossy().into_owned();
-            let Ok(metadata) = entry.metadata().await else {
-                continue;
+            // Through a link to what it points at: a link to a directory is
+            // somewhere `RET` goes, and was listed as a file `RET` could not
+            // open. A link to nothing is still listed, as the link it is.
+            let metadata = match tokio::fs::metadata(entry.path()).await {
+                Ok(metadata) => metadata,
+                Err(_) => match entry.metadata().await {
+                    Ok(metadata) => metadata,
+                    Err(_) => continue,
+                },
             };
-            // `metadata` follows links, so what it says about a link is what
-            // it says about the target. Where it points is read separately.
             let link = tokio::fs::read_link(entry.path())
                 .await
                 .ok()
@@ -571,45 +1112,15 @@ impl Executor {
         Ok(entries)
     }
 
-    /// Does what dired asked, and says which directory to list again.
-    async fn dired_act(&self, action: maxgus_core::task::FileAction) {
-        use maxgus_core::task::FileAction;
-        let said = action.describe();
-        let relist = match &action {
-            FileAction::Delete(paths) | FileAction::Chmod { paths, .. } => paths
-                .first()
-                .and_then(|p| p.parent())
-                .map(std::path::Path::to_path_buf),
-            FileAction::Copy { from, .. } | FileAction::Rename { from, .. } => from
-                .first()
-                .and_then(|p| p.parent())
-                .map(std::path::Path::to_path_buf),
-            FileAction::CreateDirectory(path) => path.parent().map(std::path::Path::to_path_buf),
-        };
-        let outcome = match action {
-            FileAction::Delete(paths) => delete_all(&paths).await,
-            FileAction::Copy { from, to } => copy_all(&from, &to).await,
-            FileAction::Rename { from, to } => rename_all(&from, &to).await,
-            FileAction::CreateDirectory(path) => tokio::fs::create_dir_all(&path).await,
-            FileAction::Chmod { .. } => Ok(()),
-        };
-        match (outcome, relist) {
-            (Ok(()), Some(relist)) => self.send(TaskResult::DiredDone { said, relist }),
-            (Ok(()), None) => self.send(TaskResult::Failed {
-                context: "dired".into(),
-                message: "nowhere to list again".into(),
-            }),
-            (Err(error), _) => self.fail("dired", error),
-        }
-    }
-
     /// Reads the script file. A project with none is the usual case and not
     /// a failure.
     #[cfg(feature = "full")]
     async fn read_script(&self, path: PathBuf) {
         match tokio::fs::read_to_string(&path).await {
             Ok(source) => self.send(TaskResult::ScriptRead { source, path }),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.send(TaskResult::ScriptMissing { path });
+            }
             Err(error) => self.fail("reading the script", error),
         }
     }
@@ -733,7 +1244,7 @@ impl Executor {
             }
         }
         let bytes = contents.len();
-        match tokio::fs::write(&path, contents).await {
+        match write_safely(&path, contents.as_bytes()).await {
             Ok(()) => {
                 // Recorded from the file just written, so the next save
                 // compares against what is actually there.
@@ -783,9 +1294,68 @@ impl Executor {
         Ok(())
     }
 
+    /// Opens the tree for `directory`, or keeps it when it already shows it.
+    ///
+    /// Returns the directory it was rooted at, when this rooted it. The tree
+    /// used to open wherever the editor had started — from an application
+    /// menu, the home directory — whatever the file on the screen was, and
+    /// kept doing so however many projects were visited after.
+    async fn show_tree(&mut self, directory: &Path) -> maxgus_tree::Result<Option<PathBuf>> {
+        let project = project_directory(directory).await;
+        match self.tree.as_mut() {
+            None => {
+                let root = project.unwrap_or_else(|| directory.to_path_buf());
+                let tree = match FileTree::open(root.clone(), self.tree_config.clone()).await {
+                    Ok(tree) => tree,
+                    // A buffer for a file not written yet, in a directory
+                    // that does not exist yet: the tree still has to open
+                    // somewhere.
+                    Err(_) => FileTree::open(self.root.clone(), self.tree_config.clone()).await?,
+                };
+                let home = tree.root_path().to_path_buf();
+                self.tree = Some(tree);
+                Ok(Some(home))
+            }
+            Some(tree) if tree.root_holding(directory).is_some() => {
+                tree.refresh().await?;
+                Ok(None)
+            }
+            // A file in another repository: the tree goes to that project,
+            // as Doom's treemacs goes to the project being worked in.
+            Some(tree) if project.is_some() => {
+                let root = project.expect("checked by the guard");
+                tree.set_roots(vec![root.clone()]).await?;
+                Ok(Some(root))
+            }
+            // Somewhere that is no project at all — a dotfile in the home
+            // directory — is not worth losing what the tree was showing.
+            Some(tree) => {
+                tree.refresh().await?;
+                Ok(None)
+            }
+        }
+    }
+
     async fn tree_action(&mut self, action: TreeAction) {
+        // What the editor should take as where the tree lives now, when the
+        // action rooted it somewhere.
+        let mut home: Option<PathBuf> = None;
+        match &action {
+            TreeAction::Close => {
+                self.tree = None;
+                return;
+            }
+            TreeAction::Show(directory) => match self.show_tree(directory).await {
+                Ok(rooted) => home = rooted,
+                Err(error) => {
+                    self.fail("File tree", error);
+                    return;
+                }
+            },
+            _ => {}
+        }
         if let Err(error) = self.ensure_tree().await {
-            self.fail("treefile", error);
+            self.fail("File tree", error);
             return;
         }
         let Some(tree) = self.tree.as_mut() else {
@@ -798,7 +1368,13 @@ impl Executor {
         // selected: stale, usually the root, and the reason expanding a
         // directory sent the cursor back to the top of the tree.
         let mut select: Option<PathBuf> = None;
+        // What to say about it, and what happened to files a buffer may be
+        // visiting.
+        let mut said: Option<String> = None;
+        let mut moved: Option<(PathBuf, PathBuf)> = None;
+        let mut deleted: Option<PathBuf> = None;
         let outcome: Result<(), maxgus_tree::TreeError> = match action {
+            TreeAction::Show(_) | TreeAction::Close => Ok(()),
             TreeAction::Refresh => tree.refresh().await,
             TreeAction::Toggle(path) => tree.toggle(&path).await.map(|_| ()),
             TreeAction::Expand(path) => tree.expand(&path).await,
@@ -806,7 +1382,17 @@ impl Executor {
                 tree.collapse(&path);
                 Ok(())
             }
-            TreeAction::ExpandRecursively(path) => tree.expand_recursively(&path).await,
+            TreeAction::ExpandRecursively(path) => {
+                tree.expand_recursively(&path).await.map(|expansion| {
+                    if expansion.stopped {
+                        said = Some(format!(
+                            "Opened the first {} directories and stopped; open deeper ones \
+                             one at a time",
+                            expansion.directories
+                        ));
+                    }
+                })
+            }
             TreeAction::Reveal(path) => {
                 select = Some(path.clone());
                 tree.reveal(&path).await.map(|_| ())
@@ -838,79 +1424,109 @@ impl Executor {
                     // outlives the disk it was saved on, and silently
                     // showing three of four is how someone comes to think
                     // they deleted something.
-                    Ok(dropped) if !dropped.is_empty() => {
-                        let names: Vec<String> = dropped
-                            .iter()
-                            .map(|path| path.display().to_string())
-                            .collect();
-                        self.send(TaskResult::Said(format!(
-                            "Not readable, left out: {}",
-                            names.join(", ")
-                        )));
+                    Ok(dropped) => {
+                        if !dropped.is_empty() {
+                            let names: Vec<String> = dropped
+                                .iter()
+                                .map(|path| path.display().to_string())
+                                .collect();
+                            said = Some(format!("Not readable, left out: {}", names.join(", ")));
+                        }
+                        home = Some(tree.root_path().to_path_buf());
                         Ok(())
                     }
-                    Ok(_) => Ok(()),
                     Err(error) => Err(error),
                 }
             }
-            TreeAction::ToggleHidden => tree.toggle_show_hidden().await,
-            TreeAction::ToggleDirectoriesFirst => {
-                self.tree_config.directories_first = !self.tree_config.directories_first;
-                let config = self.tree_config.clone();
-                match FileTree::open(self.root.clone(), config).await {
-                    Ok(fresh) => {
-                        self.tree = Some(fresh);
-                        Ok(())
+            TreeAction::ToggleHidden => tree.toggle_show_hidden().await.map(|()| {
+                said = Some(
+                    match tree.config().show_hidden {
+                        true => "Dotfiles shown",
+                        false => "Dotfiles hidden",
                     }
-                    Err(error) => Err(error),
-                }
+                    .into(),
+                );
+            }),
+            TreeAction::ToggleDirectoriesFirst => {
+                let on = !tree.config().directories_first;
+                self.tree_config.directories_first = on;
+                tree.set_directories_first(on).await.map(|()| {
+                    said = Some(
+                        match on {
+                            true => "Directories first",
+                            false => "Directories sorted in among the files",
+                        }
+                        .into(),
+                    );
+                })
             }
             TreeAction::ToggleGitStatus => {
-                self.tree_config.git_status = !self.tree_config.git_status;
-                let config = self.tree_config.clone();
-                match FileTree::open(self.root.clone(), config).await {
-                    Ok(fresh) => {
-                        self.tree = Some(fresh);
-                        Ok(())
-                    }
-                    Err(error) => Err(error),
-                }
+                let on = !tree.config().git_status;
+                self.tree_config.git_status = on;
+                tree.set_git_status(on).await.map(|()| {
+                    said = Some(
+                        match on {
+                            true => "Git status shown",
+                            false => "Git status hidden",
+                        }
+                        .into(),
+                    );
+                })
             }
             TreeAction::CreateFile { parent, name } => match Self::at(tree, &parent) {
-                Ok(()) => tree
-                    .create_file(&name)
-                    .await
-                    .map(|path| select = Some(path)),
+                Ok(()) => tree.create_file(&name).await.map(|path| {
+                    said = Some(format!("Created {}", tree.shown(&path)));
+                    select = Some(path);
+                }),
                 Err(error) => Err(error),
             },
             TreeAction::CreateDirectory { parent, name } => match Self::at(tree, &parent) {
-                Ok(()) => tree
-                    .create_directory(&name)
-                    .await
-                    .map(|path| select = Some(path)),
+                Ok(()) => tree.create_directory(&name).await.map(|path| {
+                    said = Some(format!("Created {}/", tree.shown(&path)));
+                    select = Some(path);
+                }),
                 Err(error) => Err(error),
             },
             TreeAction::Delete(path) => match Self::at(tree, &path) {
-                Ok(()) => tree.delete_selected().await.map(|_| select = None),
+                Ok(()) => {
+                    // Named before it goes: afterwards there is nothing in the
+                    // tree to name it from.
+                    let shown = tree.shown(&path);
+                    tree.delete_selected().await.map(|gone| {
+                        said = Some(format!("Deleted {shown}"));
+                        deleted = Some(gone);
+                        select = None;
+                    })
+                }
                 Err(error) => Err(error),
             },
             TreeAction::Rename { path, name } => match Self::at(tree, &path) {
-                Ok(()) => tree
-                    .rename_selected(&name)
-                    .await
-                    .map(|path| select = Some(path)),
+                Ok(()) => tree.rename_selected(&name).await.map(|new| {
+                    said = Some(format!(
+                        "Renamed {} to {}",
+                        tree.shown(&path),
+                        new.file_name().unwrap_or_default().to_string_lossy()
+                    ));
+                    moved = Some((path, new.clone()));
+                    select = Some(new);
+                }),
                 Err(error) => Err(error),
             },
             TreeAction::Move { path, destination } => match Self::at(tree, &path) {
-                Ok(()) => tree
-                    .move_selected(&destination)
-                    .await
-                    .map(|path| select = Some(path)),
+                Ok(()) => {
+                    let shown = tree.shown(&path);
+                    tree.move_selected(&destination).await.map(|new| {
+                        said = Some(format!("Moved {shown} to {}", tree.shown(&destination)));
+                        moved = Some((path, new.clone()));
+                        select = Some(new);
+                    })
+                }
                 Err(error) => Err(error),
             },
         };
         if let Err(error) = outcome {
-            self.fail("treefile", error);
+            let message = tree.explain(&error);
+            self.fail("File tree", message);
         }
         let Some(tree) = self.tree.as_ref() else {
             return;
@@ -919,11 +1535,20 @@ impl Executor {
             nodes: tree.visible().to_vec(),
             select,
             show_hidden: tree.config().show_hidden,
+            roots: tree.roots().into_iter().map(Path::to_path_buf).collect(),
+            home,
         });
+        if let Some((from, to)) = moved {
+            self.send(TaskResult::PathMoved { from, to });
+        }
+        if let Some(path) = deleted {
+            self.send(TaskResult::PathDeleted { path });
+        }
+        if let Some(said) = said {
+            self.send(TaskResult::Said(said));
+        }
     }
 
-    /// Puts the tree's own cursor on `path`, so the operations that act on the
-    /// selection act on the node the editor meant.
     /// Puts the cursor on `path`, or says it could not.
     ///
     /// Every mutating action below works on the *selection*, so going ahead
@@ -1246,6 +1871,70 @@ impl Executor {
         revision: u64,
         range: std::ops::Range<usize>,
     ) {
+        let Some(syntax) = self.syntax_for(buffer, language).await else {
+            return;
+        };
+        // Parsing a large file is a quarter of a second of solid CPU with
+        // nothing in it to await. Run on a runtime thread it would stop tokio
+        // polling anything else for that whole time — the language server's
+        // transport and the terminal's input among them — so it goes to the
+        // blocking pool and the workers stay free.
+        let parsed =
+            tokio::task::spawn_blocking(move || parse(buffer, revision, syntax, text, range)).await;
+        if let Ok(parsed) = parsed {
+            self.finish_parse(parsed);
+        }
+    }
+
+    /// Starts the parse a [`Task::Reparse`] asks for, off the loop, marking
+    /// its buffer busy until it comes back.
+    #[cfg(feature = "full")]
+    async fn start_parse(
+        &mut self,
+        task: Task,
+        done: &mpsc::UnboundedSender<Parsed>,
+        parsing: &mut HashMap<maxgus_text::BufferId, Option<Task>>,
+    ) {
+        let Task::Reparse {
+            buffer,
+            language,
+            text,
+            revision,
+            range,
+        } = task
+        else {
+            return;
+        };
+        let Some(syntax) = self.syntax_for(buffer, &language).await else {
+            return;
+        };
+        parsing.insert(buffer, None);
+        let done = done.clone();
+        tokio::task::spawn_blocking(move || {
+            // A panic is caught so that it still comes back: a buffer whose
+            // parse never answered would stay busy, and never be coloured
+            // again.
+            let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                parse(buffer, revision, syntax, text, range)
+            }))
+            .unwrap_or(Parsed {
+                buffer,
+                revision,
+                syntax: None,
+                highlights: None,
+            });
+            let _ = done.send(parsed);
+        });
+    }
+
+    /// The parser a buffer's next parse uses: the one it has, or a new one
+    /// for its language. `None` for a language with no grammar.
+    #[cfg(feature = "full")]
+    async fn syntax_for(
+        &mut self,
+        buffer: maxgus_text::BufferId,
+        language: &str,
+    ) -> Option<BufferSyntax> {
         // A buffer whose language changed — after `write-file`, say — starts
         // over with the right grammar.
         if self
@@ -1255,85 +1944,60 @@ impl Executor {
         {
             self.highlighters.remove(&buffer);
         }
-        // Taken out of the map rather than borrowed, because the work below
+        // Taken out of the map rather than borrowed, because the parse
         // leaves this thread and needs to own it.
-        let mut syntax = match self.highlighters.remove(&buffer) {
-            Some(syntax) => syntax,
-            None => {
-                // Compiled in, or loaded from where the configuration said.
-                // A language with neither is not an error; it simply goes
-                // unhighlighted, as it did before there was a grammar for
-                // anything.
-                let Some(grammar) = self.grammar_for(language).await else {
-                    self.announce_missing(language).await;
-                    return;
-                };
-                let highlighter = match Highlighter::with_grammar(language, grammar) {
-                    Ok(highlighter) => highlighter,
-                    Err(error) => {
-                        // Remembered so `describe-grammars` can say why the
-                        // file is plain, and so it is not tried again on
-                        // every pause in typing.
-                        self.grammars.remember_failure(language, error.to_string());
-                        return;
-                    }
-                };
-                let left_out = highlighter.left_out();
-                if let Some(first) = left_out.first() {
-                    self.grammars.note(
-                        language,
-                        format!(
-                            "{} of its query's patterns name nodes the grammar does not have \
-                             and were left out, the first being `{}`",
-                            left_out.len(),
-                            first.lines().next().unwrap_or_default()
-                        ),
-                    );
-                }
-                BufferSyntax {
-                    language: language.to_string(),
-                    highlighter,
-                    text: String::new(),
-                }
+        if let Some(syntax) = self.highlighters.remove(&buffer) {
+            return Some(syntax);
+        }
+        // Compiled in, or loaded from where the configuration said. A
+        // language with neither is not an error; it simply goes
+        // unhighlighted, as it did before there was a grammar for anything.
+        let Some(grammar) = self.grammar_for(language).await else {
+            self.announce_missing(language).await;
+            return None;
+        };
+        let highlighter = match Highlighter::with_grammar(language, grammar) {
+            Ok(highlighter) => highlighter,
+            Err(error) => {
+                // Remembered so `describe-grammars` can say why the file is
+                // plain, and so it is not tried again on every pause in
+                // typing.
+                self.grammars.remember_failure(language, error.to_string());
+                return None;
             }
         };
-
-        // Parsing a large file is a quarter of a second of solid CPU with
-        // nothing in it to await. Run on a runtime thread it would stop tokio
-        // polling anything else for that whole time — the language server's
-        // transport and the terminal's input among them — so it goes to the
-        // blocking pool and the workers stay free.
-        let parsed = tokio::task::spawn_blocking(move || {
-            // Telling the parser which region changed is what lets it keep
-            // the rest of the tree.
-            if syntax.highlighter.has_tree()
-                && let Some(edit) = maxgus_syntax::InputEdit::between(&syntax.text, &text)
-            {
-                syntax.highlighter.edit(edit, &syntax.text, &text);
-            }
-            if syntax.highlighter.parse(&text).is_err() {
-                return (syntax, None);
-            }
-            // Only the requested region is queried: running the highlight
-            // query over a whole large file costs far more than parsing it,
-            // and the answer beyond the window would never be drawn.
-            let range = range.start..range.end.min(text.len());
-            let highlights = syntax.highlighter.highlights_in(&text, range.clone());
-            syntax.text = text;
-            (syntax, Some((range, highlights)))
+        let left_out = highlighter.left_out();
+        if let Some(first) = left_out.first() {
+            self.grammars.note(
+                language,
+                format!(
+                    "{} of its query's patterns name nodes the grammar does not have \
+                     and were left out, the first being `{}`",
+                    left_out.len(),
+                    first.lines().next().unwrap_or_default()
+                ),
+            );
+        }
+        Some(BufferSyntax {
+            language: language.to_string(),
+            highlighter,
+            text: String::new(),
         })
-        .await;
+    }
 
+    /// Keeps the parser a parse gave back, and sends on what it found.
+    #[cfg(feature = "full")]
+    fn finish_parse(&mut self, parsed: Parsed) {
         // A parse that panicked must not take the buffer's grammar with it;
         // the next edit starts a fresh highlighter instead.
-        let Ok((syntax, outcome)) = parsed else {
+        let Some(syntax) = parsed.syntax else {
             return;
         };
-        self.highlighters.insert(buffer, syntax);
-        if let Some((range, highlights)) = outcome {
+        self.highlighters.insert(parsed.buffer, syntax);
+        if let Some((range, highlights)) = parsed.highlights {
             self.send(TaskResult::Reparsed {
-                buffer,
-                revision,
+                buffer: parsed.buffer,
+                revision: parsed.revision,
                 range,
                 highlights,
             });
@@ -1348,222 +2012,6 @@ impl Executor {
     }
 
     // ---- git -------------------------------------------------------------
-
-    #[cfg(feature = "full")]
-    /// Runs one git command, or reads the whole status.
-    async fn git(&self, root: PathBuf, action: GitAction) {
-        match action {
-            GitAction::Refresh => self.git_refresh(root).await,
-            // These three answer with a buffer rather than with a line of
-            // output, so they never reach `git_do`.
-            GitAction::Log { arguments, title } => self.git_log(root, arguments, title).await,
-            GitAction::Diff { arguments, title } => self.git_diff(root, arguments, title).await,
-            GitAction::Show { revision } => self.git_show(root, revision).await,
-            other => self.git_do(root, other).await,
-        }
-    }
-
-    #[cfg(feature = "full")]
-    /// Reads everything the status view shows, in one pass.
-    ///
-    /// One answer rather than eight: a view assembled from results arriving
-    /// separately shows a diff that disagrees with the status it is listed
-    /// under, and that is exactly the moment somebody stages the wrong thing.
-    async fn git_refresh(&self, from: PathBuf) {
-        // Where the repository actually is. `git rev-parse` is the only
-        // answer that is right for a worktree, a submodule, or a `.git` that
-        // is a file rather than a directory.
-        let top = git_output(&from, &["rev-parse", "--show-toplevel"]).await;
-        let Some(root) = top
-            .lines()
-            .next()
-            .map(PathBuf::from)
-            .filter(|p| !p.as_os_str().is_empty())
-        else {
-            return self.fail("git", "not inside a repository");
-        };
-        let run = |args: Vec<&'static str>| {
-            let root = root.clone();
-            async move { git_output(&root, &args).await }
-        };
-        // The prefixes are forced rather than left to configuration: modern
-        // git writes `i/` and `w/` for a worktree diff when `diff.mnemonicPrefix`
-        // is on, and the patches this produces have to be predictable.
-        let unstaged_args = DIFF_ARGS.to_vec();
-        let mut staged_args = DIFF_ARGS.to_vec();
-        staged_args.push("--cached");
-
-        let status_bytes = git_raw(&root, &["status", "--porcelain=v2", "-z", "--branch"]).await;
-        let snapshot = GitSnapshot {
-            root: root.clone(),
-            status: maxgus_git::status::parse(&status_bytes),
-            unstaged: maxgus_git::diff::parse(&git_output(&root, &unstaged_args).await),
-            staged: maxgus_git::diff::parse(&git_output(&root, &staged_args).await),
-            stashes: maxgus_git::log::parse_stashes(
-                &run(vec!["stash", "list", "--format=%gd%x1f%s%x1e"]).await,
-            ),
-            unpushed: maxgus_git::log::parse_log(
-                &run(vec!["log", LOG_FORMAT_ARG, "@{upstream}..HEAD"]).await,
-            ),
-            unpulled: maxgus_git::log::parse_log(
-                &run(vec!["log", LOG_FORMAT_ARG, "HEAD..@{upstream}"]).await,
-            ),
-            recent: maxgus_git::log::parse_log(&run(vec!["log", "-n", "10", LOG_FORMAT_ARG]).await),
-            head_subject: run(vec!["log", "-1", "--format=%s"])
-                .await
-                .trim()
-                .to_string(),
-            branches: Vec::new(),
-            references: maxgus_git::log::parse_refs(
-                &run(vec!["for-each-ref", "--format=%(refname)"]).await,
-            ),
-        };
-        let mut snapshot = snapshot;
-        // The prompts want the names a person types; the references view
-        // wants to know what each one is. Both come from the one reading.
-        snapshot.branches = snapshot
-            .references
-            .iter()
-            .filter(|reference| reference.kind != maxgus_git::RefKind::Tag)
-            .map(|reference| reference.name.clone())
-            .collect();
-        self.send(TaskResult::GitRefreshed(Box::new(snapshot)));
-    }
-
-    #[cfg(feature = "full")]
-    /// Reads a log into its own buffer.
-    async fn git_log(&self, root: PathBuf, arguments: Vec<String>, title: String) {
-        let mut args: Vec<String> = vec!["log".into(), LOG_FORMAT_ARG.into()];
-        args.extend(arguments);
-        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-        let output = git_output(&root, &borrowed).await;
-        self.send(TaskResult::GitLog {
-            title,
-            commits: maxgus_git::log::parse_log(&output),
-        });
-    }
-
-    #[cfg(feature = "full")]
-    /// Reads a diff into its own buffer.
-    async fn git_diff(&self, root: PathBuf, arguments: Vec<String>, title: String) {
-        let mut args: Vec<String> = DIFF_ARGS.iter().map(|a| a.to_string()).collect();
-        args.extend(arguments);
-        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-        let output = git_output(&root, &borrowed).await;
-        self.send(TaskResult::GitDiff {
-            title,
-            preamble: Vec::new(),
-            files: maxgus_git::diff::parse(&output),
-        });
-    }
-
-    #[cfg(feature = "full")]
-    /// Reads one commit: who made it, what they said, and what it changed.
-    ///
-    /// Two commands rather than one `git show`: the header is asked for in a
-    /// format this can read field by field, and the diff is asked for with
-    /// the same arguments every other diff uses, so the patches agree.
-    async fn git_show(&self, root: PathBuf, revision: String) {
-        let header = git_output(
-            &root,
-            &[
-                "show",
-                "--no-patch",
-                "--format=%H%n%an <%ae>%n%ad%n%cn <%ce>%n%cd%n%B",
-                "--date=format:%Y-%m-%d %H:%M",
-                &revision,
-            ],
-        )
-        .await;
-        let mut lines = header.lines();
-        let hash = lines.next().unwrap_or_default().to_string();
-        let author = lines.next().unwrap_or_default().to_string();
-        let author_date = lines.next().unwrap_or_default().to_string();
-        let committer = lines.next().unwrap_or_default().to_string();
-        let commit_date = lines.next().unwrap_or_default().to_string();
-        let mut preamble = vec![
-            format!("Author:     {author}"),
-            format!("AuthorDate: {author_date}"),
-        ];
-        // Only when it differs: on most commits the two are the same person
-        // at the same moment, and saying so twice is noise.
-        if committer != author || commit_date != author_date {
-            preamble.push(format!("Commit:     {committer}"));
-            preamble.push(format!("CommitDate: {commit_date}"));
-        }
-        preamble.push(String::new());
-        preamble.extend(lines.map(|line| format!("    {line}")));
-
-        let mut args: Vec<String> = DIFF_ARGS.iter().map(|a| a.to_string()).collect();
-        args[0] = "show".into();
-        args.push("--format=".into());
-        args.push(revision.clone());
-        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-        let output = git_output(&root, &borrowed).await;
-        self.send(TaskResult::GitDiff {
-            title: format!("commit {hash}"),
-            preamble,
-            files: maxgus_git::diff::parse(&output),
-        });
-    }
-
-    #[cfg(feature = "full")]
-    /// Runs one git command and reports what it said, then refreshes.
-    async fn git_do(&self, root: PathBuf, action: GitAction) {
-        let Some((arguments, describe, stdin)) = git_command(action) else {
-            return self.fail(
-                "git",
-                "that action answers with a buffer and should not have come here",
-            );
-        };
-        let mut process = tokio::process::Command::new("git");
-        process
-            .args(&arguments)
-            .current_dir(&root)
-            .stdin(match stdin {
-                Some(_) => std::process::Stdio::piped(),
-                None => std::process::Stdio::null(),
-            })
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true);
-
-        let output = match (process.spawn(), stdin) {
-            (Ok(mut child), Some(text)) => {
-                if let Some(mut pipe) = child.stdin.take() {
-                    use tokio::io::AsyncWriteExt as _;
-                    let _ = pipe.write_all(text.as_bytes()).await;
-                    let _ = pipe.shutdown().await;
-                }
-                child.wait_with_output().await
-            }
-            (Ok(child), None) => child.wait_with_output().await,
-            (Err(error), _) => return self.fail(&describe, error),
-        };
-        match output {
-            Ok(output) => {
-                let said = if output.stderr.is_empty() {
-                    &output.stdout
-                } else {
-                    &output.stderr
-                };
-                let text = String::from_utf8_lossy(said).into_owned();
-                let line = format!("git {}", arguments.join(" "));
-                if output.status.success() {
-                    self.send(TaskResult::GitDone {
-                        action: describe,
-                        command: line,
-                        output: text,
-                    });
-                } else {
-                    self.fail(&format!("{describe} ({line})"), text.trim());
-                }
-                // Whatever happened, the view is now out of date.
-                self.git_refresh(root).await;
-            }
-            Err(error) => self.fail(&describe, error),
-        }
-    }
 
     // ---- terminals -------------------------------------------------------
 
@@ -1615,9 +2063,14 @@ impl Executor {
             Err(error) => return self.fail("writing to the terminal", error),
         };
 
+        // The controlling half's orders, which the reading half also uses to
+        // say the program has gone.
+        let (commands, orders) = std::sync::mpsc::channel();
+
         // The reading half. A pty read blocks until the program writes, which
         // may be never, so it gets a thread rather than a slice of the runtime.
-        let results = self.results.clone();
+        let results = self.reporter.results.clone();
+        let ended = commands.clone();
         std::thread::spawn(move || {
             let mut reader = reader;
             let mut chunk = [0u8; 8192];
@@ -1635,11 +2088,15 @@ impl Executor {
                     }
                 }
             }
+            // The end of the output is the program ending. The controlling
+            // half was left waiting for orders that would never come, so the
+            // shell was never waited for — a zombie per `exit` — and the tab
+            // never heard that it had gone.
+            let _ = ended.send(PtyCommand::Ended);
         });
 
         // The controlling half, which owns everything that can block.
-        let (commands, orders) = std::sync::mpsc::channel();
-        let results = self.results.clone();
+        let results = self.reporter.results.clone();
         std::thread::spawn(move || {
             let (mut writer, master, mut child) = (writer, pair.master, child);
             while let Ok(order) = orders.recv() {
@@ -1670,6 +2127,7 @@ impl Executor {
                         let _ = child.wait();
                         return;
                     }
+                    PtyCommand::Ended => break,
                 }
             }
             // The shell went on its own. Say so once, so the tab can report it.
@@ -1718,10 +2176,7 @@ impl Executor {
 
     #[cfg(feature = "full")]
     #[cfg(feature = "full")]
-    async fn start_server(&mut self, language: &str) {
-        if self.servers.contains_key(language) {
-            return;
-        }
+    async fn start_server(&mut self, language: &str, file: Option<PathBuf>) {
         let Some(spec) = self.spec_for(language).cloned() else {
             // Nothing configured. Quiet on purpose: a server is started
             // whenever a file is opened, so complaining here would put a
@@ -1730,16 +2185,28 @@ impl Executor {
             // so instead — see `lsp_request`.
             return;
         };
-        // The project root is where the server is told to look. Walked in the
-        // order the markers were configured, stopping at the first that hits.
-        let mut root = None;
-        for marker in &spec.root_markers {
-            if let Some(found) = find_upwards(&self.root, marker).await {
-                root = Some(found);
-                break;
+        // Looked for from the file, not from wherever the editor was started:
+        // started from an application menu that is the home directory, and a
+        // language server told to index a home directory is still at it an
+        // hour later.
+        let from = file
+            .as_deref()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| self.root.clone());
+        let root = self.server_root(&spec, &from).await;
+        if let Some(client) = self.servers.get(language).cloned() {
+            // Running already. A file from another project is another folder
+            // of the workspace, where the server can take one.
+            let known = self.server_roots.entry(language.to_string()).or_default();
+            if !known.iter().any(|folder| from.starts_with(folder))
+                && client.can_add_workspace_folders().await
+                && client.add_workspace_folder(&root).is_ok()
+            {
+                known.push(root);
             }
+            return;
         }
-        let root = root.unwrap_or_else(|| self.root.clone());
 
         match Client::spawn(&spec.command, &spec.args, &root).await {
             Ok((client, events)) => {
@@ -1749,10 +2216,12 @@ impl Executor {
                 }
                 self.servers
                     .insert(language.to_string(), Arc::clone(&client));
+                self.server_roots
+                    .insert(language.to_string(), vec![root.clone()]);
                 // Diagnostics and messages arrive on their own schedule.
                 tokio::spawn(forward_events(
                     events,
-                    self.results.clone(),
+                    self.reporter.results.clone(),
                     language.to_string(),
                     Arc::clone(&client),
                 ));
@@ -1770,10 +2239,35 @@ impl Executor {
         let Some(client) = self.servers.remove(language) else {
             return;
         };
+        self.server_roots.remove(language);
         let _ = client.shutdown().await;
         self.send(TaskResult::LanguageServerStopped {
             language: language.to_string(),
         });
+    }
+
+    #[cfg(feature = "full")]
+    /// Where a server for a file under `from` should be rooted: the nearest
+    /// directory above it holding one of the configured markers, in the order
+    /// they were configured.
+    ///
+    /// The home directory never counts — a dotfiles repository there would
+    /// make every file under it one project. With no marker, the project the
+    /// editor was started in when the file is inside it, and otherwise the
+    /// file's own directory.
+    async fn server_root(&self, spec: &LspSpec, from: &Path) -> PathBuf {
+        let home = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
+        for marker in &spec.root_markers {
+            if let Some(found) = find_upwards(from, marker).await
+                && (home.as_deref() != Some(found.as_path()) || from == found)
+            {
+                return found;
+            }
+        }
+        match from.starts_with(&self.root) {
+            true => self.root.clone(),
+            false => from.to_path_buf(),
+        }
     }
 
     #[cfg(feature = "full")]
@@ -1820,18 +2314,21 @@ impl Executor {
             // there for ever. The symbols panel and the doc box ask without
             // announcing, while a server may still be starting, and a
             // complaint about that race would be wrong a moment later.
-            if announced {
-                self.fail(
-                    &format!("language server: {}", query.description()),
-                    match self.spec_for(&language).is_some() {
-                        true => format!("the server for `{language}` is not running yet"),
-                        false => format!("none is configured for `{language}`"),
-                    },
-                );
+            let why = match self.spec_for(&language).is_some() {
+                true => format!("the server for `{language}` is not running yet"),
+                false => format!("none is configured for `{language}`"),
+            };
+            match announced {
+                true => self.fail(&format!("language server: {}", query.description()), why),
+                false => self.send(TaskResult::LspNoAnswer {
+                    uri,
+                    query,
+                    message: why,
+                }),
             }
             return;
         };
-        let results = self.results.clone();
+        let results = self.reporter.results.clone();
         tokio::spawn(async move {
             let outcome = match &query {
                 LspQuery::Definition(p) => client.definition(&uri, *p).await,
@@ -1859,8 +2356,17 @@ impl Executor {
                     query,
                     result: value,
                 },
-                Err(error) => TaskResult::Failed {
-                    context: "language server".into(),
+                // Asked out loud, so the failure is said out loud.
+                Err(error) if announced => TaskResult::Failed {
+                    context: format!("language server: {}", query.description()),
+                    message: error.to_string(),
+                },
+                // Asked while the cursor rested: a server that says "content
+                // modified" to a hover mid-edit is not news, and an error in
+                // the echo area on every pause in typing was.
+                Err(error) => TaskResult::LspNoAnswer {
+                    uri,
+                    query,
                     message: error.to_string(),
                 },
             };
@@ -1926,70 +2432,57 @@ impl Executor {
 
     // ---- searching the project -----------------------------------------
 
-    /// Searches the project on a blocking thread.
-    ///
-    /// Walking a tree and reading every file in it is exactly the work tokio
-    /// asks not to be done on its own threads, and a large project would stop
-    /// every other task while it ran.
-    #[cfg(feature = "full")]
-    async fn grep(&self, root: PathBuf, search: maxgus_grep::Search) {
-        let pattern = search.pattern.clone();
-        let outcome =
-            tokio::task::spawn_blocking(move || maxgus_grep::search(&root, &search)).await;
-        match outcome {
-            Ok(Ok(found)) => self.send(TaskResult::GrepFinished { pattern, found }),
-            Ok(Err(error)) => self.fail("search", error),
-            Err(error) => self.fail("search", error),
-        }
-    }
-
     /// Writes edited result lines back to their files.
+    ///
+    /// Every file is read and checked before any is written, and each is
+    /// written the way a save writes, so a disk that fills halfway through
+    /// leaves the file as it was rather than half of it.
     #[cfg(feature = "full")]
-    async fn apply_grep(&self, replacements: Vec<maxgus_grep::Replacement>) {
-        let mut paths: Vec<PathBuf> = replacements.iter().map(|r| r.path.clone()).collect();
-        paths.sort();
-        paths.dedup();
-        let outcome = tokio::task::spawn_blocking(move || maxgus_grep::apply(&replacements)).await;
-        match outcome {
-            Ok(Ok(applied)) => self.send(TaskResult::GrepApplied { applied, paths }),
-            Ok(Err(error)) => self.fail("writing the results", error),
-            Err(error) => self.fail("writing the results", error),
-        }
+    async fn apply_grep(
+        &self,
+        replacements: Vec<maxgus_grep::Replacement>,
+        unsaved: Vec<maxgus_grep::Replacement>,
+    ) {
+        let asked = replacements.clone();
+        let prepared =
+            tokio::task::spawn_blocking(move || maxgus_grep::prepare(&replacements)).await;
+        let mut written = Vec::new();
+        let failure = match prepared {
+            Ok(Ok(files)) => {
+                let mut failure = None;
+                for file in files {
+                    if let Err(error) = write_safely(&file.path, file.contents.as_bytes()).await {
+                        failure = Some(format!("{}: {error}", file.path.display()));
+                        break;
+                    }
+                    let disk_time = tokio::fs::metadata(&file.path)
+                        .await
+                        .ok()
+                        .and_then(|m| m.modified().ok());
+                    let lines = asked
+                        .iter()
+                        .filter(|line| line.path == file.path)
+                        .cloned()
+                        .collect();
+                    written.push(maxgus_core::grep::WrittenFile {
+                        path: file.path,
+                        lines,
+                        disk_time,
+                    });
+                }
+                failure
+            }
+            Ok(Err(error)) => Some(error.to_string()),
+            Err(error) => Some(error.to_string()),
+        };
+        self.send(TaskResult::GrepApplied {
+            written,
+            failure,
+            unsaved,
+        });
     }
 
     // ---- shell ---------------------------------------------------------
-
-    async fn shell(
-        &self,
-        command: String,
-        directory: PathBuf,
-        insert_at: Option<(maxgus_text::BufferId, usize)>,
-    ) {
-        let mut process = tokio::process::Command::new("sh");
-        process
-            .arg("-c")
-            .arg(&command)
-            .current_dir(&directory)
-            .stdin(std::process::Stdio::null())
-            .kill_on_drop(true);
-        match process.output().await {
-            Ok(output) => {
-                // Both streams are shown: a command's error message is as
-                // interesting as its output.
-                let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-                if !output.stderr.is_empty() {
-                    text.push_str(&String::from_utf8_lossy(&output.stderr));
-                }
-                self.send(TaskResult::ShellOutput {
-                    command,
-                    output: text,
-                    status: output.status.code().unwrap_or(-1),
-                    insert_at,
-                });
-            }
-            Err(error) => self.fail("shell-command", error),
-        }
-    }
 }
 
 #[cfg(feature = "full")]
@@ -2221,6 +2714,31 @@ mod picture_tests {
     fn bytes_that_are_not_a_picture_are_not_one() {
         assert!(decode_picture(b"fn main() {}", Path::new("a.png")).is_none());
     }
+}
+
+/// The top of the repository `directory` is in, when it is in one.
+///
+/// The home directory never counts: plenty of people keep their dotfiles in
+/// a repository there, and every directory under it would otherwise be one
+/// and the same project.
+async fn project_directory(directory: &Path) -> Option<PathBuf> {
+    let home = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
+    let mut at = Some(directory);
+    while let Some(candidate) = at {
+        if home.as_deref() == Some(candidate) {
+            return None;
+        }
+        for marker in [".git", ".hg", ".jj"] {
+            if tokio::fs::try_exists(candidate.join(marker))
+                .await
+                .unwrap_or(false)
+            {
+                return Some(candidate.to_path_buf());
+            }
+        }
+        at = candidate.parent();
+    }
+    None
 }
 
 #[cfg(test)]
@@ -2519,6 +3037,10 @@ mod tests {
                 .enumerate();
             for (n, line) in ships {
                 let code = line.split("//").next().unwrap_or(line);
+                // `tokio::fs::File::open` is the asynchronous one.
+                let code = code
+                    .replace("tokio::fs::File::", "tokio::fs::")
+                    .replace("tokio::fs::OpenOptions", "tokio::fs::");
                 for call in BLOCKING_CALLS {
                     if code.contains(call) {
                         offences.push(format!("{shown}:{}: {}", n + 1, line.trim()));
@@ -2889,8 +3411,243 @@ mod tests {
         assert!(contents.is_empty(), "visiting a new file is not an error");
     }
 
+    #[cfg(feature = "full")]
+    /// A repository with one committed file, changed since.
+    async fn changed_repository(tag: &str) -> Option<(Fixture, PathBuf)> {
+        let f = Fixture::new(tag).await;
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(f.path())
+                .args([
+                    "-c",
+                    "user.name=t",
+                    "-c",
+                    "user.email=t@t",
+                    "-c",
+                    "commit.gpgsign=false",
+                ])
+                .args(args)
+                .output()
+                .is_ok_and(|out| out.status.success())
+        };
+        if !git(&["init", "-q"]) {
+            return None;
+        }
+        let file = f.path().join("tracked.txt");
+        tokio::fs::write(&file, "one\n").await.unwrap();
+        git(&["add", "tracked.txt"]);
+        git(&["commit", "-qm", "first"]);
+        tokio::fs::write(&file, "one\ntwo\n").await.unwrap();
+        Some((f, file))
+    }
+
+    #[cfg(feature = "full")]
+    /// Runs one git action to the end and says whether it reported a failure.
+    async fn run_git(root: &Path, action: GitAction) -> Vec<TaskResult> {
+        let (mut e, mut rx) = executor(root);
+        e.handle(Task::Git {
+            root: root.to_path_buf(),
+            action,
+        })
+        .await;
+        let mut results = Vec::new();
+        while let Ok(result) = rx.try_recv() {
+            results.push(result);
+        }
+        results
+    }
+
+    #[cfg(feature = "full")]
     #[tokio::test]
-    async fn reading_a_directory_is_reported_as_a_failure() {
+    async fn staging_unstaging_discarding_and_deleting_really_happen() {
+        let Some((f, file)) = changed_repository("gitpaths").await else {
+            return;
+        };
+        let status = || async {
+            git_output(f.path(), &["status", "--porcelain", "--", "tracked.txt"]).await
+        };
+
+        let results = run_git(f.path(), GitAction::Stage(vec![file.clone()])).await;
+        assert!(
+            !results.iter().any(TaskResult::is_error),
+            "stage: {results:?}"
+        );
+        assert_eq!(status().await, "M  tracked.txt\n");
+
+        let results = run_git(f.path(), GitAction::Unstage(vec![file.clone()])).await;
+        assert!(
+            !results.iter().any(TaskResult::is_error),
+            "unstage: {results:?}"
+        );
+        assert_eq!(status().await, " M tracked.txt\n");
+
+        let results = run_git(f.path(), GitAction::Discard(vec![file.clone()])).await;
+        assert!(
+            !results.iter().any(TaskResult::is_error),
+            "discard: {results:?}"
+        );
+        assert_eq!(status().await, "");
+        assert_eq!(tokio::fs::read_to_string(&file).await.unwrap(), "one\n");
+
+        let stray = f.path().join("stray.txt");
+        tokio::fs::write(&stray, "x").await.unwrap();
+        let results = run_git(f.path(), GitAction::DeleteUntracked(vec![stray.clone()])).await;
+        assert!(
+            !results.iter().any(TaskResult::is_error),
+            "clean: {results:?}"
+        );
+        assert!(!tokio::fs::try_exists(&stray).await.unwrap());
+    }
+
+    #[cfg(feature = "full")]
+    #[tokio::test]
+    async fn discarding_staged_work_goes_back_to_the_last_commit() {
+        let Some((f, file)) = changed_repository("gitdiscardstaged").await else {
+            return;
+        };
+        git_output(f.path(), &["add", "tracked.txt"]).await;
+        let results = run_git(f.path(), GitAction::DiscardStaged(vec![file.clone()])).await;
+        assert!(!results.iter().any(TaskResult::is_error), "{results:?}");
+        assert_eq!(tokio::fs::read_to_string(&file).await.unwrap(), "one\n");
+        assert_eq!(
+            git_output(f.path(), &["status", "--porcelain", "--", "tracked.txt"]).await,
+            ""
+        );
+
+        // A staged rename goes back whole: the old name returns, the new
+        // one goes.
+        git_output(f.path(), &["mv", "tracked.txt", "renamed.txt"]).await;
+        let results = run_git(
+            f.path(),
+            GitAction::DiscardStaged(vec![f.path().join("renamed.txt"), file.clone()]),
+        )
+        .await;
+        assert!(!results.iter().any(TaskResult::is_error), "{results:?}");
+        assert!(tokio::fs::try_exists(&file).await.unwrap());
+        assert!(
+            !tokio::fs::try_exists(f.path().join("renamed.txt"))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[cfg(feature = "full")]
+    #[tokio::test]
+    async fn a_push_that_wants_a_password_fails_rather_than_asking() {
+        let Some((f, _)) = changed_repository("gitnoprompt").await else {
+            return;
+        };
+        // Somewhere that would ask for credentials, and never answers.
+        git_output(
+            f.path(),
+            &["remote", "add", "origin", "https://127.0.0.1:9/nobody.git"],
+        )
+        .await;
+        let results = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            run_git(
+                f.path(),
+                GitAction::Push {
+                    arguments: vec!["origin".into(), "HEAD".into()],
+                },
+            ),
+        )
+        .await
+        .expect("git waited for someone to type a password");
+        assert!(results.iter().any(TaskResult::is_error), "got {results:?}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_slow_shell_command_does_not_hold_up_reading_a_file() {
+        // The README's promise: nothing is waited on. A queue that ran one
+        // job at a time made `M-! sleep 10` hold every save and read for ten
+        // seconds.
+        let f = Fixture::new("notwaiting").await;
+        let (tasks, queue) = mpsc::unbounded_channel();
+        let (e, mut rx) = executor(f.path());
+        tokio::spawn(e.run(queue));
+        tasks
+            .send(Task::Shell {
+                command: "sleep 5".into(),
+                directory: f.path().to_path_buf(),
+                insert_at: None,
+            })
+            .unwrap();
+        tasks
+            .send(Task::ReadFile {
+                path: f.path().join("Cargo.toml"),
+                reverting: None,
+                other_window: false,
+            })
+            .unwrap();
+        let first = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("the read waited for the shell command")
+            .expect("an answer");
+        assert!(
+            matches!(first, TaskResult::FileRead { .. }),
+            "got {first:?}"
+        );
+    }
+
+    #[cfg(feature = "full")]
+    #[tokio::test]
+    async fn a_parse_holds_up_neither_other_work_nor_the_newest_parse() {
+        // A parse ran inside the loop, so a slow one — a syntax error near
+        // the top of a large file makes tree-sitter take seconds — held up
+        // every read and server request behind it, and typing through it
+        // queued one more parse a key.
+        let f = Fixture::new("parsebeside").await;
+        let (tasks, queue) = mpsc::unbounded_channel();
+        let (e, mut rx) = executor(f.path());
+        tokio::spawn(e.run(queue));
+        let line = "fn function(argument: u32) -> u32 { let value = argument * 2; value + 1 }\n";
+        let text = format!("x{}", line.repeat(2_000));
+        for revision in 1..=3 {
+            tasks
+                .send(Task::Reparse {
+                    buffer: BufferId(1),
+                    language: "rust".into(),
+                    text: text.clone(),
+                    revision,
+                    range: 0..4096,
+                })
+                .unwrap();
+        }
+        tasks
+            .send(Task::ReadFile {
+                path: f.path().join("Cargo.toml"),
+                reverting: None,
+                other_window: false,
+            })
+            .unwrap();
+        let first = tokio::time::timeout(std::time::Duration::from_secs(60), rx.recv())
+            .await
+            .expect("an answer in time")
+            .expect("an answer");
+        assert!(
+            matches!(first, TaskResult::FileRead { .. }),
+            "the read waited for the parse: got {first:?}"
+        );
+        let mut revisions = Vec::new();
+        while revisions.len() < 2 {
+            match tokio::time::timeout(std::time::Duration::from_secs(60), rx.recv()).await {
+                Ok(Some(TaskResult::Reparsed { revision, .. })) => revisions.push(revision),
+                Ok(Some(_)) => {}
+                _ => break,
+            }
+        }
+        assert_eq!(
+            revisions,
+            [1, 3],
+            "the request superseded while the first ran was parsed anyway"
+        );
+    }
+
+    #[tokio::test]
+    async fn visiting_a_directory_lists_it_the_way_dired_does() {
         let f = Fixture::new("readdir").await;
         let (mut e, mut rx) = executor(f.path());
         let result = run_one(
@@ -2903,7 +3660,152 @@ mod tests {
             },
         )
         .await;
+        assert!(
+            matches!(result, TaskResult::DiredListed { .. }),
+            "got {result:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_pipe_is_refused_rather_than_waited_on() {
+        let f = Fixture::new("fifo").await;
+        let fifo = f.path().join("pipe");
+        let made = std::process::Command::new("mkfifo").arg(&fifo).status();
+        if !made.is_ok_and(|status| status.success()) {
+            return;
+        }
+        let (mut e, mut rx) = executor(f.path());
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            run_one(
+                &mut e,
+                &mut rx,
+                Task::ReadFile {
+                    path: fifo,
+                    reverting: None,
+                    other_window: false,
+                },
+            ),
+        )
+        .await
+        .expect("reading a pipe must not wait for a writer");
         assert!(result.is_error(), "got {result:?}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_save_keeps_the_mode_and_writes_through_a_link() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let f = Fixture::new("safesave").await;
+        let script = f.path().join("run.sh");
+        tokio::fs::write(&script, "echo old\n").await.unwrap();
+        tokio::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+        let link = f.path().join("link.sh");
+        tokio::fs::symlink(&script, &link).await.unwrap();
+
+        write_safely(&link, b"echo new\n").await.unwrap();
+
+        assert_eq!(
+            tokio::fs::read_to_string(&script).await.unwrap(),
+            "echo new\n"
+        );
+        let mode = tokio::fs::metadata(&script)
+            .await
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o755, "the executable bit went");
+        assert!(
+            tokio::fs::symlink_metadata(&link)
+                .await
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "the link was replaced by a file"
+        );
+        let mut leftovers = tokio::fs::read_dir(f.path()).await.unwrap();
+        while let Some(entry) = leftovers.next_entry().await.unwrap() {
+            assert!(
+                !entry.file_name().to_string_lossy().contains("maxgus-save"),
+                "a temporary file was left behind"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_without_its_write_bit_is_not_writable_even_to_its_owner() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = std::env::temp_dir().join("maxgus-maywrite");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("locked.txt");
+        std::fs::write(&file, "x").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).unwrap();
+        let metadata = std::fs::metadata(&file).unwrap();
+        if rustix::process::geteuid().is_root() {
+            assert!(may_write(&metadata));
+        } else {
+            assert!(!may_write(&metadata));
+        }
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(may_write(&std::fs::metadata(&file).unwrap()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn copying_or_moving_onto_something_that_exists_is_refused() {
+        let f = Fixture::new("noclobber").await;
+        let from = f.path().join("from.txt");
+        let to = f.path().join("to.txt");
+        tokio::fs::write(&from, "new").await.unwrap();
+        tokio::fs::write(&to, "precious").await.unwrap();
+
+        assert!(copy_all(std::slice::from_ref(&from), &to).await.is_err());
+        assert!(rename_all(std::slice::from_ref(&from), &to).await.is_err());
+        assert_eq!(tokio::fs::read_to_string(&to).await.unwrap(), "precious");
+        assert!(tokio::fs::try_exists(&from).await.unwrap());
+
+        // Into itself is refused too, before a byte is copied.
+        let dir = f.path().join("src");
+        assert!(
+            copy_all(std::slice::from_ref(&dir), &dir.join("inner"))
+                .await
+                .is_err()
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn copying_a_directory_copies_its_links_as_links() {
+        let f = Fixture::new("copylinks").await;
+        let dir = f.path().join("tree");
+        tokio::fs::create_dir_all(dir.join("a")).await.unwrap();
+        tokio::fs::symlink("..", dir.join("a/up")).await.unwrap();
+        tokio::fs::write(dir.join("a/file"), "x").await.unwrap();
+        let copy = f.path().join("copy");
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            copy_all(std::slice::from_ref(&dir), &copy),
+        )
+        .await
+        .expect("a link loop must not make the copy endless")
+        .unwrap();
+        assert!(
+            tokio::fs::symlink_metadata(copy.join("a/up"))
+                .await
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(copy.join("a/file"))
+                .await
+                .unwrap(),
+            "x"
+        );
     }
 
     #[tokio::test]
@@ -3340,7 +4242,8 @@ mod tests {
         run_one(&mut e, &mut rx, Task::Tree(TreeAction::Refresh)).await;
         e.handle(Task::Tree(TreeAction::CreateFile {
             parent: f.path().to_path_buf(),
-            name: "bad/name".into(),
+            // Nested names are fine; leaving the directory is not.
+            name: "../escape".into(),
         }))
         .await;
         let first = rx.try_recv().unwrap();
@@ -3752,7 +4655,15 @@ mod tests {
             announced: false,
         })
         .await;
-        assert!(rx.try_recv().is_err());
+        // Answered quietly — nothing for the echo area — so whatever asked
+        // can stop saying it is waiting.
+        let result = rx.try_recv().expect("an answer, however quiet");
+        assert!(
+            matches!(result, TaskResult::LspNoAnswer { .. }),
+            "got {result:?}"
+        );
+        assert_eq!(result.message(), None, "and nothing to say about it");
+        assert!(!result.is_error());
     }
 
     #[cfg(feature = "full")]
@@ -3762,6 +4673,7 @@ mod tests {
         let (mut e, mut rx) = executor(f.path());
         e.handle(Task::StartLanguageServer {
             language: "rust".into(),
+            file: None,
         })
         .await;
         assert!(
@@ -3784,6 +4696,7 @@ mod tests {
         );
         e.handle(Task::StartLanguageServer {
             language: "rust".into(),
+            file: None,
         })
         .await;
         let result = rx.try_recv().expect("a failure was reported");
@@ -4130,7 +5043,10 @@ fn git_command(action: GitAction) -> Option<(Vec<String>, String, Option<String>
         out
     };
     Some(match action {
-        GitAction::Stage(paths) => (with_paths(&["add", "--"], paths), "Stage".into(), None),
+        // `with_paths` puts the `--` in. Written here as well, it went to git
+        // twice, and git took the second as a file called `--`: staging a
+        // file failed with "pathspec '--' did not match any files".
+        GitAction::Stage(paths) => (with_paths(&["add"], paths), "Stage".into(), None),
         GitAction::Unstage(paths) => (
             with_paths(&["restore", "--staged"], paths),
             "Unstage".into(),
@@ -4142,16 +5058,18 @@ fn git_command(action: GitAction) -> Option<(Vec<String>, String, Option<String>
             "Unstage everything".into(),
             None,
         ),
-        GitAction::Discard(paths) => (
-            with_paths(&["checkout", "--"], paths),
+        GitAction::Discard(paths) => (with_paths(&["checkout"], paths), "Discard".into(), None),
+        GitAction::DiscardStaged(paths) => (
+            with_paths(
+                &["restore", "--source=HEAD", "--staged", "--worktree"],
+                paths,
+            ),
             "Discard".into(),
             None,
         ),
-        GitAction::DeleteUntracked(paths) => (
-            with_paths(&["clean", "-f", "--"], paths),
-            "Delete".into(),
-            None,
-        ),
+        GitAction::DeleteUntracked(paths) => {
+            (with_paths(&["clean", "-f"], paths), "Delete".into(), None)
+        }
         GitAction::ApplyPatch {
             patch,
             arguments,
@@ -4249,6 +5167,31 @@ fn git_command(action: GitAction) -> Option<(Vec<String>, String, Option<String>
 }
 
 #[cfg(feature = "full")]
+/// Keeps git from asking anything at the terminal.
+///
+/// A push to a remote that wants a password, or an ssh key with a passphrase,
+/// had git open the terminal the editor is drawn on and wait there for an
+/// answer typed into the middle of the screen — while every other job queued
+/// behind it waited too. Asked this way, it fails and says why instead.
+fn never_ask_at_the_terminal(process: &mut tokio::process::Command) {
+    process
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "never")
+        .env("GIT_SSH_COMMAND", ssh_without_prompts())
+        .env_remove("GIT_ASKPASS")
+        .env_remove("SSH_ASKPASS");
+}
+
+#[cfg(feature = "full")]
+/// ssh as the user has it set up, told never to stop and ask.
+fn ssh_without_prompts() -> String {
+    let ssh = std::env::var("GIT_SSH_COMMAND")
+        .or_else(|_| std::env::var("GIT_SSH"))
+        .unwrap_or_else(|_| "ssh".to_string());
+    format!("{ssh} -o BatchMode=yes")
+}
+
+#[cfg(feature = "full")]
 /// Runs git and returns its standard output as text, or nothing.
 async fn git_output(root: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&git_raw(root, args).await).into_owned()
@@ -4262,6 +5205,7 @@ async fn git_output(root: &Path, args: &[&str]) -> String {
 /// — and reporting that as a problem would bury the ones that are.
 async fn git_raw(root: &Path, args: &[&str]) -> Vec<u8> {
     let mut process = tokio::process::Command::new("git");
+    never_ask_at_the_terminal(&mut process);
     process
         .args(args)
         .current_dir(root)
@@ -4276,6 +5220,8 @@ async fn git_raw(root: &Path, args: &[&str]) -> Vec<u8> {
 /// Removes files and directories, directories and all.
 async fn delete_all(paths: &[PathBuf]) -> std::io::Result<()> {
     for path in paths {
+        // Not following a link: deleting a link to a directory deletes the
+        // link, never what is in the directory it names.
         let metadata = tokio::fs::symlink_metadata(path).await?;
         match metadata.is_dir() {
             true => tokio::fs::remove_dir_all(path).await?,
@@ -4285,63 +5231,257 @@ async fn delete_all(paths: &[PathBuf]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Copies to a destination, which is a directory when there is more than one
-/// thing to copy — as `cp` requires and for the same reason.
-async fn copy_all(from: &[PathBuf], to: &Path) -> std::io::Result<()> {
+/// Where each of `from` ends up when put at `to`: inside it when it is a
+/// directory or there is more than one thing, which `cp` and `mv` require
+/// for the same reason; otherwise at `to` itself.
+async fn destinations(from: &[PathBuf], to: &Path) -> Vec<(PathBuf, PathBuf)> {
     let into_directory = from.len() > 1 || tokio::fs::metadata(to).await.is_ok_and(|m| m.is_dir());
-    for path in from {
-        let destination = match into_directory {
-            true => to.join(path.file_name().unwrap_or_default()),
-            false => to.to_path_buf(),
-        };
-        match tokio::fs::symlink_metadata(path).await?.is_dir() {
-            true => copy_directory(path, &destination).await?,
-            false => {
-                if let Some(parent) = destination.parent() {
-                    tokio::fs::create_dir_all(parent).await?;
-                }
-                tokio::fs::copy(path, &destination).await?;
-            }
+    from.iter()
+        .map(|path| {
+            let destination = match into_directory {
+                true => to.join(path.file_name().unwrap_or_default()),
+                false => to.to_path_buf(),
+            };
+            (path.clone(), destination)
+        })
+        .collect()
+}
+
+/// Refuses, before anything is touched, a copy or a move that would destroy
+/// something or never finish.
+///
+/// Both went ahead: `cp` onto an existing file replaced it, `mv` onto one
+/// replaced it, and a directory copied into itself grew until the disk was
+/// full. Dired in Emacs asks before overwriting; this names what is in the
+/// way and does nothing, which is the editor's rule for destructive work.
+async fn check_destinations(pairs: &[(PathBuf, PathBuf)]) -> std::io::Result<()> {
+    for (from, to) in pairs {
+        if tokio::fs::symlink_metadata(to).await.is_ok() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!("{} already exists; nothing was done", to.display()),
+            ));
+        }
+        if to.starts_with(from) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{} cannot go inside itself", from.display()),
+            ));
         }
     }
     Ok(())
 }
 
-/// Copies a directory, one level of recursion at a time.
+async fn copy_all(from: &[PathBuf], to: &Path) -> std::io::Result<()> {
+    let pairs = destinations(from, to).await;
+    check_destinations(&pairs).await?;
+    for (path, destination) in &pairs {
+        copy_one(path, destination).await?;
+    }
+    Ok(())
+}
+
+/// Copies one file, link or directory to a place where nothing is.
 ///
-/// Written with an explicit stack rather than recursively, because an `async
-/// fn` that calls itself needs boxing and a stack is clearer than that.
-async fn copy_directory(from: &Path, to: &Path) -> std::io::Result<()> {
+/// A link is copied as a link. Followed, a link to a directory above it —
+/// `a/up -> ..` — made the copy walk into itself for ever.
+async fn copy_one(from: &Path, to: &Path) -> std::io::Result<()> {
     let mut pending = vec![(from.to_path_buf(), to.to_path_buf())];
     while let Some((source, destination)) = pending.pop() {
-        tokio::fs::create_dir_all(&destination).await?;
-        let mut reader = tokio::fs::read_dir(&source).await?;
-        while let Some(entry) = reader.next_entry().await? {
-            let target = destination.join(entry.file_name());
-            match entry.metadata().await?.is_dir() {
-                true => pending.push((entry.path(), target)),
-                false => {
-                    tokio::fs::copy(entry.path(), target).await?;
-                }
+        let metadata = tokio::fs::symlink_metadata(&source).await?;
+        if metadata.file_type().is_symlink() {
+            let target = tokio::fs::read_link(&source).await?;
+            copy_link(&target, &destination).await?;
+        } else if metadata.is_dir() {
+            tokio::fs::create_dir_all(&destination).await?;
+            let mut reader = tokio::fs::read_dir(&source).await?;
+            while let Some(entry) = reader.next_entry().await? {
+                pending.push((entry.path(), destination.join(entry.file_name())));
             }
+        } else {
+            if let Some(parent) = destination.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::copy(&source, &destination).await?;
         }
     }
     Ok(())
 }
 
-async fn rename_all(from: &[PathBuf], to: &Path) -> std::io::Result<()> {
-    let into_directory = from.len() > 1 || tokio::fs::metadata(to).await.is_ok_and(|m| m.is_dir());
-    for path in from {
-        let destination = match into_directory {
-            true => to.join(path.file_name().unwrap_or_default()),
-            false => to.to_path_buf(),
-        };
+#[cfg(unix)]
+async fn copy_link(target: &Path, at: &Path) -> std::io::Result<()> {
+    tokio::fs::symlink(target, at).await
+}
+
+#[cfg(not(unix))]
+async fn copy_link(target: &Path, at: &Path) -> std::io::Result<()> {
+    // Where a link cannot simply be made, what it names is copied instead.
+    tokio::fs::copy(target, at).await.map(|_| ())
+}
+
+/// Moves each of `from` to `to`, and says where each went.
+async fn rename_all(from: &[PathBuf], to: &Path) -> std::io::Result<Vec<(PathBuf, PathBuf)>> {
+    let pairs = destinations(from, to).await;
+    check_destinations(&pairs).await?;
+    let mut moved = Vec::new();
+    for (path, destination) in pairs {
         if let Some(parent) = destination.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        tokio::fs::rename(path, &destination).await?;
+        match tokio::fs::rename(&path, &destination).await {
+            Ok(()) => {}
+            // Onto another disk a rename is not possible, and `mv` copies
+            // and deletes instead — which is what this does, rather than
+            // saying "Invalid cross-device link".
+            Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
+                copy_one(&path, &destination).await?;
+                delete_all(std::slice::from_ref(&path)).await?;
+            }
+            Err(error) => return Err(error),
+        }
+        moved.push((path, destination));
     }
-    Ok(())
+    Ok(moved)
+}
+
+/// Whether this process may write a file with this metadata.
+///
+/// What `access(W_OK)` answers, worked out from who owns the file and its
+/// mode. The mode alone — what this asked before — said a root-owned file
+/// with `rw-r--r--` was writable, so it opened for editing and every save
+/// failed with "Permission denied".
+#[cfg(unix)]
+fn may_write(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+    let euid = rustix::process::geteuid();
+    if euid.is_root() {
+        return true;
+    }
+    let mode = metadata.mode();
+    if metadata.uid() == euid.as_raw() {
+        return mode & 0o200 != 0;
+    }
+    let gid = metadata.gid();
+    let in_group = rustix::process::getegid().as_raw() == gid
+        || rustix::process::getgroups()
+            .unwrap_or_default()
+            .iter()
+            .any(|group| group.as_raw() == gid);
+    match in_group {
+        true => mode & 0o020 != 0,
+        false => mode & 0o002 != 0,
+    }
+}
+
+#[cfg(not(unix))]
+fn may_write(metadata: &std::fs::Metadata) -> bool {
+    !metadata.permissions().readonly()
+}
+
+/// Writes `contents` to `path` so that a failure part-way leaves the file as
+/// it was.
+///
+/// The new contents go into a file beside the old one, which is renamed over
+/// it once they are all on the disk — the one step a filesystem takes all at
+/// once. Truncating the file and writing into it, which is what this did,
+/// left half a file behind when the disk filled up or the machine stopped
+/// mid-save.
+///
+/// The rename is not used where it would change something about the file
+/// besides its contents: one with other hard links would be split from them,
+/// and one owned by somebody else, or by another group, would change hands.
+/// Those are written in place as before, and so is a file in a directory
+/// that cannot be written to.
+async fn write_safely(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    use tokio::io::AsyncWriteExt as _;
+    // Through a link to what it names, so the link stays a link.
+    let target = tokio::fs::canonicalize(path)
+        .await
+        .unwrap_or_else(|_| path.to_path_buf());
+    let existing = tokio::fs::metadata(&target).await.ok();
+    #[cfg(unix)]
+    if existing.as_ref().is_some_and(|m| {
+        use std::os::unix::fs::MetadataExt as _;
+        m.nlink() > 1
+    }) {
+        return tokio::fs::write(&target, contents).await;
+    }
+    let (Some(directory), Some(name)) = (target.parent(), target.file_name()) else {
+        return tokio::fs::write(&target, contents).await;
+    };
+    let temporary = directory.join(format!(
+        ".{}.maxgus-save-{}~",
+        name.to_string_lossy(),
+        std::process::id()
+    ));
+    let mut file = match tokio::fs::File::create(&temporary).await {
+        Ok(file) => file,
+        // A directory that cannot be written to may still hold a file that
+        // can be.
+        Err(_) => return tokio::fs::write(&target, contents).await,
+    };
+    #[cfg(unix)]
+    if let (Some(existing), Ok(fresh)) = (&existing, file.metadata().await) {
+        use std::os::unix::fs::MetadataExt as _;
+        if (existing.uid(), existing.gid()) != (fresh.uid(), fresh.gid()) {
+            drop(file);
+            let _ = tokio::fs::remove_file(&temporary).await;
+            return tokio::fs::write(&target, contents).await;
+        }
+    }
+    let written = async {
+        file.write_all(contents).await?;
+        file.sync_all().await?;
+        drop(file);
+        if let Some(existing) = &existing {
+            tokio::fs::set_permissions(&temporary, existing.permissions()).await?;
+        }
+        tokio::fs::rename(&temporary, &target).await
+    }
+    .await;
+    if written.is_err() {
+        // The old file is untouched; only the half-written new one goes.
+        let _ = tokio::fs::remove_file(&temporary).await;
+    }
+    written
+}
+
+/// Parses `text` with a buffer's parser and highlights `range` of it.
+#[cfg(feature = "full")]
+fn parse(
+    buffer: maxgus_text::BufferId,
+    revision: u64,
+    mut syntax: BufferSyntax,
+    text: String,
+    range: std::ops::Range<usize>,
+) -> Parsed {
+    // Telling the parser which region changed is what lets it keep the rest
+    // of the tree.
+    if syntax.highlighter.has_tree()
+        && let Some(edit) = maxgus_syntax::InputEdit::between(&syntax.text, &text)
+    {
+        syntax.highlighter.edit(edit, &syntax.text, &text);
+    }
+    if syntax.highlighter.parse(&text).is_err() {
+        return Parsed {
+            buffer,
+            revision,
+            syntax: Some(syntax),
+            highlights: None,
+        };
+    }
+    // Only the requested region is queried: running the highlight query over
+    // a whole large file costs far more than parsing it, and the answer
+    // beyond the window would never be drawn.
+    let range = range.start..range.end.min(text.len());
+    let highlights = syntax.highlighter.highlights_in(&text, range.clone());
+    syntax.text = text;
+    Parsed {
+        buffer,
+        revision,
+        syntax: Some(syntax),
+        highlights: Some((range, highlights)),
+    }
 }
 
 /// `rwxr-xr-x`, where the platform has such a thing.
@@ -4476,7 +5616,7 @@ mod walk_tests {
     async fn walk(root: &Path) -> (Vec<String>, bool) {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let executor = Executor::new(root.to_path_buf(), TreeConfig::default(), Vec::new(), tx);
-        executor.find_directories(root.to_path_buf()).await;
+        executor.reporter.find_directories(root.to_path_buf()).await;
         match rx.recv().await {
             Some(TaskResult::DirectoriesFound { paths, capped, .. }) => (paths, capped),
             other => panic!("expected a walk, got {other:?}"),

@@ -27,6 +27,222 @@
   about the project before it. A tree sent outside the repository it was in
   forgets it, and both keys resolve again from what the editor is looking at.
 
+- **Staging and discarding a file in magit work.** `s` and `k` on a file
+  ran `git add -- -- path`, which git refused, so the commonest key in the
+  status view did nothing but fail. The path is given once.
+
+- **Discarding a staged change discards it.** `k` on a staged file or on
+  the Staged section asked git to check the file out of the index, which
+  is where the change was, and nothing happened. It is taken out of the
+  index and the worktree both, a rename as one change, and before the first
+  commit, where there is nothing to restore, it is refused with a reason.
+  `u` on the Staged heading asks before unstaging everything, and unstaging
+  a rename no longer leaves its old path's deletion staged.
+
+- **Magit stages the lines of a region.** `s`, `u` and `k` with a region
+  marked inside a hunk act on just those lines, through a patch built for
+  them and handed to git, as magit does. Renames read `old → new` in the
+  status and diff views.
+
+- **Git never waits for a password at the terminal.** A push or fetch that
+  wanted credentials asked for them on the terminal the editor was drawing
+  on, and hung there. Git and ssh are told there is nobody to ask, and the
+  failure is reported instead.
+
+- **Nothing waits behind a slow job.** The executor ran one task at a time,
+  so `M-! sleep 10`, a project search or a `git push` held up every save,
+  read and language-server request queued after it. Shell commands, dired,
+  searches and directory walks run beside the loop, git on a queue of its
+  own, and a parse — which recovering from a syntax error near the top of
+  a large file makes take seconds — no longer holds anything up either.
+  Typing through a slow parse queues one more, not one per key.
+
+- **Saving is atomic.** A save truncated the file and wrote into it, so a
+  full disk or a crash mid-save left half a file. The text goes to a file
+  beside it, which is renamed over the old one once it is all on disk —
+  keeping the file's permissions, writing through a symlink to what it
+  names, and writing in place where a rename would change something else
+  about the file: other hard links, or another owner.
+
+- **A file that is not text cannot be saved over its own bytes by
+  accident.** A buffer read from bytes that are not UTF-8, or one showing a
+  picture, is refused a save, with `M-x save-buffer-anyway` for the first
+  when that is meant. A directory opens in dired, and a FIFO or device is
+  refused rather than read forever. Whether a file can be written is asked
+  of the system rather than guessed from its mode bits.
+
+- **Dired and the tree no longer overwrite files.** Copying or renaming onto
+  an existing name replaced it without a word; both refuse now, as does
+  copying a directory into itself, which grew until the disk was full.
+  Links are copied as links, a rename across filesystems copies and then
+  deletes, `x` asks before it deletes, and a buffer visiting a file that was
+  moved follows it, while one visiting a file that was deleted is closed if
+  it has nothing unsaved.
+
+- **`C-x i` inserts a file.** It visited it. `C-x C-v` on the file already
+  in the buffer re-reads it rather than killing the buffer, `C-x C-w` takes
+  the new name only once the file is written, and the first save of a new
+  file refuses to replace one that appeared at that path meanwhile.
+
+- **The file prompt shows what is there as you type.** It lists the
+  directory the input is in, and lists it again when that changes; `//`
+  and `~/` start the path again as they do in Emacs; and a long path
+  scrolls with the cursor rather than being typed blind past the edge of
+  the screen.
+
+- **The tree stops following a file in a loop.** Follow mode revealed the
+  file being edited, which moved the tree, which revealed it again. It asks
+  once and only for files inside the tree's roots. Expanding everything
+  under a directory stops at a symlink loop and at a thousand directories,
+  git status is read in its `-z` form so names with spaces and accents are
+  marked, and ignored files are marked as ignored.
+
+- **The side panel keeps to its column.** `k` in its buffer list refused
+  nothing and killed buffers with unsaved changes; it asks, as `C-x k`
+  does. A file opened from the panel, from the terminal, or "in the other
+  window" with the panel open goes into an editing window — split off one
+  where there is only one — and never into the panel's own. `C-x 1` keeps
+  the panel, `C-x 0` in it closes it, and the last buffer killed leaves
+  `*scratch*` behind.
+
+- **A language server is started in the file's project.** Every server was
+  started in the directory the editor was, so a file from another project
+  was answered about the wrong one. The root is found from the file, a
+  second project joins a running server as a workspace folder where the
+  server allows it, and a restarted server is told about every buffer it
+  had.
+
+- **Rename reaches files that are not open.** A rename's edits to files
+  with no buffer were dropped; they are made in buffers opened for the
+  purpose and left unsaved, with a message saying which. Formatting keeps
+  point on the text it was on.
+
+- **`M-,` comes back across files.** `M-.`, a row of a listing and a symbol
+  in the outline push where point was, and `M-,` returns there, whichever
+  buffer that was.
+
+- **Autocomplete asks while typing, and only then.** Moving onto the end of
+  a word with `M-f` opened the list; a reply for another buffer or word was
+  shown; and every key rendered the whole buffer to a string to find the
+  word being typed.
+
+- **A prefix argument takes digits.** `C-u 0` inserted `0000` rather than
+  giving `0` to the next command: digits and `-` after `C-u` or a digit
+  argument now build the argument, as Emacs' `universal-argument-map` does.
+  `C-k` with zero or a negative argument kills backwards, as it should.
+
+- **Rectangles.** `C-x r k`, `C-x r d`, `C-x r M-w`, `C-x r y`, `C-x r o`,
+  `C-x r c`, `C-x r t` and `C-x r N`, and `C-x r i` inserts a rectangle
+  register as a rectangle.
+
+- **`<f3>` and `<f4>` record and play keyboard macros**, with a counter
+  `<f3>` inserts while recording. A macro no longer records the keys that
+  ended it — `M-x kmacro-end-macro` was typed back on every play — and
+  stops at the first key that fails rather than carrying on.
+
+- **`M-q` fills a comment as a comment.** The `// ` of every line is kept,
+  and a paragraph ends where the comment does. More languages have their
+  comment syntax known, and `M-;` in a buffer with none says so.
+
+- **Project search results can be written back safely.** The write-back
+  checks every file before writing any and writes each the way a save
+  does. A file with `\r\n` line endings keeps them; one open in a buffer is
+  edited in the buffer, as a change `C-/` can undo — its unsaved changes
+  were thrown away by re-reading it after the write — and a line added to or
+  taken out of the results is refused rather than written over the line
+  below. Files are listed in order and named from where the search ran,
+  matches are highlighted, `o` keeps the cursor in the results, and `M-,`
+  comes back from a result.
+
+- **Scripts do what the README says they do.** The README's own example did
+  not parse; `goto` is a word Rhai reserves, so a script calling it could not
+  load, and it is `goto_char` now; and a script that ran two commands ran
+  only the first. Every `run` happens in order among a script's edits, all
+  of which `C-/` takes back as one step; `fail` stops the script; `print`
+  goes to the echo area rather than over the screen; a command defined with
+  a built-in's name is reported rather than silently never run; and
+  `reload-scripts` finds an `init.rhai` written after the editor started.
+  Scripts see where the region starts and ends.
+
+- **The terminal lets go of its shell.** A shell that exited stayed a
+  zombie until the editor did; it is waited for, and the tab says how it
+  ended. Programs that ask the terminal its colours are answered with the
+  theme's, and a paste goes to the shell, to a search, or to the prompt,
+  whichever has the keyboard.
+
+- **A terminal flood no longer stalls the editor.** Each read of a
+  program's output redrew the whole frame, so `seq 1 300000` took four
+  seconds to scroll past; results already waiting are taken in together,
+  and it takes a tenth of a second.
+
+- **A terminal in the window has the theme's colours.** It had xterm's, and
+  their blue, which `ls` puts every directory in, cannot be read on a dark
+  background. The sixteen colours are faces — `ansi-color-red` and the rest,
+  by Emacs' names — so a theme can set them.
+
+- **A mistake in the configuration no longer stops the editor starting.** A
+  file that was not valid KDL refused to start with "Failed to parse KDL
+  document", naming no line. It starts on its defaults and says where the
+  mistake is and what it is, and `C-c f p` opens the file.
+
+- **Binding a prefix key says what it took away.** `bind "C-c f" …`, which
+  every example in the documentation did, removed every `C-c f` key there
+  was — `C-c f p`, which opens the configuration, among them — with no
+  word said. The examples bind `<f5>`; a binding over a prefix is reported
+  with the keys it removed; `unbind` of a prefix removes it on purpose; and
+  one binding that cannot be made no longer drops the rest of its block. A
+  binding to a command that does not exist is reported when the editor
+  starts, once `init.rhai` has had its chance to define it, and so is a
+  theme that does not exist.
+
+- **A message too long for the echo area is shown whole.** It wraps up over
+  the bottom of the windows until the next key, and `C-h e` lists every
+  message the echo area has shown, in `*Messages*`.
+
+- **A very large file is shown without colour.** Its syntax tree took tens
+  of times its size in memory — a twenty-megabyte file, a gigabyte. Past
+  `syntax-highlighting-limit-mb`, sixteen by default, a file is shown plain
+  and says so.
+
+- **`M-x` shows the key of every command that has one.** The keys were
+  looked up with the prompt's own map in front, which hid the ones it takes
+  for itself, so `backward-kill-word` was listed with no `M-DEL` beside it.
+  The columns of the list are two apart rather than one, so a long name no
+  longer runs into its key.
+
+- **Documentation from a language server loses its backslashes.** clangd
+  escapes the underscores in a comment, and `destination\_buffer` was drawn
+  as written.
+
+- **`--fullscreen`, or `-fs`, opens the window filling the screen**, for
+  that run only.
+
+- **Opening the configuration no longer offers a KDL grammar.** The only
+  one reads KDL v1 and stops at the first `#true` of a file in the version
+  this editor reads.
+
+- **The guide teaches the keys as they are.** `C-h t` said `C-d` deleted
+  forwards, where it duplicates the line; a test now holds every key the
+  guide names to the binding it describes.
+
+- **The installer checks what it installs.** A download with no published
+  checksum, or nothing to compute one with, was installed with a note; it is
+  refused, unless `--insecure-skip-checksum` says otherwise. A binary that
+  will not start on the machine is not installed: on Linux, `full` and
+  `minimal` fall back to the static build. The first configuration is a few
+  commented lines rather than the whole example, which changed half the
+  defaults; on macOS it goes where the editor reads it; busybox's `wget` and
+  FreeBSD's `fetch` can download; the desktop entry quotes its path and goes
+  where the desktop looks; and `--help` works when the script is piped into
+  a shell.
+
+- **Releases.** The glibc builds are made on an older system, so they start
+  on Debian 12 and Ubuntu 22.04, and the checksums are in the form
+  `sha256sum -c` reads. A tag must match the version in `Cargo.toml`, one
+  with a `-` is a pre-release, only the job that publishes can write, and
+  the archives no longer carry the screenshots. The CI lints the `gui`
+  build and runs its tests.
+
 ## v1.4.0
 
 - **A wave under an error.** Diagnostics are underlined with the wavy

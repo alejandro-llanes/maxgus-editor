@@ -563,6 +563,13 @@ fn run(
 ) -> Result<String, InstallError> {
     let mut command = std::process::Command::new(program);
     command.args(arguments).env("GIT_TERMINAL_PROMPT", "0");
+    // CREATE_NO_WINDOW, on Windows: a clone or a compile started by a window
+    // with no console would otherwise flash a console window of its own.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        command.creation_flags(0x0800_0000);
+    }
     if let Some(directory) = directory {
         command.current_dir(directory);
     }

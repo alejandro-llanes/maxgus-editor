@@ -5,13 +5,16 @@
 // as it ships instead of as one person has bent it, and so the pictures do
 // not change when that person changes their theme.
 //
-// It is the shipped example with two things turned off:
+// It is the defaults, with these differences:
 //
-//   - the language server. Nothing in the clips asks it anything, and a
+//   - line numbers on, and long lines wrapped rather than cut off, so a
+//     picture of code reads as code usually does in one.
+//   - the beacon on, for the take that shows it.
+//   - the language server off. Nothing in most takes asks it anything, and a
 //     server that is missing or that exits writes a red line across the echo
-//     area that would be in every take.
-//   - the session, so a clip always opens on the file it was told to and
-//     never on whatever the last recording left behind.
+//     area that would be in every one of them; the two that need clangd
+//     turn it back on.
+//   - no question about grammars, and a plain shell — both below.
 
 set theme="maxgus-dark"
 set line-numbers=#true

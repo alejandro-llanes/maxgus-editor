@@ -134,19 +134,24 @@ impl Client {
         args: &[String],
         working_directory: &Path,
     ) -> Result<(Arc<Client>, mpsc::UnboundedReceiver<ServerEvent>)> {
-        let mut child = tokio::process::Command::new(command)
+        let mut process = tokio::process::Command::new(command);
+        process
             .args(args)
             .current_dir(working_directory)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             // The server's own logs go to the terminal otherwise.
             .stderr(std::process::Stdio::null())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|source| LspError::Spawn {
-                command: command.to_string(),
-                source,
-            })?;
+            .kill_on_drop(true);
+        // CREATE_NO_WINDOW, on Windows, where a server started by a window
+        // with no console would be given a console window of its own for as
+        // long as it ran.
+        #[cfg(windows)]
+        process.creation_flags(0x0800_0000);
+        let mut child = process.spawn().map_err(|source| LspError::Spawn {
+            command: command.to_string(),
+            source,
+        })?;
 
         let stdin = child.stdin.take().ok_or(LspError::ServerGone)?;
         let stdout = child.stdout.take().ok_or(LspError::ServerGone)?;

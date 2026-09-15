@@ -4497,6 +4497,21 @@ impl Editor {
         ])
     }
 
+    /// A file's path the way a person reads one: inside the project, from
+    /// the project's name down, and elsewhere with the home directory as
+    /// `~`. What the buffer switcher writes beside a name — the whole path
+    /// ran off the edge of the box before the part that told two buffers
+    /// apart.
+    pub fn readable_path(&self, path: &Path) -> String {
+        if let Some(root) = self.known_project_root()
+            && let Ok(inside) = path.strip_prefix(&root)
+            && let Some(project) = root.file_name()
+        {
+            return format!("{}/{}", project.to_string_lossy(), inside.display());
+        }
+        shorten_home(path)
+    }
+
     /// Where the buffer's file is, relative to the project it is in.
     ///
     /// Falls back to the bare name for a buffer with no file, and for a file

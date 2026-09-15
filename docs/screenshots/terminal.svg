@@ -1,40 +1,43 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1019" height="568" viewBox="0 0 1019 568" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="14" role="img" aria-label="maxgus">
 <rect width="1019" height="568" rx="10" fill="#1d1f21"/>
 <rect x="14.0" y="14.0" width="268.8" height="18" fill="#282a2e"/>
-<rect x="14.0" y="32.0" width="268.8" height="18" fill="#373b41"/>
+<rect x="22.4" y="32.0" width="260.4" height="18" fill="#373b41"/>
 <rect x="14.0" y="140.0" width="268.8" height="18" fill="#282a2e"/>
 <rect x="14.0" y="158.0" width="268.8" height="18" fill="#373b41"/>
 <rect x="14.0" y="266.0" width="991.2" height="18" fill="#282a2e"/>
 <rect x="14.0" y="284.0" width="117.6" height="18" fill="#81a2be"/>
 <rect x="131.6" y="284.0" width="873.6" height="18" fill="#373b41"/>
 <rect x="14.0" y="518.0" width="991.2" height="18" fill="#282a2e"/>
-<text x="14.0" y="27.3" fill="#969896" textLength="294.0" lengthAdjust="spacing" xml:space="preserve"> %% 280 *treefile*  6:0  Top     1 </text>
+<text x="14.0" y="27.3" fill="#969896" textLength="294.0" lengthAdjust="spacing" xml:space="preserve"> maxgus                   6/17   1 </text>
 <text x="308.0" y="27.3" fill="#969896" font-style="italic" textLength="386.4" lengthAdjust="spacing" xml:space="preserve">//! Fuzzy matching for the completion prompts.</text>
-<text x="47.6" y="45.3" fill="#81a2be" font-weight="bold" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">score</text>
+<text x="14.0" y="45.3" fill="#8abeb7" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">▎</text>
+<text x="39.2" y="45.3" fill="#81a2be" font-weight="bold" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">score</text>
 <text x="257.6" y="45.3" fill="#969896" font-weight="bold" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">fn</text>
 <text x="282.8" y="45.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 2 </text>
 <text x="308.0" y="45.3" fill="#969896" font-style="italic" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">//!</text>
-<text x="30.8" y="63.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
-<text x="47.6" y="63.3" fill="#f0c674" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">Match</text>
+<text x="22.4" y="63.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">v </text>
+<text x="39.2" y="63.3" fill="#f0c674" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">Match</text>
 <text x="224.0" y="63.3" fill="#969896" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">struct</text>
 <text x="282.8" y="63.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 3 </text>
 <text x="308.0" y="63.3" fill="#969896" font-style="italic" textLength="604.8" lengthAdjust="spacing" xml:space="preserve">//! A query matches a candidate when its characters appear in order, not</text>
-<text x="64.4" y="81.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">score</text>
+<text x="22.4" y="81.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="56.0" y="81.3" fill="#8abeb7" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">score</text>
 <text x="232.4" y="81.3" fill="#969896" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">field</text>
 <text x="282.8" y="81.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 4 </text>
 <text x="308.0" y="81.3" fill="#969896" font-style="italic" textLength="621.6" lengthAdjust="spacing" xml:space="preserve">//! necessarily together: `sbf` finds `save-buffer`. Scoring is what makes</text>
-<text x="64.4" y="99.3" fill="#8abeb7" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">at</text>
+<text x="22.4" y="99.3" fill="#373b41" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">│</text>
+<text x="56.0" y="99.3" fill="#8abeb7" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">at</text>
 <text x="232.4" y="99.3" fill="#969896" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">field</text>
 <text x="282.8" y="99.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 5 </text>
 <text x="308.0" y="99.3" fill="#969896" font-style="italic" textLength="386.4" lengthAdjust="spacing" xml:space="preserve">//! that useful rather than merely permissive.</text>
-<text x="47.6" y="117.3" fill="#81a2be" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">matches</text>
+<text x="39.2" y="117.3" fill="#81a2be" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">matches</text>
 <text x="257.6" y="117.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">fn</text>
 <text x="282.8" y="117.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 6 </text>
-<text x="47.6" y="135.3" fill="#81a2be" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">same</text>
+<text x="39.2" y="135.3" fill="#81a2be" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">same</text>
 <text x="257.6" y="135.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">fn</text>
 <text x="282.8" y="135.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 7 </text>
 <text x="308.0" y="135.3" fill="#969896" font-style="italic" textLength="621.6" lengthAdjust="spacing" xml:space="preserve">/// How well `query` matches `candidate`, or `None` if it does not at all.</text>
-<text x="14.0" y="153.3" fill="#969896" textLength="294.0" lengthAdjust="spacing" xml:space="preserve"> %% 50 *symbols*  1:0  All       8 </text>
+<text x="14.0" y="153.3" fill="#969896" textLength="294.0" lengthAdjust="spacing" xml:space="preserve"> Outline of fuzzy.rs       1/6   8 </text>
 <text x="308.0" y="153.3" fill="#b294bb" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">pub</text>
 <text x="341.6" y="153.3" fill="#b294bb" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">fn</text>
 <text x="366.8" y="153.3" fill="#81a2be" textLength="42.0" lengthAdjust="spacing" xml:space="preserve">score</text>
@@ -51,7 +54,7 @@
 <text x="744.8" y="153.3" fill="#c5c8c6" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">&lt;</text>
 <text x="753.2" y="153.3" fill="#8abeb7" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">i32</text>
 <text x="778.4" y="153.3" fill="#c5c8c6" textLength="226.8" lengthAdjust="spacing" xml:space="preserve">&gt; {                        </text>
-<text x="14.0" y="171.3" fill="#c5c8c6" font-weight="bold" textLength="268.8" lengthAdjust="spacing" xml:space="preserve">    *terminal*                  </text>
+<text x="14.0" y="171.3" fill="#c5c8c6" font-weight="bold" textLength="268.8" lengthAdjust="spacing" xml:space="preserve">    *scratch*                   </text>
 <text x="282.8" y="171.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve"> 9 </text>
 <text x="341.6" y="171.3" fill="#b294bb" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">if</text>
 <text x="358.4" y="171.3" fill="#c5c8c6" textLength="58.8" lengthAdjust="spacing" xml:space="preserve"> query.</text>
@@ -64,7 +67,7 @@
 <text x="467.6" y="189.3" fill="#c5c8c6" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">(</text>
 <text x="476.0" y="189.3" fill="#de935f" textLength="8.4" lengthAdjust="spacing" xml:space="preserve">0</text>
 <text x="484.4" y="189.3" fill="#c5c8c6" textLength="520.8" lengthAdjust="spacing" xml:space="preserve">);                                                            </text>
-<text x="14.0" y="207.3" fill="#c5c8c6" textLength="268.8" lengthAdjust="spacing" xml:space="preserve">    *scratch*                   </text>
+<text x="14.0" y="207.3" fill="#c5c8c6" textLength="268.8" lengthAdjust="spacing" xml:space="preserve">    *terminal*                  </text>
 <text x="282.8" y="207.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">11 </text>
 <text x="308.0" y="207.3" fill="#c5c8c6" textLength="697.2" lengthAdjust="spacing" xml:space="preserve">    }                                                                              </text>
 <text x="282.8" y="225.3" fill="#969896" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">12 </text>
@@ -87,7 +90,7 @@
 <text x="652.4" y="261.3" fill="#c5c8c6" textLength="25.2" lengthAdjust="spacing" xml:space="preserve">().</text>
 <text x="677.6" y="261.3" fill="#8abeb7" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">collect</text>
 <text x="736.4" y="261.3" fill="#c5c8c6" textLength="268.8" lengthAdjust="spacing" xml:space="preserve">();                             </text>
-<text x="14.0" y="279.3" fill="#969896" textLength="991.2" lengthAdjust="spacing" xml:space="preserve"> %% 23 *buffers*  1:0  All       -- 1.2k src/fuzzy.rs  25:37  Top                                         main  rust  </text>
+<text x="14.0" y="279.3" fill="#969896" textLength="991.2" lengthAdjust="spacing" xml:space="preserve"> Buffers                   1/3   -- 1.2k src/fuzzy.rs  25:37  Top                                         main  rust  </text>
 <text x="14.0" y="297.3" fill="#1d1f21" font-weight="bold" textLength="117.6" lengthAdjust="spacing" xml:space="preserve"> 1 cargo test </text>
 <text x="131.6" y="297.3" fill="#969896" textLength="873.6" lengthAdjust="spacing" xml:space="preserve">│ 2 htop │                                                                                              </text>
 <text x="14.0" y="315.3" fill="#00cd00" font-weight="bold" textLength="67.2" lengthAdjust="spacing" xml:space="preserve">~/maxgus</text>
@@ -104,9 +107,8 @@
 <text x="14.0" y="441.3" fill="#00cd00" font-weight="bold" textLength="67.2" lengthAdjust="spacing" xml:space="preserve">~/maxgus</text>
 <text x="81.2" y="441.3" fill="#c5c8c6" textLength="924.0" lengthAdjust="spacing" xml:space="preserve"> $                                                                                                            </text>
 <text x="14.0" y="531.3" fill="#de935f" font-weight="bold" textLength="33.6" lengthAdjust="spacing" xml:space="preserve"> %% </text>
-<text x="47.6" y="531.3" fill="#969896" textLength="16.8" lengthAdjust="spacing" xml:space="preserve">0 </text>
-<text x="64.4" y="531.3" fill="#81a2be" font-weight="bold" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">*terminal*</text>
-<text x="148.4" y="531.3" fill="#969896" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">  1:0  All</text>
-<text x="828.8" y="531.3" fill="#b5bd68" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">  main</text>
-<text x="879.2" y="531.3" fill="#c5c8c6" textLength="126.0" lengthAdjust="spacing" xml:space="preserve">  Fundamental  </text>
+<text x="47.6" y="531.3" fill="#81a2be" font-weight="bold" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">*terminal*</text>
+<text x="131.6" y="531.3" fill="#969896" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">  1:0  All</text>
+<text x="854.0" y="531.3" fill="#b5bd68" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">  main</text>
+<text x="904.4" y="531.3" fill="#c5c8c6" textLength="100.8" lengthAdjust="spacing" xml:space="preserve">  Terminal  </text>
 </svg>

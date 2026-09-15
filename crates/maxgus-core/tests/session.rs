@@ -2628,8 +2628,29 @@ fn the_popup_says_what_each_command_does_and_which_key_runs_it() {
         "no key binding beside the name: `{row}`"
     );
     // Clipped at the right edge of a sixty-column frame, which is what the
-    // column is for: the name and the key stay put and the prose gives way.
-    assert!(row.contains("Save this"), "no summary: `{row}`");
+    // column is for: the name and the key stay put and the prose gives way,
+    // saying that it has.
+    assert!(row.contains("Save thi\u{2026}"), "no summary: `{row}`");
+}
+
+#[test]
+fn the_buffer_switcher_names_a_file_from_its_project() {
+    // The whole path ran off the edge of the box before the part that tells
+    // two buffers of the same name apart.
+    let mut s = Session::new(90, 20);
+    let id = s
+        .editor
+        .buffers
+        .visit_file("/home/someone/work/project/crates/deep/src/lib.rs", "x\n");
+    s.editor.switch_to_buffer(id).unwrap();
+    s.editor.project_dir = Some("/home/someone/work/project".into());
+    s.keys("C-x b");
+    let screen = s.screen().join("\n");
+    assert!(
+        screen.contains("project/crates/deep/src/lib.rs"),
+        "the file is not named from its project:\n{screen}"
+    );
+    assert!(!screen.contains("/home/someone/work"), "{screen}");
 }
 
 #[test]

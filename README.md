@@ -22,8 +22,8 @@ Emacs keys, tree-sitter, a language-server client, magit&nbsp; ·&nbsp; the same
 <img alt="" src="https://img.shields.io/badge/macos-333?style=flat-square&logo=apple&logoColor=white">
 <img alt="" src="https://img.shields.io/badge/windows-333?style=flat-square&logo=windows&logoColor=white">
 <img alt="" src="https://img.shields.io/badge/freebsd-333?style=flat-square&logo=freebsd&logoColor=white">
-<img alt="Unsafe" src="https://img.shields.io/badge/unsafe-grammar%20loading%20only-4c9a2a?style=flat-square">
-<img alt="Tests" src="https://img.shields.io/badge/tests-2490-4c9a2a?style=flat-square">
+<img alt="Unsafe" src="https://img.shields.io/badge/unsafe-5%20audited%20calls-4c9a2a?style=flat-square">
+<img alt="Tests" src="https://img.shields.io/badge/tests-2493-4c9a2a?style=flat-square">
 </p>
 
 <sub><b>A file is on the screen 5 ms after the shell hands over.</b> No Lisp interpreter, no plugin runtime · fifteen crates · three builds to pick from.</sub>
@@ -299,7 +299,7 @@ What the window has that a terminal cannot:
   than on a hole cut in the text, which is what separates the two layers
   without a drop shadow having to do it.
 
-  <img src="docs/screenshots/gui-floating-blur.png" alt="A buffer-switching popup over source code, with the code behind it blurred and showing faintly through the popup's background" width="100%">
+  <img src="docs/screenshots/gui-buffers.png" alt="The buffer switcher over source code, with the code behind it blurred" width="100%">
 
   It costs the frame being drawn in two halves — what the windows hold, then
   what floats over them — and three more passes over each popup's own area.
@@ -361,10 +361,11 @@ What the window has that a terminal cannot:
   into the top of it, so it reads as something that arrived rather than as a
   rectangle of the same text with a line around it. Four faces say how:
   `doc`, `doc-border`, `doc-title` and `doc-code`. `set lsp-doc=#false`
-  turns it off; `C-c c k` asks for it either way. The terminal front end
-  draws it as a box of cells; the window sets it in prose, on a card:
+  turns it off; `C-c c k` asks for it either way. This is the box the
+  terminal front end draws; the window sets the same answer in prose, on
+  the card further up:
 
-  <img src="docs/screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and its documentation, from clangd" width="100%">
+  <img src="docs/screenshots/lsp-doc.svg" alt="A box beside the cursor, titled Documentation, giving a function's return type, its parameters and a sentence about it" width="100%">
 - **A window that behaves like one.** Its title says the file, the
   project and the program — `main.rs — maxgus-editor — maxgus` — with a
   `•` in front while there is unsaved work, so a taskbar of three of them
@@ -1205,9 +1206,11 @@ accepts.
 
 ## Layout
 
-Fifteen crates. `unsafe_code` is forbidden in all of them but `maxgus-syntax`,
-where it is denied, and allowed only for the three calls in `dynamic.rs` that
-load a grammar's shared library — which cannot be done without it.
+Fifteen crates. `unsafe_code` is forbidden in all of them but two, where it
+is denied and allowed only where nothing else will do: the three calls in
+`maxgus-syntax`'s `dynamic.rs` that load a grammar's shared library, and, on
+Windows only, the two in `maxgus`'s `console.rs` that let go of the console a
+window was started with.
 
 | Crate | What it holds |
 |---|---|
@@ -1229,7 +1232,7 @@ load a grammar's shared library — which cannot be done without it.
 
 ## Testing
 
-**2490 tests.** Unit tests beside the code; session tests that press real keys
+**2493 tests.** Unit tests beside the code; session tests that press real keys
 through the real keymap and assert on the rendered screen; smoke tests that open
 a pseudo-terminal, run the built binary and read what it draws — including
 against a real `clangd`.

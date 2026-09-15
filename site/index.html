@@ -524,7 +524,7 @@ footer .sp { margin-left: auto; }
 
   <figure class="shot" id="s-editor">
     <img src="screenshots/gui-editor.png" alt="maxgus editing its own source, with the file tree and the buffer list down the left" loading="lazy" width="1280" height="720">
-    <figcaption>The window: a file open beside the side panel, which stacks the file tree, the symbols in the buffer and the open buffers. Drawn by wgpu, in whatever font the system has.</figcaption>
+    <figcaption>The window: a file open beside the side panel, which stacks the file tree over the open buffers — with the symbols of the file between them once a language server is running. Drawn by wgpu, in whatever font the system has.</figcaption>
   </figure>
 
   <figure class="shot" id="s-card">
@@ -558,8 +558,8 @@ footer .sp { margin-left: auto; }
   </figure>
 
   <figure class="shot" id="s-doc">
-    <img src="screenshots/gui-lsp-doc.png" alt="A box beside the cursor showing a function signature and documentation from clangd" loading="lazy" width="1896" height="1021">
-    <figcaption>Rest the cursor on a symbol and what the language server knows appears in a box beside it, not over it, the way lsp-ui-doc does. In both front ends.</figcaption>
+    <img src="screenshots/lsp-doc.svg" alt="A box beside the cursor, titled Documentation, giving a function's return type, its parameters and a sentence about it" loading="lazy" width="1019" height="568">
+    <figcaption>Rest the cursor on a symbol and what the language server knows appears in a box beside it, not over it, the way lsp-ui-doc does. This is the terminal's box; the window sets the same answer on a card.</figcaption>
   </figure>
 
   <figure class="shot" id="s-magit">
@@ -869,7 +869,7 @@ maxgus 1.4.0 (gui)
   <a href="https://github.com/alejandro-llanes/maxgus-editor/issues">Issues</a>
   <a href="install.sh">install.sh</a>
   <a href="https://github.com/alejandro-llanes/maxgus-editor/blob/main/CHANGELOG.md">Changelog</a>
-  <span class="sp">Written in Rust, edition 2024. No unsafe code but the three calls that load a grammar. Drawn by wgpu.</span>
+  <span class="sp">Written in Rust, edition 2024. No unsafe code but five audited calls: three that load a grammar, two that let go of a console on Windows. Drawn by wgpu.</span>
 </div></footer>
 
 <script>

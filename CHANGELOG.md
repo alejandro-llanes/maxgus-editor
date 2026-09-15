@@ -1,6 +1,102 @@
 # Changelog
 
-## Unreleased
+What changed in each release, newest first, grouped into what was added,
+what changed and what was fixed. From 1.0.0 the version numbers follow
+[Semantic Versioning](https://semver.org): the keys, the command names, the
+configuration file and the faces change only in a major version.
+
+## [Unreleased]
+
+### Added
+
+- **Magit stages the lines of a region.** `s`, `u` and `k` with a region
+  marked inside a hunk act on just those lines, through a patch built for
+  them and handed to git, as magit does. Renames read `old → new` in the
+  status and diff views.
+
+- **Rectangles.** `C-x r k`, `C-x r d`, `C-x r M-w`, `C-x r y`, `C-x r o`,
+  `C-x r c`, `C-x r t` and `C-x r N`, and `C-x r i` inserts a rectangle
+  register as a rectangle.
+
+- **`<f3>` and `<f4>` record and play keyboard macros**, with a counter
+  `<f3>` inserts while recording. A macro no longer records the keys that
+  ended it — `M-x kmacro-end-macro` was typed back on every play — and
+  stops at the first key that fails rather than carrying on.
+
+- **A message too long for the echo area is shown whole.** It wraps up over
+  the bottom of the windows until the next key, and `C-h e` lists every
+  message the echo area has shown, in `*Messages*`.
+
+- **A very large file is shown without colour.** Its syntax tree took tens
+  of times its size in memory — a twenty-megabyte file, a gigabyte. Past
+  `syntax-highlighting-limit-mb`, sixteen by default, a file is shown plain
+  and says so.
+
+- **`--fullscreen`, or `-fs`, opens the window filling the screen**, for
+  that run only.
+
+### Changed
+
+- **The file prompt shows what is there as you type.** It lists the
+  directory the input is in, and lists it again when that changes; `//`
+  and `~/` start the path again as they do in Emacs; and a long path
+  scrolls with the cursor rather than being typed blind past the edge of
+  the screen.
+
+- **A terminal in the window has the theme's colours.** It had xterm's, and
+  their blue, which `ls` puts every directory in, cannot be read on a dark
+  background. The sixteen colours are faces — `ansi-color-red` and the rest,
+  by Emacs' names — so a theme can set them.
+
+- **A mistake in the configuration no longer stops the editor starting.** A
+  file that was not valid KDL refused to start with "Failed to parse KDL
+  document", naming no line. It starts on its defaults and says where the
+  mistake is and what it is, and `C-c f p` opens the file.
+
+- **Binding a prefix key says what it took away.** `bind "C-c f" …`, which
+  every example in the documentation did, removed every `C-c f` key there
+  was — `C-c f p`, which opens the configuration, among them — with no
+  word said. The examples bind `<f5>`; a binding over a prefix is reported
+  with the keys it removed; `unbind` of a prefix removes it on purpose; and
+  one binding that cannot be made no longer drops the rest of its block. A
+  binding to a command that does not exist is reported when the editor
+  starts, once `init.rhai` has had its chance to define it, and so is a
+  theme that does not exist.
+
+- **Opening the configuration no longer offers a KDL grammar.** The only
+  one reads KDL v1 and stops at the first `#true` of a file in the version
+  this editor reads.
+
+- **The installer checks what it installs.** A download with no published
+  checksum, or nothing to compute one with, was installed with a note; it is
+  refused, unless `--insecure-skip-checksum` says otherwise. A binary that
+  will not start on the machine is not installed: on Linux, `full` and
+  `minimal` fall back to the static build. The first configuration is a few
+  commented lines rather than the whole example, which changed half the
+  defaults; on macOS it goes where the editor reads it; busybox's `wget` and
+  FreeBSD's `fetch` can download; the desktop entry quotes its path and goes
+  where the desktop looks; and `--help` works when the script is piped into
+  a shell.
+
+- **Releases.** The glibc builds are made on an older system, so they start
+  on Debian 12 and Ubuntu 22.04, and the checksums are in the form
+  `sha256sum -c` reads. A tag must match the version in `Cargo.toml`, one
+  with a `-` is a pre-release, only the job that publishes can write, and
+  the archives no longer carry the screenshots. The CI lints the `gui`
+  build and runs its tests.
+
+- **A line cut off in a list ends in `…`.** `M-x`, the buffer switcher and
+  the grammar menu cut a name or its description at the edge of the box, and
+  what was left read as the whole of it. The buffer switcher names a file
+  from its project, or from `~`, rather than from the root of the disk — the
+  part that told two buffers apart was the part past the edge.
+
+- **The pictures are of this version.** Every screenshot in the README and on
+  the site was taken again; the script that takes the window's refuses a
+  build of another version, and takes them filling the screen, so they have
+  no black band along the bottom where a title bar would have been.
+
+### Fixed
 
 - **Magit opens on the project the tree is showing.** `C-x g` asked git
   about the directory the process was started in whenever no buffer had a
@@ -38,11 +134,6 @@
   commit, where there is nothing to restore, it is refused with a reason.
   `u` on the Staged heading asks before unstaging everything, and unstaging
   a rename no longer leaves its old path's deletion staged.
-
-- **Magit stages the lines of a region.** `s`, `u` and `k` with a region
-  marked inside a hunk act on just those lines, through a patch built for
-  them and handed to git, as magit does. Renames read `old → new` in the
-  status and diff views.
 
 - **Git never waits for a password at the terminal.** A push or fetch that
   wanted credentials asked for them on the terminal the editor was drawing
@@ -83,12 +174,6 @@
   in the buffer re-reads it rather than killing the buffer, `C-x C-w` takes
   the new name only once the file is written, and the first save of a new
   file refuses to replace one that appeared at that path meanwhile.
-
-- **The file prompt shows what is there as you type.** It lists the
-  directory the input is in, and lists it again when that changes; `//`
-  and `~/` start the path again as they do in Emacs; and a long path
-  scrolls with the cursor rather than being typed blind past the edge of
-  the screen.
 
 - **The tree stops following a file in a loop.** Follow mode revealed the
   file being edited, which moved the tree, which revealed it again. It asks
@@ -131,15 +216,6 @@
   argument now build the argument, as Emacs' `universal-argument-map` does.
   `C-k` with zero or a negative argument kills backwards, as it should.
 
-- **Rectangles.** `C-x r k`, `C-x r d`, `C-x r M-w`, `C-x r y`, `C-x r o`,
-  `C-x r c`, `C-x r t` and `C-x r N`, and `C-x r i` inserts a rectangle
-  register as a rectangle.
-
-- **`<f3>` and `<f4>` record and play keyboard macros**, with a counter
-  `<f3>` inserts while recording. A macro no longer records the keys that
-  ended it — `M-x kmacro-end-macro` was typed back on every play — and
-  stops at the first key that fails rather than carrying on.
-
 - **`M-q` fills a comment as a comment.** The `// ` of every line is kept,
   and a paragraph ends where the comment does. More languages have their
   comment syntax known, and `M-;` in a buffer with none says so.
@@ -175,35 +251,6 @@
   seconds to scroll past; results already waiting are taken in together,
   and it takes a tenth of a second.
 
-- **A terminal in the window has the theme's colours.** It had xterm's, and
-  their blue, which `ls` puts every directory in, cannot be read on a dark
-  background. The sixteen colours are faces — `ansi-color-red` and the rest,
-  by Emacs' names — so a theme can set them.
-
-- **A mistake in the configuration no longer stops the editor starting.** A
-  file that was not valid KDL refused to start with "Failed to parse KDL
-  document", naming no line. It starts on its defaults and says where the
-  mistake is and what it is, and `C-c f p` opens the file.
-
-- **Binding a prefix key says what it took away.** `bind "C-c f" …`, which
-  every example in the documentation did, removed every `C-c f` key there
-  was — `C-c f p`, which opens the configuration, among them — with no
-  word said. The examples bind `<f5>`; a binding over a prefix is reported
-  with the keys it removed; `unbind` of a prefix removes it on purpose; and
-  one binding that cannot be made no longer drops the rest of its block. A
-  binding to a command that does not exist is reported when the editor
-  starts, once `init.rhai` has had its chance to define it, and so is a
-  theme that does not exist.
-
-- **A message too long for the echo area is shown whole.** It wraps up over
-  the bottom of the windows until the next key, and `C-h e` lists every
-  message the echo area has shown, in `*Messages*`.
-
-- **A very large file is shown without colour.** Its syntax tree took tens
-  of times its size in memory — a twenty-megabyte file, a gigabyte. Past
-  `syntax-highlighting-limit-mb`, sixteen by default, a file is shown plain
-  and says so.
-
 - **`M-x` shows the key of every command that has one.** The keys were
   looked up with the prompt's own map in front, which hid the ones it takes
   for itself, so `backward-kill-word` was listed with no `M-DEL` beside it.
@@ -214,36 +261,25 @@
   escapes the underscores in a comment, and `destination\_buffer` was drawn
   as written.
 
-- **`--fullscreen`, or `-fs`, opens the window filling the screen**, for
-  that run only.
-
-- **Opening the configuration no longer offers a KDL grammar.** The only
-  one reads KDL v1 and stops at the first `#true` of a file in the version
-  this editor reads.
-
 - **The guide teaches the keys as they are.** `C-h t` said `C-d` deleted
   forwards, where it duplicates the line; a test now holds every key the
   guide names to the binding it describes.
 
-- **The installer checks what it installs.** A download with no published
-  checksum, or nothing to compute one with, was installed with a note; it is
-  refused, unless `--insecure-skip-checksum` says otherwise. A binary that
-  will not start on the machine is not installed: on Linux, `full` and
-  `minimal` fall back to the static build. The first configuration is a few
-  commented lines rather than the whole example, which changed half the
-  defaults; on macOS it goes where the editor reads it; busybox's `wget` and
-  FreeBSD's `fetch` can download; the desktop entry quotes its path and goes
-  where the desktop looks; and `--help` works when the script is piped into
-  a shell.
+- **Letters in the window lose the hairline beside them.** Glyphs were packed
+  edge to edge in the texture they are drawn from, and one drawn between
+  pixels — the prose on the documentation card — showed a sliver of its
+  neighbour down its side. There is a blank texel between them now.
 
-- **Releases.** The glibc builds are made on an older system, so they start
-  on Debian 12 and Ubuntu 22.04, and the checksums are in the form
-  `sha256sum -c` reads. A tag must match the version in `Cargo.toml`, one
-  with a `-` is a pre-release, only the job that publishes can write, and
-  the archives no longer carry the screenshots. The CI lints the `gui`
-  build and runs its tests.
+- **On Windows, a window started from Explorer has no console beside it.**
+  The `gui` build is built for the console so that `maxgus -nw` works, and
+  Windows gave it a console window of its own however it was started. A
+  console the editor does not share with a terminal is let go of when it
+  opens its window, and the programs it runs — git, language servers, a
+  grammar's compiler — start without console windows of their own.
 
-## v1.4.0
+## [1.4.0] - 2026-09-02
+
+### Added
 
 - **A wave under an error.** Diagnostics are underlined with the wavy
   line an editor's are, in the severity's colour, rather than the same
@@ -260,23 +296,6 @@
   comes back to, and a window closed over the whole screen opens that
   way next time. The terminal says its window is not the editor's.
 
-- **The window's title names the project.** `• main.rs — maxgus-editor —
-  maxgus` rather than `* main.rs — maxgus`, so three windows on three
-  projects can be told apart from the taskbar. `set gui-title-format`
-  writes it otherwise, from `%b` the buffer's name, `%f` the file's path,
-  `%p` the project's name, `%P` its path, `%m` the mark of unsaved work
-  and `%a` the program's name.
-
-- **What the language server says is set in prose, on a card.** The
-  GUI no longer draws the `C-c c k` answer in a box of cells: the
-  markdown is set in a proportional face — `set gui-prose-font`, the
-  system's sans-serif by default — wrapped at the pixel, with the code
-  in the editor's font on a chip, under rounded corners and a border,
-  over a blur of the text behind it. It sits under the symbol's line, or
-  over it when there is no room, takes at most three fifths of the
-  window across and half of it down, and says how many lines it left
-  out. The terminal front end draws the box it always has.
-
 - **Pictures open as pictures.** Visiting a PNG, JPEG, GIF, WebP or BMP
   no longer fills a buffer with its bytes: the buffer holds a caption with
   the file's dimensions and size, and the GUI draws the picture under it,
@@ -292,21 +311,6 @@
   moment after the window stops — so a wheel or a `C-v` says how far there
   is to go and a page being read has nothing at its edge. Off with
   `set gui-scroll-indicator=#false`.
-
-- **The cursor breaks the ligature it lands in.** A block over half of
-  `≠` said nothing about which character was under it — whether `DEL`
-  would take the `!` or the `=`. The cursor's cell is now drawn as its own
-  character, and the characters either side of it are still free to join
-  among themselves, so `===` with the cursor in the middle is three `=`
-  and `!=` joins again the moment the cursor moves on.
-
-- **A window dragged between a 1× and a 2× display is laid out again.**
-  The scale the display reports is kept by the window rather than asked
-  for as it goes, the font is cut again at the new size, the padding is
-  scaled with it, and the grid is fitted to the window's physical size —
-  which is now tested without a display, along with a zoom being a new
-  font on the next frame. The documentation said the font size was
-  physical pixels; it has always been logical ones, and now says so.
 
 - **The text zooms, in a window.** `C-x C-+` (or `C-x C-=`) draws it a
   tenth larger, `C-x C--` a tenth smaller, `C-x C-0` at its configured
@@ -328,15 +332,6 @@
   the input method's candidate window and the blur behind a popup all know
   where the grid moved to.
 
-- **The README and the site lead with the window, and with how fast it
-  is.** Both now open on the `gui` build — the install line fetches it,
-  the hero picture is of it — and say what was measured rather than how
-  small the binary is: a file on the screen five milliseconds after the
-  shell hands over. `scripts/screenshots-gui.sh` takes two more pictures,
-  `doc-card` and `undercurl`, of a C program it writes for clangd — one
-  correct, so the card is the only thing on the picture, and one with
-  three mistakes and a warning in it.
-
 - **A row that wraps says so, and so does a line that is cut.** With
   `truncate-lines` off, a line that carried on across the rows below read
   the same as two lines that happened to line up; on, a line the edge cut
@@ -346,6 +341,141 @@
   one column short of the edge to leave it room. The position after the
   last character of a line that exactly fills the text columns has that
   column to itself, rather than being held one short.
+
+- **dired's marks and directories have faces.** A `D` flag, a `*` mark,
+  a directory and a symbolic link used to be the same colour as everything
+  else, so a flagged row was found by reading the first column. `dired-flagged`
+  (red) and `dired-marked` (yellow) colour the whole row, `dired-directory`
+  and `dired-symlink` the name, and `dired-header` the title; all five are
+  in the theme and can be set from the configuration.
+
+- **In the window: the clipboard is wired to the kill ring.** `C-w` and
+  `M-w` used to keep the text to themselves, and `C-y` never looked outside;
+  only a mouse selection reached the system clipboard, and it overwrote it
+  on every release of the button. A kill now goes to the clipboard as
+  well, and a yank takes what another program has put there since — into
+  the kill ring, so `M-y` walks back past it, and only once, so yanking the
+  same text twice does not fill the ring with copies. A mouse selection
+  goes to the primary selection instead, where the platform has one, and
+  the middle button pastes from there.
+
+- **In the window: input methods and dead keys.** Composed text — `´` then
+  `e`, a compose sequence, an input method's Japanese — used to be dropped,
+  since only single characters were read as keys. Whatever arrives as text
+  is inserted as text, and the input method's candidate box is placed at
+  the cursor.
+
+- **In the window: remembered size, a hollow cursor when unfocused, files
+  dropped on it, more of the mouse.** The window opens at the size it was
+  last closed at, kept in `window.kdl` in the state directory beside the
+  sessions. When another window has the keyboard the cursor is an outline
+  rather than a block, as Emacs' is. A file dropped on the window is
+  opened. A double click selects the word and a triple the line, and the
+  right button stretches the region to where it landed.
+
+- **A grammar with no highlights query borrows Neovim's.** A repository
+  that ships a parser and no `queries/highlights.scm` used to install as a
+  grammar that could not colour, with a warning telling you to write one.
+  The install now fetches the query for the language from nvim-treesitter,
+  and says so in `*Grammar install*`; the warning stays for a language
+  Neovim has no query for either. Two things make a borrowed query usable:
+  a pattern that names a node this version of the grammar does not have is
+  left out rather than failing the whole query — `M-x describe-grammars`
+  says how many went — and a pattern resting on a predicate this editor
+  cannot evaluate, such as Neovim's `#lua-match?`, is switched off rather
+  than matching everything. A query that will not compile at all is
+  reported there too, where it used to fail silently.
+
+- **In the window: a line between windows side by side.** `C-x 3` used to
+  put two windows' text edge to edge with nothing between them. A thin
+  divider runs down the seam, in the new `vertical-border` face.
+
+### Changed
+
+- **The window's title names the project.** `• main.rs — maxgus-editor —
+  maxgus` rather than `* main.rs — maxgus`, so three windows on three
+  projects can be told apart from the taskbar. `set gui-title-format`
+  writes it otherwise, from `%b` the buffer's name, `%f` the file's path,
+  `%p` the project's name, `%P` its path, `%m` the mark of unsaved work
+  and `%a` the program's name.
+
+- **What the language server says is set in prose, on a card.** The
+  GUI no longer draws the `C-c c k` answer in a box of cells: the
+  markdown is set in a proportional face — `set gui-prose-font`, the
+  system's sans-serif by default — wrapped at the pixel, with the code
+  in the editor's font on a chip, under rounded corners and a border,
+  over a blur of the text behind it. It sits under the symbol's line, or
+  over it when there is no room, takes at most three fifths of the
+  window across and half of it down, and says how many lines it left
+  out. The terminal front end draws the box it always has.
+
+- **The README and the site lead with the window, and with how fast it
+  is.** Both now open on the `gui` build — the install line fetches it,
+  the hero picture is of it — and say what was measured rather than how
+  small the binary is: a file on the screen five milliseconds after the
+  shell hands over. `scripts/screenshots-gui.sh` takes two more pictures,
+  `doc-card` and `undercurl`, of a C program it writes for clangd — one
+  correct, so the card is the only thing on the picture, and one with
+  three mistakes and a warning in it.
+
+- **The outline says why it is not shown.** "The outline is not shown" now
+  ends with the reason: the `panel-symbols` section is off, the build has no
+  language server support, `lsp-enabled` is off, no server is running for
+  the language, or the buffer has no language to ask a server about.
+
+- **The grammar offer can be declined from the menu.** The question "install
+  from?" was a completion prompt, so `n` narrowed the list instead of saying
+  no and there was nothing to pick but a source; `C-g` was the only way
+  out. A `skip` row is the last candidate now, and the official
+  `tree-sitter-grammars` source no longer ranks below a fork with a longer
+  name when you type part of one.
+
+- **Special buffers name their mode.** Dired, magit, the terminal, `*Help*`,
+  `*Occur*` and `*xref*` all called themselves `Fundamental` in the mode
+  line, the buffer list and `C-h m`. They say `Dired`, `Magit`, `Terminal`,
+  `Help` and so on; `Fundamental` is kept for a buffer with no mode at all.
+
+- **`occur`, the language server's lists and `*Help*` open beside the text
+  rather than over it, and lead somewhere.** All three used to replace the
+  window you were working in with a read-only buffer that answered to
+  nothing: no way to visit a match, no `q` to put it away. They are modes
+  now. A listing opens in the other window — or a new one below, when there
+  is only one — with `n`/`p` to walk its rows, `RET` to visit the row's place
+  in the window you came from, `o` to visit it and stay in the list, and `q`
+  to close it. The matches in an `occur` listing are highlighted, `*xref*`
+  puts the language server's definitions, references and symbols behind the
+  same keys, and `*Help*` has `q` and nothing else, which is all it needed.
+
+- **`query-replace` highlights the occurrence it is asking about** and says
+  what it is replacing with what: `Query replacing foo with bar: (y, n, !,
+  q, .)`.
+
+- **Snippets are found in `snippets/rust/` as well as `snippets/rust-mode/`.**
+  The README said the former and only the latter worked, so `fn TAB`
+  silently indented instead of expanding.
+
+- **In the window: ligatures only in code.** The font was joining `->` in a
+  help page, `--color` on a shell line and `M--` in the list of bindings,
+  none of which are the arrow, the em dash or the ligature the font had in
+  mind. Ligatures now form in windows showing code — a file whose language
+  is not prose — and nowhere else.
+
+### Fixed
+
+- **The cursor breaks the ligature it lands in.** A block over half of
+  `≠` said nothing about which character was under it — whether `DEL`
+  would take the `!` or the `=`. The cursor's cell is now drawn as its own
+  character, and the characters either side of it are still free to join
+  among themselves, so `===` with the cursor in the middle is three `=`
+  and `!=` joins again the moment the cursor moves on.
+
+- **A window dragged between a 1× and a 2× display is laid out again.**
+  The scale the display reports is kept by the window rather than asked
+  for as it goes, the font is cut again at the new size, the padding is
+  scaled with it, and the grid is fitted to the window's physical size —
+  which is now tested without a display, along with a zoom being a new
+  font on the next frame. The documentation said the font size was
+  physical pixels; it has always been logical ones, and now says so.
 
 - **A narrow window's mode line leaves things off rather than cutting
   them.** A tree pane or a thin split used to show `*treefile* 18:0 To`
@@ -366,18 +496,6 @@
   background. Every built-in theme has a `region` colour of its own now,
   and it is a slate blue on the dark theme rather than a guess.
 
-- **dired's marks and directories have faces.** A `D` flag, a `*` mark,
-  a directory and a symbolic link used to be the same colour as everything
-  else, so a flagged row was found by reading the first column. `dired-flagged`
-  (red) and `dired-marked` (yellow) colour the whole row, `dired-directory`
-  and `dired-symlink` the name, and `dired-header` the title; all five are
-  in the theme and can be set from the configuration.
-
-- **The outline says why it is not shown.** "The outline is not shown" now
-  ends with the reason: the `panel-symbols` section is off, the build has no
-  language server support, `lsp-enabled` is off, no server is running for
-  the language, or the buffer has no language to ask a server about.
-
 - **`C-x b` highlights its default.** The popup's highlight sat on the
   buffer being left, while the prompt named another buffer as the default
   the empty answer would take. The buffer being left is last in the list
@@ -390,22 +508,6 @@
   alone on an indented blank line — the body of `fn` — used to leave the
   indentation behind as trailing whitespace; the line is left empty until
   the field is reached, and indented then.
-
-- **In the window: the clipboard is wired to the kill ring.** `C-w` and
-  `M-w` used to keep the text to themselves, and `C-y` never looked outside;
-  only a mouse selection reached the system clipboard, and it overwrote it
-  on every release of the button. A kill now goes to the clipboard as
-  well, and a yank takes what another program has put there since — into
-  the kill ring, so `M-y` walks back past it, and only once, so yanking the
-  same text twice does not fill the ring with copies. A mouse selection
-  goes to the primary selection instead, where the platform has one, and
-  the middle button pastes from there.
-
-- **In the window: input methods and dead keys.** Composed text — `´` then
-  `e`, a compose sequence, an input method's Japanese — used to be dropped,
-  since only single characters were read as keys. Whatever arrives as text
-  is inserted as text, and the input method's candidate box is placed at
-  the cursor.
 
 - **In the window: a character the font lacks is drawn from one that has
   it.** CJK, emoji and symbols outside the configured family used to draw
@@ -427,50 +529,6 @@
   that has a regular face and from nowhere else, `monospace` means the
   system's monospace, and the cell is wide enough for the widest style.
 
-- **In the window: remembered size, a hollow cursor when unfocused, files
-  dropped on it, more of the mouse.** The window opens at the size it was
-  last closed at, kept in `window.kdl` in the state directory beside the
-  sessions. When another window has the keyboard the cursor is an outline
-  rather than a block, as Emacs' is. A file dropped on the window is
-  opened. A double click selects the word and a triple the line, and the
-  right button stretches the region to where it landed.
-
-- **The grammar offer can be declined from the menu.** The question "install
-  from?" was a completion prompt, so `n` narrowed the list instead of saying
-  no and there was nothing to pick but a source; `C-g` was the only way
-  out. A `skip` row is the last candidate now, and the official
-  `tree-sitter-grammars` source no longer ranks below a fork with a longer
-  name when you type part of one.
-
-- **A grammar with no highlights query borrows Neovim's.** A repository
-  that ships a parser and no `queries/highlights.scm` used to install as a
-  grammar that could not colour, with a warning telling you to write one.
-  The install now fetches the query for the language from nvim-treesitter,
-  and says so in `*Grammar install*`; the warning stays for a language
-  Neovim has no query for either. Two things make a borrowed query usable:
-  a pattern that names a node this version of the grammar does not have is
-  left out rather than failing the whole query — `M-x describe-grammars`
-  says how many went — and a pattern resting on a predicate this editor
-  cannot evaluate, such as Neovim's `#lua-match?`, is switched off rather
-  than matching everything. A query that will not compile at all is
-  reported there too, where it used to fail silently.
-
-- **Special buffers name their mode.** Dired, magit, the terminal, `*Help*`,
-  `*Occur*` and `*xref*` all called themselves `Fundamental` in the mode
-  line, the buffer list and `C-h m`. They say `Dired`, `Magit`, `Terminal`,
-  `Help` and so on; `Fundamental` is kept for a buffer with no mode at all.
-
-- **`occur`, the language server's lists and `*Help*` open beside the text
-  rather than over it, and lead somewhere.** All three used to replace the
-  window you were working in with a read-only buffer that answered to
-  nothing: no way to visit a match, no `q` to put it away. They are modes
-  now. A listing opens in the other window — or a new one below, when there
-  is only one — with `n`/`p` to walk its rows, `RET` to visit the row's place
-  in the window you came from, `o` to visit it and stay in the list, and `q`
-  to close it. The matches in an `occur` listing are highlighted, `*xref*`
-  puts the language server's definitions, references and symbols behind the
-  same keys, and `*Help*` has `q` and nothing else, which is all it needed.
-
 - **`M-g g` and `M-g c` ask for the line or character.** Without a prefix
   argument they used to fail and leave the digits you then typed in the
   buffer. `C-u 42 M-g g` still goes straight there.
@@ -491,10 +549,6 @@
 - **A message clears on the next keystroke**, as Emacs' do. "Mark set" and
   the red text from a failed command used to stay in the echo area for as
   long as nothing else replaced them.
-
-- **`query-replace` highlights the occurrence it is asking about** and says
-  what it is replacing with what: `Query replacing foo with bar: (y, n, !,
-  q, .)`.
 
 - **A transient menu keeps each group with its heading.** The two-column
   layout used to cut the list by row count, so "Log" could end up at the
@@ -520,16 +574,6 @@
   reply that arrived after `M-.` had moved point elsewhere was shown over
   whatever was on screen; a reply for somewhere point has left is dropped.
 
-- **Snippets are found in `snippets/rust/` as well as `snippets/rust-mode/`.**
-  The README said the former and only the latter worked, so `fn TAB`
-  silently indented instead of expanding.
-
-- **In the window: ligatures only in code.** The font was joining `->` in a
-  help page, `--color` on a shell line and `M--` in the list of bindings,
-  none of which are the arrow, the em dash or the ligature the font had in
-  mind. Ligatures now form in windows showing code — a file whose language
-  is not prose — and nowhere else.
-
 - **In the window: box-drawing and block characters are drawn as shapes.**
   `█` came from the font with a seam at every cell and a strip of
   background along the top, and a terminal program's `┌─┐` frames had gaps
@@ -538,10 +582,6 @@
   heavy and double lines with their corners and crossings, dashes, halves,
   eighths, quadrants and the three shades.
 
-- **In the window: a line between windows side by side.** `C-x 3` used to
-  put two windows' text edge to edge with nothing between them. A thin
-  divider runs down the seam, in the new `vertical-border` face.
-
 - **In the window: `dim` and `strikethrough` faces are drawn.** Both were
   ignored; `tree-git-ignored` is dim and was not.
 
@@ -549,7 +589,9 @@
   The region, the mode line and a search match used to colour the first
   cell of a CJK character or an emoji and leave the second plain.
 
-## v1.3.1
+## [1.3.1] - 2026-09-01
+
+### Fixed
 
 - **`; inherits: c` in a highlights query is read.** A grammar that extends
   another ships a query covering only what it added: `tree-sitter-cpp`'s has
@@ -575,7 +617,9 @@
   installed query when it says so, noting it in the install log. A query that
   already says what it inherits is left alone.
 
-## v1.3.0
+## [1.3.0] - 2026-09-01
+
+### Added
 
 - **The editor can fetch and build a grammar for you.** `M-x install-grammar`
   lists every parser on tree-sitter's own wiki — five hundred of them — and
@@ -613,6 +657,8 @@
   would otherwise fail to build over an include its author never had to
   write.
 
+### Fixed
+
 - **`~` in a grammar path from the configuration is your home directory.**
   `search "~/.local/share/maxgus/grammars"` was taken literally: no shell has
   read that file, so nothing had expanded it, and the editor looked for a
@@ -628,7 +674,9 @@
   and the two never met. Both spellings are now tried, for the library and
   for the query directory beside it.
 
-## v1.2.0
+## [1.2.0] - 2026-08-31
+
+### Added
 
 - **`truncate-lines` off now wraps.** It only ever turned off the horizontal
   scroll: long lines were still clipped at the edge, so the setting and
@@ -645,12 +693,17 @@
   home, and typing narrows across all of it — `maxgused` finds
   `Projects/personalProjects/maxgus-editor` out of five thousand. Dotfiles,
   `node_modules`, `target` and their like are walked past. `←` comes back out.
+
+### Fixed
+
 - **`RET` on `..` in the box that asks the tree for a directory goes up**
   rather than answering with the parent. It is the row you press to get out of
   somewhere, and answering with it left you having added a directory you were
   only passing through. To choose a parent, go up and press `.`.
 
-## v1.1.0
+## [1.1.0] - 2026-08-31
+
+### Changed
 
 - **The tree asks which directory by showing you one.** `r a` and `C-x t d`
   wanted a path typed out in full. They open the file browser instead, on the
@@ -661,7 +714,7 @@
   with a `/` in it is taken literally rather than searched for — and `~` now
   means home at both, which it did not before.
 
-## v1.0.0
+## [1.0.0] - 2026-08-31
 
 The editor has been usable for a while; this is the release that says so. The
 number is a promise about what happens next rather than a claim that anything
@@ -669,45 +722,7 @@ suddenly got better — the keys, the command names, the configuration file and
 the faces are what they are now, and breaking any of them is a major version
 from here.
 
-What arrived with it:
-
-- **The pseudo-terminal the smoke tests drive was blocking, and one loop
-  never drained it.** `wait_until_stopped` polled the editor's state for
-  twenty seconds while reading nothing, so an editor that filled the
-  terminal's buffer on the way to suspending blocked in `write` and never
-  reached the `C-z` it had been sent. It failed as `never stopped; it is in
-  state S`, only under load, and only in the one test that suspends.
-
-  The descriptor is non-blocking now — which is what the code already
-  claimed, since a read that reports "nothing to read yet" is not something
-  a blocking descriptor does — and every loop that waits also drains. The
-  smoke suite is a third quicker for it, because `settle` now keeps to the
-  250ms it was written to take instead of blocking past it.
-
-- **A review across every build, and what it found.** The three builds are
-  a promise the README makes in a table, and most of that table had nothing
-  holding it up.
-
-  Two features that ship in *every* build were missing from it entirely —
-  several directories in the tree with workspaces, and the file browser —
-  so the table people choose a build from did not mention them. The binary
-  sizes were stale: measured, they are 4.7M, 12.2M and 20.7M against the
-  4.6M, 13M and 20M written down. The `minimal` column's command count had
-  no test at all, where the `full` ones have had since they were written; it
-  turned out to be right, and is now checked.
-
-- **Bindings and commands are held together per build.** Both lists are
-  feature-gated, in two different files, and nothing was checking that they
-  agree — a binding left on the wrong side of a `cfg` is a documented key
-  that reports `unknown command`, in the build nobody runs. Every map is
-  checked against the registry now, including the fallback a map may have
-  for keys it did not name. Both builds were already correct.
-
-- **The file browser and workspaces are exercised against a real terminal**,
-  in whatever build the suite is run in: the browser narrows, walks in and
-  out of directories and opens a file; a workspace is saved, the editor is
-  closed, and a fresh one opens it by name. The workspace test gets its own
-  state directory, so it neither reads nor writes the real one.
+### Added
 
 - **Workspaces: a set of directories, named and kept.** The tree can show
   several at once; a workspace is that list given a name and written down,
@@ -746,32 +761,6 @@ What arrived with it:
   silently showing three of four is how someone comes to think they deleted
   something.
 
-- Two tests were sharing a temporary directory, and its `Drop` removes it —
-  so whichever finished first deleted the ground out from under the other.
-  It surfaced as an intermittent failure in a file that had nothing to do
-  with either of them. They have their own now, and the fixture says why.
-
-- **Eight glyphs were drawing as hollow boxes and nothing said so.** Nerd
-  Fonts v3 moved the Material Design icons out of `U+F534..U+FD46` and up to
-  `U+F0001`, leaving the old codepoints unassigned — and eight of the
-  editor's were still down there. `DIRECTORY_OPEN` was one, so *every open
-  directory in the tree* had a box where its glyph should be, on any machine
-  with a font from the last few years. A test refuses that range now; it
-  would have caught all eight.
-
-- **The symbol outline uses one set of icons.** What it had was a handful
-  from Font Awesome, a handful from Material and a handful from an extension
-  pack, which reads as a ransom note even where the font has all of it —
-  and seven of them it did not, including `method`, `string`, `number` and
-  `boolean`. They are Codicons now: the icons the editor that invented the
-  protocol drew for `SymbolKind`, so an outline here looks like an outline
-  anywhere else.
-
-- **The tree marks what can be opened with a chevron** rather than with `>`
-  and `v`, which are letters pretending to be arrows. The symbol outline
-  does the same. `set nerd-font-icons=#false` still gets the letters, and
-  the mark is two columns wide either way so nothing shifts.
-
 - **A file browser you type at**, on `C-x C-d`. `C-x C-f` is for when you
   know the path; this is for when you know roughly where it is. A box over
   the frame that narrows fuzzily as you type, walked with the arrows —
@@ -779,12 +768,6 @@ What arrived with it:
   character or goes up when there is none. Filetype glyphs, sizes and dates.
   It is not dired and does not touch it: dired is for working *on* a
   directory, and its single-letter keys are what make that quick.
-
-- **The tree and the symbol outline read as trees.** A rule down each level
-  of nesting, so the shape is drawn rather than measured out of whitespace,
-  and a bar down the left of the selected row — the background says *that*
-  something is selected, the bar says *where* when the eye is elsewhere.
-  `tree-indent` and `tree-selection-mark`.
 
 - **The tree shows more than one directory.** `r a` adds another and `r k`
   takes one off — treemacs' projects, and for its reason: a workspace is
@@ -802,62 +785,6 @@ What arrived with it:
   surprising amount to lose from a command that says it moves *the* root.
   The last directory cannot be removed: a tree with nothing in it has no row
   to put a cursor on and no way to ask for a directory back.
-
-- **`visit-theme` is `consult-theme` now, and it stops asking.** The name
-  first: every command here is named after the one it behaves like, so that
-  a hand which already knows the keys knows the names too — and this one
-  behaves like `consult-theme`, so that is what it is called.
-
-  What it stopped doing is asking. It applied each theme as it came under
-  the cursor, and then, once you had chosen one by *looking at it*, put a
-  yes-or-no question about the configuration file between you and the theme
-  you had just picked. Trying themes on and deciding to keep one for good
-  are two different intentions and only the first is what the command is
-  for. `RET` now keeps what is showing and that is the end of it.
-
-  Keeping one is its own command: **`save-theme`** writes the theme in use
-  into the configuration file — whatever theme is in use, however it got
-  there, so one arrived at by `load-theme` is kept the same way. A prefix
-  argument on `consult-theme` does both at once. Writing still changes that
-  one setting and leaves the rest of the file alone.
-
-  A name that is not a theme now leaves the theme you started with, rather
-  than accepting the preview and then reporting the error — the preview has
-  already changed the screen by the time `RET` is pressed, so there was
-  something to undo and it was not being undone.
-
-- **Scrolling and the cursor move on a spring now, not an easing curve.**
-  This is the one that was felt before it was found. An exponential ease —
-  a fixed fraction of the remaining distance each frame — is *fastest at its
-  very first frame* and slower every frame after, which the eye reads as a
-  snap followed by a crawl, and the crawl is the part it notices. A
-  critically damped spring starts at rest, accelerates and settles without
-  overshooting, which is how something being moved actually moves.
-
-  It also carries a velocity, so a second wheel notch while the first is
-  still arriving adds to it instead of starting it over. Spinning a wheel
-  builds up rather than stuttering.
-
-  What the duration setting means changed with it, and honestly: nine tenths
-  of the way is covered in the time it names — the same nine tenths whatever
-  the distance and whatever the duration — and the sliver after that happens
-  below a quarter of a pixel. The tests say that rather than claiming an
-  arrival time that was never true. The defaults moved with it:
-  `smooth-scroll-ms` is 300 and `cursor-animation-ms` 150.
-
-- **Typing does not smear.** A hop of a cell or two now gets
-  `cursor-short-animation-ms` — 40ms against 150 — because animating a
-  keystroke over the duration meant for crossing the screen makes the cursor
-  look like it is lagging behind the keyboard. It is most of what a cursor
-  ever does, and it was the other half of why this felt worse than the thing
-  it was copied from.
-
-- **A slide no longer redraws the whole frame every frame.** The lines that
-  fill the gap it opens are fetched by drawing the frame again into a
-  scratch surface, and that was being done *per frame for the length of
-  every scroll* — a second complete redisplay, sixty times a second, of a
-  screen that had not changed. They are fetched once now and kept until the
-  view moves, the buffer changes or a key is pressed.
 
 - **Six things for the cursor to leave behind.** `sonicboom`, `ripple` and
   `wireframe` mark where it landed with a disc, a ring or a square that
@@ -930,6 +857,82 @@ What arrived with it:
   gap is — asking per line would have made a four-line slide cost four
   screens a frame.
 
+### Changed
+
+- **Bindings and commands are held together per build.** Both lists are
+  feature-gated, in two different files, and nothing was checking that they
+  agree — a binding left on the wrong side of a `cfg` is a documented key
+  that reports `unknown command`, in the build nobody runs. Every map is
+  checked against the registry now, including the fallback a map may have
+  for keys it did not name. Both builds were already correct.
+
+- **The file browser and workspaces are exercised against a real terminal**,
+  in whatever build the suite is run in: the browser narrows, walks in and
+  out of directories and opens a file; a workspace is saved, the editor is
+  closed, and a fresh one opens it by name. The workspace test gets its own
+  state directory, so it neither reads nor writes the real one.
+
+- **The symbol outline uses one set of icons.** What it had was a handful
+  from Font Awesome, a handful from Material and a handful from an extension
+  pack, which reads as a ransom note even where the font has all of it —
+  and seven of them it did not, including `method`, `string`, `number` and
+  `boolean`. They are Codicons now: the icons the editor that invented the
+  protocol drew for `SymbolKind`, so an outline here looks like an outline
+  anywhere else.
+
+- **The tree marks what can be opened with a chevron** rather than with `>`
+  and `v`, which are letters pretending to be arrows. The symbol outline
+  does the same. `set nerd-font-icons=#false` still gets the letters, and
+  the mark is two columns wide either way so nothing shifts.
+
+- **The tree and the symbol outline read as trees.** A rule down each level
+  of nesting, so the shape is drawn rather than measured out of whitespace,
+  and a bar down the left of the selected row — the background says *that*
+  something is selected, the bar says *where* when the eye is elsewhere.
+  `tree-indent` and `tree-selection-mark`.
+
+- **`visit-theme` is `consult-theme` now, and it stops asking.** The name
+  first: every command here is named after the one it behaves like, so that
+  a hand which already knows the keys knows the names too — and this one
+  behaves like `consult-theme`, so that is what it is called.
+
+  What it stopped doing is asking. It applied each theme as it came under
+  the cursor, and then, once you had chosen one by *looking at it*, put a
+  yes-or-no question about the configuration file between you and the theme
+  you had just picked. Trying themes on and deciding to keep one for good
+  are two different intentions and only the first is what the command is
+  for. `RET` now keeps what is showing and that is the end of it.
+
+  Keeping one is its own command: **`save-theme`** writes the theme in use
+  into the configuration file — whatever theme is in use, however it got
+  there, so one arrived at by `load-theme` is kept the same way. A prefix
+  argument on `consult-theme` does both at once. Writing still changes that
+  one setting and leaves the rest of the file alone.
+
+  A name that is not a theme now leaves the theme you started with, rather
+  than accepting the preview and then reporting the error — the preview has
+  already changed the screen by the time `RET` is pressed, so there was
+  something to undo and it was not being undone.
+
+- **Scrolling and the cursor move on a spring now, not an easing curve.**
+  This is the one that was felt before it was found. An exponential ease —
+  a fixed fraction of the remaining distance each frame — is *fastest at its
+  very first frame* and slower every frame after, which the eye reads as a
+  snap followed by a crawl, and the crawl is the part it notices. A
+  critically damped spring starts at rest, accelerates and settles without
+  overshooting, which is how something being moved actually moves.
+
+  It also carries a velocity, so a second wheel notch while the first is
+  still arriving adds to it instead of starting it over. Spinning a wheel
+  builds up rather than stuttering.
+
+  What the duration setting means changed with it, and honestly: nine tenths
+  of the way is covered in the time it names — the same nine tenths whatever
+  the distance and whatever the duration — and the sliver after that happens
+  below a quarter of a pixel. The tests say that rather than claiming an
+  arrival time that was never true. The defaults moved with it:
+  `smooth-scroll-ms` is 300 and `cursor-animation-ms` 150.
+
 - **`?` in the file tree shows the whole keymap at once.** It opened a
   fifty-line `*Help*` buffer in the window beside the tree — which is to
   say it took the file being edited off the screen to tell you which key
@@ -968,6 +971,60 @@ What arrived with it:
   box that never chose a background is given the panel's; one that did
   keeps it, which is the rule that stops every span punching a hole.
 
+### Fixed
+
+- **The pseudo-terminal the smoke tests drive was blocking, and one loop
+  never drained it.** `wait_until_stopped` polled the editor's state for
+  twenty seconds while reading nothing, so an editor that filled the
+  terminal's buffer on the way to suspending blocked in `write` and never
+  reached the `C-z` it had been sent. It failed as `never stopped; it is in
+  state S`, only under load, and only in the one test that suspends.
+
+  The descriptor is non-blocking now — which is what the code already
+  claimed, since a read that reports "nothing to read yet" is not something
+  a blocking descriptor does — and every loop that waits also drains. The
+  smoke suite is a third quicker for it, because `settle` now keeps to the
+  250ms it was written to take instead of blocking past it.
+
+- **A review across every build, and what it found.** The three builds are
+  a promise the README makes in a table, and most of that table had nothing
+  holding it up.
+
+  Two features that ship in *every* build were missing from it entirely —
+  several directories in the tree with workspaces, and the file browser —
+  so the table people choose a build from did not mention them. The binary
+  sizes were stale: measured, they are 4.7M, 12.2M and 20.7M against the
+  4.6M, 13M and 20M written down. The `minimal` column's command count had
+  no test at all, where the `full` ones have had since they were written; it
+  turned out to be right, and is now checked.
+
+- Two tests were sharing a temporary directory, and its `Drop` removes it —
+  so whichever finished first deleted the ground out from under the other.
+  It surfaced as an intermittent failure in a file that had nothing to do
+  with either of them. They have their own now, and the fixture says why.
+
+- **Eight glyphs were drawing as hollow boxes and nothing said so.** Nerd
+  Fonts v3 moved the Material Design icons out of `U+F534..U+FD46` and up to
+  `U+F0001`, leaving the old codepoints unassigned — and eight of the
+  editor's were still down there. `DIRECTORY_OPEN` was one, so *every open
+  directory in the tree* had a box where its glyph should be, on any machine
+  with a font from the last few years. A test refuses that range now; it
+  would have caught all eight.
+
+- **Typing does not smear.** A hop of a cell or two now gets
+  `cursor-short-animation-ms` — 40ms against 150 — because animating a
+  keystroke over the duration meant for crossing the screen makes the cursor
+  look like it is lagging behind the keyboard. It is most of what a cursor
+  ever does, and it was the other half of why this felt worse than the thing
+  it was copied from.
+
+- **A slide no longer redraws the whole frame every frame.** The lines that
+  fill the gap it opens are fetched by drawing the frame again into a
+  scratch surface, and that was being done *per frame for the length of
+  every scroll* — a second complete redisplay, sixty times a second, of a
+  screen that had not changed. They are fetched once now and kept until the
+  view moves, the buffer changes or a key is pressed.
+
 - The README claimed the tree keeps 47 bindings and 41 commands. It keeps
   54 and 48, and has since the root bindings arrived. A test holds the
   number now.
@@ -985,15 +1042,10 @@ What arrived with it:
   The resolution now comes from the adapter and nothing else does, so a
   modest GPU is still asked for nothing it cannot give.
 
-## v0.2.5
+## [0.2.5] - 2026-08-30
 
-- **The file tree scrolls with its cursor.** It drew from the window's
-  `top_line` and nothing ever moved it, so walking down a project with more
-  files than the panel is tall took the cursor off the bottom and left it
-  there — invisible, with no way to see where it had got to. Every panel
-  went through the same call, so the symbol outline, the buffer list, dired
-  and the undo tree were all doing it, and all of them follow their cursor
-  now.
+### Added
+
 - **The tree's root can be moved.** `r d` draws it from the directory under
   the cursor, `r u` from one further out, `r r` from where it opened —
   treemacs' `treemacs-root-down` and `treemacs-root-up`, which it leaves
@@ -1002,7 +1054,19 @@ What arrived with it:
   looking into a subdirectory is not the same as working in a different
   project.
 
-## v0.2.4
+### Fixed
+
+- **The file tree scrolls with its cursor.** It drew from the window's
+  `top_line` and nothing ever moved it, so walking down a project with more
+  files than the panel is tall took the cursor off the bottom and left it
+  there — invisible, with no way to see where it had got to. Every panel
+  went through the same call, so the symbol outline, the buffer list, dired
+  and the undo tree were all doing it, and all of them follow their cursor
+  now.
+
+## [0.2.4] - 2026-08-30
+
+### Added
 
 - **A configuration to start from.** The install script writes `config.kdl`,
   the four themes and the reference into `~/.config/maxgus` — and never over
@@ -1014,11 +1078,16 @@ What arrived with it:
   `~/.local/bin/maxgus` would otherwise be a menu item that starts nothing.
   Linux and the BSDs only — a `.desktop` file is freedesktop's, and means
   nothing on macOS or Windows. `--no-desktop` skips it.
+
+### Changed
+
 - A test holds the entry and the script together: the script rewrites the
   `Exec` line, and if the entry ever spells that line differently the
   rewrite would quietly do nothing.
 
-## v0.2.3
+## [0.2.3] - 2026-08-30
+
+### Fixed
 
 - **The install line goes to the address it actually resolves to.**
   `alejandro-llanes.github.io/maxgus-editor/...` was never going to be it:
@@ -1033,7 +1102,9 @@ What arrived with it:
   Nothing else changed. This is a release rather than a note because the
   README inside every v0.2.2 archive carries the old address.
 
-## v0.2.2
+## [0.2.2] - 2026-08-30
+
+### Added
 
 - **A feature comparison in the README**, where the build is chosen: a row
   per feature against a column per build, and a test that holds every row —
@@ -1049,25 +1120,31 @@ What arrived with it:
   An idle pause never inserts anything on its own; `C-M-i` on a single
   candidate still completes it outright, the way it always did.
   `set autocomplete=#false`, `set autocomplete-min-chars=`.
+
+### Changed
+
 - **The doc box reads like a document.** Hover replies are markdown, and
   were drawn as the markdown they are — `### function \`add\`` and a row of
   hyphens, which is worse than plain prose because the punctuation is in the
   way too. Headings are bold now, `---` is a rule across the box, `- ` is a
   bullet, and code — inline or fenced — sits on a panel of its own, themeable
   as `doc-code`.
-- **Markdown is asked for.** `contentFormat` listed `plaintext` first, and
-  that list is a preference order servers honour: clangd was sending a wall
-  of text with the structure flattened out of it. Markdown first is what
-  gives the box something to format.
 - The box is half the window at most rather than a third, and the "… N more
   lines" notice clears the row it replaces rather than leaving the tail of
   the line beneath it showing.
 
-## v0.2.1
+### Fixed
+
+- **Markdown is asked for.** `contentFormat` listed `plaintext` first, and
+  that list is a preference order servers honour: clangd was sending a wall
+  of text with the structure flattened out of it. Markdown first is what
+  gives the box something to format.
+
+## [0.2.1] - 2026-08-30
 
 Grammars from the system, and a different eleven built in.
 
-### Grammars the editor was not built with
+### Added
 
 - **Point it at a directory and it loads them.** `libtree-sitter-<language>.so`
   is how every package manager ships a tree-sitter grammar, and how Neovim
@@ -1083,20 +1160,21 @@ Grammars from the system, and a different eleven built in.
 
   Nothing is loaded unless the configuration says where to look. There are
   no default directories.
-
 - **`M-x describe-grammars`** says what is built in, what loaded, what would
   not and why, and every directory searched.
 - **[docs/grammars.md](docs/grammars.md)** has per-platform instructions —
   Arch, Debian, Fedora, Homebrew, Nix, Windows — how to build one yourself,
   what each error means, and what loading a shared library into an editor
   means for trust.
+- `font-lock-heading` and `font-lock-link` are new faces, because markdown
+  and XML would otherwise have rendered almost colourless.
+
+### Changed
+
 - `maxgus-syntax` is the one crate permitted to write `unsafe`, at `deny`
   rather than `forbid`. `dlopen`, `dlsym` and `LanguageFn::from_raw` have no
   safe form, and `src/dynamic.rs` says at length what each assumes and what
   is checked instead.
-
-### Built-in grammars
-
 - **Now**: c, html, ini, javascript, json, markdown, python, rust, toml,
   xml, yaml. **Gone**: bash and css — which is why the binary is *smaller*
   than v0.2.0's, not larger.
@@ -1105,25 +1183,23 @@ Grammars from the system, and a different eleven built in.
   is a KDL **v1** grammar besides — maxgus reads v2. Rhai has no published
   crate. `docs/grammars.md` says so rather than recommending a grammar that
   half-parses your configuration.
-- `font-lock-heading` and `font-lock-link` are new faces, because markdown
-  and XML would otherwise have rendered almost colourless.
-
-### Also
-
 - An extension nothing knows now names its own language — `main.zig` is
   `zig` — which is what makes a grammar findable without a table of every
   language there has ever been.
+
+### Fixed
+
 - An LSP request for a language with no server used to leave "Language
   server: describing..." on screen for ever. It says so now, but only when a
   command announced it: the symbols panel and the doc box ask while a server
   may still be starting.
 
-## v0.2.0
+## [0.2.0] - 2026-08-30
 
 Three builds to pick from, a window that works, and one line to install any
 of them.
 
-### Three builds, and a way to get them
+### Added
 
 - **`minimal`, `full` and `gui`** are now what a release carries, for every
   platform that can build them — `minimal` and `full` everywhere, `gui`
@@ -1139,9 +1215,6 @@ of them.
   It works out the platform, checks the download against the published
   checksum, and refuses to install anything that does not match. `--build`,
   `--version`, `--prefix`, `--dry-run`.
-
-### New
-
 - **which-key.** Pause in the middle of `C-x` or `C-c` and a panel says what
   the next key can be, with keys that open another map shown as the group
   they open. In all three builds. `set which-key=#false`,
@@ -1150,13 +1223,19 @@ of them.
   knows about it appears in a box beside the line, on whichever side has
   room. Was a help window over the code. `set lsp-doc=#false`;
   `C-c c k` asks for it either way.
+- **The wheel is adjustable**: `mouse-wheel-lines` is how far a notch goes,
+  `smooth-scroll-ms` how long the slide lasts (`0` for none). The ease is
+  now measured in real time, so it is the same speed at 60Hz and 144Hz.
+
+### Changed
+
 - **A window that opens by itself.** A `gui` build is a desktop program:
   `maxgus` opens a window, `maxgus -nw` takes the terminal — the spelling
   Emacs has used for thirty years, accepted by every build. With no display
   to draw into it starts in the terminal rather than failing.
-- **The wheel is adjustable**: `mouse-wheel-lines` is how far a notch goes,
-  `smooth-scroll-ms` how long the slide lasts (`0` for none). The ease is
-  now measured in real time, so it is the same speed at 60Hz and 144Hz.
+- 1992 tests, up from 1650.
+- `docs/configuration-reference.md` is checked against the setting list, so
+  it cannot fall behind the parser the way it had.
 
 ### Fixed
 
@@ -1182,14 +1261,23 @@ of them.
   wheel scrolls the window under the pointer; the font is sized in physical
   pixels, so it is not half-size on a display that reports a scale.
 
-### Also
-
-- 1992 tests, up from 1650.
-- `docs/configuration-reference.md` is checked against the setting list, so
-  it cannot fall behind the parser the way it had.
-
-## v0.1.0
+## [0.1.0] - 2026-08-28
 
 The first release. Emacs keys, buffers and windows, tree-sitter
 highlighting, a language-server client, magit, a treemacs-style file tree,
 themes in a configuration file, and a terminal panel.
+
+[Unreleased]: https://github.com/alejandro-llanes/maxgus-editor/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/alejandro-llanes/maxgus-editor/compare/v1.3.1...v1.4.0
+[1.3.1]: https://github.com/alejandro-llanes/maxgus-editor/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/alejandro-llanes/maxgus-editor/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/alejandro-llanes/maxgus-editor/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/alejandro-llanes/maxgus-editor/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/alejandro-llanes/maxgus-editor/compare/v0.2.5...v1.0.0
+[0.2.5]: https://github.com/alejandro-llanes/maxgus-editor/compare/v0.2.4...v0.2.5
+[0.2.4]: https://github.com/alejandro-llanes/maxgus-editor/compare/v0.2.3...v0.2.4
+[0.2.3]: https://github.com/alejandro-llanes/maxgus-editor/compare/v0.2.2...v0.2.3
+[0.2.2]: https://github.com/alejandro-llanes/maxgus-editor/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/alejandro-llanes/maxgus-editor/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/alejandro-llanes/maxgus-editor/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/alejandro-llanes/maxgus-editor/releases/tag/v0.1.0

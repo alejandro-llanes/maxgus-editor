@@ -525,6 +525,7 @@ impl Reporter {
             .current_dir(&directory)
             .stdin(std::process::Stdio::null())
             .kill_on_drop(true);
+        without_a_window(&mut process);
         match process.output().await {
             Ok(output) => {
                 // Both streams are shown: a command's error message is as
@@ -5180,6 +5181,25 @@ fn never_ask_at_the_terminal(process: &mut tokio::process::Command) {
         .env("GIT_SSH_COMMAND", ssh_without_prompts())
         .env_remove("GIT_ASKPASS")
         .env_remove("SSH_ASKPASS");
+    without_a_window(process);
+}
+
+/// `CREATE_NO_WINDOW`: what keeps Windows from giving a program a console
+/// window of its own.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Starts `process` with no console window, on Windows.
+///
+/// The window lets go of the console it was started with, and a console
+/// program started by one with none gets a window of its own: every `git`
+/// and shell command would flash one across the screen. Their output is
+/// read through pipes either way.
+fn without_a_window(process: &mut tokio::process::Command) {
+    #[cfg(windows)]
+    process.creation_flags(CREATE_NO_WINDOW);
+    #[cfg(not(windows))]
+    let _ = process;
 }
 
 #[cfg(feature = "full")]

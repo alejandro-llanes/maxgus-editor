@@ -1,6 +1,8 @@
 //! `maxgus` — a lightning-fast Emacs. In a window, or in the terminal.
 
 mod app;
+#[cfg(all(windows, feature = "gui"))]
+mod console;
 mod tasks;
 
 use anyhow::{Context, Result};
@@ -278,6 +280,9 @@ async fn main() -> Result<()> {
 
     #[cfg(feature = "gui")]
     if windowed {
+        // Started from Explorer, a console came with the window, and goes.
+        #[cfg(windows)]
+        console::let_go_of_a_console_of_its_own();
         return gui::run(
             editor,
             Dispatcher::new(registry),

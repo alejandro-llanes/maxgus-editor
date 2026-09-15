@@ -172,6 +172,15 @@ impl Atlas {
     /// Bytes per pixel: red, green, blue, alpha.
     const RGBA: usize = 4;
 
+    /// Blank texels left between neighbouring glyphs.
+    ///
+    /// The atlas is sampled with linear filtering, and a glyph drawn at a
+    /// fraction of a pixel — the prose on the card, a stand-in scaled to its
+    /// cell — reads a little of the texel beyond its edge. Packed edge to
+    /// edge, that texel was the next glyph's, and a hairline of it showed
+    /// down the side of letters: `funct|ion`.
+    const GUTTER: u32 = 1;
+
     pub fn new(width: u32, height: u32) -> Atlas {
         Atlas {
             pixels: vec![0; (width * height) as usize * Atlas::RGBA],
@@ -230,16 +239,16 @@ impl Atlas {
     /// Puts pixels in the atlas — four bytes each, RGBA — or returns `None`
     /// when they will not fit, at which point the caller is out of texture.
     fn insert(&mut self, width: u32, height: u32, rgba: &[u8]) -> Option<(u32, u32)> {
-        if width > self.width {
+        if width + Atlas::GUTTER > self.width {
             return None;
         }
-        if self.pen_x + width > self.width {
+        if self.pen_x + width + Atlas::GUTTER > self.width {
             // Next shelf.
             self.shelf_y += self.shelf_height;
             self.shelf_height = 0;
             self.pen_x = 0;
         }
-        if self.shelf_y + height > self.height {
+        if self.shelf_y + height + Atlas::GUTTER > self.height {
             return None;
         }
         let (x, y) = (self.pen_x, self.shelf_y);
@@ -249,8 +258,8 @@ impl Atlas {
             let to = ((y + row) * self.width + x) as usize * Atlas::RGBA;
             self.pixels[to..to + stride].copy_from_slice(&rgba[from..from + stride]);
         }
-        self.pen_x += width;
-        self.shelf_height = self.shelf_height.max(height);
+        self.pen_x += width + Atlas::GUTTER;
+        self.shelf_height = self.shelf_height.max(height + Atlas::GUTTER);
         self.dirty = true;
         Some((x, y))
     }
@@ -1159,11 +1168,38 @@ mod tests {
         let mut atlas = Atlas::new(16, 16);
         let mut fitted = 0;
         for _ in 0..100 {
-            if atlas.insert(8, 8, &block(8, 8, 1)).is_some() {
+            if atlas.insert(7, 7, &block(7, 7, 1)).is_some() {
                 fitted += 1;
             }
         }
-        assert_eq!(fitted, 4, "a 16x16 atlas holds four 8x8 glyphs");
+        assert_eq!(
+            fitted, 4,
+            "a 16x16 atlas holds four 7x7 glyphs, each with its gutter"
+        );
+    }
+
+    #[test]
+    fn neighbouring_glyphs_have_a_blank_texel_between_them() {
+        // What a glyph drawn between pixels samples past its edge, which was
+        // its neighbour's ink.
+        let mut atlas = Atlas::new(32, 32);
+        let (x, y) = atlas.insert(4, 4, &block(4, 4, 255)).unwrap();
+        let (right, _) = atlas.insert(4, 4, &block(4, 4, 255)).unwrap();
+        assert!(
+            right > x + 4,
+            "the next glyph starts at its neighbour's edge"
+        );
+        let gap = ((y + 1) * atlas.width() + x + 4) as usize * 4;
+        assert_eq!(atlas.pixels()[gap + 3], 0, "the texel between them has ink");
+        // And below, on the next shelf.
+        for _ in 0..6 {
+            atlas.insert(4, 4, &block(4, 4, 255)).unwrap();
+        }
+        let (_, below) = atlas.insert(4, 4, &block(4, 4, 255)).unwrap();
+        assert!(
+            below > y + 4,
+            "the next shelf starts at the last one's edge"
+        );
     }
 
     #[test]

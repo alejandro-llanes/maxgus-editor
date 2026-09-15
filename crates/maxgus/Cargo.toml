@@ -12,8 +12,14 @@ description = "A lightning-fast Emacs in Rust: the event loop, the executor and 
 name = "maxgus"
 path = "src/main.rs"
 
-[lints]
-workspace = true
+# `deny` rather than the workspace's `forbid`, for the one reason
+# `maxgus-syntax` has: `deny` can be lifted for a named item, and `forbid`
+# cannot be lifted at all. It is lifted once, on Windows, in
+# `src/console.rs` — letting go of the console a window was started with
+# means asking Windows two questions no safe API asks. Everywhere else in
+# the crate it is as forbidden as it ever was.
+[lints.rust]
+unsafe_code = "deny"
 
 [dependencies]
 anyhow = "1.0.104"
@@ -46,6 +52,11 @@ tracing-subscriber = "0.3.23"
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", features = ["process"] }
 
+# Whether the console a window was started with is its own, and letting go
+# of it if so. Only the `gui` build has a window to start.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_System_Console"], optional = true }
+
 [dev-dependencies]
 rustix = { version = "1.1.4", features = ["pty", "termios", "process", "stdio"] }
 
@@ -77,4 +88,4 @@ full = [
 # it opens is decided when it starts, the way `emacs` and `emacs -nw` decide
 # it — but only this build has the choice, and only this build pays for it:
 # eight more megabytes, and a window system's headers to compile against.
-gui = ["full", "dep:maxgus-gui", "maxgus-gui/full"]
+gui = ["full", "dep:maxgus-gui", "maxgus-gui/full", "dep:windows-sys"]

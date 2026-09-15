@@ -60,9 +60,8 @@
 <text x="30.8" y="495.3" fill="#de935f" textLength="58.8" lengthAdjust="spacing" xml:space="preserve">e4f5a6b</text>
 <text x="89.6" y="495.3" fill="#c5c8c6" textLength="915.6" lengthAdjust="spacing" xml:space="preserve"> Read a diff into hunks                                                                                      </text>
 <text x="14.0" y="531.3" fill="#de935f" font-weight="bold" textLength="33.6" lengthAdjust="spacing" xml:space="preserve"> %% </text>
-<text x="47.6" y="531.3" fill="#969896" textLength="33.6" lengthAdjust="spacing" xml:space="preserve">879 </text>
-<text x="81.2" y="531.3" fill="#81a2be" font-weight="bold" textLength="109.2" lengthAdjust="spacing" xml:space="preserve">magit: status</text>
-<text x="190.4" y="531.3" fill="#969896" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">  9:0  Top</text>
-<text x="828.8" y="531.3" fill="#b5bd68" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">  main</text>
-<text x="879.2" y="531.3" fill="#c5c8c6" textLength="126.0" lengthAdjust="spacing" xml:space="preserve">  Fundamental  </text>
+<text x="47.6" y="531.3" fill="#81a2be" font-weight="bold" textLength="109.2" lengthAdjust="spacing" xml:space="preserve">magit: maxgus</text>
+<text x="156.8" y="531.3" fill="#969896" textLength="84.0" lengthAdjust="spacing" xml:space="preserve">  9:0  Top</text>
+<text x="879.2" y="531.3" fill="#b5bd68" font-weight="bold" textLength="50.4" lengthAdjust="spacing" xml:space="preserve">  main</text>
+<text x="929.6" y="531.3" fill="#c5c8c6" textLength="75.6" lengthAdjust="spacing" xml:space="preserve">  Magit  </text>
 </svg>

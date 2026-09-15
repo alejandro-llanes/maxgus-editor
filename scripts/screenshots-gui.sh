@@ -33,8 +33,9 @@
 #
 #     pacman -S cage grim wtype
 #
-# and a `gui` build, which `./scripts/build-variants.sh` leaves in
-# `target/variants/maxgus-gui`. The two pictures that ask a language
+# and a `gui` build of the version being documented, which
+# `./scripts/build-variants.sh` leaves in `target/variants/maxgus-gui` —
+# or `MAXGUS_BINARY` names one. The two pictures that ask a language
 # server something — `doc-card` and `undercurl` — need `clangd` as well.
 #
 # The editor is started with `scripts/screenshots-gui.kdl` rather than with
@@ -48,8 +49,8 @@ set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 out="$root/docs/screenshots"
-binary="$root/target/variants/maxgus-gui"
-[ -x "$binary" ] || binary="$root/target/release/maxgus"
+binary="${MAXGUS_BINARY:-$root/target/variants/maxgus-gui}"
+[ -n "${MAXGUS_BINARY:-}" ] || [ -x "$binary" ] || binary="$root/target/release/maxgus"
 
 # A copy of this project, at a path with nobody's name in it.
 #
@@ -179,7 +180,10 @@ shot_ligatures() {
     pause 0.8
     ctrl s; text "=>"; pause 1.0        # where the operators are
     key Return; pause 0.6
-    ctrl g; pause 1.2
+    # Back and forth rather than `C-g`, which would leave "Quit" in the
+    # echo area of the picture.
+    key Left; pause 0.2; key Right
+    pause 1.2
     capture ligatures
 }
 
@@ -212,7 +216,10 @@ shot_terminal() {
     pause 0.6
     ctrl x; pause 0.25; key t; pause 0.25; key v
     pause 2.5
-    text "cargo --version"; key Return
+    # Something with colour in it, that needs nothing from the home
+    # directory: `cargo --version` answered through rustup, which with a
+    # home of its own set about downloading a toolchain.
+    text "ls -F --color=auto"; key Return
     pause 2.0
     capture terminal
 }
@@ -221,7 +228,10 @@ shot_grep() {
     pause 0.6
     meta s; pause 0.4; key g            # M-s g: search the project
     pause 0.8
-    text "impl Highlighter"; key Return
+    # A regular expression, which this script's own copy of it does not
+    # match: a pattern written out plainly found itself in this file, and
+    # the picture was half of a result about taking the picture.
+    text 'impl Default for \w+'; key Return
     pause 3.0
     capture grep
 }
@@ -561,6 +571,11 @@ for tool in cage grim wtype; do
 done
 [ -x "$binary" ] || die "no build at $binary — ./scripts/build-variants.sh"
 "$binary" --version | grep -q gui || die "$binary is not a gui build"
+# A build left over from an older version takes pictures of the older
+# version, and nothing in them says so.
+wanted=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$root/Cargo.toml" | head -1)
+"$binary" --version | grep -q "^maxgus $wanted " ||
+    die "$binary is $("$binary" --version), and this is $wanted — build it again"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 PROJECT=$(project_copy)
 

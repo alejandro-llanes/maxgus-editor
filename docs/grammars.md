@@ -509,6 +509,7 @@ This is the same arrangement Neovim and Helix use, and the same one your
 package manager already relies on. Point it at `/usr/lib`, or at grammars
 you built. Do not point it at a directory anything else can write to.
 
-The code that does it is `crates/maxgus-syntax/src/dynamic.rs`, which is the
-one module in the workspace permitted to write `unsafe`, and which says at
-length what each of its three `unsafe` operations assumes.
+The code that does it is `crates/maxgus-syntax/src/dynamic.rs`, one of the
+two modules in the workspace permitted to write `unsafe` — the other lets go
+of a console on Windows — and it says at length what each of its three
+`unsafe` operations assumes.

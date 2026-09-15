@@ -142,12 +142,29 @@ fn path_from_bytes(bytes: &[u8]) -> PathBuf {
     PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
 }
 
+/// `git`, told on Windows to start without a console window.
+///
+/// A window lets go of the console it was started with, and a console
+/// program started without one is given a window of its own: the tree's
+/// status would flash one across the screen on every refresh.
+fn git() -> tokio::process::Command {
+    let command = tokio::process::Command::new("git");
+    // CREATE_NO_WINDOW. Its output is read through a pipe either way.
+    #[cfg(windows)]
+    let command = {
+        let mut command = command;
+        command.creation_flags(0x0800_0000);
+        command
+    };
+    command
+}
+
 /// Runs `git status` in `root` and returns the decorated paths.
 ///
 /// Returns an empty map when `root` is not a repository or git is unavailable:
 /// the tree is still perfectly usable without indicators.
 pub async fn git_status(root: &Path, include_ignored: bool) -> HashMap<PathBuf, GitStatus> {
-    let mut command = tokio::process::Command::new("git");
+    let mut command = git();
     command
         .arg("-C")
         .arg(root)
@@ -181,7 +198,7 @@ pub async fn git_status(root: &Path, include_ignored: bool) -> HashMap<PathBuf, 
 /// A detached head has no branch name; git says `HEAD` there, which is not
 /// one, so it is reported as none rather than shown as a branch called HEAD.
 pub async fn branch(path: &Path) -> Option<String> {
-    let mut command = tokio::process::Command::new("git");
+    let mut command = git();
     command
         .arg("-C")
         .arg(path)
@@ -201,7 +218,7 @@ pub async fn branch(path: &Path) -> Option<String> {
 
 /// The repository root containing `path`, if any.
 pub async fn repository_root(path: &Path) -> Option<PathBuf> {
-    let mut command = tokio::process::Command::new("git");
+    let mut command = git();
     command
         .arg("-C")
         .arg(path)

@@ -3324,7 +3324,13 @@ fn draw_completion_popup(editor: &Editor, surface: &mut Surface, area: Rect) {
         // a row's worth of colour is far easier to track with the arrow keys
         // than a word's worth.
         surface.clear_rect(Rect::new(inner.x, y, inner.width, 1), face);
-        surface.set_string(inner.x, y, labels[row], face, names);
+        surface.set_string(
+            inner.x,
+            y,
+            &ellipsize(labels[row], names as usize),
+            face,
+            names,
+        );
 
         let (key, doc) = &annotations[row];
         // Two columns apart: at one, the longest name ran straight into its
@@ -3336,7 +3342,7 @@ fn draw_completion_popup(editor: &Editor, surface: &mut Surface, area: Rect) {
             } else {
                 theme.resolve("completion-key")
             };
-            surface.set_string(x, y, key, key_face, keys);
+            surface.set_string(x, y, &ellipsize(key, keys as usize), key_face, keys);
             x += keys + COLUMN_GAP;
         }
         if x < inner.right() {
@@ -3345,7 +3351,8 @@ fn draw_completion_popup(editor: &Editor, surface: &mut Surface, area: Rect) {
             } else {
                 theme.resolve("completion-annotation")
             };
-            surface.set_string(x, y, doc, doc_face, inner.right() - x);
+            let room = inner.right() - x;
+            surface.set_string(x, y, &ellipsize(doc, room as usize), doc_face, room);
         }
     }
 }
@@ -3362,6 +3369,31 @@ fn file_label(path: &str) -> &str {
 /// The blank columns between a completion's name, its key and its
 /// documentation.
 const COLUMN_GAP: u16 = 2;
+
+/// `text` in at most `width` columns, ending in `…` where the rest was cut.
+///
+/// A line cut off at the edge of a box without one reads as a line that
+/// ends there — `Show a list of every bu`.
+fn ellipsize(text: &str, width: usize) -> std::borrow::Cow<'_, str> {
+    let wide: usize = text.chars().map(char_width).sum();
+    if wide <= width {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut kept = String::new();
+    let mut used = 0;
+    for c in text.chars() {
+        let w = char_width(c);
+        if used + w + 1 > width {
+            break;
+        }
+        kept.push(c);
+        used += w;
+    }
+    if width > 0 {
+        kept.push('\u{2026}');
+    }
+    std::borrow::Cow::Owned(kept)
+}
 
 /// The width of a column: its widest entry, capped, and zero when empty.
 fn column_width<'a>(entries: impl Iterator<Item = &'a str>, most: u16) -> u16 {
@@ -3411,7 +3443,7 @@ fn annotate(editor: &Editor, candidate: &str) -> (String, String) {
                 .iter()
                 .find(|buffer| buffer.name() == candidate)
                 .and_then(Buffer::path)
-                .map(|path| path.display().to_string())
+                .map(|path| editor.readable_path(path))
                 .unwrap_or_default();
             (String::new(), path)
         }
@@ -3653,6 +3685,16 @@ pub fn echo_text(editor: &Editor) -> String {
 #[cfg(test)]
 mod long_message_tests {
     use super::*;
+
+    #[test]
+    fn a_cut_line_says_it_was_cut() {
+        assert_eq!(
+            ellipsize("Show a list of every buffer", 10),
+            "Show a li\u{2026}"
+        );
+        assert_eq!(ellipsize("fits", 4), "fits");
+        assert_eq!(ellipsize("anything", 0), "");
+    }
 
     #[test]
     fn a_message_wraps_at_spaces() {

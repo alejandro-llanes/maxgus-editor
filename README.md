@@ -1140,9 +1140,9 @@ To try them side by side, `./scripts/build-variants.sh` builds all three into
 
 ```console
 $ ./scripts/build-variants.sh
-minimal  ok    4.9M  maxgus 1.4.0 (minimal)
-full     ok     14M  maxgus 1.4.0 (full)
-gui      ok     23M  maxgus 1.4.0 (gui)
+minimal  ok    4.9M  maxgus 1.5.0 (minimal)
+full     ok     14M  maxgus 1.5.0 (full)
+gui      ok     23M  maxgus 1.5.0 (gui)
 ```
 
 `--debug` builds them faster, `--into DIR` puts them somewhere else. Every

@@ -10,7 +10,7 @@
 # Each binary says which one it is:
 #
 #     target/variants/maxgus-minimal --version
-#     maxgus 1.4.0 (minimal)
+#     maxgus 1.5.0 (minimal)
 #
 set -euo pipefail
 

@@ -12,7 +12,7 @@ description = "A terminal emulator: the grid, escape sequences and key encoding.
 workspace = true
 
 [dependencies]
-maxgus-faces = { version = "1.4.0", path = "../maxgus-faces" }
-maxgus-keys = { version = "1.4.0", path = "../maxgus-keys" }
+maxgus-faces = { version = "1.5.0", path = "../maxgus-faces" }
+maxgus-keys = { version = "1.5.0", path = "../maxgus-keys" }
 unicode-width = "0.2.2"
 vte = "0.15.0"

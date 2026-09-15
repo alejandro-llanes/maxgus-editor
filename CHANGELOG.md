@@ -7,6 +7,8 @@ configuration file and the faces change only in a major version.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-15
+
 ### Added
 
 - **Magit stages the lines of a region.** `s`, `u` and `k` with a region
@@ -1267,7 +1269,8 @@ The first release. Emacs keys, buffers and windows, tree-sitter
 highlighting, a language-server client, magit, a treemacs-style file tree,
 themes in a configuration file, and a terminal panel.
 
-[Unreleased]: https://github.com/alejandro-llanes/maxgus-editor/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/alejandro-llanes/maxgus-editor/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/alejandro-llanes/maxgus-editor/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/alejandro-llanes/maxgus-editor/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/alejandro-llanes/maxgus-editor/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/alejandro-llanes/maxgus-editor/compare/v1.2.0...v1.3.0

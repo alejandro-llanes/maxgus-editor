@@ -478,8 +478,14 @@ fn typing_and_saving_writes_the_file() {
         session.mode_line()
     );
 
-    // `C-x C-s`.
+    // `C-x C-s`. Leaving before the write has finished would be leaving a
+    // buffer that is still modified, which asks first.
     session.send(b"\x18\x13");
+    assert!(
+        wait_for(&mut session, "Wrote", 60),
+        "the save did not finish:\n{:#?}",
+        session.screen()
+    );
     assert_eq!(session.quit(), 0);
 
     let written = std::fs::read_to_string(fixture.path().join("typed.txt")).expect("the file");
@@ -638,6 +644,14 @@ fn c_project(tag: &str) -> Fixture {
 }
 
 /// A language server takes noticeably longer to answer than a redraw does.
+///
+/// So can a save. The text is written beside the file, flushed to the disk
+/// and only then renamed over it, and on a busy machine the flush alone
+/// outlasts any fixed pause — a test that read the file a moment after
+/// `C-x C-s` failed on a CI runner while passing every time on a desktop,
+/// whose `/tmp` is in memory. `Wrote` is what to wait for: it is drawn only
+/// once the file is in place and the buffer is marked saved, so neither a
+/// read of the file nor the next key can get there before the save does.
 fn wait_for(session: &mut Session, needle: &str, tries: usize) -> bool {
     for _ in 0..tries {
         if session.shows(needle) {
@@ -1233,7 +1247,11 @@ fn an_ordinary_text_file_is_still_writable() {
     assert!(!session.shows("not text"), "got:\n{:#?}", session.screen());
     session.send(b"X");
     session.send(b"\x18\x13");
-    session.settle();
+    assert!(
+        wait_for(&mut session, "Wrote", 60),
+        "the save did not finish:\n{:#?}",
+        session.screen()
+    );
 
     let after = String::from_utf8(std::fs::read(&path).unwrap()).expect("still utf-8");
     assert_eq!(after, "Xcafé utf8\n", "the edit was saved");
@@ -1255,7 +1273,7 @@ fn a_file_changed_underneath_the_buffer_is_not_written_over() {
     session.send(b"\x18\x13"); // C-x C-s
 
     assert!(
-        session.shows("has changed on disk"),
+        wait_for(&mut session, "has changed on disk", 60),
         "the refusal was not reported:\n{:#?}",
         session.screen()
     );
@@ -1270,7 +1288,7 @@ fn a_file_changed_underneath_the_buffer_is_not_written_over() {
     session.send(b"\x1bx");
     session.send(b"save-buffer-anyway\r");
     assert!(
-        session.shows("Wrote"),
+        wait_for(&mut session, "Wrote", 60),
         "the forced save did not happen:\n{:#?}",
         session.screen()
     );
@@ -1291,13 +1309,20 @@ fn saving_twice_over_with_nobody_else_touching_it_is_fine() {
     session.send(b"A");
     session.send(b"\x18\x13");
     assert!(
-        session.shows("Wrote"),
+        wait_for(&mut session, "Wrote", 60),
         "first save:\n{:#?}",
         session.screen()
     );
 
     session.send(b"B");
     session.send(b"\x18\x13");
+    // Six bytes is this save's `Wrote` and not the first one's, which a slow
+    // redraw may not have taken off the screen yet.
+    assert!(
+        wait_for(&mut session, "(6 bytes)", 60),
+        "the second save did not finish:\n{:#?}",
+        session.screen()
+    );
     assert!(
         !session.shows("has changed on disk"),
         "its own write was mistaken for somebody else's:\n{:#?}",
@@ -1322,7 +1347,7 @@ fn write_file_does_not_destroy_a_file_it_was_merely_named_at() {
     session.send(b"important.txt\r");
 
     assert!(
-        session.shows("already exists"),
+        wait_for(&mut session, "already exists", 60),
         "no warning was given:\n{:#?}",
         session.screen()
     );
@@ -1336,7 +1361,7 @@ fn write_file_does_not_destroy_a_file_it_was_merely_named_at() {
     session.send(b"\x1bx");
     session.send(b"save-buffer-anyway\r");
     assert!(
-        session.shows("Wrote"),
+        wait_for(&mut session, "Wrote", 60),
         "the deliberate overwrite failed:\n{:#?}",
         session.screen()
     );
@@ -1357,7 +1382,11 @@ fn write_file_to_a_new_name_just_writes_it() {
     session.send(b"\x18\x17");
     session.send(b"copy.txt\r");
 
-    assert!(session.shows("Wrote"), "got:\n{:#?}", session.screen());
+    assert!(
+        wait_for(&mut session, "Wrote", 60),
+        "got:\n{:#?}",
+        session.screen()
+    );
     assert_eq!(
         std::fs::read_to_string(fixture.path().join("copy.txt")).unwrap(),
         "first line\nsecond line\n"
@@ -1375,12 +1404,18 @@ fn write_file_back_to_its_own_name_is_an_ordinary_save() {
     session.send(b"\x18\x17");
     session.send(b"hello.txt\r");
 
+    // A refusal never says `Wrote`, so it fails here with the reason on the
+    // screen, and the check for it below is only ever of a finished save.
+    assert!(
+        wait_for(&mut session, "Wrote", 60),
+        "got:\n{:#?}",
+        session.screen()
+    );
     assert!(
         !session.shows("already exists"),
         "got:\n{:#?}",
         session.screen()
     );
-    assert!(session.shows("Wrote"), "got:\n{:#?}", session.screen());
     assert_eq!(
         std::fs::read_to_string(fixture.path().join("hello.txt")).unwrap(),
         "Zfirst line\nsecond line\n"
@@ -2400,7 +2435,10 @@ fn the_outline_fills_from_a_real_server_without_disturbing_anything() {
 fn the_startup_time_is_reported_when_the_editor_opens() {
     // The first thing the echo area says, and it has to be a real measurement
     // rather than a fixed string.
-    let fixture = Fixture::new("startup");
+    //
+    // A fixture of its own: tests run side by side, and one sharing a name
+    // with another deletes that test's directory from under its editor.
+    let fixture = Fixture::new("startup-time");
     let mut session = Session::start(fixture.path(), &["-Q", "hello.txt"]);
     assert!(
         wait_for(&mut session, "maxgus started in", 60),
